@@ -1,0 +1,29 @@
+diff --git a/.dockerignore b/.dockerignore
+index 770145c..3ae8662 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -10,7 +10,11 @@
+ # Documentation
+ *.md
+ !deploy/DOCKER.md
+-docs/
++#docs/
++docs/*
++!docs/legal/
++!docs/legal/**
++
+ 
+ # IDE
+ .idea/
+diff --git a/Dockerfile b/Dockerfile
+index f9a03a2..c84108b 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -29,6 +29,7 @@ RUN pnpm install --frozen-lockfile
+ 
+ # Copy frontend source and build
+ COPY frontend/ ./
++COPY docs/legal/ /app/docs/legal/
+ RUN pnpm run build
+ 
+ # -----------------------------------------------------------------------------
