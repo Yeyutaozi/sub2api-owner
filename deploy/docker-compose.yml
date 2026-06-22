@@ -24,7 +24,7 @@ services:
         soft: 100000
         hard: 100000
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
+      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-7999}:7999"
     volumes:
       # Data persistence (config.yaml will be auto-generated here)
       - sub2api_data:/app/data
@@ -45,7 +45,7 @@ services:
       # Server Configuration
       # =======================================================================
       - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8080
+      - SERVER_PORT=7999
       - SERVER_MODE=${SERVER_MODE:-release}
       - RUN_MODE=${RUN_MODE:-standard}
 
@@ -183,7 +183,7 @@ services:
           "5",
           "-O",
           "/dev/null",
-          "http://localhost:8080/health",
+          "http://localhost:7999/health",
         ]
       interval: 30s
       timeout: 10s
@@ -224,6 +224,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    ports:
+      - 5432:5432
     # 注意：不暴露端口到宿主机，应用通过内部网络连接
     # 如需调试，可临时添加：ports: ["127.0.0.1:5433:5432"]
 
@@ -259,8 +261,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-    # 注意：不暴露端口到宿主机，应用通过内部网络连接
-    # 如需调试，可临时添加：ports: ["127.0.0.1:6379:6379"]
+    ports:
+      - 6379:6379
 # =============================================================================
 # Volumes
 # =============================================================================
