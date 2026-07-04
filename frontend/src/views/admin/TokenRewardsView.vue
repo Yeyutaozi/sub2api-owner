@@ -110,6 +110,68 @@
           {{ saving ? t('common.saving') : t('common.save') }}
         </button>
       </div>
+
+      <div class="card overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.tokenRewards.claimHistory') }}</h2>
+          <button class="btn btn-secondary" :disabled="claimsLoading" :title="t('common.refresh')" @click="loadClaims">
+            <Icon name="refresh" size="md" :class="claimsLoading ? 'animate-spin' : ''" />
+          </button>
+        </div>
+
+        <div v-if="claimsLoading" class="flex items-center justify-center py-12">
+          <Icon name="refresh" size="lg" class="animate-spin text-primary-500" />
+        </div>
+        <div v-else-if="claims.length === 0" class="py-12 text-center text-sm text-gray-500 dark:text-dark-400">
+          {{ t('admin.tokenRewards.noClaimHistory') }}
+        </div>
+        <div v-else>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-100 dark:divide-dark-700">
+              <thead class="bg-gray-50 dark:bg-dark-800">
+                <tr>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.user') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.historyTier') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.historyCycle') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.historyRequired') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.historySnapshot') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.reward') }}</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.claimedAt') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-dark-900">
+                <tr v-for="claim in claims" :key="claim.id">
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-white">
+                    <div class="font-medium">{{ claim.user_email || '-' }}</div>
+                    <div class="text-xs text-gray-500 dark:text-dark-400">ID: {{ claim.user_id }}</div>
+                  </td>
+                  <td class="whitespace-nowrap px-6 py-4 font-mono text-sm text-gray-900 dark:text-white">{{ claim.tier_id }}</td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">
+                    {{ claim.cycle_type === 'monthly' ? t('admin.tokenRewards.monthly') : t('admin.tokenRewards.weekly') }}
+                  </td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatTokens(claim.required_tokens, claim.token_unit) }}</td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatTokens(claim.token_snapshot) }}</td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">${{ claim.reward_balance.toFixed(2) }}</td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatDateTime(claim.claimed_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 text-sm dark:border-dark-700">
+            <span class="text-gray-500 dark:text-dark-400">
+              {{ t('admin.tokenRewards.pagination', { page: claimsPage, pages: claimsPages, total: claimsTotal }) }}
+            </span>
+            <div class="flex gap-2">
+              <button class="btn btn-secondary" :disabled="claimsPage <= 1 || claimsLoading" @click="changeClaimsPage(claimsPage - 1)">
+                <Icon name="chevronLeft" size="md" />
+              </button>
+              <button class="btn btn-secondary" :disabled="claimsPage >= claimsPages || claimsLoading" @click="changeClaimsPage(claimsPage + 1)">
+                <Icon name="chevronRight" size="md" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -121,6 +183,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import { Icon } from '@/components/icons'
 import { useAppStore } from '@/stores'
 import adminTokenRewardsAPI from '@/api/admin/tokenRewards'
+import type { AdminTokenRewardClaim } from '@/api/admin/tokenRewards'
 import type { TokenRewardConfig, TokenRewardCycleType, TokenRewardTokenUnit } from '@/api/tokenRewards'
 import { extractApiErrorMessage } from '@/utils/apiError'
 
@@ -136,6 +199,12 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const loading = ref(false)
 const saving = ref(false)
+const claims = ref<AdminTokenRewardClaim[]>([])
+const claimsLoading = ref(false)
+const claimsPage = ref(1)
+const claimsPageSize = 10
+const claimsPages = ref(1)
+const claimsTotal = ref(0)
 const tokenUnits: Array<{ value: TokenRewardTokenUnit; label: string }> = [
   { value: 'raw', label: t('admin.tokenRewards.units.raw') },
   { value: 'K', label: t('admin.tokenRewards.units.K') },
@@ -199,6 +268,25 @@ function requiredTokenCount(tier: Pick<TierForm, 'tokens' | 'token_unit'>): numb
   return Number(tier.tokens || 0) * unitFactors[tier.token_unit || 'raw']
 }
 
+function autoTokenUnit(value: number): TokenRewardTokenUnit {
+  if (value >= unitFactors.T) return 'T'
+  if (value >= unitFactors.B) return 'B'
+  if (value >= unitFactors.M) return 'M'
+  if (value >= unitFactors.K) return 'K'
+  return 'raw'
+}
+
+function formatTokens(value: number, preferredUnit?: TokenRewardTokenUnit): string {
+  const unit = preferredUnit || autoTokenUnit(value)
+  if (unit === 'raw') return `${new Intl.NumberFormat().format(value)} Tokens`
+  const scaled = value / unitFactors[unit]
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(scaled)}${unit} Tokens`
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString()
+}
+
 function validate(config: TokenRewardConfig): string | null {
   const ids = new Set<string>()
   const thresholds = new Set<number>()
@@ -260,5 +348,28 @@ async function saveConfig() {
   }
 }
 
-onMounted(loadConfig)
+async function loadClaims() {
+  claimsLoading.value = true
+  try {
+    const result = await adminTokenRewardsAPI.listClaims({ page: claimsPage.value, page_size: claimsPageSize })
+    claims.value = result.items || []
+    claimsPage.value = result.page || 1
+    claimsPages.value = result.pages || 1
+    claimsTotal.value = result.total || 0
+  } catch (err) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.tokenRewards.claimHistoryLoadFailed')))
+  } finally {
+    claimsLoading.value = false
+  }
+}
+
+function changeClaimsPage(page: number) {
+  claimsPage.value = Math.max(1, Math.min(page, claimsPages.value))
+  loadClaims()
+}
+
+onMounted(() => {
+  loadConfig()
+  loadClaims()
+})
 </script>

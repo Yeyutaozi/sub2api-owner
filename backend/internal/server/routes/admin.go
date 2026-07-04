@@ -595,6 +595,7 @@ func registerTokenRewardRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		tokenRewards.GET("/config", h.Admin.TokenReward.GetConfig)
 		tokenRewards.PUT("/config", h.Admin.TokenReward.UpdateConfig)
+		tokenRewards.GET("/claims", h.Admin.TokenReward.ListClaims)
 	}
 }
 

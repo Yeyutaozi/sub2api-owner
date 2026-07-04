@@ -34,3 +34,12 @@ func (h *TokenRewardHandler) UpdateConfig(c *gin.Context) {
 	}
 	response.Success(c, updated)
 }
+
+func (h *TokenRewardHandler) ListClaims(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	claims, total, err := h.tokenRewardService.ListAllClaimHistory(c.Request.Context(), page, pageSize)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Paginated(c, claims, total, page, pageSize)
+}

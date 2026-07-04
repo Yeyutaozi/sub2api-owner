@@ -52,6 +52,7 @@ type TokenRewardRepository interface {
 	GetCycleTokens(ctx context.Context, userID int64, start, end time.Time) (int64, error)
 	ListClaims(ctx context.Context, userID int64, cycleType string, cycleStart time.Time) ([]TokenRewardClaim, error)
 	ListClaimHistory(ctx context.Context, userID int64, page, pageSize int) ([]TokenRewardClaim, int64, error)
+	ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]TokenRewardAdminClaim, int64, error)
 	Claim(ctx context.Context, input TokenRewardClaimInput) (*TokenRewardClaimResult, error)
 }
 
@@ -86,6 +87,11 @@ type TokenRewardClaim struct {
 	RewardBalance  float64   `json:"reward_balance"`
 	TokenSnapshot  int64     `json:"token_snapshot"`
 	ClaimedAt      time.Time `json:"claimed_at"`
+}
+
+type TokenRewardAdminClaim struct {
+	TokenRewardClaim
+	UserEmail string `json:"user_email"`
 }
 
 type TokenRewardClaimInput struct {
@@ -273,6 +279,19 @@ func (s *TokenRewardService) ListClaimHistory(ctx context.Context, userID int64,
 		pageSize = 20
 	}
 	return s.repo.ListClaimHistory(ctx, userID, page, pageSize)
+}
+
+func (s *TokenRewardService) ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]TokenRewardAdminClaim, int64, error) {
+	if s == nil || s.repo == nil {
+		return nil, 0, ErrTokenRewardUnavailable
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	return s.repo.ListAllClaimHistory(ctx, page, pageSize)
 }
 
 func (s *TokenRewardService) resolveCurrentCycleConfig(ctx context.Context, liveCfg TokenRewardConfig, now time.Time) (TokenRewardConfig, TokenRewardCycle, error) {
