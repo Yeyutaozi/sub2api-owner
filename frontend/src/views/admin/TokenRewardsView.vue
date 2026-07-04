@@ -119,6 +119,72 @@
           </button>
         </div>
 
+        <div class="space-y-4 border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+          <div class="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_9rem_10rem_10rem_auto_auto] md:items-end">
+            <div>
+              <label class="input-label">{{ t('admin.tokenRewards.filterUser') }}</label>
+              <input
+                v-model.trim="claimFilters.search"
+                type="search"
+                class="input mt-1"
+                :placeholder="t('admin.tokenRewards.filterUserPlaceholder')"
+                @keyup.enter="applyClaimFilters"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.tokenRewards.filterTier') }}</label>
+              <input
+                v-model.trim="claimFilters.tier_id"
+                type="search"
+                class="input mt-1 font-mono"
+                :placeholder="t('admin.tokenRewards.filterTierPlaceholder')"
+                @keyup.enter="applyClaimFilters"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.tokenRewards.historyCycle') }}</label>
+              <select v-model="claimFilters.cycle_type" class="input mt-1">
+                <option value="">{{ t('common.all') }}</option>
+                <option value="weekly">{{ t('admin.tokenRewards.weekly') }}</option>
+                <option value="monthly">{{ t('admin.tokenRewards.monthly') }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.tokenRewards.claimedFrom') }}</label>
+              <input v-model="claimFilters.claimed_from" type="date" class="input mt-1" />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.tokenRewards.claimedTo') }}</label>
+              <input v-model="claimFilters.claimed_to" type="date" class="input mt-1" />
+            </div>
+            <button class="btn btn-secondary" :disabled="claimsLoading" @click="resetClaimFilters">
+              {{ t('common.reset') }}
+            </button>
+            <button class="btn btn-primary" :disabled="claimsLoading" @click="applyClaimFilters">
+              {{ t('admin.tokenRewards.applyFilters') }}
+            </button>
+          </div>
+
+          <div class="grid divide-y divide-gray-100 rounded-md bg-gray-50 dark:divide-dark-700 dark:bg-dark-800 md:grid-cols-4 md:divide-x md:divide-y-0">
+            <div class="px-4 py-3">
+              <p class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.statClaims') }}</p>
+              <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ formatNumber(claimStats.total_claims) }}</p>
+            </div>
+            <div class="px-4 py-3">
+              <p class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.statUsers') }}</p>
+              <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ formatNumber(claimStats.unique_users) }}</p>
+            </div>
+            <div class="px-4 py-3">
+              <p class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.statReward') }}</p>
+              <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ formatMoney(claimStats.total_reward_balance) }}</p>
+            </div>
+            <div class="px-4 py-3">
+              <p class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('admin.tokenRewards.statTokens') }}</p>
+              <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ formatTokens(claimStats.total_token_snapshot) }}</p>
+            </div>
+          </div>
+        </div>
+
         <div v-if="claimsLoading" class="flex items-center justify-center py-12">
           <Icon name="refresh" size="lg" class="animate-spin text-primary-500" />
         </div>
@@ -151,25 +217,20 @@
                   </td>
                   <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatTokens(claim.required_tokens, claim.token_unit) }}</td>
                   <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatTokens(claim.token_snapshot) }}</td>
-                  <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">${{ claim.reward_balance.toFixed(2) }}</td>
+                  <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">{{ formatMoney(claim.reward_balance) }}</td>
                   <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-dark-300">{{ formatDateTime(claim.claimed_at) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 text-sm dark:border-dark-700">
-            <span class="text-gray-500 dark:text-dark-400">
-              {{ t('admin.tokenRewards.pagination', { page: claimsPage, pages: claimsPages, total: claimsTotal }) }}
-            </span>
-            <div class="flex gap-2">
-              <button class="btn btn-secondary" :disabled="claimsPage <= 1 || claimsLoading" @click="changeClaimsPage(claimsPage - 1)">
-                <Icon name="chevronLeft" size="md" />
-              </button>
-              <button class="btn btn-secondary" :disabled="claimsPage >= claimsPages || claimsLoading" @click="changeClaimsPage(claimsPage + 1)">
-                <Icon name="chevronRight" size="md" />
-              </button>
-            </div>
-          </div>
+          <Pagination
+            v-if="claimsPagination.total > 0"
+            :page="claimsPagination.page"
+            :total="claimsPagination.total"
+            :page-size="claimsPagination.page_size"
+            @update:page="handleClaimsPageChange"
+            @update:pageSize="handleClaimsPageSizeChange"
+          />
         </div>
       </div>
     </div>
@@ -180,11 +241,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import { Icon } from '@/components/icons'
 import { useAppStore } from '@/stores'
 import adminTokenRewardsAPI from '@/api/admin/tokenRewards'
-import type { AdminTokenRewardClaim } from '@/api/admin/tokenRewards'
+import type { AdminTokenRewardClaim, AdminTokenRewardClaimQuery, AdminTokenRewardClaimStats } from '@/api/admin/tokenRewards'
 import type { TokenRewardConfig, TokenRewardCycleType, TokenRewardTokenUnit } from '@/api/tokenRewards'
+import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { extractApiErrorMessage } from '@/utils/apiError'
 
 interface TierForm {
@@ -201,10 +264,26 @@ const loading = ref(false)
 const saving = ref(false)
 const claims = ref<AdminTokenRewardClaim[]>([])
 const claimsLoading = ref(false)
-const claimsPage = ref(1)
-const claimsPageSize = 10
-const claimsPages = ref(1)
-const claimsTotal = ref(0)
+const claimsPagination = reactive({
+  page: 1,
+  page_size: getPersistedPageSize(),
+  total: 0,
+  pages: 1
+})
+const claimFilters = reactive({
+  search: '',
+  tier_id: '',
+  cycle_type: '' as '' | TokenRewardCycleType,
+  claimed_from: '',
+  claimed_to: ''
+})
+const defaultClaimStats = (): AdminTokenRewardClaimStats => ({
+  total_claims: 0,
+  unique_users: 0,
+  total_reward_balance: 0,
+  total_token_snapshot: 0
+})
+const claimStats = reactive<AdminTokenRewardClaimStats>(defaultClaimStats())
 const tokenUnits: Array<{ value: TokenRewardTokenUnit; label: string }> = [
   { value: 'raw', label: t('admin.tokenRewards.units.raw') },
   { value: 'K', label: t('admin.tokenRewards.units.K') },
@@ -283,6 +362,14 @@ function formatTokens(value: number, preferredUnit?: TokenRewardTokenUnit): stri
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(scaled)}${unit} Tokens`
 }
 
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat().format(value || 0)
+}
+
+function formatMoney(value: number): string {
+  return `$${new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0)}`
+}
+
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString()
 }
@@ -351,11 +438,13 @@ async function saveConfig() {
 async function loadClaims() {
   claimsLoading.value = true
   try {
-    const result = await adminTokenRewardsAPI.listClaims({ page: claimsPage.value, page_size: claimsPageSize })
+    const result = await adminTokenRewardsAPI.listClaims(buildClaimQuery())
     claims.value = result.items || []
-    claimsPage.value = result.page || 1
-    claimsPages.value = result.pages || 1
-    claimsTotal.value = result.total || 0
+    claimsPagination.page = result.page || 1
+    claimsPagination.page_size = result.page_size || claimsPagination.page_size
+    claimsPagination.pages = result.pages || 1
+    claimsPagination.total = result.total || 0
+    Object.assign(claimStats, result.stats || defaultClaimStats())
   } catch (err) {
     appStore.showError(extractApiErrorMessage(err, t('admin.tokenRewards.claimHistoryLoadFailed')))
   } finally {
@@ -363,8 +452,41 @@ async function loadClaims() {
   }
 }
 
-function changeClaimsPage(page: number) {
-  claimsPage.value = Math.max(1, Math.min(page, claimsPages.value))
+function buildClaimQuery(): AdminTokenRewardClaimQuery {
+  const params: AdminTokenRewardClaimQuery = {
+    page: claimsPagination.page,
+    page_size: claimsPagination.page_size
+  }
+  if (claimFilters.search.trim()) params.search = claimFilters.search.trim()
+  if (claimFilters.tier_id.trim()) params.tier_id = claimFilters.tier_id.trim()
+  if (claimFilters.cycle_type) params.cycle_type = claimFilters.cycle_type
+  if (claimFilters.claimed_from) params.claimed_from = claimFilters.claimed_from
+  if (claimFilters.claimed_to) params.claimed_to = claimFilters.claimed_to
+  return params
+}
+
+function applyClaimFilters() {
+  claimsPagination.page = 1
+  loadClaims()
+}
+
+function resetClaimFilters() {
+  claimFilters.search = ''
+  claimFilters.tier_id = ''
+  claimFilters.cycle_type = ''
+  claimFilters.claimed_from = ''
+  claimFilters.claimed_to = ''
+  applyClaimFilters()
+}
+
+function handleClaimsPageChange(page: number) {
+  claimsPagination.page = page
+  loadClaims()
+}
+
+function handleClaimsPageSizeChange(pageSize: number) {
+  claimsPagination.page_size = pageSize
+  claimsPagination.page = 1
   loadClaims()
 }
 

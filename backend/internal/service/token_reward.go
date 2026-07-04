@@ -52,7 +52,7 @@ type TokenRewardRepository interface {
 	GetCycleTokens(ctx context.Context, userID int64, start, end time.Time) (int64, error)
 	ListClaims(ctx context.Context, userID int64, cycleType string, cycleStart time.Time) ([]TokenRewardClaim, error)
 	ListClaimHistory(ctx context.Context, userID int64, page, pageSize int) ([]TokenRewardClaim, int64, error)
-	ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]TokenRewardAdminClaim, int64, error)
+	ListAllClaimHistory(ctx context.Context, filter TokenRewardAdminClaimFilter, page, pageSize int) ([]TokenRewardAdminClaim, TokenRewardAdminClaimStats, error)
 	Claim(ctx context.Context, input TokenRewardClaimInput) (*TokenRewardClaimResult, error)
 }
 
@@ -92,6 +92,31 @@ type TokenRewardClaim struct {
 type TokenRewardAdminClaim struct {
 	TokenRewardClaim
 	UserEmail string `json:"user_email"`
+}
+
+type TokenRewardAdminClaimFilter struct {
+	Search      string
+	UserID      int64
+	TierID      string
+	CycleType   string
+	ClaimedFrom *time.Time
+	ClaimedTo   *time.Time
+}
+
+type TokenRewardAdminClaimStats struct {
+	TotalClaims        int64   `json:"total_claims"`
+	UniqueUsers        int64   `json:"unique_users"`
+	TotalRewardBalance float64 `json:"total_reward_balance"`
+	TotalTokenSnapshot int64   `json:"total_token_snapshot"`
+}
+
+type TokenRewardAdminClaimListResult struct {
+	Items    []TokenRewardAdminClaim    `json:"items"`
+	Total    int64                      `json:"total"`
+	Page     int                        `json:"page"`
+	PageSize int                        `json:"page_size"`
+	Pages    int                        `json:"pages"`
+	Stats    TokenRewardAdminClaimStats `json:"stats"`
 }
 
 type TokenRewardClaimInput struct {
@@ -281,9 +306,9 @@ func (s *TokenRewardService) ListClaimHistory(ctx context.Context, userID int64,
 	return s.repo.ListClaimHistory(ctx, userID, page, pageSize)
 }
 
-func (s *TokenRewardService) ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]TokenRewardAdminClaim, int64, error) {
+func (s *TokenRewardService) ListAllClaimHistory(ctx context.Context, filter TokenRewardAdminClaimFilter, page, pageSize int) (*TokenRewardAdminClaimListResult, error) {
 	if s == nil || s.repo == nil {
-		return nil, 0, ErrTokenRewardUnavailable
+		return nil, ErrTokenRewardUnavailable
 	}
 	if page <= 0 {
 		page = 1
@@ -291,7 +316,28 @@ func (s *TokenRewardService) ListAllClaimHistory(ctx context.Context, page, page
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	return s.repo.ListAllClaimHistory(ctx, page, pageSize)
+	filter.Search = strings.TrimSpace(filter.Search)
+	filter.TierID = strings.TrimSpace(filter.TierID)
+	filter.CycleType = strings.TrimSpace(filter.CycleType)
+	if filter.CycleType != "" && filter.CycleType != TokenRewardCycleWeekly && filter.CycleType != TokenRewardCycleMonthly {
+		return nil, infraerrors.BadRequest("TOKEN_REWARD_INVALID_CYCLE", "invalid token reward cycle type")
+	}
+	claims, stats, err := s.repo.ListAllClaimHistory(ctx, filter, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	pages := int(math.Ceil(float64(stats.TotalClaims) / float64(pageSize)))
+	if pages < 1 {
+		pages = 1
+	}
+	return &TokenRewardAdminClaimListResult{
+		Items:    claims,
+		Total:    stats.TotalClaims,
+		Page:     page,
+		PageSize: pageSize,
+		Pages:    pages,
+		Stats:    stats,
+	}, nil
 }
 
 func (s *TokenRewardService) resolveCurrentCycleConfig(ctx context.Context, liveCfg TokenRewardConfig, now time.Time) (TokenRewardConfig, TokenRewardCycle, error) {

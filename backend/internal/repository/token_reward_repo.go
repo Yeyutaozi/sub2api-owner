@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -98,9 +99,9 @@ func (r *tokenRewardRepository) ListClaimHistory(ctx context.Context, userID int
 	return claims, total, nil
 }
 
-func (r *tokenRewardRepository) ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]service.TokenRewardAdminClaim, int64, error) {
+func (r *tokenRewardRepository) ListAllClaimHistory(ctx context.Context, filter service.TokenRewardAdminClaimFilter, page, pageSize int) ([]service.TokenRewardAdminClaim, service.TokenRewardAdminClaimStats, error) {
 	if r == nil || r.db == nil {
-		return nil, 0, service.ErrTokenRewardUnavailable
+		return nil, service.TokenRewardAdminClaimStats{}, service.ErrTokenRewardUnavailable
 	}
 	if page <= 0 {
 		page = 1
@@ -109,25 +110,36 @@ func (r *tokenRewardRepository) ListAllClaimHistory(ctx context.Context, page, p
 		pageSize = 20
 	}
 	offset := (page - 1) * pageSize
+	where, args := buildTokenRewardAdminClaimWhere(filter)
 
-	var total int64
-	if err := scanSingleRow(ctx, r.db, `
-		SELECT COUNT(*)
-		FROM token_reward_claims
-	`, nil, &total); err != nil {
-		return nil, 0, err
+	var stats service.TokenRewardAdminClaimStats
+	if err := scanSingleRow(ctx, r.db, fmt.Sprintf(`
+		SELECT COUNT(*),
+		       COUNT(DISTINCT c.user_id),
+		       COALESCE(SUM(c.reward_balance), 0)::double precision,
+		       COALESCE(SUM(c.token_snapshot), 0)::bigint
+		FROM token_reward_claims c
+		LEFT JOIN users u ON u.id = c.user_id
+		%s
+	`, where), args, &stats.TotalClaims, &stats.UniqueUsers, &stats.TotalRewardBalance, &stats.TotalTokenSnapshot); err != nil {
+		return nil, service.TokenRewardAdminClaimStats{}, err
 	}
 
-	rows, err := r.db.QueryContext(ctx, `
+	listArgs := append([]any{}, args...)
+	limitArg := len(listArgs) + 1
+	offsetArg := len(listArgs) + 2
+	listArgs = append(listArgs, pageSize, offset)
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT c.id, c.user_id, COALESCE(u.email, ''), c.tier_id, c.cycle_type, c.cycle_start, c.cycle_end,
 		       c.required_tokens, c.token_unit, c.reward_balance, c.token_snapshot, c.claimed_at
 		FROM token_reward_claims c
 		LEFT JOIN users u ON u.id = c.user_id
+		%s
 		ORDER BY c.claimed_at DESC, c.id DESC
-		LIMIT $1 OFFSET $2
-	`, pageSize, offset)
+		LIMIT $%d OFFSET $%d
+	`, where, limitArg, offsetArg), listArgs...)
 	if err != nil {
-		return nil, 0, err
+		return nil, service.TokenRewardAdminClaimStats{}, err
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -148,14 +160,48 @@ func (r *tokenRewardRepository) ListAllClaimHistory(ctx context.Context, page, p
 			&claim.TokenSnapshot,
 			&claim.ClaimedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, service.TokenRewardAdminClaimStats{}, err
 		}
 		claims = append(claims, claim)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, service.TokenRewardAdminClaimStats{}, err
 	}
-	return claims, total, nil
+	return claims, stats, nil
+}
+
+func buildTokenRewardAdminClaimWhere(filter service.TokenRewardAdminClaimFilter) (string, []any) {
+	conditions := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+	if filter.UserID > 0 {
+		conditions = append(conditions, fmt.Sprintf("c.user_id = $%d", len(args)+1))
+		args = append(args, filter.UserID)
+	}
+	if search := strings.TrimSpace(filter.Search); search != "" {
+		pattern := "%" + search + "%"
+		conditions = append(conditions, fmt.Sprintf("(COALESCE(u.email, '') ILIKE $%d OR CAST(c.user_id AS TEXT) = $%d)", len(args)+1, len(args)+2))
+		args = append(args, pattern, search)
+	}
+	if tierID := strings.TrimSpace(filter.TierID); tierID != "" {
+		conditions = append(conditions, fmt.Sprintf("c.tier_id ILIKE $%d", len(args)+1))
+		args = append(args, "%"+tierID+"%")
+	}
+	if cycleType := strings.TrimSpace(filter.CycleType); cycleType != "" {
+		conditions = append(conditions, fmt.Sprintf("c.cycle_type = $%d", len(args)+1))
+		args = append(args, cycleType)
+	}
+	if filter.ClaimedFrom != nil {
+		conditions = append(conditions, fmt.Sprintf("c.claimed_at >= $%d", len(args)+1))
+		args = append(args, *filter.ClaimedFrom)
+	}
+	if filter.ClaimedTo != nil {
+		conditions = append(conditions, fmt.Sprintf("c.claimed_at <= $%d", len(args)+1))
+		args = append(args, *filter.ClaimedTo)
+	}
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
 func (r *tokenRewardRepository) Claim(ctx context.Context, input service.TokenRewardClaimInput) (*service.TokenRewardClaimResult, error) {
