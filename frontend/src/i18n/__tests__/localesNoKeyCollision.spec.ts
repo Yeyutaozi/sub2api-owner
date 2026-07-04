@@ -6,20 +6,24 @@ import enAdminOps from '../locales/en/admin/ops'
 import enAdminOverview from '../locales/en/admin/overview'
 import enAdminResources from '../locales/en/admin/resources'
 import enAdminSettings from '../locales/en/admin/settings'
+import enAdminTokenRewards from '../locales/en/admin/tokenRewards'
 import enCommon from '../locales/en/common'
 import enDashboard from '../locales/en/dashboard'
 import enLanding from '../locales/en/landing'
 import enMisc from '../locales/en/misc'
+import enTokenRewards from '../locales/en/tokenRewards'
 import zhAdminAccounts from '../locales/zh/admin/accounts'
 import zhAdminChannels from '../locales/zh/admin/channels'
 import zhAdminOps from '../locales/zh/admin/ops'
 import zhAdminOverview from '../locales/zh/admin/overview'
 import zhAdminResources from '../locales/zh/admin/resources'
 import zhAdminSettings from '../locales/zh/admin/settings'
+import zhAdminTokenRewards from '../locales/zh/admin/tokenRewards'
 import zhCommon from '../locales/zh/common'
 import zhDashboard from '../locales/zh/dashboard'
 import zhLanding from '../locales/zh/landing'
 import zhMisc from '../locales/zh/misc'
+import zhTokenRewards from '../locales/zh/tokenRewards'
 
 // locales/{zh,en}/index.ts 与 admin/index.ts 使用对象展开聚合各域模块，
 // 展开模块之间若出现同名顶层键会静默覆盖。本测试将该风险固化为显式失败。
@@ -42,8 +46,8 @@ function collisions(modules: Modules): string[] {
 }
 
 const roots: Record<string, Modules> = {
-  zh: { landing: zhLanding, common: zhCommon, dashboard: zhDashboard, misc: zhMisc },
-  en: { landing: enLanding, common: enCommon, dashboard: enDashboard, misc: enMisc }
+  zh: { landing: zhLanding, common: zhCommon, dashboard: zhDashboard, tokenRewards: zhTokenRewards, misc: zhMisc },
+  en: { landing: enLanding, common: enCommon, dashboard: enDashboard, tokenRewards: enTokenRewards, misc: enMisc }
 }
 
 const admins: Record<string, Modules> = {
@@ -53,7 +57,8 @@ const admins: Record<string, Modules> = {
     accounts: zhAdminAccounts,
     resources: zhAdminResources,
     ops: zhAdminOps,
-    settings: zhAdminSettings
+    settings: zhAdminSettings,
+    tokenRewards: zhAdminTokenRewards
   },
   en: {
     overview: enAdminOverview,
@@ -61,7 +66,8 @@ const admins: Record<string, Modules> = {
     accounts: enAdminAccounts,
     resources: enAdminResources,
     ops: enAdminOps,
-    settings: enAdminSettings
+    settings: enAdminSettings,
+    tokenRewards: enAdminTokenRewards
   }
 }
 
