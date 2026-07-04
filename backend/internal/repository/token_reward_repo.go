@@ -98,6 +98,66 @@ func (r *tokenRewardRepository) ListClaimHistory(ctx context.Context, userID int
 	return claims, total, nil
 }
 
+func (r *tokenRewardRepository) ListAllClaimHistory(ctx context.Context, page, pageSize int) ([]service.TokenRewardAdminClaim, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, service.ErrTokenRewardUnavailable
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	var total int64
+	if err := scanSingleRow(ctx, r.db, `
+		SELECT COUNT(*)
+		FROM token_reward_claims
+	`, nil, &total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT c.id, c.user_id, COALESCE(u.email, ''), c.tier_id, c.cycle_type, c.cycle_start, c.cycle_end,
+		       c.required_tokens, c.token_unit, c.reward_balance, c.token_snapshot, c.claimed_at
+		FROM token_reward_claims c
+		LEFT JOIN users u ON u.id = c.user_id
+		ORDER BY c.claimed_at DESC, c.id DESC
+		LIMIT $1 OFFSET $2
+	`, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	claims := make([]service.TokenRewardAdminClaim, 0)
+	for rows.Next() {
+		var claim service.TokenRewardAdminClaim
+		if err := rows.Scan(
+			&claim.ID,
+			&claim.UserID,
+			&claim.UserEmail,
+			&claim.TierID,
+			&claim.CycleType,
+			&claim.CycleStart,
+			&claim.CycleEnd,
+			&claim.RequiredTokens,
+			&claim.TokenUnit,
+			&claim.RewardBalance,
+			&claim.TokenSnapshot,
+			&claim.ClaimedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		claims = append(claims, claim)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return claims, total, nil
+}
+
 func (r *tokenRewardRepository) Claim(ctx context.Context, input service.TokenRewardClaimInput) (*service.TokenRewardClaimResult, error) {
 	if r == nil || r.db == nil {
 		return nil, service.ErrTokenRewardUnavailable
