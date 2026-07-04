@@ -93,6 +93,13 @@ func RegisterUserRoutes(
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
+		tokenRewards := authenticated.Group("/token-rewards")
+		{
+			tokenRewards.GET("/status", h.TokenReward.GetStatus)
+			tokenRewards.GET("/claims", h.TokenReward.ListClaims)
+			tokenRewards.POST("/claim", h.TokenReward.Claim)
+		}
+
 		// 公告（用户可见）
 		announcements := authenticated.Group("/announcements")
 		{

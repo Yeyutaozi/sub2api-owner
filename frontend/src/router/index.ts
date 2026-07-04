@@ -230,6 +230,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/token-rewards',
+    name: 'TokenRewards',
+    component: () => import('@/views/user/TokenRewardsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Token Rewards',
+      titleKey: 'tokenRewards.title',
+      descriptionKey: 'tokenRewards.description'
+    }
+  },
+  {
     path: '/affiliate',
     name: 'Affiliate',
     component: () => import('@/views/user/AffiliateView.vue'),
@@ -535,6 +547,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Promo Code Management',
       titleKey: 'admin.promo.title',
       descriptionKey: 'admin.promo.description'
+    }
+  },
+  {
+    path: '/admin/token-rewards',
+    name: 'AdminTokenRewards',
+    component: () => import('@/views/admin/TokenRewardsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Token Rewards',
+      titleKey: 'admin.tokenRewards.title',
+      descriptionKey: 'admin.tokenRewards.description'
     }
   },
   {
