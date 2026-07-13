@@ -34,6 +34,9 @@ import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import tokenRewardsAPI from './tokenRewards'
+import agentWorkerHostsAPI from './agentWorkerHosts'
+import agentAppsAPI from './agentApps'
+import objectStorageAPI from './objectStorage'
 
 /**
  * Unified admin API object for convenient access
@@ -69,7 +72,10 @@ export const adminAPI = {
   affiliates: affiliatesAPI,
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
-  tokenRewards: tokenRewardsAPI
+  tokenRewards: tokenRewardsAPI,
+  agentWorkerHosts: agentWorkerHostsAPI,
+  agentApps: agentAppsAPI,
+  objectStorage: objectStorageAPI
 }
 
 export {
@@ -103,7 +109,10 @@ export {
   affiliatesAPI,
   riskControlAPI,
   adminComplianceAPI,
-  tokenRewardsAPI
+  tokenRewardsAPI,
+  agentWorkerHostsAPI,
+  agentAppsAPI,
+  objectStorageAPI
 }
 
 export default adminAPI

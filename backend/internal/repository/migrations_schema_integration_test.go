@@ -52,6 +52,13 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
 	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
 	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
+	requireColumn(t, tx, "usage_logs", "agent_app_id", "bigint", 0, true)
+	requireColumn(t, tx, "usage_logs", "agent_app_version_id", "bigint", 0, true)
+	requireColumn(t, tx, "usage_logs", "agent_run_id", "bigint", 0, true)
+	requireColumn(t, tx, "usage_logs", "agent_node_id", "character varying", 128, true)
+	requireColumn(t, tx, "usage_logs", "agent_node_role", "character varying", 128, true)
+	requireIndex(t, tx, "usage_logs", "idx_usage_logs_agent_run_created")
+	requireIndex(t, tx, "usage_logs", "idx_usage_logs_agent_app_created")
 	requireConstraintDefinitionContains(
 		t,
 		tx,

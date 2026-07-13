@@ -509,6 +509,48 @@ func TestOpenAIGatewayServiceRecordUsage_IncludesEndpointMetadata(t *testing.T) 
 	require.Equal(t, "/v1/responses", *usageRepo.lastLog.UpstreamEndpoint)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_IncludesAgentUsageFields(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_agent_usage_fields",
+			Usage: OpenAIUsage{
+				InputTokens:  9,
+				OutputTokens: 3,
+			},
+			Model:    "gpt-5.1",
+			Duration: time.Second,
+		},
+		APIKey:  &APIKey{ID: 1003, Group: &Group{RateMultiplier: 1}},
+		User:    &User{ID: 2003},
+		Account: &Account{ID: 3003},
+		AgentUsageFields: AgentUsageFields{
+			AgentAppID:        11,
+			AgentAppVersionID: 22,
+			AgentRunID:        33,
+			AgentNodeID:       "  writer-node  ",
+			AgentNodeRole:     " llm ",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.AgentAppID)
+	require.Equal(t, int64(11), *usageRepo.lastLog.AgentAppID)
+	require.NotNil(t, usageRepo.lastLog.AgentAppVersionID)
+	require.Equal(t, int64(22), *usageRepo.lastLog.AgentAppVersionID)
+	require.NotNil(t, usageRepo.lastLog.AgentRunID)
+	require.Equal(t, int64(33), *usageRepo.lastLog.AgentRunID)
+	require.NotNil(t, usageRepo.lastLog.AgentNodeID)
+	require.Equal(t, "writer-node", *usageRepo.lastLog.AgentNodeID)
+	require.NotNil(t, usageRepo.lastLog.AgentNodeRole)
+	require.Equal(t, "llm", *usageRepo.lastLog.AgentNodeRole)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateOnResolverError(t *testing.T) {
 	groupID := int64(12)
 	groupRate := 1.6

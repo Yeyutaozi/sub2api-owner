@@ -87,6 +87,11 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // reasoning_effort
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
+			sqlmock.AnyArg(), // agent_app_id
+			sqlmock.AnyArg(), // agent_app_version_id
+			sqlmock.AnyArg(), // agent_run_id
+			sqlmock.AnyArg(), // agent_node_id
+			sqlmock.AnyArg(), // agent_node_role
 			log.CacheTTLOverridden,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
@@ -173,6 +178,11 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
+			sqlmock.AnyArg(), // agent_app_id
+			sqlmock.AnyArg(), // agent_app_version_id
+			sqlmock.AnyArg(), // agent_run_id
+			sqlmock.AnyArg(), // agent_node_id
+			sqlmock.AnyArg(), // agent_node_role
 			log.CacheTTLOverridden,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
@@ -242,6 +252,35 @@ func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+}
+
+func TestPrepareUsageLogInsert_PersistsAgentUsageFields(t *testing.T) {
+	appID := int64(11)
+	versionID := int64(22)
+	runID := int64(33)
+	nodeID := "node-1"
+	nodeRole := "llm"
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:            1,
+		APIKeyID:          2,
+		AccountID:         3,
+		RequestID:         "req-agent-usage-fields",
+		Model:             "gpt-5",
+		RequestedModel:    "gpt-5",
+		AgentAppID:        &appID,
+		AgentAppVersionID: &versionID,
+		AgentRunID:        &runID,
+		AgentNodeID:       &nodeID,
+		AgentNodeRole:     &nodeRole,
+		CreatedAt:         time.Date(2025, 1, 5, 13, 0, 0, 0, time.UTC),
+	})
+
+	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	require.Equal(t, sql.NullInt64{Int64: 11, Valid: true}, prepared.args[46])
+	require.Equal(t, sql.NullInt64{Int64: 22, Valid: true}, prepared.args[47])
+	require.Equal(t, sql.NullInt64{Int64: 33, Valid: true}, prepared.args[48])
+	require.Equal(t, sql.NullString{String: nodeID, Valid: true}, prepared.args[49])
+	require.Equal(t, sql.NullString{String: nodeRole, Valid: true}, prepared.args[50])
 }
 
 func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
@@ -383,6 +422,27 @@ func TestUsageLogRepositoryListWithFiltersRequestedModelSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, logs)
 	require.NotNil(t, page)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryListWithFiltersAgentRunID(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	filters := usagestats.UsageLogFilters{AgentRunID: 99}
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM usage_logs WHERE agent_run_id = \\$1").
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE agent_run_id = \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
+		WithArgs(int64(99), 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.NotNil(t, page)
+	require.Equal(t, int64(0), page.Total)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -812,6 +872,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
 			false,
 			sql.NullInt64{},
 			sql.NullString{},
@@ -883,6 +948,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
@@ -936,6 +1006,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "flex"},
 			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullInt64{},
 			sql.NullString{},
 			sql.NullString{},
 			false,
@@ -993,6 +1068,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
@@ -1004,6 +1084,71 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
+	})
+
+	t.Run("agent_usage_fields_are_scanned", func(t *testing.T) {
+		now := time.Now().UTC()
+		log, err := scanUsageLog(usageLogScannerStub{values: []any{
+			int64(5),
+			int64(14),
+			int64(24),
+			int64(34),
+			sql.NullString{Valid: true, String: "req-agent-usage-fields"},
+			"gpt-5",
+			sql.NullString{Valid: true, String: "gpt-5"},
+			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			1, 2, 3, 4, 5, 6,
+			0, 0.0,
+			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
+			1.0,
+			sql.NullFloat64{},
+			int16(service.BillingTypeBalance),
+			int16(service.RequestTypeSync),
+			false,
+			false,
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			0,                // image_count
+			sql.NullString{}, // image_size
+			sql.NullString{}, // image_input_size
+			sql.NullString{}, // image_output_size
+			sql.NullString{}, // image_size_source
+			sql.NullString{}, // image_size_breakdown
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
+			sql.NullString{}, // service_tier
+			sql.NullString{}, // reasoning_effort
+			sql.NullString{}, // inbound_endpoint
+			sql.NullString{}, // upstream_endpoint
+			sql.NullInt64{Valid: true, Int64: 11},
+			sql.NullInt64{Valid: true, Int64: 22},
+			sql.NullInt64{Valid: true, Int64: 33},
+			sql.NullString{Valid: true, String: "node-1"},
+			sql.NullString{Valid: true, String: "llm"},
+			false,
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullFloat64{},
+			now,
+		}})
+		require.NoError(t, err)
+		require.NotNil(t, log.AgentAppID)
+		require.Equal(t, int64(11), *log.AgentAppID)
+		require.NotNil(t, log.AgentAppVersionID)
+		require.Equal(t, int64(22), *log.AgentAppVersionID)
+		require.NotNil(t, log.AgentRunID)
+		require.Equal(t, int64(33), *log.AgentRunID)
+		require.NotNil(t, log.AgentNodeID)
+		require.Equal(t, "node-1", *log.AgentNodeID)
+		require.NotNil(t, log.AgentNodeRole)
+		require.Equal(t, "llm", *log.AgentNodeRole)
 	})
 
 }

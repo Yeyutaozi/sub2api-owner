@@ -1,0 +1,6 @@
+ALTER TABLE usage_logs
+	ADD COLUMN IF NOT EXISTS agent_app_id BIGINT,
+	ADD COLUMN IF NOT EXISTS agent_app_version_id BIGINT,
+	ADD COLUMN IF NOT EXISTS agent_run_id BIGINT,
+	ADD COLUMN IF NOT EXISTS agent_node_id VARCHAR(128),
+	ADD COLUMN IF NOT EXISTS agent_node_role VARCHAR(128);

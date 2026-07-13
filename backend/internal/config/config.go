@@ -80,6 +80,7 @@ type Config struct {
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
+	AgentArtifacts          AgentArtifactStorageConfig    `mapstructure:"agent_artifacts"`
 	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
 	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
 	SubscriptionMaintenance SubscriptionMaintenanceConfig `mapstructure:"subscription_maintenance"`
@@ -1332,6 +1333,26 @@ type RateLimitConfig struct {
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
 }
 
+type AgentArtifactStorageConfig struct {
+	Enabled                        bool   `mapstructure:"enabled"`
+	Provider                       string `mapstructure:"provider"`
+	AccountID                      string `mapstructure:"account_id"`
+	Endpoint                       string `mapstructure:"endpoint"`
+	Region                         string `mapstructure:"region"`
+	Bucket                         string `mapstructure:"bucket"`
+	AccessKeyID                    string `mapstructure:"access_key_id"`
+	SecretAccessKey                string `mapstructure:"secret_access_key"`
+	Prefix                         string `mapstructure:"prefix"`
+	PublicBaseURL                  string `mapstructure:"public_base_url"`
+	ForcePathStyle                 bool   `mapstructure:"force_path_style"`
+	VirtualHostStyle               bool   `mapstructure:"virtual_host_style"`
+	DisableChecksum                bool   `mapstructure:"disable_checksum"`
+	MaxUploadBytes                 int64  `mapstructure:"max_upload_bytes"`
+	DownloadURLTTLSeconds          int    `mapstructure:"download_url_ttl_seconds"`
+	RetentionDays                  int    `mapstructure:"retention_days"`
+	CleanupExpiredArtifactsEnabled bool   `mapstructure:"cleanup_expired_artifacts_enabled"`
+}
+
 // APIKeyAuthCacheConfig API Key 认证缓存配置
 type APIKeyAuthCacheConfig struct {
 	L1Size             int  `mapstructure:"l1_size"`
@@ -1530,6 +1551,15 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.Log.Environment = strings.TrimSpace(cfg.Log.Environment)
 	cfg.Log.StacktraceLevel = strings.ToLower(strings.TrimSpace(cfg.Log.StacktraceLevel))
 	cfg.Log.Output.FilePath = strings.TrimSpace(cfg.Log.Output.FilePath)
+	cfg.AgentArtifacts.Provider = strings.ToLower(strings.TrimSpace(cfg.AgentArtifacts.Provider))
+	cfg.AgentArtifacts.AccountID = strings.TrimSpace(cfg.AgentArtifacts.AccountID)
+	cfg.AgentArtifacts.Endpoint = strings.TrimSpace(cfg.AgentArtifacts.Endpoint)
+	cfg.AgentArtifacts.Region = strings.TrimSpace(cfg.AgentArtifacts.Region)
+	cfg.AgentArtifacts.Bucket = strings.TrimSpace(cfg.AgentArtifacts.Bucket)
+	cfg.AgentArtifacts.AccessKeyID = strings.TrimSpace(cfg.AgentArtifacts.AccessKeyID)
+	cfg.AgentArtifacts.SecretAccessKey = strings.TrimSpace(cfg.AgentArtifacts.SecretAccessKey)
+	cfg.AgentArtifacts.Prefix = strings.Trim(strings.TrimSpace(cfg.AgentArtifacts.Prefix), "/")
+	cfg.AgentArtifacts.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.AgentArtifacts.PublicBaseURL), "/")
 	cfg.Gateway.ForcedCodexInstructionsTemplateFile = strings.TrimSpace(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
 	if cfg.Gateway.ForcedCodexInstructionsTemplateFile != "" {
 		content, err := os.ReadFile(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
@@ -2074,6 +2104,25 @@ func setDefaults() {
 	viper.SetDefault("gateway.user_message_queue.cleanup_interval_seconds", 60)
 
 	viper.SetDefault("gateway.tls_fingerprint.enabled", true)
+
+	viper.SetDefault("agent_artifacts.enabled", false)
+	viper.SetDefault("agent_artifacts.provider", "s3")
+	viper.SetDefault("agent_artifacts.account_id", "")
+	viper.SetDefault("agent_artifacts.endpoint", "")
+	viper.SetDefault("agent_artifacts.region", "auto")
+	viper.SetDefault("agent_artifacts.bucket", "")
+	viper.SetDefault("agent_artifacts.access_key_id", "")
+	viper.SetDefault("agent_artifacts.secret_access_key", "")
+	viper.SetDefault("agent_artifacts.prefix", "agent-artifacts")
+	viper.SetDefault("agent_artifacts.public_base_url", "")
+	viper.SetDefault("agent_artifacts.force_path_style", false)
+	viper.SetDefault("agent_artifacts.virtual_host_style", false)
+	viper.SetDefault("agent_artifacts.disable_checksum", true)
+	viper.SetDefault("agent_artifacts.max_upload_bytes", int64(512*1024*1024))
+	viper.SetDefault("agent_artifacts.download_url_ttl_seconds", 3600)
+	viper.SetDefault("agent_artifacts.retention_days", 0)
+	viper.SetDefault("agent_artifacts.cleanup_expired_artifacts_enabled", false)
+
 	viper.SetDefault("concurrency.ping_interval", 10)
 
 	// TokenRefresh
@@ -2383,6 +2432,41 @@ func (c *Config) Validate() error {
 		warnIfInsecureURL("oidc_connect.jwks_url", c.OIDC.JWKSURL)
 		warnIfInsecureURL("oidc_connect.redirect_url", c.OIDC.RedirectURL)
 		warnIfInsecureURL("oidc_connect.frontend_redirect_url", c.OIDC.FrontendRedirectURL)
+	}
+	if c.AgentArtifacts.Enabled {
+		if strings.TrimSpace(c.AgentArtifacts.Bucket) == "" {
+			return fmt.Errorf("agent_artifacts.bucket is required when agent_artifacts.enabled=true")
+		}
+		if strings.TrimSpace(c.AgentArtifacts.AccessKeyID) == "" {
+			return fmt.Errorf("agent_artifacts.access_key_id is required when agent_artifacts.enabled=true")
+		}
+		if strings.TrimSpace(c.AgentArtifacts.SecretAccessKey) == "" {
+			return fmt.Errorf("agent_artifacts.secret_access_key is required when agent_artifacts.enabled=true")
+		}
+		if c.AgentArtifacts.ForcePathStyle && c.AgentArtifacts.VirtualHostStyle {
+			return fmt.Errorf("agent_artifacts.force_path_style and agent_artifacts.virtual_host_style cannot both be true")
+		}
+		if c.AgentArtifacts.MaxUploadBytes <= 0 {
+			return fmt.Errorf("agent_artifacts.max_upload_bytes must be positive")
+		}
+		if c.AgentArtifacts.DownloadURLTTLSeconds <= 0 {
+			return fmt.Errorf("agent_artifacts.download_url_ttl_seconds must be positive")
+		}
+		if c.AgentArtifacts.RetentionDays < 0 {
+			return fmt.Errorf("agent_artifacts.retention_days must be non-negative")
+		}
+		if endpoint := strings.TrimSpace(c.AgentArtifacts.Endpoint); endpoint != "" {
+			if err := ValidateAbsoluteHTTPURL(endpoint); err != nil {
+				return fmt.Errorf("agent_artifacts.endpoint invalid: %w", err)
+			}
+			warnIfInsecureURL("agent_artifacts.endpoint", endpoint)
+		}
+		if publicBaseURL := strings.TrimSpace(c.AgentArtifacts.PublicBaseURL); publicBaseURL != "" {
+			if err := ValidateAbsoluteHTTPURL(publicBaseURL); err != nil {
+				return fmt.Errorf("agent_artifacts.public_base_url invalid: %w", err)
+			}
+			warnIfInsecureURL("agent_artifacts.public_base_url", publicBaseURL)
+		}
 	}
 	if c.Billing.CircuitBreaker.Enabled {
 		if c.Billing.CircuitBreaker.FailureThreshold <= 0 {

@@ -35,6 +35,7 @@ type OpenAIRecordUsageInput struct {
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
 	CyberBlocked bool
 	ChannelUsageFields
+	AgentUsageFields
 }
 
 // CyberPolicyUsageInput 是 cyber 拒绝、未走正常 RecordUsage 的请求记录用量的入参。
@@ -58,6 +59,7 @@ type CyberPolicyUsageInput struct {
 	RequestPayloadHash string
 	APIKeyService      APIKeyQuotaUpdater
 	ChannelUsageFields
+	AgentUsageFields
 }
 
 // RecordCyberPolicyUsageLog 为被上游 cyber_policy 拒绝、未走正常 RecordUsage 的请求
@@ -92,6 +94,7 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		RequestPayloadHash: in.RequestPayloadHash,
 		APIKeyService:      in.APIKeyService,
 		ChannelUsageFields: in.ChannelUsageFields,
+		AgentUsageFields:   in.AgentUsageFields,
 		CyberBlocked:       true,
 	}); err != nil {
 		logger.LegacyPrintf("service.openai_gateway", "cyber usage record failed: request_id=%s err=%v", in.RequestID, err)
@@ -115,7 +118,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if !isGrokVideoUsageResult(result, nil) {
+	if !isVideoUsageResult(result) {
 		ApplyOpenAIImageBillingResolution(result)
 	}
 
@@ -230,6 +233,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ReasoningEffort:     result.ReasoningEffort,
 		InboundEndpoint:     optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:    optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		AgentAppID:          optionalPositiveInt64Ptr(input.AgentAppID),
+		AgentAppVersionID:   optionalPositiveInt64Ptr(input.AgentAppVersionID),
+		AgentRunID:          optionalPositiveInt64Ptr(input.AgentRunID),
+		AgentNodeID:         optionalTrimmedStringPtr(input.AgentNodeID),
+		AgentNodeRole:       optionalTrimmedStringPtr(input.AgentNodeRole),
 		InputTokens:         actualInputTokens,
 		OutputTokens:        result.Usage.OutputTokens,
 		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
@@ -242,7 +250,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:  result.ImageSizeBreakdown,
 	}
-	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
+	isVideoUsage := isVideoUsageResult(result)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
 		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
@@ -375,7 +383,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		//（用户专属 > 分组 rate_multiplier > 系统默认），与分组表单的价格预览承诺一致。
 		return s.billingService.CalculateWebSearchCost(result.WebSearchCalls, webSearchPricePerCallFromAPIKey(apiKey), webSearchMultiplier), nil
 	}
-	if isGrokVideoUsageResult(result, billingModels) {
+	if isVideoUsageResult(result) {
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
 		}
@@ -407,22 +415,8 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
 }
 
-func isGrokVideoBillingModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-imagine-video")
-}
-
-func isGrokVideoUsageResult(result *OpenAIForwardResult, billingModels []string) bool {
-	if result == nil || result.VideoCount <= 0 {
-		return false
-	}
-	candidates := append([]string{}, billingModels...)
-	candidates = append(candidates, result.BillingModel, result.Model, result.UpstreamModel)
-	for _, candidate := range candidates {
-		if isGrokVideoBillingModel(candidate) {
-			return true
-		}
-	}
-	return false
+func isVideoUsageResult(result *OpenAIForwardResult) bool {
+	return result != nil && result.VideoCount > 0
 }
 
 func isUsagePricingUnavailableError(err error) bool {

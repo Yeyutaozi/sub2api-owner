@@ -107,6 +107,16 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 		groupID = id
 	}
 
+	var agentRunID int64
+	if raw := strings.TrimSpace(c.Query("agent_run_id")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			response.BadRequest(c, "Invalid agent_run_id")
+			return nil, false
+		}
+		agentRunID = value
+	}
+
 	var requestType *int16
 	var stream *bool
 	if requestTypeStr := strings.TrimSpace(c.Query("request_type")); requestTypeStr != "" {
@@ -198,6 +208,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			UserID:            subject.UserID,
 			APIKeyID:          apiKeyID,
 			GroupID:           groupID,
+			AgentRunID:        agentRunID,
 			Model:             strings.TrimSpace(c.Query("model")),
 			ModelFilterSource: usagestats.ModelSourceRequested,
 			RequestType:       requestType,

@@ -661,6 +661,14 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
+	NewAgentWorkerHostService,
+	NewAgentArtifactStorageConfigService,
+	NewDynamicAgentArtifactStore,
+	NewAgentAppService,
+	wire.Bind(new(AgentRunAPIKeyService), new(*APIKeyService)),
+	NewAgentModelProxyGatewayCaller,
+	wire.Bind(new(ModelProxyGatewayCaller), new(*AgentModelProxyGatewayCaller)),
+	ProvideAgentRunService,
 )
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
@@ -668,6 +676,19 @@ func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache
 	svc := NewUserPlatformQuotaUsageFlusher(cfg, cache, quotaRepo, tw)
 	svc.Start()
 	return svc
+}
+
+func ProvideAgentRunService(
+	appRepo AgentAppRepository,
+	workerHostRepo AgentWorkerHostRepository,
+	runRepo AgentRunRepository,
+	apiKeyService AgentRunAPIKeyService,
+	modelProxy ModelProxyGatewayCaller,
+	artifactStore AgentArtifactStore,
+	cfg *config.Config,
+	redisClient *redis.Client,
+) *AgentRunService {
+	return NewAgentRunService(appRepo, workerHostRepo, runRepo, apiKeyService, modelProxy, artifactStore, cfg, redisClient)
 }
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named

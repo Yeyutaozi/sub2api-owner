@@ -42,6 +42,9 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	adminTokenRewardHandler *admin.TokenRewardHandler,
+	agentWorkerHostHandler *admin.AgentWorkerHostHandler,
+	agentAppHandler *admin.AgentAppHandler,
+	agentArtifactStorageHandler *admin.AgentArtifactStorageHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -77,6 +80,9 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		TokenReward:            adminTokenRewardHandler,
+		AgentWorkerHost:        agentWorkerHostHandler,
+		AgentApp:               agentAppHandler,
+		AgentArtifactStorage:   agentArtifactStorageHandler,
 	}
 }
 
@@ -119,6 +125,7 @@ func ProvideHandlers(
 	availableChannelHandler *AvailableChannelHandler,
 	batchImageHandler *BatchImageHandler,
 	tokenRewardHandler *TokenRewardHandler,
+	agentRunHandler *AgentRunHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -141,6 +148,7 @@ func ProvideHandlers(
 		AvailableChannel: availableChannelHandler,
 		BatchImage:       batchImageHandler,
 		TokenReward:      tokenRewardHandler,
+		AgentRun:         agentRunHandler,
 	}
 }
 
@@ -164,6 +172,7 @@ var ProviderSet = wire.NewSet(
 	NewAvailableChannelHandler,
 	NewBatchImageHandler,
 	NewTokenRewardHandler,
+	NewAgentRunHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -199,6 +208,9 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewTokenRewardHandler,
+	admin.NewAgentWorkerHostHandler,
+	admin.NewAgentAppHandler,
+	admin.NewAgentArtifactStorageHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

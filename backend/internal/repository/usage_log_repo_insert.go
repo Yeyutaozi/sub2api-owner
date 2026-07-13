@@ -70,6 +70,11 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // reasoning_effort
 	"text",        // inbound_endpoint
 	"text",        // upstream_endpoint
+	"bigint",      // agent_app_id
+	"bigint",      // agent_app_version_id
+	"bigint",      // agent_run_id
+	"text",        // agent_node_id
+	"text",        // agent_node_role
 	"boolean",     // cache_ttl_overridden
 	"bigint",      // channel_id
 	"text",        // model_mapping_chain
@@ -262,6 +267,11 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -275,7 +285,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -713,6 +723,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -722,7 +737,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(keys)*53)
+	args := make([]any, 0, len(keys)*58)
 	argPos := 1
 	for idx, key := range keys {
 		if idx > 0 {
@@ -797,6 +812,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				reasoning_effort,
 				inbound_endpoint,
 				upstream_endpoint,
+				agent_app_id,
+				agent_app_version_id,
+				agent_run_id,
+				agent_node_id,
+				agent_node_role,
 				cache_ttl_overridden,
 				channel_id,
 				model_mapping_chain,
@@ -852,6 +872,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				reasoning_effort,
 				inbound_endpoint,
 				upstream_endpoint,
+				agent_app_id,
+				agent_app_version_id,
+				agent_run_id,
+				agent_node_id,
+				agent_node_role,
 				cache_ttl_overridden,
 				channel_id,
 				model_mapping_chain,
@@ -947,6 +972,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -956,7 +986,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*53)
+	args := make([]any, 0, len(preparedList)*58)
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -1028,6 +1058,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -1083,6 +1118,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -1146,6 +1186,11 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
+			agent_app_id,
+			agent_app_version_id,
+			agent_run_id,
+			agent_node_id,
+			agent_node_role,
 			cache_ttl_overridden,
 			channel_id,
 			model_mapping_chain,
@@ -1159,7 +1204,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1196,6 +1241,11 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	reasoningEffort := nullString(log.ReasoningEffort)
 	inboundEndpoint := nullString(log.InboundEndpoint)
 	upstreamEndpoint := nullString(log.UpstreamEndpoint)
+	agentAppID := nullInt64(log.AgentAppID)
+	agentAppVersionID := nullInt64(log.AgentAppVersionID)
+	agentRunID := nullInt64(log.AgentRunID)
+	agentNodeID := nullString(log.AgentNodeID)
+	agentNodeRole := nullString(log.AgentNodeRole)
 	channelID := nullInt64(log.ChannelID)
 	modelMappingChain := nullString(log.ModelMappingChain)
 	billingTier := nullString(log.BillingTier)
@@ -1263,6 +1313,11 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			reasoningEffort,
 			inboundEndpoint,
 			upstreamEndpoint,
+			agentAppID,
+			agentAppVersionID,
+			agentRunID,
+			agentNodeID,
+			agentNodeRole,
 			log.CacheTTLOverridden,
 			channelID,
 			modelMappingChain,

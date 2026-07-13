@@ -127,6 +127,13 @@ type UsageLog struct {
 	InboundEndpoint *string
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
 	UpstreamEndpoint *string
+	// Agent app center linkage. These fields are populated only when a model request
+	// is issued through the Sub2API app-center Model Proxy.
+	AgentAppID        *int64
+	AgentAppVersionID *int64
+	AgentRunID        *int64
+	AgentNodeID       *string
+	AgentNodeRole     *string
 
 	GroupID        *int64
 	SubscriptionID *int64

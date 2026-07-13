@@ -150,7 +150,7 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+func TestGatewayRoutesOpenAIRejectsGrokOnlyVideoPaths(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
@@ -164,7 +164,6 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		{http.MethodPost, "/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
-		{http.MethodGet, "/v1/videos/request-123", ""},
 		{http.MethodGet, "/videos/request-123", ""},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
@@ -231,4 +230,36 @@ func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+func TestGatewayRoutesOpenAIMediaPathsAreRegisteredWithoutCatchAll(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	for _, route := range []string{
+		http.MethodPost + " /v1/audio/speech",
+		http.MethodPost + " /v1/audio/transcriptions",
+		http.MethodPost + " /v1/audio/translations",
+		http.MethodPost + " /v1/videos",
+		http.MethodGet + " /v1/videos/:request_id",
+		http.MethodGet + " /v1/videos/:request_id/content",
+		http.MethodDelete + " /v1/videos/:request_id",
+	} {
+		require.True(t, registered[route], "route %s should be registered", route)
+	}
+	require.False(t, registered[http.MethodGet+" /v1/videos/*subpath"])
+}
+
+func TestGatewayRoutesOpenAIVideoStatusUsesMediaHandler(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	req := httptest.NewRequest(http.MethodGet, "/v1/videos/video_123", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
 }

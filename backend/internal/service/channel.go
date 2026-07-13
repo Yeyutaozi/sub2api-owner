@@ -391,6 +391,16 @@ type ChannelUsageFields struct {
 	ModelMappingChain  string // 映射链描述，如 "a→b→c"
 }
 
+// AgentUsageFields carries app-center attribution for model requests issued by Workers.
+// Normal gateway requests leave all fields empty.
+type AgentUsageFields struct {
+	AgentAppID        int64
+	AgentAppVersionID int64
+	AgentRunID        int64
+	AgentNodeID       string
+	AgentNodeRole     string
+}
+
 // SupportedModel 渠道的一个支持模型条目（无通配符、可直接展示给用户）
 type SupportedModel struct {
 	Name     string               // 用户侧模型名

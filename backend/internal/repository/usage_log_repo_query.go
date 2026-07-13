@@ -19,7 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, agent_app_id, agent_app_version_id, agent_run_id, agent_node_id, agent_node_role, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
 
 func (r *usageLogRepository) GetByID(ctx context.Context, id int64) (log *service.UsageLog, err error) {
 	query := "SELECT " + usageLogSelectColumns + " FROM usage_logs WHERE id = $1"
@@ -97,8 +97,8 @@ type UsageLogFilters = usagestats.UsageLogFilters
 
 // ListWithFilters lists usage logs with optional filters (for admin)
 func (r *usageLogRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
-	conditions := make([]string, 0, 9)
-	args := make([]any, 0, 9)
+	conditions := make([]string, 0, 10)
+	args := make([]any, 0, 10)
 
 	if filters.UserID > 0 {
 		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)+1))
@@ -115,6 +115,10 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 	if filters.GroupID > 0 {
 		conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
 		args = append(args, filters.GroupID)
+	}
+	if filters.AgentRunID > 0 {
+		conditions = append(conditions, fmt.Sprintf("agent_run_id = $%d", len(args)+1))
+		args = append(args, filters.AgentRunID)
 	}
 	conditions, args = appendUsageLogModelWhereCondition(conditions, args, filters.Model, filters.ModelFilterSource)
 	conditions, args = appendRequestTypeOrStreamWhereCondition(conditions, args, filters.RequestType, filters.Stream)
@@ -158,7 +162,7 @@ func shouldUseFastUsageLogTotal(filters UsageLogFilters) bool {
 		return false
 	}
 	// 强选择过滤下记录集通常较小，保留精确总数。
-	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0
+	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0 && filters.AgentRunID == 0
 }
 
 func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {
@@ -472,6 +476,11 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		reasoningEffort       sql.NullString
 		inboundEndpoint       sql.NullString
 		upstreamEndpoint      sql.NullString
+		agentAppID            sql.NullInt64
+		agentAppVersionID     sql.NullInt64
+		agentRunID            sql.NullInt64
+		agentNodeID           sql.NullString
+		agentNodeRole         sql.NullString
 		cacheTTLOverridden    bool
 		channelID             sql.NullInt64
 		modelMappingChain     sql.NullString
@@ -529,6 +538,11 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&reasoningEffort,
 		&inboundEndpoint,
 		&upstreamEndpoint,
+		&agentAppID,
+		&agentAppVersionID,
+		&agentRunID,
+		&agentNodeID,
+		&agentNodeRole,
 		&cacheTTLOverridden,
 		&channelID,
 		&modelMappingChain,
@@ -632,6 +646,24 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 	if upstreamEndpoint.Valid {
 		log.UpstreamEndpoint = &upstreamEndpoint.String
+	}
+	if agentAppID.Valid {
+		value := agentAppID.Int64
+		log.AgentAppID = &value
+	}
+	if agentAppVersionID.Valid {
+		value := agentAppVersionID.Int64
+		log.AgentAppVersionID = &value
+	}
+	if agentRunID.Valid {
+		value := agentRunID.Int64
+		log.AgentRunID = &value
+	}
+	if agentNodeID.Valid {
+		log.AgentNodeID = &agentNodeID.String
+	}
+	if agentNodeRole.Valid {
+		log.AgentNodeRole = &agentNodeRole.String
 	}
 	if upstreamModel.Valid {
 		log.UpstreamModel = &upstreamModel.String

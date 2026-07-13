@@ -153,6 +153,14 @@ func (s *SettingService) GetFrontendURL(ctx context.Context) string {
 	return s.cfg.Server.FrontendURL
 }
 
+func (s *SettingService) GetAPIBaseURL(ctx context.Context) string {
+	val, err := s.settingRepo.GetValue(ctx, SettingKeyAPIBaseURL)
+	if err == nil {
+		return strings.TrimRight(strings.TrimSpace(val), "/")
+	}
+	return ""
+}
+
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
 	keys := []string{

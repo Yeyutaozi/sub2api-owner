@@ -1,0 +1,1841 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sub2API 应用中心原型</title>
+  <style>
+    :root {
+      --bg: #f9fafb;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --line: #e5e7eb;
+      --line-strong: #d1d5db;
+      --text: #111827;
+      --muted: #6b7280;
+      --soft: #9ca3af;
+      --primary: #14b8a6;
+      --primary-strong: #0f766e;
+      --primary-soft: #ccfbf1;
+      --blue: #3b82f6;
+      --blue-soft: #dbeafe;
+      --amber: #f59e0b;
+      --amber-soft: #fef3c7;
+      --red: #ef4444;
+      --red-soft: #fee2e2;
+      --shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+      font-size: 14px;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 18px 14px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 16px;
+    }
+
+    .logo-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+      font-weight: 800;
+    }
+
+    .logo-title {
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .logo-subtitle {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-title {
+      padding: 13px 10px 7px;
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .nav-button {
+      width: 100%;
+      min-height: 38px;
+      border: 0;
+      border-radius: 10px;
+      padding: 9px 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #374151;
+      background: transparent;
+      text-align: left;
+    }
+
+    .nav-button:hover {
+      background: #f3f4f6;
+    }
+
+    .nav-button.active {
+      color: var(--primary-strong);
+      background: #ecfdf5;
+      font-weight: 700;
+    }
+
+    .nav-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #f3f4f6;
+      color: currentColor;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 26px 30px 44px;
+    }
+
+    .view {
+      display: none;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .breadcrumb {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .page-desc {
+      max-width: 780px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .btn {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #374151;
+      background: #ffffff;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease;
+    }
+
+    .btn:hover {
+      border-color: var(--line-strong);
+      background: #f9fafb;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      border-color: var(--primary);
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+      box-shadow: 0 8px 16px rgba(20, 184, 166, 0.2);
+    }
+
+    .btn-primary:hover {
+      border-color: var(--primary-strong);
+      background: linear-gradient(135deg, #0d9488, var(--primary-strong));
+    }
+
+    .btn-danger {
+      border-color: var(--red);
+      color: #ffffff;
+      background: var(--red);
+    }
+
+    .icon {
+      width: 18px;
+      height: 18px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.24);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .btn:not(.btn-primary):not(.btn-danger) .icon {
+      background: #f3f4f6;
+      color: var(--muted);
+    }
+
+    .filters,
+    .card,
+    .table-card,
+    .notice,
+    .node-card,
+    .artifact-card,
+    .editor,
+    .storage-panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      margin-bottom: 16px;
+    }
+
+    .filter-left,
+    .filter-right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .input,
+    .select,
+    .textarea {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px 11px;
+      color: var(--text);
+      background: #ffffff;
+      outline: none;
+    }
+
+    .input:focus,
+    .select:focus,
+    .textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.16);
+    }
+
+    .search {
+      width: 260px;
+    }
+
+    .select-sm {
+      width: 158px;
+    }
+
+    .textarea {
+      min-height: 102px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      background: #ffffff;
+      box-shadow: var(--shadow);
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stat-value {
+      margin-top: 8px;
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .stat-note {
+      margin-top: 4px;
+      color: var(--soft);
+      font-size: 12px;
+    }
+
+    .app-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .app-card {
+      min-height: 222px;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+
+    .app-head {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .app-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: var(--primary);
+      font-weight: 800;
+    }
+
+    .app-icon.blue {
+      background: var(--blue);
+    }
+
+    .app-icon.amber {
+      background: var(--amber);
+    }
+
+    .app-name {
+      font-weight: 800;
+      line-height: 1.3;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .app-desc {
+      color: var(--muted);
+      min-height: 44px;
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge {
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      color: #374151;
+      background: #f9fafb;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .badge.green {
+      border-color: #99f6e4;
+      color: var(--primary-strong);
+      background: var(--primary-soft);
+    }
+
+    .badge.blue {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+      background: var(--blue-soft);
+    }
+
+    .badge.amber {
+      border-color: #fde68a;
+      color: #92400e;
+      background: var(--amber-soft);
+    }
+
+    .badge.red {
+      border-color: #fecaca;
+      color: #b91c1c;
+      background: var(--red-soft);
+    }
+
+    .card-footer {
+      margin-top: auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .section-title {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      color: #374151;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .notice {
+      margin: 16px 0;
+      padding: 12px;
+      color: #92400e;
+      background: #fffbeb;
+      border-color: #fde68a;
+      line-height: 1.55;
+    }
+
+    .upload-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .upload-item {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px dashed var(--line-strong);
+      border-radius: 12px;
+      padding: 10px;
+      background: #f9fafb;
+    }
+
+    .upload-thumb {
+      width: 54px;
+      height: 54px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: linear-gradient(135deg, #3b82f6, #14b8a6);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .role-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .role-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #ffffff;
+    }
+
+    .role-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .role-name {
+      font-weight: 800;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .node-card {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .step {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .step.amber {
+      background: var(--amber);
+    }
+
+    .node-title {
+      font-weight: 800;
+    }
+
+    .node-meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .node-calls {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .artifacts {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .artifact-card {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .artifact-preview {
+      height: 72px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--primary), var(--blue));
+      font-weight: 800;
+    }
+
+    .artifact-preview.file {
+      background: linear-gradient(135deg, #64748b, #334155);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      background: #f9fafb;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .table-card {
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .editor {
+      overflow: hidden;
+    }
+
+    .editor-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+      background: #f9fafb;
+    }
+
+    .editor-tab {
+      min-height: 42px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 10px 14px;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .editor-tab.active {
+      color: var(--primary-strong);
+      background: #ffffff;
+      font-weight: 700;
+    }
+
+    .code {
+      margin: 0;
+      min-height: 342px;
+      overflow: auto;
+      padding: 16px;
+      color: #dbeafe;
+      background: #111827;
+      font: 12px/1.65 "Cascadia Mono", Consolas, Menlo, monospace;
+      white-space: pre;
+    }
+
+    .code.compact {
+      min-height: 150px;
+      border-radius: 10px;
+    }
+
+    .config-body {
+      display: grid;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .panel-section {
+      display: grid;
+      gap: 12px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .binding-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .publish-layout {
+      margin-bottom: 16px;
+    }
+
+    .publish-flow {
+      display: grid;
+      gap: 10px;
+    }
+
+    .storage-path {
+      display: grid;
+      gap: 8px;
+      border-radius: 10px;
+      padding: 12px;
+      background: #f3f4f6;
+      color: #374151;
+      font: 12px/1.55 "Cascadia Mono", Consolas, Menlo, monospace;
+      word-break: break-all;
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      max-width: 360px;
+      border: 1px solid #99f6e4;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--primary-strong);
+      background: #ffffff;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 1180px) {
+      .stats,
+      .app-list,
+      .artifacts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 780px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .main {
+        padding: 20px 16px 36px;
+      }
+
+      .page-header {
+        flex-direction: column;
+      }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      .stats,
+      .app-list,
+      .artifacts,
+      .form-grid,
+      .binding-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .search,
+      .select-sm {
+        width: 100%;
+      }
+
+      .filter-left,
+      .filter-right {
+        width: 100%;
+      }
+
+      .node-card {
+        grid-template-columns: 30px minmax(0, 1fr);
+      }
+
+      .node-card .btn {
+        grid-column: 2;
+        width: fit-content;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-mark">S</div>
+        <div>
+          <div class="logo-title">Sub2API</div>
+          <div class="logo-subtitle">应用中心原型</div>
+        </div>
+      </div>
+
+      <div class="nav-title">用户菜单</div>
+      <button class="nav-button active" data-view="market"><span class="nav-icon">应</span>应用中心</button>
+      <button class="nav-button" data-view="run"><span class="nav-icon">运</span>运行应用</button>
+      <button class="nav-button" data-view="result"><span class="nav-icon">果</span>运行结果</button>
+
+      <div class="nav-title">管理菜单</div>
+      <button class="nav-button" data-view="admin"><span class="nav-icon">发</span>应用发布</button>
+      <button class="nav-button" data-view="manifest"><span class="nav-icon">编</span>应用编排</button>
+      <button class="nav-button" data-view="worker"><span class="nav-icon">主</span>Worker Host</button>
+      <button class="nav-button" data-view="storage"><span class="nav-icon">存</span>对象存储</button>
+    </aside>
+
+    <main class="main">
+      <section class="view active" id="view-market">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">用户 / 应用中心</div>
+            <h1>应用中心</h1>
+            <p class="page-desc">用户从已发布应用中选择能力，并使用平台内已创建的 API 密钥运行。这里不提供密钥明文输入，只选择当前账户下的密钥。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="result"><span class="icon">历</span>运行记录</button>
+            <button class="btn btn-primary" data-view="run"><span class="icon">启</span>运行海报应用</button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-card">
+            <div class="stat-label">已发布应用</div>
+            <div class="stat-value">18</div>
+            <div class="stat-note">其中 4 个包含复合节点</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">我的可用密钥</div>
+            <div class="stat-value">3</div>
+            <div class="stat-note">覆盖文本、图片能力</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">本月运行</div>
+            <div class="stat-value">42</div>
+            <div class="stat-note">最近一次 8 分钟前</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">产物存储</div>
+            <div class="stat-value">1.8GB</div>
+            <div class="stat-note">默认 30 天后清理</div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="filter-left">
+            <input class="input search" value="搜索：海报、报告、视频" aria-label="搜索应用">
+            <select class="select select-sm" aria-label="类型">
+              <option>全部类型</option>
+              <option>提示词应用</option>
+              <option>工作流</option>
+              <option>智能体</option>
+            </select>
+            <select class="select select-sm" aria-label="能力">
+              <option>全部能力</option>
+              <option>文本</option>
+              <option>图片</option>
+              <option>视频</option>
+            </select>
+          </div>
+          <div class="filter-right">
+            <button class="btn"><span class="icon">刷</span>刷新</button>
+          </div>
+        </div>
+
+        <div class="app-list">
+          <article class="card app-card">
+            <div class="app-head">
+              <div class="app-icon">海</div>
+              <div>
+                <div class="app-name">商品海报生成器</div>
+                <div class="muted">工作流 · v1.3.0</div>
+              </div>
+            </div>
+            <div class="app-desc">根据商品信息生成卖点文案、图片提示词和海报图片。生图节点内含文本改写和图片生成两个模型角色。</div>
+            <div class="badges">
+              <span class="badge green">文本</span>
+              <span class="badge amber">图片</span>
+              <span class="badge">复合节点</span>
+            </div>
+            <div class="card-footer">
+              <span class="muted">预计 3-5 次模型调用</span>
+              <button class="btn btn-primary" data-view="run">运行</button>
+            </div>
+          </article>
+
+          <article class="card app-card">
+            <div class="app-head">
+              <div class="app-icon blue">报</div>
+              <div>
+                <div class="app-name">研究报告助手</div>
+                <div class="muted">智能体 · v0.9.4</div>
+              </div>
+            </div>
+            <div class="app-desc">拆解主题、生成提纲、分节撰写并导出 Markdown 或 PDF。适合长文本和多步骤任务。</div>
+            <div class="badges">
+              <span class="badge green">文本</span>
+              <span class="badge blue">长上下文</span>
+              <span class="badge">文件</span>
+            </div>
+            <div class="card-footer">
+              <span class="muted">需要支持长上下文的密钥</span>
+              <button class="btn" data-view="run">查看</button>
+            </div>
+          </article>
+
+          <article class="card app-card">
+            <div class="app-head">
+              <div class="app-icon amber">视</div>
+              <div>
+                <div class="app-name">短视频脚本到分镜</div>
+                <div class="muted">外部应用 · v0.4.2</div>
+              </div>
+            </div>
+            <div class="app-desc">外部执行器处理长任务，平台发放一次性运行令牌，模型调用仍回到平台内部网关。</div>
+            <div class="badges">
+              <span class="badge green">文本</span>
+              <span class="badge amber">视频</span>
+              <span class="badge">外部服务</span>
+            </div>
+            <div class="card-footer">
+              <span class="muted">视频产物默认保留 15 天</span>
+              <button class="btn" data-view="run">查看</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-run">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">用户 / 应用中心 / 运行应用</div>
+            <h1>运行商品海报生成器</h1>
+            <p class="page-desc">普通用户只需要填写业务输入，并从平台内密钥列表选择密钥。模型角色默认由管理员配置，高级用户可以展开后覆盖模型。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="market"><span class="icon">返</span>返回列表</button>
+            <button class="btn btn-primary" id="run-demo"><span class="icon">运</span>创建运行</button>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h2 class="section-title">输入参数</h2>
+            <div class="form-grid">
+              <div class="field">
+                <label for="product-name">商品名称</label>
+                <input class="input" id="product-name" value="轻薄城市冲锋衣">
+              </div>
+              <div class="field">
+                <label for="style">视觉风格</label>
+                <select class="select" id="style">
+                  <option>干净通勤</option>
+                  <option>高级户外</option>
+                  <option>社媒醒目</option>
+                </select>
+              </div>
+              <div class="field full">
+                <label for="selling">卖点</label>
+                <textarea class="textarea" id="selling">防水、透气、轻薄可收纳，适合早晚通勤、周末徒步和旅行。</textarea>
+              </div>
+              <div class="field full">
+                <label>参考图片</label>
+                <div class="upload-list">
+                  <div class="upload-item">
+                    <div class="upload-thumb">图</div>
+                    <div>
+                      <div class="role-name">reference-coat.png</div>
+                      <div class="hint">已上传到对象存储，运行请求只传 `input_file_id: file_1024`，不把图片写入数据库。</div>
+                    </div>
+                    <button class="btn">更换</button>
+                  </div>
+                </div>
+                <div class="hint">支持上传商品图、风格参考图或用户历史产物。图片先入私有对象存储，再作为输入资产传给节点。</div>
+              </div>
+            </div>
+
+            <div class="notice">费用通过你选择的平台内 API 密钥扣除。运行接口只提交密钥 ID，例如 `api_key_id: 12345`，不填写、不上传、不暴露 API 密钥明文。</div>
+
+            <h2 class="section-title">API 密钥选择</h2>
+            <div class="form-grid">
+              <div class="field">
+                <label for="single-key">单密钥模式</label>
+                <select class="select" id="single-key">
+                  <option>默认密钥 · 文本与图片组 · ID 12345</option>
+                  <option>备用密钥 · 文本组 · ID 22331</option>
+                  <option>图片密钥 · 图片组 · ID 67890</option>
+                </select>
+                <div class="hint">单密钥模式要求该密钥所属分组同时支持文本和图片能力。</div>
+              </div>
+              <div class="field">
+                <label for="budget">费用提醒</label>
+                <select class="select" id="budget">
+                  <option>超过 0.20 USD 前提醒</option>
+                  <option>超过 0.50 USD 前提醒</option>
+                  <option>不额外提醒</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">节点与模型角色</h2>
+            <div class="role-list">
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">文案生成</div>
+                  <span class="badge green">文本</span>
+                </div>
+                <select class="select" aria-label="文案模型">
+                  <option>claude-sonnet-4</option>
+                  <option>gpt-4.1-mini</option>
+                </select>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">提示词改写</div>
+                  <span class="badge green">文本</span>
+                </div>
+                <select class="select" aria-label="提示词改写模型">
+                  <option>gpt-4.1-mini</option>
+                  <option>claude-haiku</option>
+                </select>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">图片生成</div>
+                  <span class="badge amber">图片</span>
+                </div>
+                <select class="select" aria-label="图片生成模型">
+                  <option>gpt-image-1</option>
+                  <option>gemini-image</option>
+                </select>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-result">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">用户 / 运行结果</div>
+            <h1>运行结果 #AG-20260706-1042</h1>
+            <p class="page-desc">节点整体状态和模型调用明细分开记录。文本改写和图片生成分别关联 UsageLog，完整结果和产物保存在对象存储。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="run"><span class="icon">再</span>重新运行</button>
+            <button class="btn btn-primary"><span class="icon">下</span>下载结果包</button>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div>
+            <div class="timeline">
+              <div class="node-card">
+                <div class="step">1</div>
+                <div>
+                  <div class="node-title">文案生成</div>
+                  <div class="node-meta">密钥 ID 12345 · 文本与图片组 · 成本 0.012 USD</div>
+                  <div class="node-calls">
+                    <span class="badge green">角色：主调用</span>
+                    <span class="badge">模型：claude-sonnet-4</span>
+                    <span class="badge">UsageLog：882901</span>
+                  </div>
+                </div>
+                <button class="btn">查看输出</button>
+              </div>
+
+              <div class="node-card">
+                <div class="step">2</div>
+                <div>
+                  <div class="node-title">复合生图节点</div>
+                  <div class="node-meta">节点完成 · 生成 2 张图片 · 成本 0.084 USD</div>
+                  <div class="node-calls">
+                    <span class="badge green">提示词改写 · 文本 · UsageLog 882902</span>
+                    <span class="badge amber">图片生成 · 图片 · UsageLog 882903</span>
+                  </div>
+                </div>
+                <button class="btn">对象引用</button>
+              </div>
+
+              <div class="node-card">
+                <div class="step amber">3</div>
+                <div>
+                  <div class="node-title">结果归档</div>
+                  <div class="node-meta">输入参考图、result.json、events.jsonl、图片产物已上传腾讯云 COS 香港私有 Bucket。</div>
+                  <div class="node-calls">
+                    <span class="badge">到期时间：2026-08-05</span>
+                    <span class="badge">存储：COS</span>
+                  </div>
+                </div>
+                <button class="btn">长期保留</button>
+              </div>
+            </div>
+
+            <div class="artifacts">
+              <article class="artifact-card">
+                <div class="artifact-preview">图片</div>
+                <div>
+                  <div class="role-name">haibao-1.png</div>
+                  <div class="muted">1.6MB · 图片生成</div>
+                </div>
+                <button class="btn">生成下载链接</button>
+              </article>
+              <article class="artifact-card">
+                <div class="artifact-preview">图片</div>
+                <div>
+                  <div class="role-name">haibao-2.png</div>
+                  <div class="muted">1.4MB · 图片生成</div>
+                </div>
+                <button class="btn">生成下载链接</button>
+              </article>
+              <article class="artifact-card">
+                <div class="artifact-preview file">JSON</div>
+                <div>
+                  <div class="role-name">result.json</div>
+                  <div class="muted">18KB · 最终结果</div>
+                </div>
+                <button class="btn">查看引用</button>
+              </article>
+            </div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">对象引用</h2>
+            <div class="storage-path">
+              cos://sub2api-agent-artifacts/agent-artifacts/42/AG-20260706-1042/result.json
+              cos://sub2api-agent-artifacts/agent-artifacts/42/AG-20260706-1042/events.jsonl
+              cos://sub2api-agent-artifacts/agent-artifacts/42/AG-20260706-1042/inputs/reference-coat.png
+              cos://sub2api-agent-artifacts/agent-artifacts/42/AG-20260706-1042/artifacts/haibao-1.png
+            </div>
+            <div class="notice">数据库只保存存储服务、Bucket、对象路径、类型、大小、校验值和到期时间，不保存永久公开 URL。</div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-admin">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">管理员 / 应用发布台</div>
+            <h1>应用发布台</h1>
+            <p class="page-desc">管理员发布的是应用定义和运行方式，不是某一个固定图文模板。提示词、工作流、智能体和外部托管应用都走版本化发布，用户运行时再选择自己的平台 API 密钥。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="worker"><span class="icon">主</span>Worker Host</button>
+            <button class="btn" data-view="manifest"><span class="icon">编</span>继续编排</button>
+            <button class="btn btn-primary" data-view="manifest"><span class="icon">新</span>创建应用</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="filter-left">
+            <input class="input search" value="搜索应用名称" aria-label="搜索应用">
+            <select class="select select-sm" aria-label="应用形态">
+              <option>全部形态</option>
+              <option>提示词</option>
+              <option>工作流</option>
+              <option>智能体</option>
+              <option>外部托管</option>
+            </select>
+            <select class="select select-sm" aria-label="发布状态">
+              <option>全部状态</option>
+              <option>已发布</option>
+              <option>草稿</option>
+              <option>已暂停</option>
+            </select>
+          </div>
+          <div class="filter-right">
+            <button class="btn"><span class="icon">刷</span>刷新</button>
+            <button class="btn btn-primary"><span class="icon">新</span>创建应用</button>
+          </div>
+        </div>
+
+        <div class="two-col publish-layout">
+          <div class="card">
+            <div class="section-head">
+              <h2 class="section-title">可发布形态与开发方式</h2>
+              <button class="btn" data-view="manifest"><span class="icon">选</span>选择模板</button>
+            </div>
+            <div class="binding-grid">
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">提示词应用</div>
+                  <span class="badge green">轻量</span>
+                </div>
+                <div class="hint">适合翻译、摘要、标题生成、简单文本处理，也可以带文件输入。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">工作流应用</div>
+                  <span class="badge blue">节点</span>
+                </div>
+                <div class="hint">适合固定流程：文件解析、检索、模型调用、分支判断、产物导出。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">智能体应用</div>
+                  <span class="badge amber">工具</span>
+                </div>
+                <div class="hint">配置目标、系统提示词、工具权限、最大步数和失败兜底策略。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">外部托管应用</div>
+                  <span class="badge">Worker</span>
+                </div>
+                <div class="hint">复杂生视频、批量处理和自有工作流引擎通过 Webhook/Worker 接入。</div>
+              </div>
+            </div>
+            <div class="notice">管理员主要做配置式开发：选择已有节点、工具和外部服务，配置输入输出、模型角色和权限后发布。需要写代码的能力由开发者做成外部 Worker 或平台内置节点，再交给管理员接入。</div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">发布流程</h2>
+            <div class="publish-flow">
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">0. 开发或接入能力</div><span class="badge">配置/代码</span></div>
+                <div class="hint">简单应用直接配置；复杂应用先由开发者提供 Worker、Webhook 或内置节点。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">1. 创建草稿</div><span class="badge">未发布</span></div>
+                <div class="hint">选择形态，填写基础信息、输入输出和运行方式。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">2. 校验试运行</div><span class="badge amber">发布前</span></div>
+                <div class="hint">校验节点、模型能力、对象存储、外部服务健康检查；试运行使用管理员自己的平台密钥。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">3. 发布版本</div><span class="badge green">原子切换</span></div>
+                <div class="hint">生成版本快照并切换到线上，新运行使用新版本，旧运行不受影响。</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>应用</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>能力</th>
+                <th>运行次数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>商品海报生成器</strong><br><span class="muted">已发布版本 v1.3.0 · 内置节点</span></td>
+                <td>工作流</td>
+                <td><span class="badge green">已发布</span></td>
+                <td><span class="badge green">文本</span> <span class="badge amber">图片</span> <span class="badge blue">文件</span></td>
+                <td>1,284</td>
+                <td><button class="btn" data-view="manifest">编辑</button></td>
+              </tr>
+              <tr>
+                <td><strong>研究报告助手</strong><br><span class="muted">草稿版本 v0.9.5 · 工具型智能体</span></td>
+                <td>智能体</td>
+                <td><span class="badge amber">草稿</span></td>
+                <td><span class="badge green">文本</span> <span class="badge blue">文件</span> <span class="badge">检索</span></td>
+                <td>318</td>
+                <td><button class="btn">发布</button></td>
+              </tr>
+              <tr>
+                <td><strong>会议录音总结</strong><br><span class="muted">已发布版本 v1.1.2 · 多模态输入</span></td>
+                <td>工作流</td>
+                <td><span class="badge green">已发布</span></td>
+                <td><span class="badge">音频</span> <span class="badge green">文本</span> <span class="badge blue">文件</span></td>
+                <td>642</td>
+                <td><button class="btn">编辑</button></td>
+              </tr>
+              <tr>
+                <td><strong>短视频脚本到成片</strong><br><span class="muted">外部 Worker · 健康检查 1 分钟前</span></td>
+                <td>外部应用</td>
+                <td><span class="badge red">已暂停</span></td>
+                <td><span class="badge green">文本</span> <span class="badge amber">视频</span> <span class="badge blue">图片</span></td>
+                <td>87</td>
+                <td><button class="btn">恢复</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view" id="view-manifest">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">管理员 / 创建应用</div>
+            <h1>发布应用</h1>
+            <p class="page-desc">先选择发布形态，再定义输入输出和运行方式。简单应用直接配置；需要代码的复杂能力先由开发者实现成外部 Worker 或内置节点，再由管理员接入发布。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="admin"><span class="icon">列</span>应用列表</button>
+            <button class="btn"><span class="icon">存</span>保存草稿</button>
+            <button class="btn"><span class="icon">试</span>试运行</button>
+            <button class="btn btn-primary"><span class="icon">发</span>发布版本</button>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="editor">
+            <div class="editor-tabs">
+              <button class="editor-tab active">发布形态</button>
+              <button class="editor-tab">输入输出</button>
+              <button class="editor-tab">运行方式</button>
+              <button class="editor-tab">发布检查</button>
+              <button class="editor-tab">高级</button>
+            </div>
+            <div class="config-body">
+              <section class="panel-section">
+                <div class="section-head">
+                  <h2 class="section-title">发布形态与基础信息</h2>
+                  <span class="badge green">草稿 v3</span>
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label>应用名称</label>
+                    <input class="input" value="短视频脚本到成片">
+                  </div>
+                  <div class="field">
+                    <label>发布形态</label>
+                    <select class="select">
+                      <option>外部托管应用</option>
+                      <option>工作流应用</option>
+                      <option>智能体应用</option>
+                      <option>提示词应用</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>可见范围</label>
+                    <select class="select">
+                      <option>所有用户可见</option>
+                      <option>指定分组可见</option>
+                      <option>仅管理员测试</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>默认保留</label>
+                    <input class="input" value="视频 15 天，其他产物 30 天">
+                  </div>
+                  <div class="field full">
+                    <label>应用说明</label>
+                    <textarea class="textarea">用户输入视频主题、脚本要求和参考素材，平台把任务提交给外部 Worker 渲染视频；所有模型调用和产物归档仍由平台统一计费和保存。</textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-head">
+                  <h2 class="section-title">输入输出定义</h2>
+                  <button class="btn"><span class="icon">加</span>添加输入项</button>
+                </div>
+                <div class="role-list">
+                  <div class="role-item">
+                    <div class="role-head">
+                      <div class="role-name">任务描述</div>
+                      <span class="badge green">文本 · 必填</span>
+                    </div>
+                    <div class="hint">用户填写主题、时长、风格和口播要求，进入文本规划和脚本生成。</div>
+                  </div>
+                  <div class="role-item">
+                    <div class="role-head">
+                      <div class="role-name">参考素材</div>
+                      <span class="badge blue">图片/视频 · 最多 8 个</span>
+                    </div>
+                    <div class="hint">用户上传后进入私有对象存储，Worker 只拿到带权限的文件引用。</div>
+                  </div>
+                  <div class="role-item">
+                    <div class="role-head">
+                      <div class="role-name">品牌资料</div>
+                      <span class="badge">文件 · 可选</span>
+                    </div>
+                    <div class="hint">支持 PDF、DOCX、表格等资料，供脚本和字幕生成参考。</div>
+                  </div>
+                  <div class="role-item">
+                    <div class="role-head">
+                      <div class="role-name">输出产物</div>
+                      <span class="badge amber">视频/字幕/封面</span>
+                    </div>
+                    <div class="hint">最终结果包含视频文件、字幕文件、封面图、结构化 result.json 和事件日志。</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-head">
+                  <h2 class="section-title">运行方式</h2>
+                  <div class="inline-actions">
+                    <button class="btn"><span class="icon">加</span>添加节点</button>
+                    <button class="btn" data-view="worker"><span class="icon">主</span>配置 Host</button>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label>Worker Host</label>
+                    <select class="select">
+                      <option>video-worker-hk-1</option>
+                      <option>document-worker-local</option>
+                      <option>新增 Worker Host</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>部署位置</label>
+                    <select class="select">
+                      <option>同服务器 Docker 容器</option>
+                      <option>独立香港服务器</option>
+                      <option>GPU / 云容器服务</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Base URL</label>
+                    <input class="input" value="http://app-worker-video:8080">
+                  </div>
+                  <div class="field">
+                    <label>运行路径</label>
+                    <input class="input" value="/video/v2/runs">
+                  </div>
+                  <div class="field">
+                    <label>健康检查路径</label>
+                    <input class="input" value="/health">
+                  </div>
+                  <div class="field">
+                    <label>调用鉴权</label>
+                    <select class="select">
+                      <option>一次性运行令牌 + 请求签名</option>
+                      <option>内网访问 + 请求签名</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="node-card">
+                    <div class="step">1</div>
+                    <div>
+                      <div class="node-title">输入校验和素材解析</div>
+                      <div class="node-meta">校验文本、图片、视频、文件大小和权限，生成 Worker 可读取的短期对象引用。</div>
+                      <div class="node-calls">
+                        <span class="badge green">文本</span>
+                        <span class="badge blue">文件</span>
+                        <span class="badge">音视频</span>
+                      </div>
+                    </div>
+                    <button class="btn">编辑</button>
+                  </div>
+                  <div class="node-card">
+                    <div class="step">2</div>
+                    <div>
+                      <div class="node-title">脚本规划和镜头拆分</div>
+                      <div class="node-meta">文本模型生成脚本、分镜、字幕草稿和渲染参数；运行时使用用户选择的 API 密钥计费。</div>
+                      <div class="node-calls">
+                        <span class="badge green">脚本生成 · 文本</span>
+                        <span class="badge green">提示词改写 · 文本</span>
+                        <span class="badge">默认模型：claude-sonnet-4</span>
+                      </div>
+                    </div>
+                    <button class="btn">编辑</button>
+                  </div>
+                  <div class="node-card">
+                    <div class="step amber">3</div>
+                    <div>
+                      <div class="node-title">外部 Worker 渲染视频</div>
+                      <div class="node-meta">平台用一次性运行令牌调用 Worker，Worker 回调进度和产物；模型调用仍必须经平台代理。</div>
+                      <div class="node-calls">
+                        <span class="badge amber">视频</span>
+                        <span class="badge">Webhook 签名</span>
+                        <span class="badge">超时 30 分钟</span>
+                      </div>
+                    </div>
+                    <button class="btn">编辑</button>
+                  </div>
+                  <div class="node-card">
+                    <div class="step">4</div>
+                    <div>
+                      <div class="node-title">结果归档和发布回调</div>
+                      <div class="node-meta">视频、封面、字幕、事件日志写入对象存储，数据库只保存对象引用和摘要。</div>
+                      <div class="node-calls">
+                        <span class="badge amber">视频保留 15 天</span>
+                        <span class="badge green">result.json</span>
+                        <span class="badge">私有 Bucket</span>
+                      </div>
+                    </div>
+                    <button class="btn">编辑</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-head">
+                  <h2 class="section-title">高级模式</h2>
+                  <div class="inline-actions">
+                    <button class="btn"><span class="icon">看</span>查看内部结构</button>
+                    <button class="btn"><span class="icon">导</span>导入配置</button>
+                  </div>
+                </div>
+                <div class="notice">普通管理员发布应用时不需要写 JSON。内部结构只用于开发者排查、版本对比、批量导入导出和备份。</div>
+              </section>
+            </div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">发布检查</h2>
+            <div class="role-list">
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">发布形态</div>
+                  <span class="badge green">通过</span>
+                </div>
+                <div class="hint">外部托管应用已绑定 Worker Host、运行路径、回调签名和超时策略。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">部署建议</div>
+                  <span class="badge blue">MVP</span>
+                </div>
+                <div class="hint">第一版轻量 Worker 可以和 Sub2API 部署在同一台香港服务器的独立 Docker 容器里。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">密钥绑定</div>
+                  <span class="badge green">通过</span>
+                </div>
+                <div class="hint">运行请求只允许 `api_key_id`，禁止 API 密钥明文字段。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">能力覆盖</div>
+                  <span class="badge green">通过</span>
+                </div>
+                <div class="hint">应用声明文本、图片、视频、文件能力；运行前会过滤用户可选密钥。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">试运行</div>
+                  <span class="badge amber">待执行</span>
+                </div>
+                <div class="hint">试运行使用管理员自己的平台 API 密钥，不消耗任何普通用户密钥。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">发布版本</div>
+                  <span class="badge">下一步</span>
+                </div>
+                <div class="hint">发布后原子切换线上版本，已开始运行的任务继续使用旧版本快照。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head">
+                  <div class="role-name">模型调用</div>
+                  <span class="badge green">闭环</span>
+                </div>
+                <div class="hint">Worker 只能调用 Sub2API Model Proxy，由平台按用户选择的 API 密钥计费。</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-worker">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">管理员 / Worker Host</div>
+            <h1>Worker Host</h1>
+            <p class="page-desc">管理员在这里维护可复用的 Worker 服务地址。应用版本只绑定 Host 和运行路径，Sub2API 负责健康检查、签名调用、并发控制和回调接收。</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-view="manifest"><span class="icon">编</span>绑定应用版本</button>
+            <button class="btn btn-primary"><span class="icon">新</span>新增 Host</button>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h2 class="section-title">Host 配置</h2>
+            <div class="form-grid">
+              <div class="field">
+                <label>Host 名称</label>
+                <input class="input" value="video-worker-hk-1">
+              </div>
+              <div class="field">
+                <label>部署位置</label>
+                <select class="select">
+                  <option>独立香港服务器</option>
+                  <option>同服务器 Docker 容器</option>
+                  <option>GPU / 云容器服务</option>
+                </select>
+              </div>
+              <div class="field full">
+                <label>Base URL</label>
+                <input class="input" value="http://10.0.0.8:8080">
+              </div>
+              <div class="field">
+                <label>协议</label>
+                <select class="select">
+                  <option>sub2api-worker-v1</option>
+                  <option>dify</option>
+                  <option>coze</option>
+                  <option>custom</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>鉴权方式</label>
+                <select class="select">
+                  <option>run_token + HMAC 签名</option>
+                  <option>内网访问 + HMAC 签名</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>默认运行路径</label>
+                <input class="input" value="/runs">
+              </div>
+              <div class="field">
+                <label>健康检查路径</label>
+                <input class="input" value="/health">
+              </div>
+              <div class="field">
+                <label>最大并发</label>
+                <input class="input" value="4">
+              </div>
+              <div class="field">
+                <label>默认超时</label>
+                <input class="input" value="1800 秒">
+              </div>
+            </div>
+            <div class="notice">不绑定域名也可以使用 IP:端口，但必须限制防火墙，只允许 Sub2API 主服务器访问，并启用签名鉴权。</div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">连接闭环</h2>
+            <div class="role-list">
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">健康检查</div><span class="badge green">通过</span></div>
+                <div class="hint">Sub2API 调用 Base URL + /health，确认 Worker 可访问。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">应用版本绑定</div><span class="badge green">通过</span></div>
+                <div class="hint">版本保存 worker_host_id、worker_route、image_ref、source_ref 和输入输出 schema。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">运行调用</div><span class="badge green">签名</span></div>
+                <div class="hint">Runner 使用 run_token 和 HMAC 调用 Worker /runs，/runs 只返回 accepted。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">模型代理</div><span class="badge green">计费</span></div>
+                <div class="hint">Worker 通过 model_proxy_url 调模型，Sub2API 按用户 API 密钥写 UsageLog。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">结果回调</div><span class="badge green">归档</span></div>
+                <div class="hint">Worker 回调 callback_url，Sub2API 保存状态、对象存储引用和最终结果。</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="table-card" style="margin-top: 16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>Base URL</th>
+                <th>状态</th>
+                <th>并发</th>
+                <th>绑定应用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>video-worker-hk-1</strong><br><span class="muted">sub2api-worker-v1</span></td>
+                <td>http://10.0.0.8:8080</td>
+                <td><span class="badge green">健康</span></td>
+                <td>2 / 4</td>
+                <td>短视频脚本到成片</td>
+                <td><button class="btn">健康检查</button></td>
+              </tr>
+              <tr>
+                <td><strong>document-worker-local</strong><br><span class="muted">同服务器 Docker</span></td>
+                <td>http://document-worker:8080</td>
+                <td><span class="badge green">健康</span></td>
+                <td>1 / 8</td>
+                <td>研究报告助手、会议录音总结</td>
+                <td><button class="btn">编辑</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view" id="view-storage">
+        <div class="page-header">
+          <div>
+            <div class="breadcrumb">管理员 / 对象存储</div>
+            <h1>对象存储设置</h1>
+            <p class="page-desc">完整结果和产物进入对象存储，数据库只保存对象引用。下载时由后端校验权限并生成短期签名链接。</p>
+          </div>
+          <div class="actions">
+            <button class="btn"><span class="icon">测</span>测试连接</button>
+            <button class="btn btn-primary"><span class="icon">存</span>保存设置</button>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card storage-panel">
+            <h2 class="section-title">存储配置</h2>
+            <div class="form-grid">
+              <div class="field">
+                <label>存储服务</label>
+                <select class="select">
+                  <option>腾讯云 COS</option>
+                  <option>Cloudflare R2</option>
+                  <option>兼容 S3</option>
+                  <option>本地存储</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>地域</label>
+                <input class="input" value="ap-hongkong">
+              </div>
+              <div class="field">
+                <label>Bucket</label>
+                <input class="input" value="sub2api-agent-artifacts">
+              </div>
+              <div class="field">
+                <label>下载链接有效期</label>
+                <input class="input" value="900 秒">
+              </div>
+              <div class="field full">
+                <label>访问端点</label>
+                <input class="input" value="https://cos.ap-hongkong.myqcloud.com">
+              </div>
+            </div>
+          </div>
+
+          <aside class="card">
+            <h2 class="section-title">清理策略</h2>
+            <div class="role-list">
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">最终结果</div><span class="badge">30 天</span></div>
+                <div class="hint">过期后删除对象，数据库保留摘要和审计。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">视频产物</div><span class="badge amber">15 天</span></div>
+                <div class="hint">视频优先控制存储和下行流量成本。</div>
+              </div>
+              <div class="role-item">
+                <div class="role-head"><div class="role-name">用户长期保留</div><span class="badge green">占额度</span></div>
+                <div class="hint">用户主动保留后进入空间额度统计。</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast">已创建运行，正在打开结果页。</div>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll("[data-view]"));
+    const views = Array.from(document.querySelectorAll(".view"));
+    const toast = document.getElementById("toast");
+
+    function showView(name) {
+      views.forEach((view) => {
+        view.classList.toggle("active", view.id === `view-${name}`);
+      });
+      document.querySelectorAll(".nav-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === name);
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => showView(button.dataset.view));
+    });
+
+    document.getElementById("run-demo").addEventListener("click", () => {
+      toast.classList.add("show");
+      setTimeout(() => {
+        toast.classList.remove("show");
+        showView("result");
+      }, 650);
+    });
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -23,6 +24,9 @@ const (
 	EndpointResponsesCompact  = "/v1/responses/compact"
 	EndpointImagesGenerations = "/v1/images/generations"
 	EndpointImagesEdits       = "/v1/images/edits"
+	EndpointAudioSpeech       = "/v1/audio/speech"
+	EndpointAudioTranscripts  = "/v1/audio/transcriptions"
+	EndpointAudioTranslations = "/v1/audio/translations"
 	EndpointVideosGenerations = "/v1/videos/generations"
 	EndpointVideosEdits       = "/v1/videos/edits"
 	EndpointVideosExtensions  = "/v1/videos/extensions"
@@ -88,6 +92,12 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointImagesGenerations
 	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
 		return EndpointImagesEdits
+	case strings.Contains(path, EndpointAudioSpeech):
+		return EndpointAudioSpeech
+	case strings.Contains(path, EndpointAudioTranscripts):
+		return EndpointAudioTranscripts
+	case strings.Contains(path, EndpointAudioTranslations):
+		return EndpointAudioTranslations
 	case strings.Contains(path, EndpointVideosGenerations) || strings.Contains(path, "/videos/generations"):
 		return EndpointVideosGenerations
 	case strings.Contains(path, EndpointVideosEdits) || strings.Contains(path, "/videos/edits"):
@@ -179,8 +189,26 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok:
-		if inbound == EndpointEmbeddings || inbound == EndpointAlphaSearch || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideosEdits || inbound == EndpointVideosExtensions || inbound == EndpointVideos {
+		if inbound == EndpointEmbeddings ||
+			inbound == EndpointAlphaSearch ||
+			inbound == EndpointImagesGenerations ||
+			inbound == EndpointImagesEdits ||
+			inbound == EndpointVideosGenerations ||
+			inbound == EndpointVideosEdits ||
+			inbound == EndpointVideosExtensions {
 			return inbound
+		}
+		if platform == service.PlatformOpenAI &&
+			(inbound == EndpointAudioSpeech || inbound == EndpointAudioTranscripts || inbound == EndpointAudioTranslations) {
+			return inbound
+		}
+		if inbound == EndpointVideos {
+			if platform == service.PlatformOpenAI {
+				if suffix := videosSubpathSuffix(rawRequestPath); suffix != "" {
+					return EndpointVideos + suffix
+				}
+			}
+			return EndpointVideos
 		}
 		// OpenAI forwards everything to the Responses API.
 		// Preserve subresource suffix (e.g. /v1/responses/compact,
@@ -231,6 +259,19 @@ func responsesSubpathSuffix(rawPath string) string {
 		return ""
 	}
 	if !strings.HasPrefix(suffix, "/") {
+		return ""
+	}
+	return suffix
+}
+
+func videosSubpathSuffix(rawPath string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawPath), "/")
+	idx := strings.LastIndex(trimmed, EndpointVideos)
+	if idx < 0 {
+		return ""
+	}
+	suffix := trimmed[idx+len(EndpointVideos):]
+	if suffix == "" || suffix == "/" || !strings.HasPrefix(suffix, "/") {
 		return ""
 	}
 	return suffix
@@ -300,4 +341,31 @@ func GetUpstreamEndpoint(c *gin.Context, platform string) string {
 		rawPath = c.Request.URL.Path
 	}
 	return DeriveUpstreamEndpoint(inbound, rawPath, platform)
+}
+
+// GetAgentUsageFields extracts app-center attribution propagated by the internal
+// Agent Model Proxy. It is intentionally conservative so normal gateway requests
+// do not get app metadata just because a client sent similarly named headers.
+func GetAgentUsageFields(c *gin.Context) service.AgentUsageFields {
+	if c == nil || c.Request == nil {
+		return service.AgentUsageFields{}
+	}
+	if !service.VerifyAgentModelProxyInternalRequest(c.Request) {
+		return service.AgentUsageFields{}
+	}
+	return service.AgentUsageFields{
+		AgentAppID:        positiveInt64Header(c, "X-Sub2API-Agent-App-ID"),
+		AgentAppVersionID: positiveInt64Header(c, "X-Sub2API-Agent-App-Version-ID"),
+		AgentRunID:        positiveInt64Header(c, "X-Sub2API-Agent-Run-ID"),
+		AgentNodeID:       strings.TrimSpace(c.GetHeader("X-Sub2API-Agent-Node-ID")),
+		AgentNodeRole:     strings.TrimSpace(c.GetHeader("X-Sub2API-Agent-Node-Role")),
+	}
+}
+
+func positiveInt64Header(c *gin.Context, name string) int64 {
+	value, err := strconv.ParseInt(strings.TrimSpace(c.GetHeader(name)), 10, 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
 }

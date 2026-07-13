@@ -82,6 +82,7 @@ func RegisterAdminRoutes(
 
 		// Token 激励计划
 		registerTokenRewardRoutes(admin, h)
+		registerAgentAppCenterRoutes(admin, h)
 
 		// 用户属性管理
 		registerUserAttributeRoutes(admin, h)
@@ -109,6 +110,41 @@ func RegisterAdminRoutes(
 
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
+	}
+}
+
+func registerAgentAppCenterRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	workerHosts := admin.Group("/agent-worker-hosts")
+	{
+		workerHosts.GET("", h.Admin.AgentWorkerHost.List)
+		workerHosts.GET("/all", h.Admin.AgentWorkerHost.ListAll)
+		workerHosts.POST("", h.Admin.AgentWorkerHost.Create)
+		workerHosts.GET("/:id", h.Admin.AgentWorkerHost.GetByID)
+		workerHosts.PUT("/:id", h.Admin.AgentWorkerHost.Update)
+		workerHosts.DELETE("/:id", h.Admin.AgentWorkerHost.Delete)
+		workerHosts.POST("/:id/health-check", h.Admin.AgentWorkerHost.HealthCheck)
+	}
+
+	apps := admin.Group("/agent-apps")
+	{
+		apps.GET("", h.Admin.AgentApp.ListApps)
+		apps.POST("", h.Admin.AgentApp.CreateApp)
+		apps.POST("/icon", h.Admin.AgentApp.UploadIcon)
+		apps.POST("/with-version", h.Admin.AgentApp.CreateAppWithVersion)
+		apps.GET("/:id", h.Admin.AgentApp.GetApp)
+		apps.PUT("/:id", h.Admin.AgentApp.UpdateApp)
+		apps.DELETE("/:id", h.Admin.AgentApp.DeleteApp)
+		apps.GET("/:id/versions", h.Admin.AgentApp.ListVersions)
+		apps.POST("/:id/versions", h.Admin.AgentApp.CreateVersion)
+		apps.POST("/:id/versions/:version_id/publish", h.Admin.AgentApp.PublishVersion)
+		apps.PUT("/:id/versions/:version_id/status", h.Admin.AgentApp.UpdateVersionStatus)
+	}
+
+	artifactStorage := admin.Group("/agent-artifact-storage")
+	{
+		artifactStorage.GET("", h.Admin.AgentArtifactStorage.GetConfig)
+		artifactStorage.PUT("", h.Admin.AgentArtifactStorage.UpdateConfig)
+		artifactStorage.POST("/validate", h.Admin.AgentArtifactStorage.ValidateConfig)
 	}
 }
 

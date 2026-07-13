@@ -144,6 +144,24 @@ export async function list(
   return data
 }
 
+export async function listByAgentRun(
+  agentRunId: number,
+  page = 1,
+  pageSize = 100
+): Promise<PaginatedResponse<UsageLog>> {
+  const params: UsageQueryParams = {
+    page,
+    page_size: pageSize,
+    agent_run_id: agentRunId,
+    sort_by: 'created_at',
+    sort_order: 'asc'
+  }
+  const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/usage', {
+    params
+  })
+  return data
+}
+
 /**
  * Get usage logs with advanced query parameters
  * @param params - Query parameters for filtering and pagination
@@ -370,6 +388,7 @@ export async function getMyErrorDetail(id: number): Promise<UserErrorRequestDeta
 
 export const usageAPI = {
   list,
+  listByAgentRun,
   query,
   getStats,
   getStatsByDateRange,

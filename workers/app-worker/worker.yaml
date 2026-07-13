@@ -1,0 +1,43 @@
+name: sub2api-app-worker
+version: 0.1.0
+protocol: sub2api-worker-v1
+runtime: python-fastapi
+routes:
+  health: /health
+  runs:
+    - /runs
+    - /text/runs
+    - /prompt/runs
+    - /workflow/runs
+    - /audio/runs
+    - /video/runs
+  cancel: /cancel
+capabilities:
+  - text
+  - vision
+  - image_generation
+  - audio_speech
+  - audio_transcription
+  - audio_translation
+  - video_generation
+  - workflow
+input_schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+      title: Prompt
+      x-input-kind: textarea
+  required:
+    - prompt
+output_schema:
+  type: object
+  properties:
+    result:
+      type: string
+node_model_policy:
+  text.generate:
+    node_id: text
+    role: generate
+    capability: text
+    required: true
