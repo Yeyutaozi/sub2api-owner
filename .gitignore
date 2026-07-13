@@ -128,6 +128,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/APP_CENTER_AGENT_WORKFLOW_PLAN_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -138,3 +139,6 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+dump.rdb
+__pycache__/
+*.py[cod]

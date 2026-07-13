@@ -1846,6 +1846,67 @@ func TestValidateConfig_LogRequiredAndRotationBounds(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_AgentArtifacts(t *testing.T) {
+	buildValid := func(t *testing.T) *Config {
+		t.Helper()
+		resetViperWithJWTSecret(t)
+		cfg, err := Load()
+		require.NoError(t, err)
+		return cfg
+	}
+
+	t.Run("enabled storage requires credentials", func(t *testing.T) {
+		cfg := buildValid(t)
+		cfg.AgentArtifacts.Enabled = true
+		cfg.AgentArtifacts.Bucket = "agent-artifacts"
+		cfg.AgentArtifacts.AccessKeyID = ""
+		cfg.AgentArtifacts.SecretAccessKey = "secret"
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "agent_artifacts.access_key_id")
+	})
+
+	t.Run("path style and virtual host style are mutually exclusive", func(t *testing.T) {
+		cfg := buildValid(t)
+		cfg.AgentArtifacts.Enabled = true
+		cfg.AgentArtifacts.Bucket = "agent-artifacts"
+		cfg.AgentArtifacts.AccessKeyID = "access"
+		cfg.AgentArtifacts.SecretAccessKey = "secret"
+		cfg.AgentArtifacts.ForcePathStyle = true
+		cfg.AgentArtifacts.VirtualHostStyle = true
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "force_path_style")
+	})
+
+	t.Run("valid custom endpoint passes", func(t *testing.T) {
+		cfg := buildValid(t)
+		cfg.AgentArtifacts.Enabled = true
+		cfg.AgentArtifacts.Provider = "custom"
+		cfg.AgentArtifacts.Endpoint = "https://object.example.com"
+		cfg.AgentArtifacts.Bucket = "agent-artifacts"
+		cfg.AgentArtifacts.AccessKeyID = "access"
+		cfg.AgentArtifacts.SecretAccessKey = "secret"
+		cfg.AgentArtifacts.MaxUploadBytes = 1024
+		cfg.AgentArtifacts.DownloadURLTTLSeconds = 60
+		cfg.AgentArtifacts.RetentionDays = 7
+		cfg.AgentArtifacts.CleanupExpiredArtifactsEnabled = false
+
+		require.NoError(t, cfg.Validate())
+	})
+}
+
+func TestLoad_DefaultAgentArtifactsCleanupConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	require.Equal(t, 0, cfg.AgentArtifacts.RetentionDays)
+	require.False(t, cfg.AgentArtifacts.CleanupExpiredArtifactsEnabled)
+}
+
 func TestLoad_DefaultGatewayUsageRecordConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

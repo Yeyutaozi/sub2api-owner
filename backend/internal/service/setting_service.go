@@ -710,6 +710,14 @@ func (s *SettingService) GetFrontendURL(ctx context.Context) string {
 	return s.cfg.Server.FrontendURL
 }
 
+func (s *SettingService) GetAPIBaseURL(ctx context.Context) string {
+	val, err := s.settingRepo.GetValue(ctx, SettingKeyAPIBaseURL)
+	if err == nil {
+		return strings.TrimRight(strings.TrimSpace(val), "/")
+	}
+	return ""
+}
+
 // GetCyberSessionBlockRuntime 返回 (开关, TTL)，进程内缓存 ~60s，
 // 模式对齐 IsOpenAIAllowClaudeCodeCodexPluginEnabled（热路径零 DB 往返）。
 // 两个 setting key 在单次 singleflight 里一起读取，减少 DB 往返。

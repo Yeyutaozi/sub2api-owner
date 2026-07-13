@@ -28,6 +28,11 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/responses", EndpointResponses},
 		{"/v1/images/generations", EndpointImagesGenerations},
 		{"/v1/images/edits", EndpointImagesEdits},
+		{"/v1/audio/speech", EndpointAudioSpeech},
+		{"/v1/audio/transcriptions", EndpointAudioTranscripts},
+		{"/v1/audio/translations", EndpointAudioTranslations},
+		{"/v1/videos", EndpointVideos},
+		{"/v1/videos/video_123/content", EndpointVideos},
 		{"/v1beta/models", EndpointGeminiModels},
 
 		// Prefixed paths (antigravity, openai).
@@ -81,6 +86,10 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"openai embeddings", EndpointEmbeddings, "/v1/embeddings", service.PlatformOpenAI, EndpointEmbeddings},
 		{"openai image generations", EndpointImagesGenerations, "/v1/images/generations", service.PlatformOpenAI, EndpointImagesGenerations},
 		{"openai image edits", EndpointImagesEdits, "/openai/v1/images/edits", service.PlatformOpenAI, EndpointImagesEdits},
+		{"openai audio speech", EndpointAudioSpeech, "/v1/audio/speech", service.PlatformOpenAI, EndpointAudioSpeech},
+		{"openai audio transcriptions", EndpointAudioTranscripts, "/v1/audio/transcriptions", service.PlatformOpenAI, EndpointAudioTranscripts},
+		{"openai videos root", EndpointVideos, "/v1/videos", service.PlatformOpenAI, EndpointVideos},
+		{"openai video content", EndpointVideos, "/v1/videos/video_123/content", service.PlatformOpenAI, "/v1/videos/video_123/content"},
 
 		// Antigravity — uses inbound to pick Claude vs Gemini upstream.
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},
@@ -117,6 +126,12 @@ func TestResponsesSubpathSuffix(t *testing.T) {
 			require.Equal(t, tt.want, responsesSubpathSuffix(tt.raw))
 		})
 	}
+}
+
+func TestVideosSubpathSuffix(t *testing.T) {
+	require.Equal(t, "", videosSubpathSuffix("/v1/videos"))
+	require.Equal(t, "/video_123", videosSubpathSuffix("/v1/videos/video_123"))
+	require.Equal(t, "/video_123/content", videosSubpathSuffix("/v1/videos/video_123/content"))
 }
 
 // ──────────────────────────────────────────────────────────
@@ -160,4 +175,36 @@ func TestGetUpstreamEndpoint_FullFlow(t *testing.T) {
 
 	got := GetUpstreamEndpoint(c, service.PlatformOpenAI)
 	require.Equal(t, "/v1/responses/compact", got)
+}
+
+func TestGetAgentUsageFields_AcceptsInternalModelProxyRequest(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.RemoteAddr = "127.0.0.1:52520"
+	c.Request.Header.Set("User-Agent", "Sub2API-Agent-ModelProxy/1.0")
+	c.Request.Header.Set("X-Sub2API-Agent-App-ID", "11")
+	c.Request.Header.Set("X-Sub2API-Agent-App-Version-ID", "22")
+	c.Request.Header.Set("X-Sub2API-Agent-Run-ID", "33")
+	c.Request.Header.Set("X-Sub2API-Agent-Node-ID", " node-1 ")
+	c.Request.Header.Set("X-Sub2API-Agent-Node-Role", " llm ")
+
+	got := GetAgentUsageFields(c)
+	require.Equal(t, int64(11), got.AgentAppID)
+	require.Equal(t, int64(22), got.AgentAppVersionID)
+	require.Equal(t, int64(33), got.AgentRunID)
+	require.Equal(t, "node-1", got.AgentNodeID)
+	require.Equal(t, "llm", got.AgentNodeRole)
+}
+
+func TestGetAgentUsageFields_RejectsSpoofedExternalRequest(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.RemoteAddr = "203.0.113.10:52520"
+	c.Request.Header.Set("User-Agent", "Sub2API-Agent-ModelProxy/1.0")
+	c.Request.Header.Set("X-Sub2API-Agent-App-ID", "11")
+	c.Request.Header.Set("X-Sub2API-Agent-Run-ID", "33")
+
+	require.Zero(t, GetAgentUsageFields(c))
 }

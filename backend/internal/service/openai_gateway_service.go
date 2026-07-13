@@ -5826,6 +5826,7 @@ type OpenAIRecordUsageInput struct {
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
 	CyberBlocked bool
 	ChannelUsageFields
+	AgentUsageFields
 }
 
 // CyberPolicyUsageInput 是 cyber 拒绝、未走正常 RecordUsage 的请求记录用量的入参。
@@ -5849,6 +5850,7 @@ type CyberPolicyUsageInput struct {
 	RequestPayloadHash string
 	APIKeyService      APIKeyQuotaUpdater
 	ChannelUsageFields
+	AgentUsageFields
 }
 
 // RecordCyberPolicyUsageLog 为被上游 cyber_policy 拒绝、未走正常 RecordUsage 的请求
@@ -5883,6 +5885,7 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		RequestPayloadHash: in.RequestPayloadHash,
 		APIKeyService:      in.APIKeyService,
 		ChannelUsageFields: in.ChannelUsageFields,
+		AgentUsageFields:   in.AgentUsageFields,
 		CyberBlocked:       true,
 	}); err != nil {
 		logger.LegacyPrintf("service.openai_gateway", "cyber usage record failed: request_id=%s err=%v", in.RequestID, err)
@@ -6015,6 +6018,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ReasoningEffort:     result.ReasoningEffort,
 		InboundEndpoint:     optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:    optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		AgentAppID:          optionalPositiveInt64Ptr(input.AgentAppID),
+		AgentAppVersionID:   optionalPositiveInt64Ptr(input.AgentAppVersionID),
+		AgentRunID:          optionalPositiveInt64Ptr(input.AgentRunID),
+		AgentNodeID:         optionalTrimmedStringPtr(input.AgentNodeID),
+		AgentNodeRole:       optionalTrimmedStringPtr(input.AgentNodeRole),
 		InputTokens:         actualInputTokens,
 		OutputTokens:        result.Usage.OutputTokens,
 		CacheCreationTokens: result.Usage.CacheCreationInputTokens,

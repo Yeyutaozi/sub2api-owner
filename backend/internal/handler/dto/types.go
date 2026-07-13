@@ -441,6 +441,12 @@ type UsageLog struct {
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
 	UpstreamEndpoint *string `json:"upstream_endpoint,omitempty"`
 
+	AgentAppID        *int64  `json:"agent_app_id,omitempty"`
+	AgentAppVersionID *int64  `json:"agent_app_version_id,omitempty"`
+	AgentRunID        *int64  `json:"agent_run_id,omitempty"`
+	AgentNodeID       *string `json:"agent_node_id,omitempty"`
+	AgentNodeRole     *string `json:"agent_node_role,omitempty"`
+
 	GroupID        *int64 `json:"group_id"`
 	SubscriptionID *int64 `json:"subscription_id"`
 

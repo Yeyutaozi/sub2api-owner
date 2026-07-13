@@ -218,6 +218,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/agent-apps',
+    name: 'AgentApps',
+    component: () => import('@/views/user/AgentAppsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: '应用中心'
+    }
+  },
+  {
     path: '/redeem',
     name: 'Redeem',
     component: () => import('@/views/user/RedeemView.vue'),
@@ -523,6 +533,36 @@ const routes: RouteRecordRaw[] = [
       title: 'Proxy Management',
       titleKey: 'admin.proxies.title',
       descriptionKey: 'admin.proxies.description'
+    }
+  },
+  {
+    path: '/admin/agent-apps',
+    name: 'AdminAgentApps',
+    component: () => import('@/views/admin/AgentAppsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '应用发布'
+    }
+  },
+  {
+    path: '/admin/agent-worker-hosts',
+    name: 'AdminAgentWorkerHosts',
+    component: () => import('@/views/admin/AgentWorkerHostsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Worker Host'
+    }
+  },
+  {
+    path: '/admin/object-storage',
+    name: 'AdminObjectStorage',
+    component: () => import('@/views/admin/ObjectStorageView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '对象存储'
     }
   },
   {

@@ -30,6 +30,19 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	openAIMediaHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) != service.PlatformOpenAI {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Media API is not supported for this platform",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.Media(c)
+	}
 
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
@@ -128,6 +141,12 @@ func RegisterGatewayRoutes(
 			}
 			h.OpenAIGateway.Images(c)
 		})
+		gateway.POST("/audio/speech", openAIMediaHandler)
+		gateway.POST("/audio/transcriptions", openAIMediaHandler)
+		gateway.POST("/audio/translations", openAIMediaHandler)
+		gateway.POST("/videos", openAIMediaHandler)
+		gateway.GET("/videos/*subpath", openAIMediaHandler)
+		gateway.DELETE("/videos/*subpath", openAIMediaHandler)
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）

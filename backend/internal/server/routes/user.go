@@ -65,7 +65,36 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		agentApps := authenticated.Group("/agent-apps")
+		{
+			agentApps.GET("", h.AgentRun.ListPublishedApps)
+			agentApps.GET("/:id/icon-url", h.AgentRun.GetPublishedAppIconURL)
+			agentApps.GET("/:id", h.AgentRun.GetPublishedApp)
+			agentApps.POST("/:id/runs", h.AgentRun.CreateRun)
+		}
+
+		agentRuns := authenticated.Group("/agent-runs")
+		{
+			agentRuns.GET("", h.AgentRun.ListRuns)
+			agentRuns.GET("/:id", h.AgentRun.GetRun)
+			agentRuns.POST("/:id/cancel", h.AgentRun.CancelRun)
+			agentRuns.GET("/:id/artifacts", h.AgentRun.ListArtifacts)
+			agentRuns.GET("/:id/events", h.AgentRun.ListEvents)
+		}
+
 		// 用户可用分组（非管理员接口）
+		agentInputAssets := authenticated.Group("/agent-input-assets")
+		{
+			agentInputAssets.GET("", h.AgentRun.ListInputAssets)
+			agentInputAssets.POST("", h.AgentRun.UploadInputAsset)
+			agentInputAssets.GET("/:id/download-url", h.AgentRun.GetInputAssetDownloadURL)
+		}
+
+		agentArtifacts := authenticated.Group("/agent-artifacts")
+		{
+			agentArtifacts.GET("/:id/download-url", h.AgentRun.GetArtifactDownloadURL)
+		}
+
 		groups := authenticated.Group("/groups")
 		{
 			groups.GET("/available", h.APIKey.GetAvailableGroups)

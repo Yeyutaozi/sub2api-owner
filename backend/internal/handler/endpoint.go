@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -21,6 +23,10 @@ const (
 	EndpointResponses         = "/v1/responses"
 	EndpointImagesGenerations = "/v1/images/generations"
 	EndpointImagesEdits       = "/v1/images/edits"
+	EndpointAudioSpeech       = "/v1/audio/speech"
+	EndpointAudioTranscripts  = "/v1/audio/transcriptions"
+	EndpointAudioTranslations = "/v1/audio/translations"
+	EndpointVideos            = "/v1/videos"
 	EndpointGeminiModels      = "/v1beta/models"
 )
 
@@ -53,6 +59,14 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointImagesGenerations
 	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
 		return EndpointImagesEdits
+	case strings.Contains(path, EndpointAudioSpeech):
+		return EndpointAudioSpeech
+	case strings.Contains(path, EndpointAudioTranscripts):
+		return EndpointAudioTranscripts
+	case strings.Contains(path, EndpointAudioTranslations):
+		return EndpointAudioTranslations
+	case strings.Contains(path, EndpointVideos):
+		return EndpointVideos
 	case strings.Contains(path, EndpointResponses):
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
@@ -78,8 +92,19 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI:
-		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits {
+		if inbound == EndpointEmbeddings ||
+			inbound == EndpointImagesGenerations ||
+			inbound == EndpointImagesEdits ||
+			inbound == EndpointAudioSpeech ||
+			inbound == EndpointAudioTranscripts ||
+			inbound == EndpointAudioTranslations {
 			return inbound
+		}
+		if inbound == EndpointVideos {
+			if suffix := videosSubpathSuffix(rawRequestPath); suffix != "" {
+				return EndpointVideos + suffix
+			}
+			return EndpointVideos
 		}
 		// OpenAI forwards everything to the Responses API.
 		// Preserve subresource suffix (e.g. /v1/responses/compact).
@@ -120,6 +145,19 @@ func responsesSubpathSuffix(rawPath string) string {
 		return ""
 	}
 	if !strings.HasPrefix(suffix, "/") {
+		return ""
+	}
+	return suffix
+}
+
+func videosSubpathSuffix(rawPath string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawPath), "/")
+	idx := strings.LastIndex(trimmed, EndpointVideos)
+	if idx < 0 {
+		return ""
+	}
+	suffix := trimmed[idx+len(EndpointVideos):]
+	if suffix == "" || suffix == "/" || !strings.HasPrefix(suffix, "/") {
 		return ""
 	}
 	return suffix
@@ -180,4 +218,43 @@ func GetUpstreamEndpoint(c *gin.Context, platform string) string {
 		rawPath = c.Request.URL.Path
 	}
 	return DeriveUpstreamEndpoint(inbound, rawPath, platform)
+}
+
+// GetAgentUsageFields extracts app-center attribution propagated by the internal
+// Agent Model Proxy. It is intentionally conservative so normal gateway requests
+// do not get app metadata just because a client sent similarly named headers.
+func GetAgentUsageFields(c *gin.Context) service.AgentUsageFields {
+	if c == nil || c.Request == nil {
+		return service.AgentUsageFields{}
+	}
+	if strings.TrimSpace(c.GetHeader("User-Agent")) != "Sub2API-Agent-ModelProxy/1.0" {
+		return service.AgentUsageFields{}
+	}
+	if !isLoopbackRemote(c.Request.RemoteAddr) {
+		return service.AgentUsageFields{}
+	}
+	return service.AgentUsageFields{
+		AgentAppID:        positiveInt64Header(c, "X-Sub2API-Agent-App-ID"),
+		AgentAppVersionID: positiveInt64Header(c, "X-Sub2API-Agent-App-Version-ID"),
+		AgentRunID:        positiveInt64Header(c, "X-Sub2API-Agent-Run-ID"),
+		AgentNodeID:       strings.TrimSpace(c.GetHeader("X-Sub2API-Agent-Node-ID")),
+		AgentNodeRole:     strings.TrimSpace(c.GetHeader("X-Sub2API-Agent-Node-Role")),
+	}
+}
+
+func positiveInt64Header(c *gin.Context, name string) int64 {
+	value, err := strconv.ParseInt(strings.TrimSpace(c.GetHeader(name)), 10, 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
+}
+
+func isLoopbackRemote(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }

@@ -22,6 +22,254 @@ export interface FetchOptions {
   signal?: AbortSignal
 }
 
+// ==================== Agent App Center Types ====================
+
+export type AgentWorkerHostStatus = 'active' | 'disabled' | 'unhealthy'
+export type AgentWorkerHostHealthStatus = 'healthy' | 'unhealthy' | 'unknown'
+export type AgentWorkerAuthType = 'none' | 'hmac_run_token' | 'bearer'
+
+export interface AgentWorkerHost {
+  id: number
+  name: string
+  base_url: string
+  protocol: string
+  auth_type: AgentWorkerAuthType | string
+  secret_ref?: string
+  health_path: string
+  run_path: string
+  cancel_path?: string
+  max_concurrency: number
+  timeout_seconds: number
+  status: AgentWorkerHostStatus | string
+  last_health_status: AgentWorkerHostHealthStatus | string
+  last_health_message?: string
+  last_health_latency_ms?: number
+  last_checked_at?: string
+  metadata?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAgentWorkerHostRequest {
+  name: string
+  base_url: string
+  protocol?: string
+  auth_type?: AgentWorkerAuthType | string
+  secret_ref?: string
+  health_path?: string
+  run_path?: string
+  cancel_path?: string
+  max_concurrency?: number
+  timeout_seconds?: number
+  status?: AgentWorkerHostStatus | string
+  metadata?: Record<string, unknown>
+}
+
+export type UpdateAgentWorkerHostRequest = CreateAgentWorkerHostRequest
+
+export interface AgentWorkerHostHealthResult {
+  success: boolean
+  status: AgentWorkerHostHealthStatus | string
+  status_code?: number
+  latency_ms: number
+  message: string
+  checked_at: string
+  response?: {
+    status?: string
+    protocol?: string
+    version?: string
+    message?: string
+    capabilities?: string[]
+    routes?: Record<string, unknown>
+    max_concurrency?: number
+    metadata?: Record<string, unknown>
+  }
+  host: AgentWorkerHost
+}
+
+export type AgentAppType = 'prompt' | 'workflow' | 'agent' | 'external'
+export type AgentAppStatus = 'draft' | 'published' | 'disabled' | 'archived'
+export type AgentRuntimeType = 'worker' | 'prompt' | 'internal'
+
+export interface AgentApp {
+  id: number
+  name: string
+  slug: string
+  description?: string
+  icon_url?: string
+  category?: string
+  app_type: AgentAppType | string
+  visibility: 'public' | 'private' | string
+  status: AgentAppStatus | string
+  published_version_id?: number
+  created_by?: number
+  updated_by?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAgentAppRequest {
+  name: string
+  slug: string
+  description?: string
+  icon_url?: string
+  category?: string
+  app_type?: AgentAppType | string
+  visibility?: 'public' | 'private' | string
+  status?: AgentAppStatus | string
+}
+
+export interface AgentAppVersion {
+  id: number
+  app_id: number
+  version: string
+  status: AgentAppStatus | string
+  runtime_type: AgentRuntimeType | string
+  worker_host_id?: number
+  worker_route?: string
+  worker_health_route?: string
+  image_ref?: string
+  source_ref?: string
+  input_schema_json: Record<string, unknown>
+  output_schema_json: Record<string, unknown>
+  capabilities_json: Record<string, unknown>
+  default_model_config_json: Record<string, unknown>
+  node_model_policy_json: Record<string, unknown>
+  artifact_policy_json: Record<string, unknown>
+  changelog?: string
+  created_by?: number
+  published_at?: string
+  created_at: string
+  updated_at: string
+  worker_host?: AgentWorkerHost
+}
+
+export interface CreateAgentAppVersionRequest {
+  version: string
+  status?: AgentAppStatus | string
+  runtime_type?: AgentRuntimeType | string
+  worker_host_id?: number
+  worker_route?: string
+  worker_health_route?: string
+  image_ref?: string
+  source_ref?: string
+  input_schema_json?: Record<string, unknown>
+  output_schema_json?: Record<string, unknown>
+  capabilities_json?: Record<string, unknown>
+  default_model_config_json?: Record<string, unknown>
+  node_model_policy_json?: Record<string, unknown>
+  artifact_policy_json?: Record<string, unknown>
+  changelog?: string
+}
+
+export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'timeout'
+
+export interface AgentAppCatalog extends AgentApp {
+  published_version?: AgentAppVersion
+}
+
+export interface AgentArtifact {
+  id: number
+  run_id: number
+  artifact_type: 'input' | 'output' | 'log' | 'preview' | string
+  name: string
+  mime_type?: string
+  storage_provider: string
+  bucket?: string
+  object_key: string
+  object_url: string
+  size_bytes: number
+  sha256?: string
+  metadata_json: Record<string, unknown>
+  expires_at?: string
+  created_at: string
+}
+
+export interface AgentArtifactDownloadURL {
+  artifact_id: number
+  url: string
+  expires_at?: string
+}
+
+export interface AgentInputAsset {
+  id: number
+  run_id?: number
+  user_id: number
+  app_id?: number
+  field_name?: string
+  asset_type: 'image' | 'file' | 'audio' | 'video' | string
+  asset_role?: string
+  name: string
+  mime_type?: string
+  storage_provider: string
+  bucket?: string
+  object_key: string
+  object_url: string
+  size_bytes: number
+  sha256?: string
+  metadata_json: Record<string, unknown>
+  expires_at?: string
+  created_at: string
+}
+
+export interface AgentInputAssetDownloadURL {
+  input_asset_id: number
+  url: string
+  expires_at?: string
+}
+
+export interface AgentRun {
+  id: number
+  app_id: number
+  app_version_id: number
+  user_id: number
+  api_key_id: number
+  worker_host_id?: number
+  status: AgentRunStatus | string
+  input_ref_url?: string
+  input_summary_json: Record<string, unknown>
+  output_ref_url?: string
+  output_summary_json: Record<string, unknown>
+  error_code?: string
+  error_message?: string
+  usage_json: Record<string, unknown>
+  started_at?: string
+  completed_at?: string
+  expires_at?: string
+  created_at: string
+  updated_at: string
+  artifacts?: AgentArtifact[]
+}
+
+export interface AgentRunEvent {
+  id: number
+  run_id: number
+  event_type: string
+  status?: string
+  node_id?: string
+  role?: string
+  message?: string
+  progress?: number
+  metadata_json: Record<string, unknown>
+  created_at: string
+}
+
+export interface CreateAgentRunRequest {
+  app_version_id?: number
+  api_key_id: number
+  api_key_bindings?: AgentRunKeyBindingRequest[]
+  input_asset_ids?: number[]
+  input?: Record<string, unknown>
+  input_ref_url?: string
+}
+
+export interface AgentRunKeyBindingRequest {
+  policy_key: string
+  node_id?: string
+  role?: string
+  api_key_id: number
+}
+
 // ==================== Notification Types ====================
 
 /** Notification email entry with enable/disable and verification state.
@@ -1218,6 +1466,11 @@ export interface UsageLog {
   reasoning_effort?: string | null
   inbound_endpoint?: string | null
   upstream_endpoint?: string | null
+  agent_app_id?: number | null
+  agent_app_version_id?: number | null
+  agent_run_id?: number | null
+  agent_node_id?: string | null
+  agent_node_role?: string | null
 
   group_id: number | null
   subscription_id: number | null

@@ -75,6 +75,15 @@ func (h *UsageHandler) List(c *gin.Context) {
 
 	// Parse additional filters
 	model := c.Query("model")
+	var agentRunID int64
+	if raw := strings.TrimSpace(c.Query("agent_run_id")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			response.BadRequest(c, "Invalid agent_run_id")
+			return
+		}
+		agentRunID = value
+	}
 
 	var requestType *int16
 	var stream *bool
@@ -138,6 +147,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 	filters := usagestats.UsageLogFilters{
 		UserID:      subject.UserID, // Always filter by current user for security
 		APIKeyID:    apiKeyID,
+		AgentRunID:  agentRunID,
 		Model:       model,
 		RequestType: requestType,
 		Stream:      stream,
