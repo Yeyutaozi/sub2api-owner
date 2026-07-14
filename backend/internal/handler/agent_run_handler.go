@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -400,7 +403,7 @@ func (h *AgentRunHandler) ModelProxy(c *gin.Context) {
 	if req.RunID == 0 {
 		req.RunID = runID
 	}
-	result, err := h.runService.HandleModelProxy(c.Request.Context(), runID, service.ModelProxyRequest{
+	proxyRequest := service.ModelProxyRequest{
 		RunID:       req.RunID,
 		NodeID:      strings.TrimSpace(req.NodeID),
 		Role:        strings.TrimSpace(req.Role),
@@ -414,12 +417,71 @@ func (h *AgentRunHandler) ModelProxy(c *gin.Context) {
 		Multipart:   req.Multipart,
 		Request:     req.Request,
 		Metadata:    req.Metadata,
-	}, runToken)
+	}
+	if stream, _ := proxyRequest.Request["stream"].(bool); stream {
+		h.streamModelProxy(c, runID, proxyRequest, runToken)
+		return
+	}
+	result, err := h.runService.HandleModelProxy(c.Request.Context(), runID, proxyRequest, runToken)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h *AgentRunHandler) streamModelProxy(c *gin.Context, runID int64, req service.ModelProxyRequest, runToken string) {
+	stream, err := h.runService.OpenModelProxyStream(c.Request.Context(), runID, req, runToken)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if stream == nil || stream.Response == nil || stream.Response.Body == nil {
+		response.InternalError(c, "Streaming model proxy is unavailable")
+		return
+	}
+	defer func() { _ = stream.Response.Body.Close() }()
+	streamErr := writeAgentModelProxyStream(c, stream.Response)
+	h.runService.FinishModelProxyStream(context.WithoutCancel(c.Request.Context()), stream, streamErr)
+}
+
+func writeAgentModelProxyStream(c *gin.Context, stream *service.ModelProxyStreamResponse) error {
+	for name, value := range stream.Headers {
+		if strings.EqualFold(name, "Content-Type") || strings.EqualFold(name, "Content-Length") {
+			continue
+		}
+		c.Header(name, value)
+	}
+	contentType := strings.TrimSpace(stream.ContentType)
+	if contentType == "" {
+		contentType = "text/event-stream"
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	status := stream.Status
+	if status <= 0 {
+		status = http.StatusOK
+	}
+	c.Status(status)
+	c.Writer.Flush()
+
+	buffer := make([]byte, 32*1024)
+	for {
+		readCount, readErr := stream.Body.Read(buffer)
+		if readCount > 0 {
+			if _, writeErr := c.Writer.Write(buffer[:readCount]); writeErr != nil {
+				return writeErr
+			}
+			c.Writer.Flush()
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				return readErr
+			}
+			return nil
+		}
+	}
 }
 
 func (h *AgentRunHandler) RegisterArtifact(c *gin.Context) {

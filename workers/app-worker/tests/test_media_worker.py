@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -21,12 +22,38 @@ from sub2api_worker import main as worker  # noqa: E402
 REAL_ASYNC_CLIENT = httpx.AsyncClient
 
 
+class TrackingAsyncStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.exhausted = False
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            yield chunk
+        self.exhausted = True
+
+    async def aclose(self) -> None:
+        return None
+
+
+class BlockingAsyncTransport(httpx.AsyncBaseTransport):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("blocking transport should be canceled")
+
+
 class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         worker.canceled_runs.clear()
+        worker.active_model_proxy_tasks.clear()
 
     def tearDown(self) -> None:
         worker.canceled_runs.clear()
+        worker.active_model_proxy_tasks.clear()
 
     def payload(
         self,
@@ -322,6 +349,122 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
             callback_body["error"],
         )
         self.assertEqual("VIDEO_GENERATION_FAILED", callback_body["metadata"]["error_code"])
+
+    async def test_call_model_proxy_collects_sse_text_and_usage(self) -> None:
+        stream = TrackingAsyncStream(
+            [
+                b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+                b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+                b'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}}\n\n',
+                b"data: [DONE]\n\n",
+                b": stream closed\n\n",
+            ]
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            self.assertTrue(body["request"]["stream"])
+            self.assertTrue(body["request"]["stream_options"]["include_usage"])
+            self.assertEqual("text/event-stream", request.headers["Accept"])
+            return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=stream)
+
+        on_text = AsyncMock()
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            result = await worker.call_model_proxy(
+                self.payload(input_values={"prompt": "hello"}),
+                worker.SelectedPolicy(
+                    policy_key="text.generate",
+                    node_id="text",
+                    role="generate",
+                    model="gpt-5-mini",
+                    capability="text",
+                ),
+                "hello",
+                on_text=on_text,
+            )
+
+        self.assertEqual("Hello world", result["response"]["text"])
+        self.assertEqual(4, result["usage"]["total_tokens"])
+        self.assertEqual(2, on_text.await_count)
+        self.assertEqual("Hello world", on_text.await_args_list[-1].args[0])
+        self.assertTrue(stream.exhausted)
+
+    async def test_process_run_batches_partial_text_callbacks(self) -> None:
+        callbacks: list[dict[str, object]] = []
+        payload = self.payload(input_values={"prompt": "hello"})
+        payload.node_model_policy = {
+            "text.generate": worker.ModelPolicy(
+                node_id="text",
+                role="generate",
+                model="gpt-5-mini",
+                capability="text",
+                required=True,
+            )
+        }
+
+        async def capture_callback(_: worker.WorkerRunRequest, event_type: str, **kwargs: object) -> None:
+            callbacks.append({"event_type": event_type, **kwargs})
+
+        async def fake_model_proxy(
+            _: worker.WorkerRunRequest,
+            __: worker.SelectedPolicy,
+            ___: str,
+            *,
+            on_text=None,
+        ) -> dict[str, object]:
+            self.assertIsNotNone(on_text)
+            await on_text("Hello")
+            await on_text("Hello world")
+            return {
+                "response": {"text": "Hello world"},
+                "usage": {"total_tokens": 4},
+                "metadata": {"stream": True},
+            }
+
+        with (
+            patch.object(worker, "callback", side_effect=capture_callback),
+            patch.object(worker, "call_model_proxy", side_effect=fake_model_proxy),
+            patch.object(worker.time, "monotonic", side_effect=[0.0, 2.0, 2.1]),
+        ):
+            await worker.process_run(payload, "worker-stream")
+
+        progress_callbacks = [item for item in callbacks if item["event_type"] == "progress" and item.get("output")]
+        self.assertEqual(1, len(progress_callbacks))
+        progress_output = progress_callbacks[0]["output"]
+        self.assertIsInstance(progress_output, dict)
+        self.assertEqual("Hello", progress_output["result"])
+        self.assertTrue(progress_output["partial"])
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        final_output = callbacks[-1]["output"]
+        self.assertIsInstance(final_output, dict)
+        self.assertEqual("Hello world", final_output["result"])
+
+    async def test_model_proxy_wait_is_canceled_before_response_headers(self) -> None:
+        payload = self.payload(input_values={"prompt": "hello"})
+        transport = BlockingAsyncTransport()
+        client_factory = self.client_factory(transport)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=client_factory):
+            task = asyncio.create_task(
+                worker.call_model_proxy(
+                    payload,
+                    worker.SelectedPolicy(
+                        policy_key="text.generate",
+                        node_id="text",
+                        role="generate",
+                        model="gpt-5-mini",
+                        capability="text",
+                    ),
+                    "hello",
+                )
+            )
+            await transport.started.wait()
+            worker.canceled_runs.add(payload.run_id)
+            worker.cancel_active_model_proxy_task(payload.run_id)
+            with self.assertRaises(worker.WorkerCanceled):
+                await task
+
+        self.assertNotIn(payload.run_id, worker.active_model_proxy_tasks)
 
     def test_official_media_capability_aliases_are_selected(self) -> None:
         payload = self.payload()

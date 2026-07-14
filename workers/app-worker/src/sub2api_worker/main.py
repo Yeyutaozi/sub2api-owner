@@ -9,7 +9,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -27,12 +27,14 @@ CALLBACK_TIMEOUT_SECONDS = float(os.getenv("CALLBACK_TIMEOUT_SECONDS", "30"))
 MAX_REMOTE_ARTIFACT_BYTES = int(os.getenv("MAX_REMOTE_ARTIFACT_BYTES", str(100 * 1024 * 1024)))
 MAX_MODEL_PROXY_ASSET_BYTES = int(os.getenv("MAX_MODEL_PROXY_ASSET_BYTES", str(60 * 1024 * 1024)))
 VIDEO_POLL_INTERVAL_SECONDS = max(float(os.getenv("VIDEO_POLL_INTERVAL_SECONDS", "2")), 0.2)
+STREAM_PROGRESS_INTERVAL_SECONDS = max(float(os.getenv("STREAM_PROGRESS_INTERVAL_SECONDS", "1")), 0.2)
 VERIFY_WORKER_SIGNATURE = os.getenv("VERIFY_WORKER_SIGNATURE", "true").lower() not in {"0", "false", "no"}
 SIGNATURE_MAX_AGE_SECONDS = int(os.getenv("SIGNATURE_MAX_AGE_SECONDS", "300"))
 
 app = FastAPI(title="Sub2API App Worker", version=WORKER_VERSION)
 run_semaphore = asyncio.Semaphore(max(MAX_CONCURRENCY, 1))
 canceled_runs: set[int] = set()
+active_model_proxy_tasks: dict[int, asyncio.Task[Any]] = {}
 
 
 class LooseModel(BaseModel):
@@ -103,6 +105,10 @@ class WorkerFailure(Exception):
         self.code = code
         self.message = message
         super().__init__(message)
+
+
+class WorkerCanceled(Exception):
+    pass
 
 
 @app.get("/")
@@ -183,6 +189,7 @@ async def cancel_run(request: Request) -> dict[str, Any]:
 
     verify_signature_or_raise(payload.run_token, request, raw_body)
     canceled_runs.add(payload.run_id)
+    cancel_active_model_proxy_task(payload.run_id)
     return {
         "accepted": True,
         "status": "canceled",
@@ -253,7 +260,40 @@ async def process_run(payload: WorkerRunRequest, worker_run_id: str) -> None:
                 await callback(payload, "canceled", status="canceled", message="Run canceled before model call")
                 return
 
-            proxy_result = await call_model_proxy(payload, selected_policy, prompt)
+            last_stream_callback_at = time.monotonic()
+
+            async def report_stream_progress(partial_text: str) -> None:
+                nonlocal last_stream_callback_at
+                if is_canceled(payload.run_id):
+                    raise WorkerCanceled()
+                now = time.monotonic()
+                if now - last_stream_callback_at < STREAM_PROGRESS_INTERVAL_SECONDS:
+                    return
+                last_stream_callback_at = now
+                await callback(
+                    payload,
+                    "progress",
+                    status="running",
+                    node_id=selected_policy.node_id,
+                    role=selected_policy.role,
+                    progress=0.65,
+                    message="Streaming model response",
+                    output={
+                        "result": partial_text,
+                        "model": selected_policy.model,
+                        "node": selected_policy.node_id,
+                        "partial": True,
+                    },
+                    metadata={
+                        "worker_run_id": worker_run_id,
+                        "policy_key": selected_policy.policy_key,
+                        "model": selected_policy.model,
+                        "stream": True,
+                        "uses_model_proxy": True,
+                    },
+                )
+
+            proxy_result = await call_model_proxy(payload, selected_policy, prompt, on_text=report_stream_progress)
             text = extract_model_text(proxy_result.get("response", {}))
             if not text:
                 text = "The model call completed, but no displayable text was returned."
@@ -661,6 +701,8 @@ async def process_video_run(
                 endpoint=f"/v1/videos/{video_id}/content",
                 method="GET",
             )
+        except WorkerCanceled:
+            await callback(payload, "canceled", status="canceled", message="Run canceled during model stream")
         except WorkerFailure as exc:
             if exc.code != "MODEL_PROXY_FAILED" or not completed_media or not completed_media.get("url"):
                 raise
@@ -706,7 +748,13 @@ async def process_video_run(
     )
 
 
-async def call_model_proxy(payload: WorkerRunRequest, policy: SelectedPolicy, prompt: str) -> dict[str, Any]:
+async def call_model_proxy(
+    payload: WorkerRunRequest,
+    policy: SelectedPolicy,
+    prompt: str,
+    *,
+    on_text: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     model_request: dict[str, Any] = {
         "model": policy.model,
         "messages": [
@@ -715,7 +763,8 @@ async def call_model_proxy(payload: WorkerRunRequest, policy: SelectedPolicy, pr
                 "content": build_message_content(prompt, input_artifacts(payload)),
             }
         ],
-        "stream": False,
+        "stream": True,
+        "stream_options": {"include_usage": True},
     }
     body: dict[str, Any] = {
         "run_id": payload.run_id,
@@ -735,17 +784,137 @@ async def call_model_proxy(payload: WorkerRunRequest, policy: SelectedPolicy, pr
 
     headers = {
         "Content-Type": "application/json",
-        "Accept": "application/json",
+        "Accept": "text/event-stream",
         "X-Sub2API-Run-Token": payload.run_token,
         "X-Sub2API-Agent-Run-Token": payload.run_token,
     }
-    async with httpx.AsyncClient(timeout=MODEL_PROXY_TIMEOUT_SECONDS) as client:
-        response = await client.post(payload.model_proxy_url, json=body, headers=headers)
-    if response.status_code >= 400:
-        raise WorkerFailure("MODEL_PROXY_FAILED", truncate(response.text, 1000))
+    current_task = asyncio.current_task()
+    if current_task is not None:
+        active_model_proxy_tasks[payload.run_id] = current_task
+    try:
+        async with httpx.AsyncClient(timeout=MODEL_PROXY_TIMEOUT_SECONDS) as client:
+            async with client.stream("POST", payload.model_proxy_url, json=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    raw = await response.aread()
+                    raise WorkerFailure("MODEL_PROXY_FAILED", truncate(raw.decode("utf-8", errors="replace"), 1000))
 
-    data = response.json()
-    return unwrap_sub2api_response(data)
+                content_type = response.headers.get("content-type", "").lower()
+                if "text/event-stream" not in content_type:
+                    raw = await response.aread()
+                    try:
+                        return unwrap_sub2api_response(json.loads(raw))
+                    except (TypeError, ValueError) as exc:
+                        raise WorkerFailure("MODEL_PROXY_STREAM_INVALID", "Model proxy returned an invalid streaming response.") from exc
+
+                event_type = ""
+                done_received = False
+                text_parts: list[str] = []
+                usage: dict[str, Any] = {}
+                async for line in response.aiter_lines():
+                    if is_canceled(payload.run_id):
+                        raise WorkerCanceled()
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                        continue
+                    if not line.startswith("data:"):
+                        if not line:
+                            event_type = ""
+                        continue
+                    data = line[5:].strip()
+                    if not data:
+                        continue
+                    if data == "[DONE]":
+                        done_received = True
+                        continue
+                    if done_received:
+                        continue
+                    try:
+                        event_payload = json.loads(data)
+                    except ValueError as exc:
+                        raise WorkerFailure("MODEL_PROXY_STREAM_INVALID", "Model proxy returned invalid SSE JSON.") from exc
+                    if not isinstance(event_payload, dict):
+                        continue
+                    error_message = model_stream_error_message(event_type, event_payload)
+                    if error_message:
+                        raise WorkerFailure("MODEL_PROXY_STREAM_FAILED", error_message)
+                    stream_usage = model_stream_usage(event_payload)
+                    if stream_usage:
+                        usage = stream_usage
+                    delta = model_stream_text_delta(event_type, event_payload)
+                    if not delta:
+                        continue
+                    text_parts.append(delta)
+                    if on_text is not None:
+                        await on_text("".join(text_parts))
+    except asyncio.CancelledError as exc:
+        if is_canceled(payload.run_id):
+            raise WorkerCanceled() from exc
+        raise
+    finally:
+        if current_task is not None and active_model_proxy_tasks.get(payload.run_id) is current_task:
+            active_model_proxy_tasks.pop(payload.run_id, None)
+
+    return {
+        "response": {"text": "".join(text_parts)},
+        "usage": usage,
+        "status": 200,
+        "content_type": "text/event-stream",
+        "metadata": {"stream": True},
+    }
+
+
+def model_stream_text_delta(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type in {"response.output_text.delta", "response.refusal.delta"}:
+        delta = payload.get("delta")
+        return delta if isinstance(delta, str) else ""
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        delta = choices[0].get("delta")
+        if isinstance(delta, dict):
+            return stream_content_text(delta.get("content"))
+    delta = payload.get("delta")
+    if isinstance(delta, str):
+        return delta
+    return ""
+
+
+def stream_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text") or item.get("content")
+        if isinstance(text, str):
+            parts.append(text)
+    return "".join(parts)
+
+
+def model_stream_usage(payload: dict[str, Any]) -> dict[str, Any]:
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        return usage
+    response = payload.get("response")
+    if isinstance(response, dict) and isinstance(response.get("usage"), dict):
+        return response["usage"]
+    return {}
+
+
+def model_stream_error_message(event_type: str, payload: dict[str, Any]) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    if event_type == "error" or payload.get("type") == "error":
+        message = payload.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+        return "Model proxy stream failed."
+    return ""
 
 
 async def call_image_model_proxy(payload: WorkerRunRequest, policy: SelectedPolicy, prompt: str) -> dict[str, Any]:
@@ -1585,6 +1754,12 @@ def policy_key_parts(policy_key: str) -> tuple[str, str]:
 
 def is_canceled(run_id: int) -> bool:
     return run_id in canceled_runs
+
+
+def cancel_active_model_proxy_task(run_id: int) -> None:
+    task = active_model_proxy_tasks.get(run_id)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def truncate(value: str, limit: int) -> str:

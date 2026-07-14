@@ -52,71 +52,13 @@ func NewAgentModelProxyGatewayCaller(cfg *config.Config) *AgentModelProxyGateway
 }
 
 func (c *AgentModelProxyGatewayCaller) CallModelProxy(ctx context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyResponse, error) {
-	if c == nil || c.httpClient == nil {
-		return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_UNAVAILABLE", "model proxy is not configured")
-	}
-	if apiKey == nil || strings.TrimSpace(apiKey.Key) == "" {
-		return nil, infraerrors.Forbidden("AGENT_MODEL_PROXY_API_KEY_UNAVAILABLE", "api key is unavailable")
-	}
-	req.Model = strings.TrimSpace(req.Model)
-	if req.Model == "" {
-		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_MODEL_REQUIRED", "model is required")
-	}
-	endpoint := normalizeModelProxyEndpoint(req.Endpoint)
-	if endpoint == "" {
-		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_ENDPOINT_UNSUPPORTED", "model proxy endpoint is unsupported")
-	}
-	method := normalizeModelProxyMethod(req.Method)
-	if method == "" || (!isModelProxyMediaEndpoint(endpoint) && method != http.MethodPost) {
-		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_METHOD_UNSUPPORTED", "model proxy http method is unsupported")
-	}
 	if stream, _ := req.Request["stream"].(bool); stream {
 		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_UNSUPPORTED", "streaming model proxy is not supported yet")
 	}
-
-	body, contentType, err := buildModelProxyRequestBody(req, method)
+	httpReq, endpoint, method, err := c.buildModelProxyHTTPRequest(ctx, req, apiKey, "")
 	if err != nil {
 		return nil, err
 	}
-	var bodyReader io.Reader
-	if len(body) > 0 {
-		bodyReader = bytes.NewReader(body)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint, bodyReader)
-	if err != nil {
-		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_REQUEST_INVALID", "model proxy request is invalid").WithCause(err)
-	}
-	if contentType != "" {
-		httpReq.Header.Set("Content-Type", contentType)
-	}
-	if isModelProxyMediaEndpoint(endpoint) {
-		httpReq.Header.Set("Accept", "*/*")
-	} else {
-		httpReq.Header.Set("Accept", "application/json")
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
-	httpReq.Header.Set("User-Agent", "Sub2API-Agent-ModelProxy/1.0")
-	httpReq.Header.Set("X-Sub2API-Agent-Run-ID", strconv.FormatInt(req.RunID, 10))
-	if req.RunID > 0 {
-		httpReq.Header.Set("session_id", "agent-run-"+strconv.FormatInt(req.RunID, 10))
-	}
-	httpReq.Header.Set("X-Sub2API-Model", req.Model)
-	if appID := int64FromMap(req.Metadata, "agent_app_id"); appID > 0 {
-		httpReq.Header.Set("X-Sub2API-Agent-App-ID", strconv.FormatInt(appID, 10))
-	}
-	if versionID := int64FromMap(req.Metadata, "agent_app_version_id"); versionID > 0 {
-		httpReq.Header.Set("X-Sub2API-Agent-App-Version-ID", strconv.FormatInt(versionID, 10))
-	}
-	if nodeID := strings.TrimSpace(req.NodeID); nodeID != "" {
-		httpReq.Header.Set("X-Sub2API-Agent-Node-ID", nodeID)
-	}
-	if role := strings.TrimSpace(req.Role); role != "" {
-		httpReq.Header.Set("X-Sub2API-Agent-Node-Role", role)
-	}
-	if req.GroupID != nil {
-		httpReq.Header.Set("X-Sub2API-Agent-Model-Group-ID", strconv.FormatInt(*req.GroupID, 10))
-	}
-	SignAgentModelProxyInternalRequest(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -164,6 +106,125 @@ func (c *AgentModelProxyGatewayCaller) CallModelProxy(ctx context.Context, req M
 			"status_code": resp.StatusCode,
 		},
 	}, nil
+}
+
+func (c *AgentModelProxyGatewayCaller) CallModelProxyStream(ctx context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyStreamResponse, error) {
+	stream, _ := req.Request["stream"].(bool)
+	if !stream {
+		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_REQUIRED", "streaming model proxy requires stream=true")
+	}
+	httpReq, endpoint, _, err := c.buildModelProxyHTTPRequest(ctx, req, apiKey, "text/event-stream")
+	if err != nil {
+		return nil, err
+	}
+	if endpoint != "/v1/chat/completions" && endpoint != "/v1/responses" {
+		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_ENDPOINT_UNSUPPORTED", "streaming is only supported for chat completions and responses")
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_REQUEST_FAILED", "model proxy request failed").WithCause(err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer func() { _ = resp.Body.Close() }()
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, agentModelProxyMaxResponseBytes+1))
+		if readErr != nil {
+			return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_RESPONSE_READ_FAILED", "model proxy response read failed").WithCause(readErr)
+		}
+		if len(raw) > agentModelProxyMaxResponseBytes {
+			return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_RESPONSE_TOO_LARGE", "model proxy response exceeds the maximum supported size")
+		}
+		var payload map[string]any
+		if json.Valid(raw) {
+			_ = json.Unmarshal(raw, &payload)
+		}
+		return nil, infraerrors.New(resp.StatusCode, "AGENT_MODEL_PROXY_UPSTREAM_ERROR", modelProxyErrorMessage(resp.StatusCode, payload, raw))
+	}
+
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	mediaType, _, parseErr := mime.ParseMediaType(contentType)
+	if parseErr != nil || !strings.EqualFold(mediaType, "text/event-stream") {
+		_ = resp.Body.Close()
+		return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_STREAM_INVALID", "model proxy did not return an SSE stream")
+	}
+	return &ModelProxyStreamResponse{
+		Status:      resp.StatusCode,
+		ContentType: contentType,
+		Headers:     modelProxyResponseHeaders(resp.Header),
+		Body:        resp.Body,
+	}, nil
+}
+
+func (c *AgentModelProxyGatewayCaller) buildModelProxyHTTPRequest(
+	ctx context.Context,
+	req ModelProxyRequest,
+	apiKey *APIKey,
+	accept string,
+) (*http.Request, string, string, error) {
+	if c == nil || c.httpClient == nil {
+		return nil, "", "", infraerrors.InternalServer("AGENT_MODEL_PROXY_UNAVAILABLE", "model proxy is not configured")
+	}
+	if apiKey == nil || strings.TrimSpace(apiKey.Key) == "" {
+		return nil, "", "", infraerrors.Forbidden("AGENT_MODEL_PROXY_API_KEY_UNAVAILABLE", "api key is unavailable")
+	}
+	req.Model = strings.TrimSpace(req.Model)
+	if req.Model == "" {
+		return nil, "", "", infraerrors.BadRequest("AGENT_MODEL_PROXY_MODEL_REQUIRED", "model is required")
+	}
+	endpoint := normalizeModelProxyEndpoint(req.Endpoint)
+	if endpoint == "" {
+		return nil, "", "", infraerrors.BadRequest("AGENT_MODEL_PROXY_ENDPOINT_UNSUPPORTED", "model proxy endpoint is unsupported")
+	}
+	method := normalizeModelProxyMethod(req.Method)
+	if method == "" || (!isModelProxyMediaEndpoint(endpoint) && method != http.MethodPost) {
+		return nil, "", "", infraerrors.BadRequest("AGENT_MODEL_PROXY_METHOD_UNSUPPORTED", "model proxy http method is unsupported")
+	}
+	body, contentType, err := buildModelProxyRequestBody(req, method)
+	if err != nil {
+		return nil, "", "", err
+	}
+	var bodyReader io.Reader
+	if len(body) > 0 {
+		bodyReader = bytes.NewReader(body)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint, bodyReader)
+	if err != nil {
+		return nil, "", "", infraerrors.BadRequest("AGENT_MODEL_PROXY_REQUEST_INVALID", "model proxy request is invalid").WithCause(err)
+	}
+	if contentType != "" {
+		httpReq.Header.Set("Content-Type", contentType)
+	}
+	if accept != "" {
+		httpReq.Header.Set("Accept", accept)
+	} else if isModelProxyMediaEndpoint(endpoint) {
+		httpReq.Header.Set("Accept", "*/*")
+	} else {
+		httpReq.Header.Set("Accept", "application/json")
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	httpReq.Header.Set("User-Agent", "Sub2API-Agent-ModelProxy/1.0")
+	httpReq.Header.Set("X-Sub2API-Agent-Run-ID", strconv.FormatInt(req.RunID, 10))
+	if req.RunID > 0 {
+		httpReq.Header.Set("session_id", "agent-run-"+strconv.FormatInt(req.RunID, 10))
+	}
+	httpReq.Header.Set("X-Sub2API-Model", req.Model)
+	if appID := int64FromMap(req.Metadata, "agent_app_id"); appID > 0 {
+		httpReq.Header.Set("X-Sub2API-Agent-App-ID", strconv.FormatInt(appID, 10))
+	}
+	if versionID := int64FromMap(req.Metadata, "agent_app_version_id"); versionID > 0 {
+		httpReq.Header.Set("X-Sub2API-Agent-App-Version-ID", strconv.FormatInt(versionID, 10))
+	}
+	if nodeID := strings.TrimSpace(req.NodeID); nodeID != "" {
+		httpReq.Header.Set("X-Sub2API-Agent-Node-ID", nodeID)
+	}
+	if role := strings.TrimSpace(req.Role); role != "" {
+		httpReq.Header.Set("X-Sub2API-Agent-Node-Role", role)
+	}
+	if req.GroupID != nil {
+		httpReq.Header.Set("X-Sub2API-Agent-Model-Group-ID", strconv.FormatInt(*req.GroupID, 10))
+	}
+	SignAgentModelProxyInternalRequest(httpReq)
+	return httpReq, endpoint, method, nil
 }
 
 func normalizeModelProxyMethod(method string) string {

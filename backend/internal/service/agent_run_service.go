@@ -1193,7 +1193,14 @@ func (s *AgentRunService) HandleCallback(ctx context.Context, req WorkerCallback
 	return s.runRepo.GetRunByID(ctx, run.ID)
 }
 
-func (s *AgentRunService) HandleModelProxy(ctx context.Context, runID int64, req ModelProxyRequest, runToken string) (*ModelProxyResponse, error) {
+type preparedAgentModelProxy struct {
+	run           *AgentRun
+	request       ModelProxyRequest
+	apiKey        *APIKey
+	eventMetadata map[string]any
+}
+
+func (s *AgentRunService) prepareModelProxy(ctx context.Context, runID int64, req ModelProxyRequest, runToken string) (*preparedAgentModelProxy, error) {
 	if runID <= 0 {
 		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_RUN_ID_INVALID", "run id invalid")
 	}
@@ -1245,9 +1252,6 @@ func (s *AgentRunService) HandleModelProxy(ctx context.Context, runID int64, req
 	if req.Request == nil {
 		req.Request = map[string]any{}
 	}
-	if stream, _ := req.Request["stream"].(bool); stream {
-		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_UNSUPPORTED", "streaming model proxy is not supported yet")
-	}
 	if _, ok := req.Request["model"]; !ok {
 		req.Request["model"] = req.Model
 	}
@@ -1283,8 +1287,6 @@ func (s *AgentRunService) HandleModelProxy(ctx context.Context, runID int64, req
 		req.Metadata["agent_model_group_id"] = *req.GroupID
 	}
 	req.Metadata["agent_api_key_id"] = apiKey.ID
-
-	resp, err := s.modelProxy.CallModelProxy(ctx, req, apiKey)
 	eventMetadata := map[string]any{
 		"model":      req.Model,
 		"endpoint":   req.Endpoint,
@@ -1297,15 +1299,93 @@ func (s *AgentRunService) HandleModelProxy(ctx context.Context, runID int64, req
 	if resolvedPolicy != nil && resolvedPolicy.PolicyKey != "" {
 		eventMetadata["policy_key"] = resolvedPolicy.PolicyKey
 	}
-	if resp != nil && resp.Usage != nil {
-		eventMetadata["usage"] = resp.Usage
-	}
+	return &preparedAgentModelProxy{
+		run:           run,
+		request:       req,
+		apiKey:        apiKey,
+		eventMetadata: eventMetadata,
+	}, nil
+}
+
+func (s *AgentRunService) HandleModelProxy(ctx context.Context, runID int64, req ModelProxyRequest, runToken string) (*ModelProxyResponse, error) {
+	prepared, err := s.prepareModelProxy(ctx, runID, req, runToken)
 	if err != nil {
-		s.recordRunEvent(ctx, run, AgentRunEventModelProxy, AgentRunStatusFailed, req.NodeID, req.Role, err.Error(), nil, eventMetadata)
 		return nil, err
 	}
-	s.recordRunEvent(ctx, run, AgentRunEventModelProxy, AgentRunStatusSucceeded, req.NodeID, req.Role, "model proxy completed", nil, eventMetadata)
+	if isModelProxyStreamingRequest(prepared.request) {
+		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_HANDLER_REQUIRED", "streaming model proxy must use the streaming handler")
+	}
+
+	resp, err := s.modelProxy.CallModelProxy(ctx, prepared.request, prepared.apiKey)
+	if resp != nil && resp.Usage != nil {
+		prepared.eventMetadata["usage"] = resp.Usage
+	}
+	if err != nil {
+		s.recordRunEvent(ctx, prepared.run, AgentRunEventModelProxy, AgentRunStatusFailed, prepared.request.NodeID, prepared.request.Role, err.Error(), nil, prepared.eventMetadata)
+		return nil, err
+	}
+	s.recordRunEvent(ctx, prepared.run, AgentRunEventModelProxy, AgentRunStatusSucceeded, prepared.request.NodeID, prepared.request.Role, "model proxy completed", nil, prepared.eventMetadata)
 	return resp, nil
+}
+
+func (s *AgentRunService) OpenModelProxyStream(ctx context.Context, runID int64, req ModelProxyRequest, runToken string) (*AgentModelProxyStream, error) {
+	prepared, err := s.prepareModelProxy(ctx, runID, req, runToken)
+	if err != nil {
+		return nil, err
+	}
+	if !isModelProxyStreamingRequest(prepared.request) {
+		return nil, infraerrors.BadRequest("AGENT_MODEL_PROXY_STREAM_REQUIRED", "streaming model proxy requires stream=true")
+	}
+	streamGateway, ok := s.modelProxy.(ModelProxyStreamGatewayCaller)
+	if !ok {
+		return nil, infraerrors.InternalServer("AGENT_MODEL_PROXY_STREAM_UNAVAILABLE", "streaming model proxy is not configured")
+	}
+	startedAt := time.Now()
+	resp, err := streamGateway.CallModelProxyStream(ctx, prepared.request, prepared.apiKey)
+	if err != nil {
+		metadata := cloneModelProxyEventMetadata(prepared.eventMetadata)
+		metadata["stream"] = true
+		s.recordRunEvent(ctx, prepared.run, AgentRunEventModelProxy, AgentRunStatusFailed, prepared.request.NodeID, prepared.request.Role, err.Error(), nil, metadata)
+		return nil, err
+	}
+	return &AgentModelProxyStream{
+		Response:      resp,
+		run:           prepared.run,
+		request:       prepared.request,
+		eventMetadata: prepared.eventMetadata,
+		startedAt:     startedAt,
+	}, nil
+}
+
+func (s *AgentRunService) FinishModelProxyStream(ctx context.Context, stream *AgentModelProxyStream, streamErr error) {
+	if stream == nil || stream.run == nil {
+		return
+	}
+	metadata := cloneModelProxyEventMetadata(stream.eventMetadata)
+	metadata["stream"] = true
+	metadata["duration_ms"] = time.Since(stream.startedAt).Milliseconds()
+	if stream.Response != nil {
+		metadata["status_code"] = stream.Response.Status
+	}
+	if streamErr != nil {
+		metadata["error"] = streamErr.Error()
+		s.recordRunEvent(ctx, stream.run, AgentRunEventModelProxy, AgentRunStatusFailed, stream.request.NodeID, stream.request.Role, "model proxy stream interrupted", nil, metadata)
+		return
+	}
+	s.recordRunEvent(ctx, stream.run, AgentRunEventModelProxy, AgentRunStatusSucceeded, stream.request.NodeID, stream.request.Role, "model proxy stream completed", nil, metadata)
+}
+
+func isModelProxyStreamingRequest(req ModelProxyRequest) bool {
+	stream, _ := req.Request["stream"].(bool)
+	return stream
+}
+
+func cloneModelProxyEventMetadata(source map[string]any) map[string]any {
+	cloned := make(map[string]any, len(source)+3)
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (s *AgentRunService) RegisterArtifact(ctx context.Context, runID int64, req ArtifactCreateRequest, runToken string) (*ArtifactCreateResponse, error) {

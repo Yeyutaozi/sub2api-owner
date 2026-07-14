@@ -897,7 +897,7 @@ function isGroupActive(item: NavItem): boolean {
 }
 
 function isGroupExpanded(item: NavItem): boolean {
-  return expandedGroups.value.has(item.path) || isGroupActive(item)
+  return expandedGroups.value.has(item.path)
 }
 
 function toggleGroup(item: NavItem) {
@@ -946,6 +946,18 @@ watch(
   (v) => {
     if (v) {
       adminSettingsStore.fetch()
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => route.path,
+  () => {
+    for (const item of adminNavItems.value) {
+      if (isGroupActive(item)) {
+        expandedGroups.value.add(item.path)
+      }
     }
   },
   { immediate: true }

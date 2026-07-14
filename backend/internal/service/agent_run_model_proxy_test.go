@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,6 +201,39 @@ func TestAgentRunServiceHandleModelProxyRecordsRunEvent(t *testing.T) {
 	require.Equal(t, int64(42), event.MetadataJSON["api_key_id"])
 	require.NotContains(t, event.MetadataJSON, "api_key")
 	require.NotContains(t, event.MetadataJSON, "key")
+}
+
+func TestAgentRunServiceStreamsModelProxyAndRecordsCompletion(t *testing.T) {
+	svc, gateway := newTestAgentRunService()
+	repo := svc.runRepo.(*testAgentRunRepo)
+
+	stream, err := svc.OpenModelProxyStream(context.Background(), 1001, ModelProxyRequest{
+		RunID:    1001,
+		NodeID:   "prompt_rewrite",
+		Role:     "generate",
+		Model:    "gpt-5-mini",
+		Endpoint: "/chat/completions",
+		Request: map[string]any{
+			"messages": []any{},
+			"stream":   true,
+		},
+	}, testAgentRunPlainToken)
+
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	require.Equal(t, 1, gateway.streamCalls)
+	raw, err := io.ReadAll(stream.Response.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"content":"hello"`)
+	require.NoError(t, stream.Response.Body.Close())
+
+	svc.FinishModelProxyStream(context.Background(), stream, nil)
+	require.Len(t, repo.events, 1)
+	event := repo.events[0]
+	require.Equal(t, AgentRunEventModelProxy, event.EventType)
+	require.Equal(t, AgentRunStatusSucceeded, event.Status)
+	require.Equal(t, "model proxy stream completed", event.Message)
+	require.Equal(t, true, event.MetadataJSON["stream"])
 }
 
 func TestAgentRunServiceHandleModelProxyUsesPolicyBoundAPIKey(t *testing.T) {
@@ -463,9 +499,21 @@ func errorReason(err error) string {
 }
 
 type testModelProxyGateway struct {
-	calls  int
-	req    ModelProxyRequest
-	apiKey *APIKey
+	calls       int
+	streamCalls int
+	req         ModelProxyRequest
+	apiKey      *APIKey
+}
+
+func (g *testModelProxyGateway) CallModelProxyStream(_ context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyStreamResponse, error) {
+	g.streamCalls++
+	g.req = req
+	g.apiKey = apiKey
+	return &ModelProxyStreamResponse{
+		Status:      http.StatusOK,
+		ContentType: "text/event-stream",
+		Body:        io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n")),
+	}, nil
 }
 
 func (g *testModelProxyGateway) CallModelProxy(_ context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyResponse, error) {

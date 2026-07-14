@@ -139,7 +139,7 @@
               <div v-if="runPrimaryText(selectedRun)" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60">
                 <div class="mb-2 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   <Icon name="sparkles" size="sm" />
-                  <span>最终结果</span>
+                  <span>{{ isTerminalRunStatus(selectedRun.status) ? '最终结果' : '实时输出' }}</span>
                 </div>
                 <div class="whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100">{{ runPrimaryText(selectedRun) }}</div>
               </div>
@@ -2162,7 +2162,9 @@ function runPrimaryText(run: AgentRun): string {
   const schemaProperties = schema.properties && typeof schema.properties === 'object'
     ? Object.keys(schema.properties as Record<string, unknown>)
     : []
+  const terminalOnlyKeys = new Set(['message', 'description'])
   const keys = Array.from(new Set([configuredPrimary, 'result', 'answer', 'text', 'content', 'summary', 'message', 'description', ...schemaProperties].filter(Boolean)))
+    .filter(key => isTerminalRunStatus(run.status) || !terminalOnlyKeys.has(key.toLowerCase()))
   for (const key of keys) {
     const value = output[key]
     if (typeof value === 'string' && value.trim() !== '' && value !== 'Worker completed') {

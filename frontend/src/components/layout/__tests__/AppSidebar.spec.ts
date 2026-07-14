@@ -42,6 +42,15 @@ describe('AppSidebar scroll position persistence', () => {
   })
 })
 
+describe('AppSidebar collapsible groups', () => {
+  it('allows the active group to be manually collapsed', () => {
+    expect(componentSource).toContain('return expandedGroups.value.has(item.path)')
+    expect(componentSource).not.toContain('return expandedGroups.value.has(item.path) || isGroupActive(item)')
+    expect(componentSource).toContain('() => route.path')
+    expect(componentSource).toContain('expandedGroups.value.add(item.path)')
+  })
+})
+
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)

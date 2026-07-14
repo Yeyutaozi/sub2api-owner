@@ -10,6 +10,7 @@
 - Worker 调模型必须请求 Sub2API 下发的 `model_proxy_url`，由 Sub2API 用用户运行时选择的 Key 代理调用上游模型。
 - Worker 结果和文件通过 Sub2API Artifact 接口进入对象存储，数据库只保存引用。
 - Worker 自己需要 Redis 时，使用 Worker 自己的 Redis；不要复用 Sub2API 的队列 Redis。
+- 文本模型调用默认使用 SSE 流式 Model Proxy。Worker 会聚合最终文本，并按 `STREAM_PROGRESS_INTERVAL_SECONDS` 限频回调部分结果；默认每秒最多一次，不会按 Token 写数据库。
 
 ## 对象存储配置
 
@@ -190,6 +191,7 @@ Sub2API 和 Worker 各管一层并发：
 
 ```powershell
 $env:MAX_CONCURRENCY='4'
+$env:STREAM_PROGRESS_INTERVAL_SECONDS='1'
 uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091
 ```
 

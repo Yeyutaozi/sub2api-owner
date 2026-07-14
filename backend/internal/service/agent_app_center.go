@@ -498,8 +498,27 @@ type ModelProxyResponse struct {
 	Metadata    map[string]any    `json:"metadata,omitempty"`
 }
 
+type ModelProxyStreamResponse struct {
+	Status      int
+	ContentType string
+	Headers     map[string]string
+	Body        io.ReadCloser
+}
+
+type AgentModelProxyStream struct {
+	Response      *ModelProxyStreamResponse
+	run           *AgentRun
+	request       ModelProxyRequest
+	eventMetadata map[string]any
+	startedAt     time.Time
+}
+
 type ModelProxyGatewayCaller interface {
 	CallModelProxy(ctx context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyResponse, error)
+}
+
+type ModelProxyStreamGatewayCaller interface {
+	CallModelProxyStream(ctx context.Context, req ModelProxyRequest, apiKey *APIKey) (*ModelProxyStreamResponse, error)
 }
 
 type AgentRunAPIKeyService interface {

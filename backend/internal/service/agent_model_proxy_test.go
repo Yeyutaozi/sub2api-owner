@@ -7,10 +7,50 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestAgentModelProxyGatewayCallerStreamsSSE(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
+		require.Equal(t, "text/event-stream", r.Header.Get("Accept"))
+		var upstreamRequest map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&upstreamRequest))
+		require.Equal(t, true, upstreamRequest["stream"])
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	caller := &AgentModelProxyGatewayCaller{baseURL: server.URL, httpClient: server.Client()}
+	stream, err := caller.CallModelProxyStream(context.Background(), ModelProxyRequest{
+		RunID:    33,
+		Endpoint: "/chat/completions",
+		NodeID:   "node-1",
+		Role:     "generate",
+		Model:    "gpt-5.1",
+		Request: map[string]any{
+			"messages": []any{map[string]any{"role": "user", "content": "hello"}},
+			"stream":   true,
+		},
+	}, &APIKey{Key: "sk-user-platform-key"})
+
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	defer func() { _ = stream.Body.Close() }()
+	require.Equal(t, http.StatusOK, stream.Status)
+	require.Equal(t, "text/event-stream; charset=utf-8", stream.ContentType)
+	require.Equal(t, "no-cache", stream.Headers["Cache-Control"])
+	raw, err := io.ReadAll(stream.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"content":"hello"`)
+	require.True(t, strings.HasSuffix(string(raw), "data: [DONE]\n\n"))
+}
 
 func TestAgentModelProxyGatewayCallerPropagatesAgentUsageHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
