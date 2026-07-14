@@ -483,7 +483,7 @@
           <label class="input-label">应用图标</label>
           <div class="flex items-center gap-3">
             <div class="flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-800">
-              <img v-if="editAppForm.icon_url" :src="editIconPreviewURL || editAppForm.icon_url" alt="" class="h-full w-full object-cover" />
+              <img v-if="editIconPreviewURL" :src="editIconPreviewURL" alt="" class="h-full w-full object-cover" />
               <Icon v-else name="document" size="lg" class="text-gray-400" />
             </div>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="editIconUploading" @click="triggerEditIconUpload">
@@ -1214,8 +1214,18 @@ function openEditAppDialog(app: AgentApp) {
     visibility: app.visibility,
     status: app.status
   })
-  editIconPreviewURL.value = app.icon_url || ''
+  editIconPreviewURL.value = app.icon_url?.startsWith('http') ? app.icon_url : ''
   showEditAppDialog.value = true
+  if (app.icon_url && !editIconPreviewURL.value) void loadEditAppIconPreview(app)
+}
+
+async function loadEditAppIconPreview(app: AgentApp) {
+  try {
+    const result = await agentAppsAPI.getIconURL(app.id)
+    if (editingApp.value?.id === app.id) editIconPreviewURL.value = result.url
+  } catch (error: any) {
+    if (editingApp.value?.id === app.id) toast.error(error?.message || '加载应用图标失败')
+  }
 }
 
 function closeEditAppDialog() {

@@ -112,6 +112,16 @@ func resolveAgentArtifactStorageSettings(storage config.AgentArtifactStorageConf
 	provider := normalizeAgentArtifactProvider(storage.Provider)
 	region := strings.TrimSpace(storage.Region)
 	endpoint := strings.TrimRight(strings.TrimSpace(storage.Endpoint), "/")
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(storage.PublicBaseURL), "/")
+	if publicBaseURL != "" {
+		parsed, err := url.Parse(publicBaseURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return agentArtifactStorageSettings{}, infraerrors.BadRequest(
+				"AGENT_ARTIFACT_STORAGE_PUBLIC_BASE_URL_INVALID",
+				"public base URL must be an absolute HTTP or HTTPS URL",
+			)
+		}
+	}
 	accountID := strings.TrimSpace(storage.AccountID)
 	forcePathStyle := storage.ForcePathStyle
 	if storage.VirtualHostStyle {
@@ -138,7 +148,7 @@ func resolveAgentArtifactStorageSettings(storage config.AgentArtifactStorageConf
 		accessKeyID:     strings.TrimSpace(storage.AccessKeyID),
 		secretAccessKey: strings.TrimSpace(storage.SecretAccessKey),
 		prefix:          normalizeArtifactPrefix(storage.Prefix),
-		publicBaseURL:   strings.TrimRight(strings.TrimSpace(storage.PublicBaseURL), "/"),
+		publicBaseURL:   publicBaseURL,
 		forcePathStyle:  forcePathStyle,
 		disableChecksum: storage.DisableChecksum,
 	}, nil

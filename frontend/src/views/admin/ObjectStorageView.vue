@@ -321,6 +321,11 @@ function connectionValidationError(): string | null {
   if (!String(form.bucket || '').trim()) return '请先填写 Bucket'
   if (!String(form.access_key_id || '').trim()) return '请先填写 Access Key ID'
 
+  const publicBaseURL = String(form.public_base_url || '').trim()
+  if (publicBaseURL && !/^https?:\/\//i.test(publicBaseURL)) {
+    return 'Public Base URL 必须是完整的 http:// 或 https:// 地址；私有 COS 请留空'
+  }
+
   const canReuseSavedSecret = Boolean(form.secret_access_key_configured) && !credentialIdentityChanged.value && !secretNeedsReentry.value
   if (!String(form.secret_access_key || '').trim() && !canReuseSavedSecret) {
     return '请先填写 Secret Access Key'

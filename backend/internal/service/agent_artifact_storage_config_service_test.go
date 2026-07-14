@@ -34,6 +34,23 @@ func TestAgentArtifactStorageValidateConfigRejectsDisabledEmptyDraft(t *testing.
 	require.Equal(t, "AGENT_ARTIFACT_STORAGE_BUCKET_REQUIRED", infraerrors.Reason(err))
 }
 
+func TestValidateAgentArtifactStorageRecordRejectsRelativePublicBaseURL(t *testing.T) {
+	err := validateAgentArtifactStorageRecord(agentArtifactStorageConfigRecord{
+		Enabled:                  true,
+		Provider:                 "cos",
+		Region:                   "ap-hongkong",
+		Bucket:                   "bucket-1234567890",
+		AccessKeyID:              "access-key",
+		SecretAccessKeyEncrypted: "ciphertext",
+		PublicBaseURL:            "image",
+		MaxUploadBytes:           1024,
+		DownloadURLTTLSeconds:    60,
+	}, true)
+
+	require.Error(t, err)
+	require.Equal(t, "AGENT_ARTIFACT_STORAGE_PUBLIC_BASE_URL_INVALID", infraerrors.Reason(err))
+}
+
 func TestAgentArtifactStorageConfigViewRequiresSecretReentryAfterDecryptFailure(t *testing.T) {
 	svc := &AgentArtifactStorageConfigService{
 		encryptor: failingAgentArtifactSecretEncryptor{},

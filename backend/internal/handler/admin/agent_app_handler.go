@@ -279,6 +279,19 @@ func (h *AgentAppHandler) GetApp(c *gin.Context) {
 	response.Success(c, agentAppToResponse(app))
 }
 
+func (h *AgentAppHandler) GetAppIconURL(c *gin.Context) {
+	appID, ok := parseAgentIDParam(c, "id", "Invalid app ID")
+	if !ok {
+		return
+	}
+	result, err := h.appService.GetAppIconURL(c.Request.Context(), appID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *AgentAppHandler) ListVersions(c *gin.Context) {
 	appID, ok := parseAgentIDParam(c, "id", "Invalid app ID")
 	if !ok {

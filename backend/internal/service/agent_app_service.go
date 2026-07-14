@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -160,6 +161,14 @@ func (s *AgentAppService) GetAppByID(ctx context.Context, id int64) (*AgentApp, 
 	return s.repo.GetAppByID(ctx, id)
 }
 
+func (s *AgentAppService) GetAppIconURL(ctx context.Context, id int64) (*AgentAppIconURL, error) {
+	app, err := s.repo.GetAppByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return resolveAgentAppIconURL(ctx, s.artifactStore, app, time.Hour)
+}
+
 func (s *AgentAppService) CreateVersion(ctx context.Context, input CreateAgentAppVersionInput) (*AgentAppVersion, error) {
 	if _, err := s.repo.GetAppByID(ctx, input.AppID); err != nil {
 		return nil, err
@@ -270,8 +279,9 @@ func (s *AgentAppService) UploadIcon(ctx context.Context, input UploadAgentAppIc
 		Bucket:          putResult.Bucket,
 		ObjectKey:       putResult.ObjectKey,
 	}, time.Hour)
+	iconURL := fmt.Sprintf("%s://%s/%s", putResult.Provider, putResult.Bucket, putResult.ObjectKey)
 	return &UploadAgentAppIconResult{
-		URL:             putResult.ObjectURL,
+		URL:             iconURL,
 		PreviewURL:      previewURL,
 		ObjectKey:       putResult.ObjectKey,
 		StorageProvider: putResult.Provider,
@@ -279,6 +289,41 @@ func (s *AgentAppService) UploadIcon(ctx context.Context, input UploadAgentAppIc
 		SizeBytes:       putResult.SizeBytes,
 		SHA256:          hex.EncodeToString(hasher.Sum(nil)),
 	}, nil
+}
+
+func resolveAgentAppIconURL(ctx context.Context, artifactStore AgentArtifactStore, app *AgentApp, ttl time.Duration) (*AgentAppIconURL, error) {
+	if app == nil {
+		return nil, ErrAgentAppNotFound
+	}
+	raw := strings.TrimSpace(app.IconURL)
+	if raw == "" {
+		return nil, infraerrors.NotFound("AGENT_APP_ICON_NOT_FOUND", "应用未配置图标")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, infraerrors.BadRequest("AGENT_APP_ICON_URL_INVALID", "应用图标地址无效")
+	}
+	if parsed.Scheme == "http" || parsed.Scheme == "https" {
+		return &AgentAppIconURL{AppID: app.ID, URL: raw}, nil
+	}
+	provider := normalizeAgentArtifactProvider(parsed.Scheme)
+	bucket := strings.TrimSpace(parsed.Host)
+	objectKey := strings.TrimLeft(strings.TrimSpace(parsed.Path), "/")
+	if provider == "" || bucket == "" || objectKey == "" {
+		return nil, infraerrors.BadRequest("AGENT_APP_ICON_LOCATION_INVALID", "应用图标对象存储位置无效")
+	}
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	signedURL, err := artifactStore.PresignGetObject(ctx, AgentArtifactObjectLocation{
+		StorageProvider: provider,
+		Bucket:          bucket,
+		ObjectKey:       objectKey,
+	}, ttl)
+	if err != nil {
+		return nil, err
+	}
+	return &AgentAppIconURL{AppID: app.ID, URL: signedURL, ExpiresAt: time.Now().UTC().Add(ttl).Format(time.RFC3339)}, nil
 }
 
 func buildAgentApp(input CreateAgentAppInput) (*AgentApp, error) {

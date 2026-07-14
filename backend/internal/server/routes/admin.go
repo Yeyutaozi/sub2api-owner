@@ -132,6 +132,7 @@ func registerAgentAppCenterRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		apps.POST("/icon", h.Admin.AgentApp.UploadIcon)
 		apps.POST("/with-version", h.Admin.AgentApp.CreateAppWithVersion)
 		apps.GET("/:id", h.Admin.AgentApp.GetApp)
+		apps.GET("/:id/icon-url", h.Admin.AgentApp.GetAppIconURL)
 		apps.PUT("/:id", h.Admin.AgentApp.UpdateApp)
 		apps.DELETE("/:id", h.Admin.AgentApp.DeleteApp)
 		apps.GET("/:id/versions", h.Admin.AgentApp.ListVersions)

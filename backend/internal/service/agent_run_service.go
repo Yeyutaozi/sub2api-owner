@@ -13,7 +13,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -162,33 +161,7 @@ func (s *AgentRunService) GetPublishedAppIconURL(ctx context.Context, appID int6
 	if err != nil {
 		return nil, err
 	}
-	raw := strings.TrimSpace(app.IconURL)
-	if raw == "" {
-		return nil, infraerrors.NotFound("AGENT_APP_ICON_NOT_FOUND", "应用未配置图标")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return nil, infraerrors.BadRequest("AGENT_APP_ICON_URL_INVALID", "应用图标地址无效")
-	}
-	if parsed.Scheme == "http" || parsed.Scheme == "https" {
-		return &AgentAppIconURL{AppID: app.ID, URL: raw}, nil
-	}
-	provider := normalizeAgentArtifactProvider(parsed.Scheme)
-	bucket := strings.TrimSpace(parsed.Host)
-	objectKey := strings.TrimLeft(strings.TrimSpace(parsed.Path), "/")
-	if provider == "" || bucket == "" || objectKey == "" {
-		return nil, infraerrors.BadRequest("AGENT_APP_ICON_LOCATION_INVALID", "应用图标对象存储位置无效")
-	}
-	ttl := s.artifactDownloadTTL()
-	signedURL, err := s.artifactStore.PresignGetObject(ctx, AgentArtifactObjectLocation{
-		StorageProvider: provider,
-		Bucket:          bucket,
-		ObjectKey:       objectKey,
-	}, ttl)
-	if err != nil {
-		return nil, err
-	}
-	return &AgentAppIconURL{AppID: app.ID, URL: signedURL, ExpiresAt: time.Now().UTC().Add(ttl).Format(time.RFC3339)}, nil
+	return resolveAgentAppIconURL(ctx, s.artifactStore, app, s.artifactDownloadTTL())
 }
 
 func (s *AgentRunService) CreateRun(ctx context.Context, input CreateAgentRunInput) (*AgentRun, error) {

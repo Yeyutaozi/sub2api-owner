@@ -87,6 +87,11 @@ export async function getById(id: number): Promise<AgentApp> {
   return data
 }
 
+export async function getIconURL(id: number): Promise<{ app_id: number; url: string; expires_at?: string }> {
+  const { data } = await apiClient.get<{ app_id: number; url: string; expires_at?: string }>(`/admin/agent-apps/${id}/icon-url`)
+  return data
+}
+
 export async function listVersions(appId: number): Promise<AgentAppVersion[]> {
   const { data } = await apiClient.get<AgentAppVersion[]>(`/admin/agent-apps/${appId}/versions`)
   return data
@@ -115,6 +120,7 @@ export const agentAppsAPI = {
   createWithVersion,
   uploadIcon,
   getById,
+  getIconURL,
   listVersions,
   createVersion,
   publishVersion,
