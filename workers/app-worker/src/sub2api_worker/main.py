@@ -126,6 +126,7 @@ async def health() -> dict[str, Any]:
             "text",
             "vision",
             "image_generation",
+            "image_edit",
             "audio_speech",
             "audio_transcription",
             "audio_translation",
