@@ -95,6 +95,23 @@ type agentRunResponse struct {
 	Artifacts         []artifactResponse `json:"artifacts,omitempty"`
 }
 
+// adminAgentRunAuditResponse intentionally excludes all input, output, artifact,
+// object-storage and free-form error fields.
+type adminAgentRunAuditResponse struct {
+	ID           int64   `json:"id"`
+	AppID        int64   `json:"app_id"`
+	AppVersionID int64   `json:"app_version_id"`
+	UserID       int64   `json:"user_id"`
+	APIKeyID     int64   `json:"api_key_id"`
+	WorkerHostID *int64  `json:"worker_host_id,omitempty"`
+	Status       string  `json:"status"`
+	DurationMs   *int64  `json:"duration_ms,omitempty"`
+	StartedAt    *string `json:"started_at,omitempty"`
+	CompletedAt  *string `json:"completed_at,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
 type artifactResponse struct {
 	ID              int64          `json:"id"`
 	RunID           int64          `json:"run_id"`
@@ -300,6 +317,32 @@ func (h *AgentRunHandler) ListRuns(c *gin.Context) {
 	out := make([]agentRunResponse, 0, len(items))
 	for i := range items {
 		out = append(out, *agentRunToResponse(&items[i], nil))
+	}
+	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
+}
+
+func (h *AgentRunHandler) ListRunsAdmin(c *gin.Context) {
+	appID, ok := parseIDParam(c, "id", "Invalid app ID")
+	if !ok {
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	items, result, err := h.runService.ListRunsForAdmin(c.Request.Context(), pagination.PaginationParams{
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    c.DefaultQuery("sort_by", "created_at"),
+		SortOrder: c.DefaultQuery("sort_order", "desc"),
+	}, service.AgentRunListFilters{
+		AppID:  &appID,
+		Status: c.Query("status"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]adminAgentRunAuditResponse, 0, len(items))
+	for i := range items {
+		out = append(out, *agentRunToAdminAuditResponse(&items[i]))
 	}
 	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
 }
@@ -846,6 +889,34 @@ func agentRunToResponse(run *service.AgentRun, artifacts []service.AgentArtifact
 		}
 	}
 	return out
+}
+
+func agentRunToAdminAuditResponse(run *service.AgentRun) *adminAgentRunAuditResponse {
+	if run == nil {
+		return nil
+	}
+	var durationMs *int64
+	if run.StartedAt != nil && run.CompletedAt != nil {
+		value := run.CompletedAt.Sub(*run.StartedAt).Milliseconds()
+		if value < 0 {
+			value = 0
+		}
+		durationMs = &value
+	}
+	return &adminAgentRunAuditResponse{
+		ID:           run.ID,
+		AppID:        run.AppID,
+		AppVersionID: run.AppVersionID,
+		UserID:       run.UserID,
+		APIKeyID:     run.APIKeyID,
+		WorkerHostID: run.WorkerHostID,
+		Status:       run.Status,
+		DurationMs:   durationMs,
+		StartedAt:    formatOptionalTime(run.StartedAt),
+		CompletedAt:  formatOptionalTime(run.CompletedAt),
+		CreatedAt:    run.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    run.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 func artifactToResponse(artifact *service.AgentArtifact) *artifactResponse {

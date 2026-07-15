@@ -252,6 +252,10 @@ func (s *AgentRunService) ListRuns(ctx context.Context, userID int64, params pag
 	return s.runRepo.ListRunsByUser(ctx, userID, params, filters)
 }
 
+func (s *AgentRunService) ListRunsForAdmin(ctx context.Context, params pagination.PaginationParams, filters AgentRunListFilters) ([]AgentRun, *pagination.PaginationResult, error) {
+	return s.runRepo.ListRuns(ctx, params, filters)
+}
+
 func (s *AgentRunService) GetRunForUser(ctx context.Context, runID, userID int64) (*AgentRun, []AgentArtifact, error) {
 	run, err := s.runRepo.GetRunByIDForUser(ctx, runID, userID)
 	if err != nil {

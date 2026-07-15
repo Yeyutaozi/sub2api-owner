@@ -299,6 +299,7 @@ type AgentRunRepository interface {
 	CreateRunWithKeyBindings(ctx context.Context, run *AgentRun, bindings []AgentRunKeyBinding) error
 	GetRunByID(ctx context.Context, id int64) (*AgentRun, error)
 	GetRunByIDForUser(ctx context.Context, id, userID int64) (*AgentRun, error)
+	ListRuns(ctx context.Context, params pagination.PaginationParams, filters AgentRunListFilters) ([]AgentRun, *pagination.PaginationResult, error)
 	ListRunsByUser(ctx context.Context, userID int64, params pagination.PaginationParams, filters AgentRunListFilters) ([]AgentRun, *pagination.PaginationResult, error)
 	ListRunKeyBindings(ctx context.Context, runID int64) ([]AgentRunKeyBinding, error)
 	CreateInputAsset(ctx context.Context, asset *AgentInputAsset) error

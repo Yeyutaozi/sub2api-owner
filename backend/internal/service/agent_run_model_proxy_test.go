@@ -587,6 +587,10 @@ func (r *testAgentRunRepo) GetRunByIDForUser(_ context.Context, id, userID int64
 func (r *testAgentRunRepo) ListRunsByUser(context.Context, int64, pagination.PaginationParams, AgentRunListFilters) ([]AgentRun, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
+
+func (r *testAgentRunRepo) ListRuns(context.Context, pagination.PaginationParams, AgentRunListFilters) ([]AgentRun, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
 func (r *testAgentRunRepo) ListRunKeyBindings(_ context.Context, runID int64) ([]AgentRunKeyBinding, error) {
 	items := make([]AgentRunKeyBinding, 0)
 	for _, binding := range r.bindings {

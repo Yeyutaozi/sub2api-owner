@@ -156,6 +156,14 @@ func (r *agentRunRepository) GetRunByIDForUser(ctx context.Context, id, userID i
 }
 
 func (r *agentRunRepository) ListRunsByUser(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.AgentRunListFilters) ([]service.AgentRun, *pagination.PaginationResult, error) {
+	return r.listRuns(ctx, userID, params, filters, false)
+}
+
+func (r *agentRunRepository) ListRuns(ctx context.Context, params pagination.PaginationParams, filters service.AgentRunListFilters) ([]service.AgentRun, *pagination.PaginationResult, error) {
+	return r.listRuns(ctx, 0, params, filters, true)
+}
+
+func (r *agentRunRepository) listRuns(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.AgentRunListFilters, auditOnly bool) ([]service.AgentRun, *pagination.PaginationResult, error) {
 	where, args := buildAgentRunWhere(userID, filters)
 	var total int64
 	if err := scanSingleRow(ctx, r.db, `SELECT COUNT(*) FROM agent_runs `+where, args, &total); err != nil {
@@ -165,7 +173,11 @@ func (r *agentRunRepository) ListRunsByUser(ctx context.Context, userID int64, p
 	args = append(args, params.Limit(), params.Offset())
 	limitPos := len(args) - 1
 	offsetPos := len(args)
-	rows, err := r.db.QueryContext(ctx, agentRunSelectSQL()+" "+where+agentRunOrderClause(params)+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPos, offsetPos), args...)
+	selectSQL := agentRunSelectSQL()
+	if auditOnly {
+		selectSQL = agentRunAuditSelectSQL()
+	}
+	rows, err := r.db.QueryContext(ctx, selectSQL+" "+where+agentRunOrderClause(params)+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPos, offsetPos), args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,7 +185,12 @@ func (r *agentRunRepository) ListRunsByUser(ctx context.Context, userID int64, p
 
 	items := make([]service.AgentRun, 0)
 	for rows.Next() {
-		run, err := scanAgentRun(rows)
+		var run *service.AgentRun
+		if auditOnly {
+			run, err = scanAgentRunAudit(rows)
+		} else {
+			run, err = scanAgentRun(rows)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -660,9 +677,20 @@ func agentRunSelectSQL() string {
 		FROM agent_runs`
 }
 
+func agentRunAuditSelectSQL() string {
+	return `
+		SELECT id, app_id, app_version_id, user_id, api_key_id, worker_host_id,
+		       status, started_at, completed_at, created_at, updated_at
+		FROM agent_runs`
+}
+
 func buildAgentRunWhere(userID int64, filters service.AgentRunListFilters) (string, []any) {
-	conditions := []string{"user_id = $1"}
-	args := []any{userID}
+	conditions := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+	if userID > 0 {
+		args = append(args, userID)
+		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)))
+	}
 	if filters.AppID != nil && *filters.AppID > 0 {
 		args = append(args, *filters.AppID)
 		conditions = append(conditions, fmt.Sprintf("app_id = $%d", len(args)))
@@ -670,6 +698,9 @@ func buildAgentRunWhere(userID int64, filters service.AgentRunListFilters) (stri
 	if status := strings.TrimSpace(filters.Status); status != "" {
 		args = append(args, status)
 		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if len(conditions) == 0 {
+		return "", args
 	}
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
@@ -828,6 +859,40 @@ func scanAgentRun(scanner agentWorkerHostScanner) (*service.AgentRun, error) {
 	}
 	if expiresAt.Valid {
 		run.ExpiresAt = &expiresAt.Time
+	}
+	return run, nil
+}
+
+func scanAgentRunAudit(scanner agentWorkerHostScanner) (*service.AgentRun, error) {
+	run := &service.AgentRun{}
+	var (
+		workerHostID sql.NullInt64
+		startedAt    sql.NullTime
+		completedAt  sql.NullTime
+	)
+	if err := scanner.Scan(
+		&run.ID,
+		&run.AppID,
+		&run.AppVersionID,
+		&run.UserID,
+		&run.APIKeyID,
+		&workerHostID,
+		&run.Status,
+		&startedAt,
+		&completedAt,
+		&run.CreatedAt,
+		&run.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if workerHostID.Valid {
+		run.WorkerHostID = &workerHostID.Int64
+	}
+	if startedAt.Valid {
+		run.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		run.CompletedAt = &completedAt.Time
 	}
 	return run, nil
 }
