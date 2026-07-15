@@ -417,6 +417,66 @@ const ChannelIcon = {
     )
 }
 
+const ApplicationIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M3.75 4.5h16.5A1.5 1.5 0 0121.75 6v12a1.5 1.5 0 01-1.5 1.5H3.75a1.5 1.5 0 01-1.5-1.5V6a1.5 1.5 0 011.5-1.5zM2.25 8.25h19.5M6 12h4.5v3H6v-3zm7.5 0H18v3h-4.5v-3z'
+        })
+      ]
+    )
+}
+
+const PublishIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 8.41m5.96 5.96a14.926 14.926 0 01-5.96 2.58m0-8.54a6 6 0 00-7.38 5.84h4.8m2.58-5.84a14.91 14.91 0 00-2.58 5.84m6.2-4.01h.008v.008h-.008v-.008z'
+        })
+      ]
+    )
+}
+
+const HistoryIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M3 12a9 9 0 109-9 8.96 8.96 0 00-6.364 2.636L3 8.25m0-4.5v4.5h4.5M12 7.5V12l3 1.5'
+        })
+      ]
+    )
+}
+
+const StorageIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125'
+        })
+      ]
+    )
+}
+
 const CreditCardIcon = {
   render: () =>
     h(
@@ -719,7 +779,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/token-rewards', label: t('nav.tokenRewards'), icon: TokenRewardIcon, hideInSimpleMode: true },
-    { path: '/agent-apps', label: '应用中心', icon: ChannelIcon, hideInSimpleMode: true },
+    { path: '/agent-apps', label: '应用中心', icon: ApplicationIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
@@ -791,14 +851,14 @@ const adminNavItems = computed((): NavItem[] => {
     {
       path: '/admin/agent-apps',
       label: '应用中心',
-      icon: ChannelIcon,
+      icon: ApplicationIcon,
       hideInSimpleMode: true,
       expandOnly: true,
       children: [
-        { path: '/admin/agent-apps', label: '应用发布', icon: ChannelIcon },
-        { path: '/admin/agent-runs', label: '使用记录', icon: ChartIcon },
+        { path: '/admin/agent-apps', label: '应用发布', icon: PublishIcon },
+        { path: '/admin/agent-runs', label: '使用记录', icon: HistoryIcon },
         { path: '/admin/agent-worker-hosts', label: 'Worker Host', icon: ServerIcon },
-        { path: '/admin/object-storage', label: '对象存储', icon: ServerIcon },
+        { path: '/admin/object-storage', label: '对象存储', icon: StorageIcon },
       ],
     },
     { path: '/admin/risk-control', label: t('nav.riskControl'), icon: ShieldIcon, hideInSimpleMode: true, featureFlag: flagRiskControl },
