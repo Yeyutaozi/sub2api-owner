@@ -141,7 +141,7 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 }
 ```
 
-同一个应用版本使用 `/image/runs`，输入表单包含必填 `prompt` 和可选图片字段 `reference_image`（`x-asset-role: reference`）。未上传参考图时 Worker 调用 `/v1/images/generations`；上传后自动改用 multipart `/v1/images/edits`，无需再创建第二个应用或第二个 Worker。参考图通过 Sub2API 签名 URL 下载，生成结果仍由 Sub2API Artifact 接口写入当前对象存储。
+同一个应用版本使用 `/image/runs`，输入表单包含必填 `prompt` 和可选图片字段 `reference_image`（`x-asset-role: reference`）。未上传参考图时 Worker 调用 `/v1/images/generations`；上传一张或多张参考图后自动改用 multipart `/v1/images/edits`，每张图片使用一个 `image` 字段，输出仍固定为一张。无需再创建第二个应用或第二个 Worker。参考图通过 Sub2API 签名 URL 下载，生成结果仍由 Sub2API Artifact 接口写入当前对象存储。
 
 音频和视频应用使用同一套 Model Proxy 与 Artifact 链路。Worker 会按 `capability` 自动选择处理方式：
 
@@ -169,6 +169,7 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 媒体链路限制：
 
 - Model Proxy 单次请求和响应上限是 64 MiB。Worker 默认把音频上传限制为 60 MiB（`MAX_MODEL_PROXY_ASSET_BYTES`），为 multipart 边界和字段预留空间。
+- 多图编辑默认最多 16 张，每张最多 20 MiB、合计最多 45 MiB，分别由 `MAX_IMAGE_REFERENCE_COUNT`、`MAX_IMAGE_REFERENCE_BYTES` 和 `MAX_IMAGE_REFERENCE_TOTAL_BYTES` 控制。最终是否支持多图语义融合取决于所选上游模型。
 - 视频完成后优先通过 `/v1/videos/:id/content` 获取，确保私有上游仍携带用户 Key；仅当 content 路径不可用且响应提供了可直接访问 URL 时才回退。content 路径受 64 MiB 响应上限约束。
 - 输入音频、参考图和远程媒体按流式字节数执行上限检查，不会先把超限文件完整读入内存；Artifact 上限还会取应用版本 `artifact_policy.max_file_mb` 与 Worker 配置中的较小值。
 - `/video/runs` 使用 OpenAI 兼容 `/v1/videos` 协议。Grok 的 `/v1/videos/generations`、编辑和扩展路由由 Sub2API 官方 Grok 网关处理，不在这个通用 Worker 中混用。

@@ -167,6 +167,35 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("high", proxy_bodies[0]["request"]["quality"])
         self.assertNotIn("multipart", proxy_bodies[0])
 
+    async def test_image_edit_forwards_multiple_reference_images_and_keeps_single_output(self) -> None:
+        first = worker.WorkerArtifactRef(name="first.png", mime_type="image/png")
+        second = worker.WorkerArtifactRef(name="second.webp", mime_type="image/webp")
+        proxy_body: dict[str, object] = {}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            nonlocal proxy_body
+            proxy_body = json.loads(request.content)
+            return self.wrapped({"response": {"data": [{"b64_json": "aW1hZ2U="}]}})
+
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.call_image_model_proxy(
+                self.payload(input_values={"prompt": "combine them"}),
+                self.policy("image_generation", "gpt-image-1"),
+                "combine them",
+                references=[first, second],
+                reference_bodies=[b"first-image", b"second-image"],
+            )
+
+        self.assertEqual("/v1/images/edits", proxy_body["endpoint"])
+        self.assertEqual(1, proxy_body["request"]["n"])
+        multipart = proxy_body["multipart"]
+        self.assertEqual(2, len(multipart))
+        self.assertEqual(["image", "image"], [part["name"] for part in multipart])
+        self.assertEqual(["first.png", "second.webp"], [part["filename"] for part in multipart])
+        self.assertEqual(b"first-image", base64.b64decode(multipart[0]["body_base64"]))
+        self.assertEqual(b"second-image", base64.b64decode(multipart[1]["body_base64"]))
+
     async def test_image_edit_with_reference_uses_same_run_and_reports_mode(self) -> None:
         reference_bytes = b"fake-reference-image"
         generated_bytes = b"fake-generated-image"
@@ -218,7 +247,9 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("succeeded", callbacks[-1]["event_type"])
         self.assertEqual("image_to_image", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(1, callbacks[-1]["output"]["reference_count"])
         self.assertEqual("image_to_image", callbacks[-1]["metadata"]["generation_mode"])
+        self.assertEqual(1, callbacks[-1]["metadata"]["reference_count"])
         self.assertEqual(601, callbacks[-1]["output"]["artifact"]["artifact_id"])
 
     def test_reference_image_prefers_reference_role_then_falls_back(self) -> None:
@@ -230,8 +261,38 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         )
         payload = self.payload(artifacts=[fallback, preferred])
         self.assertIs(preferred, worker.reference_image_artifact(payload))
+        self.assertEqual([preferred], worker.reference_image_artifacts(payload))
         self.assertIs(fallback, worker.reference_image_artifact(self.payload(artifacts=[fallback])))
         self.assertIsNone(worker.reference_image_artifact(self.payload()))
+
+        another_preferred = worker.WorkerArtifactRef(
+            name="preferred-2.png",
+            mime_type="image/png",
+            metadata={"field_name": "reference_image", "asset_role": "reference"},
+        )
+        self.assertEqual(
+            [preferred, another_preferred],
+            worker.reference_image_artifacts(self.payload(artifacts=[fallback, preferred, another_preferred])),
+        )
+
+    async def test_multiple_reference_images_enforce_combined_size_limit(self) -> None:
+        references = [
+            worker.WorkerArtifactRef(name="first.png", mime_type="image/png", url="https://assets.test/first.png"),
+            worker.WorkerArtifactRef(name="second.png", mime_type="image/png", url="https://assets.test/second.png"),
+        ]
+
+        def handle(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"12", headers={"Content-Type": "image/png"})
+
+        transport = httpx.MockTransport(handle)
+        with (
+            patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)),
+            patch.object(worker, "MAX_IMAGE_REFERENCE_BYTES", 10),
+            patch.object(worker, "MAX_IMAGE_REFERENCE_TOTAL_BYTES", 3),
+        ):
+            with self.assertRaises(worker.WorkerFailure) as size_error:
+                await worker.download_reference_images(references)
+        self.assertEqual("IMAGE_REFERENCE_TOTAL_TOO_LARGE", size_error.exception.code)
 
     async def test_audio_transcription_builds_model_proxy_multipart_contract(self) -> None:
         audio = b"RIFF-fake-wave"

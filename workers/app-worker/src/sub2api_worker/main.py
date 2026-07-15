@@ -26,6 +26,9 @@ MODEL_PROXY_TIMEOUT_SECONDS = float(os.getenv("MODEL_PROXY_TIMEOUT_SECONDS", "30
 CALLBACK_TIMEOUT_SECONDS = float(os.getenv("CALLBACK_TIMEOUT_SECONDS", "30"))
 MAX_REMOTE_ARTIFACT_BYTES = int(os.getenv("MAX_REMOTE_ARTIFACT_BYTES", str(100 * 1024 * 1024)))
 MAX_MODEL_PROXY_ASSET_BYTES = int(os.getenv("MAX_MODEL_PROXY_ASSET_BYTES", str(60 * 1024 * 1024)))
+MAX_IMAGE_REFERENCE_COUNT = max(int(os.getenv("MAX_IMAGE_REFERENCE_COUNT", "16")), 1)
+MAX_IMAGE_REFERENCE_BYTES = int(os.getenv("MAX_IMAGE_REFERENCE_BYTES", str(20 * 1024 * 1024)))
+MAX_IMAGE_REFERENCE_TOTAL_BYTES = int(os.getenv("MAX_IMAGE_REFERENCE_TOTAL_BYTES", str(45 * 1024 * 1024)))
 VIDEO_POLL_INTERVAL_SECONDS = max(float(os.getenv("VIDEO_POLL_INTERVAL_SECONDS", "2")), 0.2)
 STREAM_PROGRESS_INTERVAL_SECONDS = max(float(os.getenv("STREAM_PROGRESS_INTERVAL_SECONDS", "1")), 0.2)
 VERIFY_WORKER_SIGNATURE = os.getenv("VERIFY_WORKER_SIGNATURE", "true").lower() not in {"0", "false", "no"}
@@ -360,10 +363,10 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         if rewritten:
             final_prompt = rewritten
 
-    reference = reference_image_artifact(payload)
-    reference_body: bytes | None = None
-    generation_mode = "image_to_image" if reference is not None else "text_to_image"
-    if reference is not None:
+    references = reference_image_artifacts(payload)
+    reference_bodies: list[bytes] = []
+    generation_mode = "image_to_image" if references else "text_to_image"
+    if references:
         await callback(
             payload,
             "progress",
@@ -371,15 +374,16 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             node_id=image_policy.node_id,
             role=image_policy.role,
             progress=0.45,
-            message="Preparing reference image",
+            message=f"Preparing {len(references)} reference image(s)",
             metadata={
                 "policy_key": image_policy.policy_key,
                 "model": image_policy.model,
                 "generation_mode": generation_mode,
-                "reference_artifact_id": reference.artifact_id,
+                "reference_count": len(references),
+                "reference_artifact_ids": [reference.artifact_id for reference in references if reference.artifact_id is not None],
             },
         )
-        reference_body = await download_input_artifact(reference)
+        reference_bodies = await download_reference_images(references)
         if is_canceled(payload.run_id):
             await callback(payload, "canceled", status="canceled", message="Run canceled before image editing")
             return
@@ -391,11 +395,12 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         node_id=image_policy.node_id,
         role=image_policy.role,
         progress=0.6,
-        message="正在基于参考图生成图片" if reference is not None else "正在生成图片",
+        message=f"正在基于 {len(references)} 张参考图生成图片" if references else "正在生成图片",
         metadata={
             "policy_key": image_policy.policy_key,
             "model": image_policy.model,
             "generation_mode": generation_mode,
+            "reference_count": len(references),
             "uses_model_proxy": True,
         },
     )
@@ -407,8 +412,8 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         payload,
         image_policy,
         final_prompt,
-        reference=reference,
-        reference_body=reference_body,
+        references=references,
+        reference_bodies=reference_bodies,
     )
     if is_canceled(payload.run_id):
         await callback(payload, "canceled", status="canceled", message="Run canceled after image generation")
@@ -424,10 +429,14 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         "model": image_policy.model,
         "prompt": final_prompt,
         "generation_mode": generation_mode,
+        "reference_count": len(references),
     }
-    if reference is not None:
-        artifact_metadata["reference_artifact_id"] = reference.artifact_id
-        artifact_metadata["reference_name"] = reference.name
+    if references:
+        artifact_metadata["reference_artifact_ids"] = [reference.artifact_id for reference in references if reference.artifact_id is not None]
+        artifact_metadata["reference_names"] = [reference.name for reference in references]
+        if len(references) == 1:
+            artifact_metadata["reference_artifact_id"] = references[0].artifact_id
+            artifact_metadata["reference_name"] = references[0].name
     artifact: dict[str, Any]
     if image.get("url"):
         artifact = await archive_remote_artifact(
@@ -463,6 +472,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             "result": "图片已生成",
             "prompt": final_prompt,
             "generation_mode": generation_mode,
+            "reference_count": len(references),
             "artifact": artifact,
         },
         metadata={
@@ -472,6 +482,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             "duration_ms": duration_ms,
             "usage": usage,
             "generation_mode": generation_mode,
+            "reference_count": len(references),
             "uses_model_proxy": True,
         },
     )
@@ -958,8 +969,8 @@ async def call_image_model_proxy(
     policy: SelectedPolicy,
     prompt: str,
     *,
-    reference: WorkerArtifactRef | None = None,
-    reference_body: bytes | None = None,
+    references: list[WorkerArtifactRef] | None = None,
+    reference_bodies: list[bytes] | None = None,
 ) -> dict[str, Any]:
     image_request: dict[str, Any] = {
         "prompt": prompt,
@@ -976,7 +987,8 @@ async def call_image_model_proxy(
         "input_fidelity",
     )
 
-    if reference is None:
+    references = references or []
+    if not references:
         return await call_model_proxy_request(
             payload,
             policy,
@@ -984,8 +996,10 @@ async def call_image_model_proxy(
             request_body=image_request,
         )
 
-    if reference_body is None:
-        reference_body = await download_input_artifact(reference)
+    if reference_bodies is None:
+        reference_bodies = await download_reference_images(references)
+    if len(reference_bodies) != len(references):
+        raise WorkerFailure("IMAGE_REFERENCE_BODY_MISMATCH", "Reference image metadata and downloaded bodies do not match.")
     return await call_model_proxy_request(
         payload,
         policy,
@@ -995,10 +1009,11 @@ async def call_image_model_proxy(
         multipart=[
             {
                 "name": "image",
-                "filename": reference.name or f"image-reference-{payload.run_id}.png",
+                "filename": reference.name or f"image-reference-{payload.run_id}-{index + 1}.png",
                 "content_type": artifact_ref_mime(reference) or "application/octet-stream",
                 "body_base64": base64.b64encode(reference_body).decode("ascii"),
             }
+            for index, (reference, reference_body) in enumerate(zip(references, reference_bodies))
         ],
     )
 
@@ -1114,18 +1129,40 @@ async def download_limited(
         raise WorkerFailure(download_error_code, f"{download_error_prefix}: {truncate(str(exc), 500)}") from exc
 
 
-async def download_input_artifact(artifact: WorkerArtifactRef) -> bytes:
+async def download_input_artifact(artifact: WorkerArtifactRef, *, max_bytes: int | None = None) -> bytes:
     if not artifact.url:
         raise WorkerFailure("INPUT_ASSET_URL_MISSING", f"Input asset {artifact.name or artifact.artifact_id} has no download URL.")
+    limits = [value for value in (MAX_MODEL_PROXY_ASSET_BYTES, max_bytes) if value is not None and value > 0]
+    effective_max_bytes = min(limits) if limits else 0
     raw, _ = await download_limited(
         artifact.url,
-        max_bytes=MAX_MODEL_PROXY_ASSET_BYTES,
+        max_bytes=effective_max_bytes,
         download_error_code="INPUT_ASSET_DOWNLOAD_FAILED",
         download_error_prefix="Unable to download input asset",
         too_large_code="INPUT_ASSET_TOO_LARGE",
         too_large_message="Input asset exceeds the Model Proxy upload limit.",
     )
     return raw
+
+
+async def download_reference_images(references: list[WorkerArtifactRef]) -> list[bytes]:
+    if len(references) > MAX_IMAGE_REFERENCE_COUNT:
+        raise WorkerFailure(
+            "IMAGE_REFERENCE_COUNT_EXCEEDED",
+            f"At most {MAX_IMAGE_REFERENCE_COUNT} reference images are supported per run.",
+        )
+    bodies: list[bytes] = []
+    total_bytes = 0
+    for reference in references:
+        body = await download_input_artifact(reference, max_bytes=MAX_IMAGE_REFERENCE_BYTES)
+        total_bytes += len(body)
+        if MAX_IMAGE_REFERENCE_TOTAL_BYTES > 0 and total_bytes > MAX_IMAGE_REFERENCE_TOTAL_BYTES:
+            raise WorkerFailure(
+                "IMAGE_REFERENCE_TOTAL_TOO_LARGE",
+                "Reference images exceed the combined Model Proxy upload limit.",
+            )
+        bodies.append(body)
+    return bodies
 
 
 async def register_external_artifact(payload: WorkerRunRequest, *, name: str, url: str, mime_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1481,24 +1518,35 @@ def is_image_artifact_ref(artifact: WorkerArtifactRef) -> bool:
     return artifact_ref_mime(artifact).startswith("image/") or artifact_ref_asset_type(artifact) == "image"
 
 
-def reference_image_artifact(payload: WorkerRunRequest) -> WorkerArtifactRef | None:
+def reference_image_artifacts(payload: WorkerRunRequest) -> list[WorkerArtifactRef]:
     images = [artifact for artifact in input_artifacts(payload) if is_image_artifact_ref(artifact)]
     if not images:
-        return None
+        return []
 
     preferred_roles = {"reference", "source", "input", "init"}
+    role_matches = []
     for artifact in images:
         role = artifact.metadata.get("asset_role")
         if isinstance(role, str) and normalize_policy_value(role) in preferred_roles:
-            return artifact
+            role_matches.append(artifact)
+    if role_matches:
+        return role_matches
 
     preferred_fields = {"reference", "reference_image", "source_image", "input_image", "images"}
+    field_matches = []
     for artifact in images:
         field_name = artifact.metadata.get("field_name")
         if isinstance(field_name, str) and normalize_policy_value(field_name) in preferred_fields:
-            return artifact
+            field_matches.append(artifact)
+    if field_matches:
+        return field_matches
 
-    return images[0]
+    return images
+
+
+def reference_image_artifact(payload: WorkerRunRequest) -> WorkerArtifactRef | None:
+    references = reference_image_artifacts(payload)
+    return references[0] if references else None
 
 
 def extract_prompt(values: dict[str, Any]) -> str:

@@ -229,6 +229,49 @@ func TestAgentModelProxyGatewayCallerBuildsMultipartFromRequestAndReferences(t *
 	require.Equal(t, float64(8), resp.Usage["input_tokens"])
 }
 
+func TestAgentModelProxyGatewayCallerPreservesRepeatedMultipartFiles(t *testing.T) {
+	firstImage := []byte("first-image")
+	secondImage := []byte("second-image")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/v1/images/edits", r.URL.Path)
+		require.NoError(t, r.ParseMultipartForm(agentModelProxyMaxRequestBytes))
+		require.Equal(t, "gpt-image-1", r.FormValue("model"))
+		require.Equal(t, "combine them", r.FormValue("prompt"))
+
+		files := r.MultipartForm.File["image"]
+		require.Len(t, files, 2)
+		for index, expected := range [][]byte{firstImage, secondImage} {
+			file, err := files[index].Open()
+			require.NoError(t, err)
+			actual, err := io.ReadAll(file)
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
+			require.Equal(t, expected, actual)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{}})
+	}))
+	defer server.Close()
+
+	caller := &AgentModelProxyGatewayCaller{baseURL: server.URL, httpClient: server.Client()}
+	resp, err := caller.CallModelProxy(context.Background(), ModelProxyRequest{
+		RunID:       56,
+		Model:       "gpt-image-1",
+		Endpoint:    "/v1/images/edits",
+		ContentType: "multipart/form-data",
+		Request:     map[string]any{"prompt": "combine them", "n": 1},
+		Multipart: []ModelProxyMultipartReference{
+			{Name: "image", Filename: "first.png", ContentType: "image/png", BodyBase64: base64.StdEncoding.EncodeToString(firstImage)},
+			{Name: "image", Filename: "second.png", ContentType: "image/png", BodyBase64: base64.StdEncoding.EncodeToString(secondImage)},
+		},
+	}, &APIKey{Key: "sk-image"})
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.Status)
+}
+
 func TestAgentModelProxyGatewayCallerSupportsVideoStatusMethods(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
