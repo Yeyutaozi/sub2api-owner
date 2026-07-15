@@ -137,6 +137,7 @@ async def health() -> dict[str, Any]:
                 "/runs",
                 "/text/runs",
                 "/prompt/runs",
+                "/image/runs",
                 "/workflow/runs",
                 "/audio/runs",
                 "/video/runs",
@@ -151,6 +152,7 @@ async def health() -> dict[str, Any]:
 @app.post("/runs")
 @app.post("/text/runs")
 @app.post("/prompt/runs")
+@app.post("/image/runs")
 @app.post("/workflow/runs")
 @app.post("/audio/runs")
 @app.post("/video/runs")
@@ -357,6 +359,30 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         if rewritten:
             final_prompt = rewritten
 
+    reference = reference_image_artifact(payload)
+    reference_body: bytes | None = None
+    generation_mode = "image_to_image" if reference is not None else "text_to_image"
+    if reference is not None:
+        await callback(
+            payload,
+            "progress",
+            status="running",
+            node_id=image_policy.node_id,
+            role=image_policy.role,
+            progress=0.45,
+            message="Preparing reference image",
+            metadata={
+                "policy_key": image_policy.policy_key,
+                "model": image_policy.model,
+                "generation_mode": generation_mode,
+                "reference_artifact_id": reference.artifact_id,
+            },
+        )
+        reference_body = await download_input_artifact(reference)
+        if is_canceled(payload.run_id):
+            await callback(payload, "canceled", status="canceled", message="Run canceled before image editing")
+            return
+
     await callback(
         payload,
         "progress",
@@ -364,10 +390,11 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         node_id=image_policy.node_id,
         role=image_policy.role,
         progress=0.6,
-        message="正在生成图片",
+        message="正在基于参考图生成图片" if reference is not None else "正在生成图片",
         metadata={
             "policy_key": image_policy.policy_key,
             "model": image_policy.model,
+            "generation_mode": generation_mode,
             "uses_model_proxy": True,
         },
     )
@@ -375,7 +402,13 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         await callback(payload, "canceled", status="canceled", message="Run canceled before image generation")
         return
 
-    proxy_result = await call_image_model_proxy(payload, image_policy, final_prompt)
+    proxy_result = await call_image_model_proxy(
+        payload,
+        image_policy,
+        final_prompt,
+        reference=reference,
+        reference_body=reference_body,
+    )
     if is_canceled(payload.run_id):
         await callback(payload, "canceled", status="canceled", message="Run canceled after image generation")
         return
@@ -384,6 +417,16 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         raise WorkerFailure("IMAGE_RESULT_EMPTY", "The image model returned no image URL or base64 data.")
 
     artifact_name = f"generated-{payload.run_id}.png"
+    artifact_metadata = {
+        "worker_run_id": worker_run_id,
+        "policy_key": image_policy.policy_key,
+        "model": image_policy.model,
+        "prompt": final_prompt,
+        "generation_mode": generation_mode,
+    }
+    if reference is not None:
+        artifact_metadata["reference_artifact_id"] = reference.artifact_id
+        artifact_metadata["reference_name"] = reference.name
     artifact: dict[str, Any]
     if image.get("url"):
         artifact = await archive_remote_artifact(
@@ -391,12 +434,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             name=artifact_name,
             url=str(image["url"]),
             mime_type=str(image.get("mime_type") or "image/png"),
-            metadata={
-                "worker_run_id": worker_run_id,
-                "policy_key": image_policy.policy_key,
-                "model": image_policy.model,
-                "prompt": final_prompt,
-            },
+            metadata=artifact_metadata,
         )
     else:
         artifact = await upload_base64_artifact(
@@ -404,12 +442,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             name=artifact_name,
             b64_json=str(image["b64_json"]),
             mime_type=str(image.get("mime_type") or "image/png"),
-            metadata={
-                "worker_run_id": worker_run_id,
-                "policy_key": image_policy.policy_key,
-                "model": image_policy.model,
-                "prompt": final_prompt,
-            },
+            metadata=artifact_metadata,
         )
     if is_canceled(payload.run_id):
         await callback(payload, "canceled", status="canceled", message="Run canceled after image archival")
@@ -428,6 +461,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
         output={
             "result": "图片已生成",
             "prompt": final_prompt,
+            "generation_mode": generation_mode,
             "artifact": artifact,
         },
         metadata={
@@ -436,6 +470,7 @@ async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, start
             "model": image_policy.model,
             "duration_ms": duration_ms,
             "usage": usage,
+            "generation_mode": generation_mode,
             "uses_model_proxy": True,
         },
     )
@@ -917,48 +952,54 @@ def model_stream_error_message(event_type: str, payload: dict[str, Any]) -> str:
     return ""
 
 
-async def call_image_model_proxy(payload: WorkerRunRequest, policy: SelectedPolicy, prompt: str) -> dict[str, Any]:
+async def call_image_model_proxy(
+    payload: WorkerRunRequest,
+    policy: SelectedPolicy,
+    prompt: str,
+    *,
+    reference: WorkerArtifactRef | None = None,
+    reference_body: bytes | None = None,
+) -> dict[str, Any]:
     image_request: dict[str, Any] = {
-        "model": policy.model,
         "prompt": prompt,
         "n": 1,
     }
-    size = payload.input.get("size")
-    if isinstance(size, str) and size.strip():
-        image_request["size"] = size.strip()
-    quality = payload.input.get("quality")
-    if isinstance(quality, str) and quality.strip():
-        image_request["quality"] = quality.strip()
+    copy_input_fields(
+        payload.input,
+        image_request,
+        "size",
+        "quality",
+        "background",
+        "output_format",
+        "output_compression",
+        "input_fidelity",
+    )
 
-    body: dict[str, Any] = {
-        "run_id": payload.run_id,
-        "node_id": policy.node_id,
-        "role": policy.role,
-        "model": policy.model,
-        "endpoint": "/v1/images/generations",
-        "request": image_request,
-        "metadata": {
-            "worker": "sub2api-app-worker",
-            "policy_key": policy.policy_key,
-            "capability": policy.capability,
-        },
-    }
-    if policy.model_group_id is not None:
-        body["group_id"] = policy.model_group_id
+    if reference is None:
+        return await call_model_proxy_request(
+            payload,
+            policy,
+            endpoint="/v1/images/generations",
+            request_body=image_request,
+        )
 
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-Sub2API-Run-Token": payload.run_token,
-        "X-Sub2API-Agent-Run-Token": payload.run_token,
-    }
-    async with httpx.AsyncClient(timeout=MODEL_PROXY_TIMEOUT_SECONDS) as client:
-        response = await client.post(payload.model_proxy_url, json=body, headers=headers)
-    if response.status_code >= 400:
-        raise WorkerFailure("MODEL_PROXY_FAILED", truncate(response.text, 1000))
-
-    data = response.json()
-    return unwrap_sub2api_response(data)
+    if reference_body is None:
+        reference_body = await download_input_artifact(reference)
+    return await call_model_proxy_request(
+        payload,
+        policy,
+        endpoint="/v1/images/edits",
+        request_body=image_request,
+        content_type="multipart/form-data",
+        multipart=[
+            {
+                "name": "image",
+                "filename": reference.name or f"image-reference-{payload.run_id}.png",
+                "content_type": artifact_ref_mime(reference) or "application/octet-stream",
+                "body_base64": base64.b64encode(reference_body).decode("ascii"),
+            }
+        ],
+    )
 
 
 async def call_model_proxy_request(
@@ -1274,7 +1315,15 @@ def select_media_policy(payload: WorkerRunRequest) -> tuple[str, SelectedPolicy]
 def media_policy_kind(policy: ModelPolicy, payload: WorkerRunRequest) -> str:
     capability = normalize_policy_value(policy.capability)
     role = normalize_policy_value(policy.role)
-    if capability in {"image", "images", "image_generation", "image_generate", "text_to_image"}:
+    if capability in {
+        "image",
+        "images",
+        "image_generation",
+        "image_generate",
+        "image_edit",
+        "image_to_image",
+        "text_to_image",
+    }:
         return "image_generation"
     if capability in {"video", "videos", "video_generation", "video_generate", "text_to_video"}:
         return "video_generation"
@@ -1429,6 +1478,26 @@ def is_audio_artifact_ref(artifact: WorkerArtifactRef) -> bool:
 
 def is_image_artifact_ref(artifact: WorkerArtifactRef) -> bool:
     return artifact_ref_mime(artifact).startswith("image/") or artifact_ref_asset_type(artifact) == "image"
+
+
+def reference_image_artifact(payload: WorkerRunRequest) -> WorkerArtifactRef | None:
+    images = [artifact for artifact in input_artifacts(payload) if is_image_artifact_ref(artifact)]
+    if not images:
+        return None
+
+    preferred_roles = {"reference", "source", "input", "init"}
+    for artifact in images:
+        role = artifact.metadata.get("asset_role")
+        if isinstance(role, str) and normalize_policy_value(role) in preferred_roles:
+            return artifact
+
+    preferred_fields = {"reference", "reference_image", "source_image", "input_image", "images"}
+    for artifact in images:
+        field_name = artifact.metadata.get("field_name")
+        if isinstance(field_name, str) and normalize_policy_value(field_name) in preferred_fields:
+            return artifact
+
+    return images[0]
 
 
 def extract_prompt(values: dict[str, Any]) -> str:

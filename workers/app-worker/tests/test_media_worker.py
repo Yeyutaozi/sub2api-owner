@@ -148,6 +148,91 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(501, callbacks[-1]["output"]["artifact"]["artifact_id"])
         self.assertEqual({"input_tokens": 2}, callbacks[-1]["metadata"]["usage"])
 
+    async def test_image_generation_without_reference_uses_generations_endpoint(self) -> None:
+        proxy_bodies: list[dict[str, object]] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            proxy_bodies.append(body)
+            return self.wrapped({"response": {"data": [{"b64_json": "aW1hZ2U="}]}})
+
+        payload = self.payload(input_values={"prompt": "a mountain", "size": "1024x1024", "quality": "high"})
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.call_image_model_proxy(payload, self.policy("image_generation", "gpt-image-1"), "a mountain")
+
+        self.assertEqual(1, len(proxy_bodies))
+        self.assertEqual("/v1/images/generations", proxy_bodies[0]["endpoint"])
+        self.assertEqual("1024x1024", proxy_bodies[0]["request"]["size"])
+        self.assertEqual("high", proxy_bodies[0]["request"]["quality"])
+        self.assertNotIn("multipart", proxy_bodies[0])
+
+    async def test_image_edit_with_reference_uses_same_run_and_reports_mode(self) -> None:
+        reference_bytes = b"fake-reference-image"
+        generated_bytes = b"fake-generated-image"
+        callbacks: list[dict[str, object]] = []
+        reference = worker.WorkerArtifactRef(
+            artifact_id=61,
+            name="reference.webp",
+            mime_type="image/webp",
+            url="https://assets.test/reference.webp",
+            metadata={"field_name": "reference_image", "asset_role": "reference"},
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "assets.test":
+                return httpx.Response(200, content=reference_bytes, headers={"Content-Type": "image/webp"})
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                self.assertEqual("/v1/images/edits", body["endpoint"])
+                self.assertEqual("multipart/form-data", body["content_type"])
+                self.assertEqual("image", body["multipart"][0]["name"])
+                self.assertEqual("reference.webp", body["multipart"][0]["filename"])
+                self.assertEqual("image/webp", body["multipart"][0]["content_type"])
+                self.assertEqual(reference_bytes, base64.b64decode(body["multipart"][0]["body_base64"]))
+                return self.wrapped(
+                    {
+                        "response": {"data": [{"b64_json": base64.b64encode(generated_bytes).decode("ascii")}]},
+                        "usage": {"total_tokens": 12},
+                    }
+                )
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(generated_bytes, request.content)
+                self.assertIn(b'image_to_image', request.content)
+                return self.wrapped({"artifact_id": 601, "url": "https://download.test/generated.png"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(input_values={"prompt": "turn it into a sketch", "input_fidelity": "high"}, artifacts=[reference])
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.process_image_run(
+                payload,
+                "worker-image-edit",
+                time.perf_counter(),
+                self.policy("image_generation", "gpt-image-1"),
+                "turn it into a sketch",
+            )
+
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("image_to_image", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual("image_to_image", callbacks[-1]["metadata"]["generation_mode"])
+        self.assertEqual(601, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+    def test_reference_image_prefers_reference_role_then_falls_back(self) -> None:
+        fallback = worker.WorkerArtifactRef(name="first.png", mime_type="image/png")
+        preferred = worker.WorkerArtifactRef(
+            name="preferred.png",
+            mime_type="image/png",
+            metadata={"asset_role": "reference"},
+        )
+        payload = self.payload(artifacts=[fallback, preferred])
+        self.assertIs(preferred, worker.reference_image_artifact(payload))
+        self.assertIs(fallback, worker.reference_image_artifact(self.payload(artifacts=[fallback])))
+        self.assertIsNone(worker.reference_image_artifact(self.payload()))
+
     async def test_audio_transcription_builds_model_proxy_multipart_contract(self) -> None:
         audio = b"RIFF-fake-wave"
         callbacks: list[dict[str, object]] = []
@@ -478,6 +563,18 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         }
         media_kind, selected = worker.select_media_policy(payload) or ("", None)
         self.assertEqual("audio_transcription", media_kind)
+        self.assertIsNotNone(selected)
+
+        payload.node_model_policy = {
+            "image.edit": worker.ModelPolicy(
+                node_id="image",
+                role="edit",
+                model="gpt-image-1",
+                capability="image_to_image",
+            )
+        }
+        media_kind, selected = worker.select_media_policy(payload) or ("", None)
+        self.assertEqual("image_generation", media_kind)
         self.assertIsNotNone(selected)
 
 

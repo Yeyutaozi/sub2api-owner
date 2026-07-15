@@ -8,6 +8,7 @@ routes:
     - /runs
     - /text/runs
     - /prompt/runs
+    - /image/runs
     - /workflow/runs
     - /audio/runs
     - /video/runs
@@ -16,6 +17,7 @@ capabilities:
   - text
   - vision
   - image_generation
+  - image_edit
   - audio_speech
   - audio_transcription
   - audio_translation

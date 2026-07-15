@@ -155,6 +155,7 @@ https://sub.example.com
 
 ```text
 通用/文本：/runs 或 /text/runs
+文生图 / 图生图：/image/runs（参考图可选，同一个智能体自动切换）
 工作流：/workflow/runs
 音频：/audio/runs
 视频：/video/runs
@@ -214,4 +215,3 @@ docker run -d \
 ### 修改 `.env` 后没有生效
 
 Docker 不会自动重新读取 `.env`。删除并重新创建 Worker 容器即可，不需要重新构建镜像。
-

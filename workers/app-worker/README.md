@@ -95,6 +95,7 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 
 - `/runs`：通用文本应用
 - `/text/runs`：文本处理入口
+- `/image/runs`：统一图片智能体入口；只传提示词时文生图，上传可选参考图时自动图生图
 - `/workflow/runs`：图文工作流入口
 - `/audio/runs`：语音合成、音频转写或翻译入口
 - `/video/runs`：OpenAI 兼容视频生成入口
@@ -127,16 +128,10 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 }
 ```
 
-图文工作流：
+统一文生图 / 图生图智能体：
 
 ```json
 {
-  "prompt_rewrite.rewrite": {
-    "node_id": "prompt_rewrite",
-    "role": "rewrite",
-    "capability": "text",
-    "model": "gpt-4.1-mini"
-  },
   "image_generation.generate": {
     "node_id": "image_generation",
     "role": "generate",
@@ -145,6 +140,8 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
   }
 }
 ```
+
+同一个应用版本使用 `/image/runs`，输入表单包含必填 `prompt` 和可选图片字段 `reference_image`（`x-asset-role: reference`）。未上传参考图时 Worker 调用 `/v1/images/generations`；上传后自动改用 multipart `/v1/images/edits`，无需再创建第二个应用或第二个 Worker。参考图通过 Sub2API 签名 URL 下载，生成结果仍由 Sub2API Artifact 接口写入当前对象存储。
 
 音频和视频应用使用同一套 Model Proxy 与 Artifact 链路。Worker 会按 `capability` 自动选择处理方式：
 
@@ -212,7 +209,7 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 
 1. 启动 Sub2API、前端、Redis 和 Worker。
 2. 管理后台创建 Worker Host，健康检查通过。
-3. 发布应用版本，运行路径填 `/runs` 或 `/workflow/runs`。
+3. 发布应用版本；文本填 `/runs`，统一文生图 / 图生图智能体填 `/image/runs`。
 4. 用户侧选择应用，选择平台内已有 Key，提交运行。
 5. 运行完成后检查用户侧结果预览、对象存储引用、使用记录和扣费记录。
 6. 测试停止运行，确认后续步骤不再继续发起新的模型请求。

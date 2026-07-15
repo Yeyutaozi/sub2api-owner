@@ -209,7 +209,7 @@
             </div>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text')">文本模板</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image')">图文工作流模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image')">文生图 / 图生图模板</button>
             </div>
           </div>
 
@@ -567,7 +567,7 @@
             </div>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text', versionForm)">文本模板</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image', versionForm)">图文工作流模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image', versionForm)">文生图 / 图生图模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="addInputField(versionForm)">添加输入项</button>
             </div>
           </div>
@@ -959,7 +959,7 @@ const appForm = reactive<CreateAgentAppRequest>({
   description: '',
   icon_url: '',
   category: '',
-  app_type: 'workflow',
+  app_type: 'agent',
   visibility: 'public',
   status: 'published'
 })
@@ -970,7 +970,7 @@ const editAppForm = reactive<CreateAgentAppRequest>({
   description: '',
   icon_url: '',
   category: '',
-  app_type: 'workflow',
+  app_type: 'agent',
   visibility: 'public',
   status: 'published'
 })
@@ -1191,7 +1191,7 @@ function openAppDialog() {
     description: '',
     icon_url: '',
     category: '',
-    app_type: 'workflow',
+    app_type: 'agent',
     visibility: 'public',
     status: 'published'
   })
@@ -1374,14 +1374,14 @@ async function openVersionDialog(app: AgentApp) {
       status: 'published',
       runtime_type: 'worker',
       worker_host_id: '',
-      worker_route: '/workflow/runs',
+      worker_route: '/image/runs',
       worker_health_route: '/health',
       image_ref: '',
-      source_ref: 'sub2api-app-worker:workflow',
-      input_fields: defaultWorkflowInputFields(),
+      source_ref: 'sub2api-app-worker:image',
+      input_fields: defaultImageInputFields(),
       output_fields: defaultOutputFields(),
-      model_roles: defaultWorkflowModelRoles(),
-      capabilities: defaultWorkflowCapabilities(),
+      model_roles: defaultImageModelRoles(),
+      capabilities: defaultImageCapabilities(),
       artifact_policy: defaultArtifactPolicyForm(),
       changelog: '发布新版本'
     })
@@ -1600,14 +1600,14 @@ function resetPublishVersionForm() {
     status: 'published',
     runtime_type: 'worker',
     worker_host_id: '',
-    worker_route: '/workflow/runs',
+    worker_route: '/image/runs',
     worker_health_route: '/health',
     image_ref: '',
-    source_ref: 'sub2api-app-worker:workflow',
-    input_fields: defaultWorkflowInputFields(),
+    source_ref: 'sub2api-app-worker:image',
+    input_fields: defaultImageInputFields(),
     output_fields: defaultOutputFields(),
-    model_roles: defaultWorkflowModelRoles(),
-    capabilities: defaultWorkflowCapabilities(),
+    model_roles: defaultImageModelRoles(),
+    capabilities: defaultImageCapabilities(),
     artifact_policy: defaultArtifactPolicyForm(),
     changelog: '首次发布'
   })
@@ -1634,28 +1634,25 @@ function applyVersionTemplate(type: 'text' | 'image', target: VersionFormLike = 
   }
 
   Object.assign(target, {
-    worker_route: '/workflow/runs',
-    source_ref: 'sub2api-app-worker:workflow',
-    input_fields: defaultWorkflowInputFields(),
+    worker_route: '/image/runs',
+    source_ref: 'sub2api-app-worker:image',
+    input_fields: defaultImageInputFields(),
     output_fields: defaultOutputFields(),
-    model_roles: defaultWorkflowModelRoles(),
-    capabilities: defaultWorkflowCapabilities(),
+    model_roles: defaultImageModelRoles(),
+    capabilities: defaultImageCapabilities(),
     artifact_policy: defaultArtifactPolicyForm()
   })
   ensureVersionFormDefaults(target)
 }
 
-function defaultWorkflowCapabilities() {
-  return capabilityMap(['text', 'image', 'vision', 'file'])
+function defaultImageCapabilities() {
+  return capabilityMap(['image'])
 }
 
-function defaultWorkflowInputFields(): InputFieldForm[] {
+function defaultImageInputFields(): InputFieldForm[] {
   return [
-    { name: 'product_name', label: '商品名称', type: 'text', required: true, asset_role: '', options: '' },
-    { name: 'selling_points', label: '卖点描述', type: 'textarea', required: false, asset_role: '', options: '' },
-    { name: 'style', label: '风格', type: 'select', required: false, asset_role: '', options: '写实\n电商主图\n小红书风格' },
-    { name: 'images', label: '参考图片', type: 'image', required: false, asset_role: 'reference', options: '' },
-    { name: 'files', label: '输入文件', type: 'file', required: false, asset_role: 'document', options: '' }
+    { name: 'prompt', label: '提示词', type: 'textarea', required: true, asset_role: '', options: '' },
+    { name: 'reference_image', label: '参考图片（可选）', type: 'image', required: false, asset_role: 'reference', options: '' }
   ]
 }
 
@@ -1666,9 +1663,8 @@ function defaultOutputFields(): OutputFieldForm[] {
   ]
 }
 
-function defaultWorkflowModelRoles(): ModelRoleForm[] {
+function defaultImageModelRoles(): ModelRoleForm[] {
   return [
-    { node_id: 'prompt_rewrite', role: 'rewrite', capability: 'text', provider: 'openai', model: 'gpt-4.1-mini', model_group_id: '', required: true },
     { node_id: 'image_generation', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-1', model_group_id: '', required: true }
   ]
 }
