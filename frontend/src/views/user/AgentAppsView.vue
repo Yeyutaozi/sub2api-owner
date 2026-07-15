@@ -136,6 +136,50 @@
             </div>
 
             <div class="p-5">
+              <section v-if="selectedRunInputItems.length || selectedRunInputAssets.length" class="mb-5 border-b border-gray-200 pb-5 dark:border-dark-700">
+                <div class="mb-3 flex items-center gap-2">
+                  <Icon name="document" size="sm" class="text-gray-500 dark:text-gray-400" />
+                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">本次输入</h3>
+                </div>
+
+                <div v-if="selectedRunInputItems.length" class="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+                  <div v-for="item in selectedRunInputItems" :key="item.key" class="min-w-0 border-l-2 border-gray-200 pl-3 dark:border-dark-700">
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ item.label }}</div>
+                    <div class="mt-1 break-words text-sm text-gray-900 dark:text-gray-100">
+                      <StructuredValue :value="item.value" />
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="selectedRunInputAssets.length" class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div
+                    v-for="asset in selectedRunInputAssets"
+                    :key="asset.id"
+                    class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900/40"
+                  >
+                    <div v-if="isImageInputAsset(asset) && inputAssetPreviewURL(asset)" class="bg-gray-50 dark:bg-dark-800">
+                      <img :src="inputAssetPreviewURL(asset)" :alt="asset.name" class="max-h-80 w-full object-contain" />
+                    </div>
+                    <div v-else-if="isVideoInputAsset(asset) && inputAssetPreviewURL(asset)" class="bg-black">
+                      <video :src="inputAssetPreviewURL(asset)" controls class="max-h-80 w-full" />
+                    </div>
+                    <div v-else-if="isAudioInputAsset(asset) && inputAssetPreviewURL(asset)" class="bg-gray-50 p-4 dark:bg-dark-800">
+                      <audio :src="inputAssetPreviewURL(asset)" controls class="w-full" />
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-3 py-3 text-sm">
+                      <span class="min-w-0">
+                        <span class="block text-xs text-gray-500 dark:text-gray-400">{{ inputAssetFieldLabel(asset) }}</span>
+                        <span class="mt-1 block truncate text-gray-800 dark:text-gray-100">{{ asset.name }}</span>
+                        <span class="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">{{ inputAssetDescription(asset) }}</span>
+                      </span>
+                      <button type="button" class="btn btn-secondary btn-sm flex-shrink-0" title="下载输入文件" @click="downloadInputAsset(asset.id)">
+                        <Icon name="download" size="sm" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
               <div v-if="runPrimaryText(selectedRun)" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60">
                 <div class="mb-2 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   <Icon name="sparkles" size="sm" />
@@ -739,6 +783,8 @@ const inputFilePreviewURLs = ref<Record<string, string>>({})
 const uploadedInputAssetIDs = ref<Record<string, number>>({})
 const artifactPreviewURLs = ref<Record<number, string>>({})
 const artifactPreviewExpiresAt = ref<Record<number, number>>({})
+const inputAssetPreviewURLs = ref<Record<number, string>>({})
+const inputAssetPreviewExpiresAt = ref<Record<number, number>>({})
 const appIconURLs = ref<Record<number, string>>({})
 const appIconExpiresAt = ref<Record<number, number>>({})
 const inputError = ref('')
@@ -818,6 +864,8 @@ const maxInputFileBytes = computed(() => {
 })
 const runUsageTotalTokens = computed(() => runUsageLogs.value.reduce((total, log) => total + usageLogTokens(log), 0).toLocaleString())
 const runUsageActualCost = computed(() => runUsageLogs.value.reduce((total, log) => total + Number(log.actual_cost || 0), 0).toFixed(6))
+const selectedRunInputItems = computed(() => runInputItems(selectedRun.value))
+const selectedRunInputAssets = computed(() => runInputAssets(selectedRun.value))
 
 function usageLogTokens(log: UsageLog): number {
   return Number(log.input_tokens || 0) + Number(log.output_tokens || 0) + Number(log.cache_creation_tokens || 0) + Number(log.cache_read_tokens || 0)
@@ -1030,7 +1078,7 @@ async function selectRun(run: AgentRun) {
   stopRunUsageRetry()
   try {
     selectedRun.value = await agentAppsAPI.getRun(run.id)
-    await ensureArtifactPreviewURLs(selectedRun.value)
+    await ensureRunPreviewURLs(selectedRun.value)
     await loadRunEvents(run.id)
     await loadRunUsage(run.id)
     syncRunPolling(selectedRun.value)
@@ -1073,7 +1121,7 @@ async function refreshSelectedRun(runId = selectedRun.value?.id, options: { sile
     if (selectedRun.value?.id === runId || !selectedRun.value) {
       selectedRun.value = latest
     }
-    await ensureArtifactPreviewURLs(latest)
+    await ensureRunPreviewURLs(latest)
     await loadRunEvents(runId, { silent: options.silent })
     if (isTerminalRunStatus(latest.status)) await loadRunUsage(runId, { silent: true })
     await loadRuns({ silent: true })
@@ -1188,7 +1236,7 @@ async function submitRun() {
       input_asset_ids: assetIds
     })
     selectedRun.value = run
-    await ensureArtifactPreviewURLs(run)
+    await ensureRunPreviewURLs(run)
     await scrollToRunResult()
     appStore.showSuccess('运行已提交')
     await loadRunEvents(run.id)
@@ -1215,6 +1263,25 @@ async function downloadArtifact(artifactId: number) {
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, '产物下载链接获取失败'))
   }
+}
+
+async function downloadInputAsset(inputAssetId: number) {
+  try {
+    const result = await agentAppsAPI.getInputAssetDownloadURL(inputAssetId)
+    const anchor = document.createElement('a')
+    anchor.href = result.url
+    anchor.target = '_blank'
+    anchor.rel = 'noopener noreferrer'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, '输入文件下载链接获取失败'))
+  }
+}
+
+async function ensureRunPreviewURLs(run: AgentRun | null) {
+  await Promise.all([ensureArtifactPreviewURLs(run), ensureInputAssetPreviewURLs(run)])
 }
 
 async function ensureArtifactPreviewURLs(run: AgentRun | null) {
@@ -1245,8 +1312,40 @@ async function ensureArtifactPreviewURLs(run: AgentRun | null) {
   artifactPreviewExpiresAt.value = nextExpires
 }
 
+async function ensureInputAssetPreviewURLs(run: AgentRun | null) {
+  const now = Date.now()
+  const assets = runInputAssets(run).filter((asset) => isPreviewableInputAsset(asset) && (
+    !inputAssetPreviewURLs.value[asset.id] || (inputAssetPreviewExpiresAt.value[asset.id] || 0) < now + 30_000
+  ))
+  if (assets.length === 0) return
+  const entries = await Promise.all(
+    assets.map(async (asset) => {
+      try {
+        const result = await agentAppsAPI.getInputAssetDownloadURL(asset.id)
+        return [asset.id, result.url, result.expires_at ? new Date(result.expires_at).getTime() : now + 5 * 60_000] as const
+      } catch {
+        return null
+      }
+    })
+  )
+  const next = { ...inputAssetPreviewURLs.value }
+  const nextExpires = { ...inputAssetPreviewExpiresAt.value }
+  for (const entry of entries) {
+    if (entry) {
+      next[entry[0]] = entry[1]
+      nextExpires[entry[0]] = entry[2]
+    }
+  }
+  inputAssetPreviewURLs.value = next
+  inputAssetPreviewExpiresAt.value = nextExpires
+}
+
 function artifactPreviewURL(artifact: AgentArtifact): string {
   return artifactPreviewURLs.value[artifact.id] || ''
+}
+
+function inputAssetPreviewURL(asset: AgentInputAsset): string {
+  return inputAssetPreviewURLs.value[asset.id] || ''
 }
 
 function runResultArtifacts(run: AgentRun | null): AgentArtifact[] {
@@ -1262,6 +1361,38 @@ function runLogArtifacts(run: AgentRun | null): AgentArtifact[] {
 
 function isPreviewableArtifact(artifact: AgentArtifact): boolean {
   return isImageArtifact(artifact) || isVideoArtifact(artifact) || isAudioArtifact(artifact)
+}
+
+function isPreviewableInputAsset(asset: AgentInputAsset): boolean {
+  return isImageInputAsset(asset) || isVideoInputAsset(asset) || isAudioInputAsset(asset)
+}
+
+function isImageInputAsset(asset: AgentInputAsset): boolean {
+  return inputAssetMime(asset).startsWith('image/')
+}
+
+function isVideoInputAsset(asset: AgentInputAsset): boolean {
+  return inputAssetMime(asset).startsWith('video/')
+}
+
+function isAudioInputAsset(asset: AgentInputAsset): boolean {
+  return inputAssetMime(asset).startsWith('audio/')
+}
+
+function inputAssetMime(asset: AgentInputAsset): string {
+  const direct = String(asset.mime_type || '').trim().toLowerCase()
+  if (direct) return direct
+  for (const key of ['mime_type', 'content_type', 'media_type']) {
+    const value = asset.metadata_json?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim().toLowerCase()
+  }
+  const extension = asset.name.toLowerCase().split('.').pop() || ''
+  const byExtension: Record<string, string> = {
+    apng: 'image/apng', avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    aac: 'audio/aac', flac: 'audio/flac', m4a: 'audio/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav',
+    avi: 'video/x-msvideo', m4v: 'video/mp4', mkv: 'video/x-matroska', mov: 'video/quicktime', mp4: 'video/mp4', webm: 'video/webm'
+  }
+  return byExtension[extension] || ''
 }
 
 function isImageArtifact(artifact: AgentArtifact): boolean {
@@ -1310,7 +1441,7 @@ async function cancelSelectedRun() {
   cancelingRunId.value = run.id
   try {
     selectedRun.value = await agentAppsAPI.cancelRun(run.id)
-    await ensureArtifactPreviewURLs(selectedRun.value)
+    await ensureRunPreviewURLs(selectedRun.value)
     appStore.showSuccess('已停止后续步骤，正在执行的请求可能仍会完成')
     await loadRunEvents(run.id)
     await loadRuns()
@@ -2183,6 +2314,88 @@ function runPrimaryText(run: AgentRun): string {
   return ''
 }
 
+function runInputItems(run: AgentRun | null): Array<{ key: string; label: string; value: unknown }> {
+  const input = run?.input_summary_json
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return []
+  const assetFieldNames = new Set(runInputAssets(run).map(asset => String(asset.field_name || '').trim()).filter(Boolean))
+  return Object.entries(input)
+    .filter(([key, value]) => !isTechnicalInputKey(key) && !assetFieldNames.has(key) && value != null && value !== '')
+    .slice(0, 20)
+    .map(([key, value]) => ({
+      key,
+      label: inputFieldDisplayLabel(key),
+      value
+    }))
+}
+
+function runInputAssets(run: AgentRun | null): AgentInputAsset[] {
+  const raw = run?.input_summary_json?.input_assets
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const value = item as Record<string, unknown>
+    const id = Number(value.id || value.file_id || 0)
+    if (!Number.isFinite(id) || id <= 0) return []
+    const metadata = value.metadata_json && typeof value.metadata_json === 'object' && !Array.isArray(value.metadata_json)
+      ? value.metadata_json as Record<string, unknown>
+      : value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
+        ? value.metadata as Record<string, unknown>
+        : {}
+    return [{
+      id,
+      run_id: Number(value.run_id || run?.id || 0) || undefined,
+      user_id: Number(value.user_id || run?.user_id || 0),
+      app_id: Number(value.app_id || run?.app_id || 0) || undefined,
+      field_name: String(value.field_name || ''),
+      asset_type: String(value.asset_type || 'file'),
+      asset_role: String(value.asset_role || ''),
+      name: String(value.name || `input-${id}`),
+      mime_type: String(value.mime_type || ''),
+      storage_provider: String(value.storage_provider || ''),
+      bucket: String(value.bucket || '') || undefined,
+      object_key: String(value.object_key || ''),
+      object_url: String(value.object_url || ''),
+      size_bytes: Number(value.size_bytes || 0),
+      sha256: String(value.sha256 || '') || undefined,
+      metadata_json: metadata,
+      expires_at: String(value.expires_at || '') || undefined,
+      created_at: String(value.created_at || run?.created_at || '')
+    }]
+  })
+}
+
+function isTechnicalInputKey(key: string): boolean {
+  const normalized = key.toLowerCase()
+  return normalized === 'input_assets' || normalized === 'input_asset_ids' || normalized === 'input_files'
+}
+
+function inputFieldDisplayLabel(key: string): string {
+  const properties = selectedApp.value?.published_version?.input_schema_json?.properties
+  if (properties && typeof properties === 'object') {
+    const field = (properties as Record<string, unknown>)[key]
+    if (field && typeof field === 'object' && !Array.isArray(field)) {
+      const title = String((field as Record<string, unknown>).title || '').trim()
+      if (title) return title
+    }
+  }
+  const labels: Record<string, string> = {
+    prompt: '提示词',
+    text: '输入内容',
+    content: '输入内容',
+    question: '问题',
+    query: '问题',
+    instruction: '指令',
+    description: '描述',
+    style: '风格',
+    size: '尺寸',
+    quality: '质量',
+    background: '背景',
+    output_format: '输出格式',
+    input_fidelity: '参考图保真度'
+  }
+  return labels[key] || key.replace(/[_-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase())
+}
+
 function runReadableItems(run: AgentRun): Array<{ label: string; value: unknown }> {
   const output = readableOutputRecord(run)
   return Object.entries(output)
@@ -2246,6 +2459,29 @@ function artifactDescription(artifact: AgentArtifact): string {
     parts.push(`保留至 ${formatDateTime(artifact.expires_at)}`)
   }
   return parts.filter(Boolean).join(' · ')
+}
+
+function inputAssetFieldLabel(asset: AgentInputAsset): string {
+  const metadataLabel = String(asset.metadata_json?.field_label || '').trim()
+  if (metadataLabel) return metadataLabel
+  const key = String(asset.field_name || '').trim()
+  if (key) return inputFieldDisplayLabel(key)
+  if (asset.asset_role) return `输入文件 · ${asset.asset_role}`
+  return '输入文件'
+}
+
+function inputAssetDescription(asset: AgentInputAsset): string {
+  const parts = [inputAssetTypeLabel(asset), formatBytes(asset.size_bytes)]
+  if (asset.expires_at) parts.push(`保留至 ${formatDateTime(asset.expires_at)}`)
+  return parts.filter(Boolean).join(' · ')
+}
+
+function inputAssetTypeLabel(asset: AgentInputAsset): string {
+  const mime = inputAssetMime(asset)
+  if (mime.startsWith('image/')) return '参考图片'
+  if (mime.startsWith('video/')) return '输入视频'
+  if (mime.startsWith('audio/')) return '输入音频'
+  return '输入文件'
 }
 
 function artifactTypeLabel(artifact: AgentArtifact): string {
