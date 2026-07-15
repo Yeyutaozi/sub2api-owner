@@ -4,10 +4,16 @@ import type { PaginatedResponse } from '@/types'
 export interface AdminAgentRunAudit {
   id: number
   app_id: number
+  app_name: string
   app_version_id: number
+  app_version: string
   user_id: number
+  user_email: string
+  username: string
   api_key_id: number
+  api_key_name: string
   worker_host_id?: number
+  worker_host_name?: string
   status: string
   duration_ms?: number
   started_at?: string

@@ -7,7 +7,20 @@ import (
 
 func TestAgentRunAuditSelectSQLExcludesBusinessData(t *testing.T) {
 	query := strings.ToLower(agentRunAuditSelectSQL())
-	for _, required := range []string{"user_id", "api_key_id", "worker_host_id", "status", "started_at", "completed_at"} {
+	for _, required := range []string{
+		"user_id",
+		"api_key_id",
+		"worker_host_id",
+		"status",
+		"started_at",
+		"completed_at",
+		"app.name",
+		"app_version.version",
+		"u.email",
+		"u.username",
+		"k.name",
+		"worker.name",
+	} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("audit query is missing required field %q", required)
 		}
@@ -22,6 +35,7 @@ func TestAgentRunAuditSelectSQLExcludesBusinessData(t *testing.T) {
 		"error_message",
 		"usage_json",
 		"expires_at",
+		"k.key",
 	} {
 		if strings.Contains(query, forbidden) {
 			t.Fatalf("audit query must not select business field %q", forbidden)

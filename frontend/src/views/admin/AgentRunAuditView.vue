@@ -33,22 +33,29 @@
 
           <template #cell-app_id="{ row }">
             <div class="flex flex-col">
-              <span class="font-medium text-gray-900 dark:text-white">{{ appName(row.app_id) }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">应用 #{{ row.app_id }} · 版本 #{{ row.app_version_id }}</span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ row.app_name || `应用 #${row.app_id}` }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                {{ row.app_version ? `版本 ${row.app_version}` : `版本 #${row.app_version_id}` }}
+              </span>
             </div>
           </template>
 
           <template #cell-user_id="{ row }">
             <div class="flex flex-col text-sm text-gray-700 dark:text-gray-300">
-              <span>用户 #{{ row.user_id }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">API Key #{{ row.api_key_id }}</span>
+              <span>{{ row.username || row.user_email || `用户 #${row.user_id}` }}</span>
+              <span v-if="row.username && row.user_email" class="text-xs text-gray-500 dark:text-gray-400">{{ row.user_email }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                {{ row.api_key_name || 'API Key' }} (#{{ row.api_key_id }})
+              </span>
             </div>
           </template>
 
           <template #cell-worker_host_id="{ row }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">
-              {{ row.worker_host_id ? `#${row.worker_host_id}` : '-' }}
-            </span>
+            <div v-if="row.worker_host_id" class="flex flex-col text-sm text-gray-700 dark:text-gray-300">
+              <span>{{ row.worker_host_name || `Worker #${row.worker_host_id}` }}</span>
+              <span v-if="row.worker_host_name" class="text-xs text-gray-500 dark:text-gray-400">#{{ row.worker_host_id }}</span>
+            </div>
+            <span v-else class="text-gray-400">-</span>
           </template>
 
           <template #cell-status="{ row }">
@@ -134,12 +141,16 @@ const statusFilterOptions = [
   { label: '超时', value: 'timeout' }
 ]
 
-const appFilterOptions = computed(() => [
-  { label: '全部应用', value: '' },
-  ...apps.value.map(app => ({ label: `${app.name} (#${app.id})`, value: app.id }))
-])
-
-const appNameMap = computed(() => new Map(apps.value.map(app => [app.id, app.name])))
+const appFilterOptions = computed(() => {
+  const names = new Map(apps.value.map(app => [app.id, app.name]))
+  for (const run of runs.value) {
+    if (!names.has(run.app_id)) names.set(run.app_id, run.app_name || `应用 #${run.app_id}`)
+  }
+  return [
+    { label: '全部应用', value: '' },
+    ...Array.from(names, ([id, name]) => ({ label: `${name} (#${id})`, value: id }))
+  ]
+})
 
 async function loadApps() {
   try {
@@ -197,10 +208,6 @@ function handlePageSizeChange(pageSize: number) {
   pagination.page_size = pageSize
   pagination.page = 1
   void loadRuns()
-}
-
-function appName(appID: number) {
-  return appNameMap.value.get(appID) || `应用 #${appID}`
 }
 
 function statusLabel(status: string) {

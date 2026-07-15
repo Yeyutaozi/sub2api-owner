@@ -98,18 +98,24 @@ type agentRunResponse struct {
 // adminAgentRunAuditResponse intentionally excludes all input, output, artifact,
 // object-storage and free-form error fields.
 type adminAgentRunAuditResponse struct {
-	ID           int64   `json:"id"`
-	AppID        int64   `json:"app_id"`
-	AppVersionID int64   `json:"app_version_id"`
-	UserID       int64   `json:"user_id"`
-	APIKeyID     int64   `json:"api_key_id"`
-	WorkerHostID *int64  `json:"worker_host_id,omitempty"`
-	Status       string  `json:"status"`
-	DurationMs   *int64  `json:"duration_ms,omitempty"`
-	StartedAt    *string `json:"started_at,omitempty"`
-	CompletedAt  *string `json:"completed_at,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID             int64   `json:"id"`
+	AppID          int64   `json:"app_id"`
+	AppName        string  `json:"app_name"`
+	AppVersionID   int64   `json:"app_version_id"`
+	AppVersion     string  `json:"app_version"`
+	UserID         int64   `json:"user_id"`
+	UserEmail      string  `json:"user_email"`
+	Username       string  `json:"username"`
+	APIKeyID       int64   `json:"api_key_id"`
+	APIKeyName     string  `json:"api_key_name"`
+	WorkerHostID   *int64  `json:"worker_host_id,omitempty"`
+	WorkerHostName string  `json:"worker_host_name,omitempty"`
+	Status         string  `json:"status"`
+	DurationMs     *int64  `json:"duration_ms,omitempty"`
+	StartedAt      *string `json:"started_at,omitempty"`
+	CompletedAt    *string `json:"completed_at,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 
 type artifactResponse struct {
@@ -909,18 +915,24 @@ func agentRunToAdminAuditResponse(run *service.AgentRun) *adminAgentRunAuditResp
 		durationMs = &value
 	}
 	return &adminAgentRunAuditResponse{
-		ID:           run.ID,
-		AppID:        run.AppID,
-		AppVersionID: run.AppVersionID,
-		UserID:       run.UserID,
-		APIKeyID:     run.APIKeyID,
-		WorkerHostID: run.WorkerHostID,
-		Status:       run.Status,
-		DurationMs:   durationMs,
-		StartedAt:    formatOptionalTime(run.StartedAt),
-		CompletedAt:  formatOptionalTime(run.CompletedAt),
-		CreatedAt:    run.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    run.UpdatedAt.Format(time.RFC3339),
+		ID:             run.ID,
+		AppID:          run.AppID,
+		AppName:        run.AppName,
+		AppVersionID:   run.AppVersionID,
+		AppVersion:     run.AppVersion,
+		UserID:         run.UserID,
+		UserEmail:      run.UserEmail,
+		Username:       run.Username,
+		APIKeyID:       run.APIKeyID,
+		APIKeyName:     run.APIKeyName,
+		WorkerHostID:   run.WorkerHostID,
+		WorkerHostName: run.WorkerHostName,
+		Status:         run.Status,
+		DurationMs:     durationMs,
+		StartedAt:      formatOptionalTime(run.StartedAt),
+		CompletedAt:    formatOptionalTime(run.CompletedAt),
+		CreatedAt:      run.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      run.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

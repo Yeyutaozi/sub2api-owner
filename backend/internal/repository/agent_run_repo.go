@@ -164,9 +164,15 @@ func (r *agentRunRepository) ListRuns(ctx context.Context, params pagination.Pag
 }
 
 func (r *agentRunRepository) listRuns(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.AgentRunListFilters, auditOnly bool) ([]service.AgentRun, *pagination.PaginationResult, error) {
-	where, args := buildAgentRunWhere(userID, filters)
+	tableRef := "agent_runs"
+	alias := ""
+	if auditOnly {
+		tableRef = "agent_runs ar"
+		alias = "ar"
+	}
+	where, args := buildAgentRunWhere(userID, filters, alias)
 	var total int64
-	if err := scanSingleRow(ctx, r.db, `SELECT COUNT(*) FROM agent_runs `+where, args, &total); err != nil {
+	if err := scanSingleRow(ctx, r.db, `SELECT COUNT(*) FROM `+tableRef+` `+where, args, &total); err != nil {
 		return nil, nil, err
 	}
 
@@ -177,7 +183,7 @@ func (r *agentRunRepository) listRuns(ctx context.Context, userID int64, params 
 	if auditOnly {
 		selectSQL = agentRunAuditSelectSQL()
 	}
-	rows, err := r.db.QueryContext(ctx, selectSQL+" "+where+agentRunOrderClause(params)+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPos, offsetPos), args...)
+	rows, err := r.db.QueryContext(ctx, selectSQL+" "+where+agentRunOrderClause(params, alias)+fmt.Sprintf(" LIMIT $%d OFFSET $%d", limitPos, offsetPos), args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -679,25 +685,33 @@ func agentRunSelectSQL() string {
 
 func agentRunAuditSelectSQL() string {
 	return `
-		SELECT id, app_id, app_version_id, user_id, api_key_id, worker_host_id,
-		       status, started_at, completed_at, created_at, updated_at
-		FROM agent_runs`
+		SELECT ar.id, ar.app_id, ar.app_version_id, ar.user_id, ar.api_key_id, ar.worker_host_id,
+		       ar.status, ar.started_at, ar.completed_at, ar.created_at, ar.updated_at,
+		       COALESCE(app.name, ''), COALESCE(app_version.version, ''),
+		       COALESCE(u.email, ''), COALESCE(u.username, ''), COALESCE(k.name, ''),
+		       COALESCE(worker.name, '')
+		FROM agent_runs ar
+		JOIN agent_apps app ON app.id = ar.app_id
+		JOIN agent_app_versions app_version ON app_version.id = ar.app_version_id
+		JOIN users u ON u.id = ar.user_id
+		JOIN api_keys k ON k.id = ar.api_key_id
+		LEFT JOIN agent_worker_hosts worker ON worker.id = ar.worker_host_id`
 }
 
-func buildAgentRunWhere(userID int64, filters service.AgentRunListFilters) (string, []any) {
+func buildAgentRunWhere(userID int64, filters service.AgentRunListFilters, alias string) (string, []any) {
 	conditions := make([]string, 0, 3)
 	args := make([]any, 0, 3)
 	if userID > 0 {
 		args = append(args, userID)
-		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)))
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", qualifyAgentRunColumn(alias, "user_id"), len(args)))
 	}
 	if filters.AppID != nil && *filters.AppID > 0 {
 		args = append(args, *filters.AppID)
-		conditions = append(conditions, fmt.Sprintf("app_id = $%d", len(args)))
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", qualifyAgentRunColumn(alias, "app_id"), len(args)))
 	}
 	if status := strings.TrimSpace(filters.Status); status != "" {
 		args = append(args, status)
-		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", qualifyAgentRunColumn(alias, "status"), len(args)))
 	}
 	if len(conditions) == 0 {
 		return "", args
@@ -705,7 +719,14 @@ func buildAgentRunWhere(userID int64, filters service.AgentRunListFilters) (stri
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
-func agentRunOrderClause(params pagination.PaginationParams) string {
+func qualifyAgentRunColumn(alias, column string) string {
+	if alias == "" {
+		return column
+	}
+	return alias + "." + column
+}
+
+func agentRunOrderClause(params pagination.PaginationParams, alias string) string {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := pagination.NormalizeSortOrder(params.SortOrder, pagination.SortOrderDesc)
 	field := "created_at"
@@ -719,10 +740,12 @@ func agentRunOrderClause(params pagination.PaginationParams) string {
 	case "updated_at":
 		field = "updated_at"
 	}
+	field = qualifyAgentRunColumn(alias, field)
+	idField := qualifyAgentRunColumn(alias, "id")
 	if sortOrder == pagination.SortOrderAsc {
-		return " ORDER BY " + field + " ASC, id ASC"
+		return " ORDER BY " + field + " ASC, " + idField + " ASC"
 	}
-	return " ORDER BY " + field + " DESC, id DESC"
+	return " ORDER BY " + field + " DESC, " + idField + " DESC"
 }
 
 func buildAgentInputAssetWhere(userID int64, filters service.AgentInputAssetListFilters) (string, []any) {
@@ -882,6 +905,12 @@ func scanAgentRunAudit(scanner agentWorkerHostScanner) (*service.AgentRun, error
 		&completedAt,
 		&run.CreatedAt,
 		&run.UpdatedAt,
+		&run.AppName,
+		&run.AppVersion,
+		&run.UserEmail,
+		&run.Username,
+		&run.APIKeyName,
+		&run.WorkerHostName,
 	); err != nil {
 		return nil, err
 	}

@@ -208,10 +208,16 @@ type AgentAppRepository interface {
 type AgentRun struct {
 	ID                int64
 	AppID             int64
+	AppName           string
 	AppVersionID      int64
+	AppVersion        string
 	UserID            int64
+	UserEmail         string
+	Username          string
 	APIKeyID          int64
+	APIKeyName        string
 	WorkerHostID      *int64
+	WorkerHostName    string
 	RunTokenHash      string
 	Status            string
 	InputRefURL       string
