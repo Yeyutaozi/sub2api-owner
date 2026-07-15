@@ -80,14 +80,6 @@
                 <span class="text-xs">查看</span>
               </button>
               <button
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
-                title="查看脱敏使用记录"
-                @click="openRunAudit(row)"
-              >
-                <Icon name="chart" size="sm" />
-                <span class="text-xs">记录</span>
-              </button>
-              <button
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
                 @click="openEditAppDialog(row)"
               >
@@ -858,54 +850,6 @@
       </div>
     </BaseDialog>
 
-    <BaseDialog
-      :show="showRunAuditDialog"
-      :title="runAuditApp ? `使用记录：${runAuditApp.name}` : '应用使用记录'"
-      width="extra-wide"
-      @close="closeRunAuditDialog"
-    >
-      <div class="mb-4 flex flex-col gap-3 border-b border-gray-200 pb-4 dark:border-dark-700 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p class="text-sm font-medium text-gray-900 dark:text-white">业务内容受保护</p>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">仅展示运行状态和审计元数据。提示词、上传文件、生成内容、对象存储路径和下载地址均不向管理员提供。</p>
-        </div>
-        <Select v-model="runAuditStatus" :options="runStatusFilterOptions" class="w-full sm:w-40" @change="handleRunAuditFilterChange" />
-      </div>
-
-      <DataTable :columns="runAuditColumns" :data="runAuditItems" :loading="runAuditLoading">
-        <template #cell-id="{ row }">
-          <span class="font-medium text-gray-900 dark:text-white">#{{ row.id }}</span>
-        </template>
-        <template #cell-user_id="{ row }">
-          <span class="text-sm text-gray-700 dark:text-gray-300">用户 #{{ row.user_id }}</span>
-        </template>
-        <template #cell-app_version_id="{ row }">
-          <span class="text-sm text-gray-700 dark:text-gray-300">版本 #{{ row.app_version_id }}</span>
-        </template>
-        <template #cell-status="{ row }">
-          <span :class="['badge', runStatusBadgeClass(row.status)]">{{ runStatusLabel(row.status) }}</span>
-        </template>
-        <template #cell-duration_ms="{ row }">
-          <span class="text-sm text-gray-700 dark:text-gray-300">{{ formatDurationMs(row.duration_ms) }}</span>
-        </template>
-        <template #cell-created_at="{ row }">
-          <span class="text-xs text-gray-600 dark:text-gray-300">{{ formatDateTime(row.created_at) }}</span>
-        </template>
-        <template #empty>
-          <div class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">暂无使用记录</div>
-        </template>
-      </DataTable>
-
-      <div v-if="runAuditPagination.total > 0" class="mt-4 flex justify-end">
-        <Pagination
-          :page="runAuditPagination.page"
-          :total="runAuditPagination.total"
-          :page-size="runAuditPagination.page_size"
-          @update:page="handleRunAuditPageChange"
-          @update:pageSize="handleRunAuditPageSizeChange"
-        />
-      </div>
-    </BaseDialog>
   </AppLayout>
 </template>
 
@@ -923,7 +867,6 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AgentAppVersionPreview from '@/components/agent/AgentAppVersionPreview.vue'
 import agentAppsAPI from '@/api/admin/agentApps'
-import type { AdminAgentRunAudit } from '@/api/admin/agentApps'
 import agentWorkerHostsAPI from '@/api/admin/agentWorkerHosts'
 import groupsAPI from '@/api/admin/groups'
 import { useAppStore } from '@/stores/app'
@@ -960,7 +903,6 @@ const showAppDialog = ref(false)
 const showEditAppDialog = ref(false)
 const showVersionDialog = ref(false)
 const showVersionsDialog = ref(false)
-const showRunAuditDialog = ref(false)
 const selectedApp = ref<AgentApp | null>(null)
 const workerHosts = ref<AgentWorkerHost[]>([])
 const modelGroups = ref<AdminGroup[]>([])
@@ -971,11 +913,6 @@ const editingApp = ref<AgentApp | null>(null)
 const editIconUploading = ref(false)
 const editIconInputRef = ref<HTMLInputElement | null>(null)
 const editIconPreviewURL = ref('')
-const runAuditApp = ref<AgentApp | null>(null)
-const runAuditItems = ref<AdminAgentRunAudit[]>([])
-const runAuditLoading = ref(false)
-const runAuditStatus = ref('')
-const runAuditPagination = reactive({ page: 1, page_size: 20, total: 0, pages: 1 })
 
 type InputFieldType = 'text' | 'textarea' | 'select' | 'image' | 'file' | 'audio' | 'video' | 'number' | 'boolean' | 'date'
 type OutputFieldType = 'text' | 'number' | 'boolean' | 'list' | 'table' | 'object'
@@ -1082,31 +1019,12 @@ const columns: Column[] = [
   { key: 'actions', label: '操作' }
 ]
 
-const runAuditColumns: Column[] = [
-  { key: 'id', label: '运行编号' },
-  { key: 'user_id', label: '用户' },
-  { key: 'app_version_id', label: '应用版本' },
-  { key: 'status', label: '状态' },
-  { key: 'duration_ms', label: '耗时' },
-  { key: 'created_at', label: '提交时间' }
-]
-
 const statusFilterOptions = [
   { label: '全部状态', value: '' },
   { label: '草稿', value: 'draft' },
   { label: '已发布', value: 'published' },
   { label: '禁用', value: 'disabled' },
   { label: '归档', value: 'archived' }
-]
-
-const runStatusFilterOptions = [
-  { label: '全部运行状态', value: '' },
-  { label: '排队中', value: 'queued' },
-  { label: '运行中', value: 'running' },
-  { label: '成功', value: 'succeeded' },
-  { label: '失败', value: 'failed' },
-  { label: '已取消', value: 'canceled' },
-  { label: '超时', value: 'timeout' }
 ]
 
 const typeFilterOptions = [
@@ -2089,61 +2007,6 @@ async function openVersions(app: AgentApp) {
   }
 }
 
-async function openRunAudit(app: AgentApp) {
-  runAuditApp.value = app
-  runAuditStatus.value = ''
-  runAuditPagination.page = 1
-  showRunAuditDialog.value = true
-  await loadRunAudit()
-}
-
-function closeRunAuditDialog() {
-  showRunAuditDialog.value = false
-  runAuditApp.value = null
-  runAuditItems.value = []
-}
-
-async function loadRunAudit() {
-  if (!runAuditApp.value) return
-  runAuditLoading.value = true
-  try {
-    const data = await agentAppsAPI.listRunAudit(
-      runAuditApp.value.id,
-      runAuditPagination.page,
-      runAuditPagination.page_size,
-      { status: runAuditStatus.value || undefined, sort_by: 'created_at', sort_order: 'desc' }
-    )
-    runAuditItems.value = data.items
-    Object.assign(runAuditPagination, {
-      page: data.page,
-      page_size: data.page_size,
-      total: data.total,
-      pages: data.pages
-    })
-  } catch (error: any) {
-    toast.error(error?.message || '加载应用使用记录失败')
-    runAuditItems.value = []
-  } finally {
-    runAuditLoading.value = false
-  }
-}
-
-function handleRunAuditFilterChange() {
-  runAuditPagination.page = 1
-  void loadRunAudit()
-}
-
-function handleRunAuditPageChange(page: number) {
-  runAuditPagination.page = page
-  void loadRunAudit()
-}
-
-function handleRunAuditPageSizeChange(pageSize: number) {
-  runAuditPagination.page_size = pageSize
-  runAuditPagination.page = 1
-  void loadRunAudit()
-}
-
 async function refreshVersionDialog() {
   if (!selectedApp.value) return
   const appId = selectedApp.value.id
@@ -2194,26 +2057,6 @@ function appStatusLabel(status: string) {
 
 function appStatusBadgeClass(status: string) {
   return status === 'published' ? 'badge-success' : status === 'draft' ? 'badge-gray' : status === 'disabled' ? 'badge-danger' : 'badge-warning'
-}
-
-function runStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    queued: '排队中',
-    running: '运行中',
-    succeeded: '成功',
-    failed: '失败',
-    canceled: '已取消',
-    timeout: '超时'
-  }
-  return labels[status] || status
-}
-
-function runStatusBadgeClass(status: string) {
-  if (status === 'succeeded') return 'badge-success'
-  if (status === 'failed' || status === 'timeout') return 'badge-danger'
-  if (status === 'running') return 'badge-primary'
-  if (status === 'queued') return 'badge-warning'
-  return 'badge-gray'
 }
 
 function runtimeTypeLabel(type: string) {
@@ -2336,13 +2179,6 @@ function formatJSON(value: Record<string, unknown> | undefined) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
-}
-
-function formatDurationMs(value?: number) {
-  if (value == null || !Number.isFinite(value)) return '-'
-  if (value < 1000) return `${Math.max(0, Math.round(value))} ms`
-  if (value < 60_000) return `${(value / 1000).toFixed(1)} 秒`
-  return `${Math.floor(value / 60_000)} 分 ${Math.round((value % 60_000) / 1000)} 秒`
 }
 
 onMounted(loadApps)

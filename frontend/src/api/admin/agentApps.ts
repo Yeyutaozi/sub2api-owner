@@ -28,21 +28,6 @@ export interface CreateAgentAppWithVersionResult {
   version: AgentAppVersion
 }
 
-export interface AdminAgentRunAudit {
-  id: number
-  app_id: number
-  app_version_id: number
-  user_id: number
-  api_key_id: number
-  worker_host_id?: number
-  status: string
-  duration_ms?: number
-  started_at?: string
-  completed_at?: string
-  created_at: string
-  updated_at: string
-}
-
 export async function list(
   page = 1,
   pageSize = 20,
@@ -127,18 +112,6 @@ export async function updateVersionStatus(appId: number, versionId: number, stat
   return data
 }
 
-export async function listRunAudit(
-  appId: number,
-  page = 1,
-  pageSize = 20,
-  filters?: { status?: string; sort_by?: string; sort_order?: 'asc' | 'desc' }
-): Promise<PaginatedResponse<AdminAgentRunAudit>> {
-  const { data } = await apiClient.get<PaginatedResponse<AdminAgentRunAudit>>(`/admin/agent-apps/${appId}/runs`, {
-    params: { page, page_size: pageSize, ...filters }
-  })
-  return data
-}
-
 export const agentAppsAPI = {
   list,
   create,
@@ -151,8 +124,7 @@ export const agentAppsAPI = {
   listVersions,
   createVersion,
   publishVersion,
-  updateVersionStatus,
-  listRunAudit
+  updateVersionStatus
 }
 
 export default agentAppsAPI

@@ -322,9 +322,14 @@ func (h *AgentRunHandler) ListRuns(c *gin.Context) {
 }
 
 func (h *AgentRunHandler) ListRunsAdmin(c *gin.Context) {
-	appID, ok := parseIDParam(c, "id", "Invalid app ID")
-	if !ok {
-		return
+	var appID *int64
+	if raw := strings.TrimSpace(c.Query("app_id")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			response.BadRequest(c, "Invalid app ID")
+			return
+		}
+		appID = &parsed
 	}
 	page, pageSize := response.ParsePagination(c)
 	items, result, err := h.runService.ListRunsForAdmin(c.Request.Context(), pagination.PaginationParams{
@@ -333,7 +338,7 @@ func (h *AgentRunHandler) ListRunsAdmin(c *gin.Context) {
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}, service.AgentRunListFilters{
-		AppID:  &appID,
+		AppID:  appID,
 		Status: c.Query("status"),
 	})
 	if err != nil {

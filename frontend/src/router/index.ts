@@ -559,6 +559,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/agent-runs',
+    name: 'AdminAgentRuns',
+    component: () => import('@/views/admin/AgentRunAuditView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '应用使用记录'
+    }
+  },
+  {
     path: '/admin/agent-worker-hosts',
     name: 'AdminAgentWorkerHosts',
     component: () => import('@/views/admin/AgentWorkerHostsView.vue'),

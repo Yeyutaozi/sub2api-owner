@@ -796,6 +796,7 @@ const adminNavItems = computed((): NavItem[] => {
       expandOnly: true,
       children: [
         { path: '/admin/agent-apps', label: '应用发布', icon: ChannelIcon },
+        { path: '/admin/agent-runs', label: '使用记录', icon: ChartIcon },
         { path: '/admin/agent-worker-hosts', label: 'Worker Host', icon: ServerIcon },
         { path: '/admin/object-storage', label: '对象存储', icon: ServerIcon },
       ],
