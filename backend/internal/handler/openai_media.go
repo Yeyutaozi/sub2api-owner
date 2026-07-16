@@ -127,6 +127,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			parsed.RequiredCapability,
 			false,
 			false,
+			false,
 		)
 		if err != nil {
 			reqLog.Warn("openai.media.account_select_failed", zap.Error(err), zap.Int("excluded_account_count", len(failedAccountIDs)))
@@ -188,7 +189,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 					h.handleFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), false, nil)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
@@ -206,7 +207,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 				continue
 			}
 
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), false, nil)
 			if c.Writer.Size() == writerSizeBeforeForward {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
 			}
@@ -214,7 +215,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), true, nil)
 		if parsed.IsVideoCreate() && result != nil && strings.TrimSpace(result.ResponseID) != "" {
 			resourceSessionHash := service.OpenAIMediaResourceSessionHash(apiKey.ID, result.ResponseID)
 			if err := h.gatewayService.BindStickySession(c.Request.Context(), apiKey.GroupID, resourceSessionHash, account.ID); err != nil {
