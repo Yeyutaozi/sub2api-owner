@@ -29,10 +29,19 @@ MAX_MODEL_PROXY_ASSET_BYTES = int(os.getenv("MAX_MODEL_PROXY_ASSET_BYTES", str(6
 MAX_IMAGE_REFERENCE_COUNT = max(int(os.getenv("MAX_IMAGE_REFERENCE_COUNT", "16")), 1)
 MAX_IMAGE_REFERENCE_BYTES = int(os.getenv("MAX_IMAGE_REFERENCE_BYTES", str(20 * 1024 * 1024)))
 MAX_IMAGE_REFERENCE_TOTAL_BYTES = int(os.getenv("MAX_IMAGE_REFERENCE_TOTAL_BYTES", str(45 * 1024 * 1024)))
-VIDEO_POLL_INTERVAL_SECONDS = max(float(os.getenv("VIDEO_POLL_INTERVAL_SECONDS", "2")), 0.2)
+GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT = max(int(os.getenv("GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT", "7")), 1)
+GROK_VIDEO_DURATION_MAX_SECONDS = float(os.getenv("GROK_VIDEO_DURATION_MAX_SECONDS", "10"))
+GROK_VIDEO_EXTENSION_DURATION_MIN_SECONDS = float(os.getenv("GROK_VIDEO_EXTENSION_DURATION_MIN_SECONDS", "2"))
+GROK_VIDEO_EXTENSION_DURATION_MAX_SECONDS = float(os.getenv("GROK_VIDEO_EXTENSION_DURATION_MAX_SECONDS", "10"))
+GROK_VIDEO_EDIT_INPUT_MAX_SECONDS = float(os.getenv("GROK_VIDEO_EDIT_INPUT_MAX_SECONDS", "8.7"))
+GROK_VIDEO_EXTENSION_INPUT_MIN_SECONDS = float(os.getenv("GROK_VIDEO_EXTENSION_INPUT_MIN_SECONDS", "2"))
+GROK_VIDEO_EXTENSION_INPUT_MAX_SECONDS = float(os.getenv("GROK_VIDEO_EXTENSION_INPUT_MAX_SECONDS", "15"))
+VIDEO_POLL_INTERVAL_SECONDS = max(float(os.getenv("VIDEO_POLL_INTERVAL_SECONDS", "5")), 0.2)
 STREAM_PROGRESS_INTERVAL_SECONDS = max(float(os.getenv("STREAM_PROGRESS_INTERVAL_SECONDS", "1")), 0.2)
 VERIFY_WORKER_SIGNATURE = os.getenv("VERIFY_WORKER_SIGNATURE", "true").lower() not in {"0", "false", "no"}
 SIGNATURE_MAX_AGE_SECONDS = int(os.getenv("SIGNATURE_MAX_AGE_SECONDS", "300"))
+GROK_VIDEO_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
+GROK_VIDEO_FAILURE_STATUSES = {"failed", "error", "canceled", "cancelled", "expired"}
 
 app = FastAPI(title="Sub2API App Worker", version=WORKER_VERSION)
 run_semaphore = asyncio.Semaphore(max(MAX_CONCURRENCY, 1))
@@ -134,6 +143,7 @@ async def health() -> dict[str, Any]:
             "audio_transcription",
             "audio_translation",
             "video_generation",
+            "grok_video_generation",
             "workflow",
         ],
         "routes": {
@@ -145,6 +155,7 @@ async def health() -> dict[str, Any]:
                 "/workflow/runs",
                 "/audio/runs",
                 "/video/runs",
+                "/grok-video/runs",
             ],
             "cancel": "/cancel",
         },
@@ -160,6 +171,7 @@ async def health() -> dict[str, Any]:
 @app.post("/workflow/runs")
 @app.post("/audio/runs")
 @app.post("/video/runs")
+@app.post("/grok-video/runs")
 async def submit_run(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     raw_body = await request.body()
     try:
@@ -167,6 +179,7 @@ async def submit_run(request: Request, background_tasks: BackgroundTasks) -> dic
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"invalid worker run payload: {exc}") from exc
 
+    payload.metadata["worker_route"] = payload.metadata.get("worker_route") or request.url.path
     verify_signature_or_raise(payload.run_token, request, raw_body)
 
     worker_run_id = f"worker-{uuid.uuid4()}"
@@ -240,7 +253,10 @@ async def process_run(payload: WorkerRunRequest, worker_run_id: str) -> None:
                         media_kind,
                     )
                 elif media_kind == "video_generation":
-                    await process_video_run(payload, worker_run_id, started, selected_media_policy, prompt)
+                    if is_grok_video_request(payload, selected_media_policy):
+                        await process_grok_video_run(payload, worker_run_id, started, selected_media_policy, prompt)
+                    else:
+                        await process_video_run(payload, worker_run_id, started, selected_media_policy, prompt)
                 return
 
             if not prompt:
@@ -793,6 +809,336 @@ async def process_video_run(
         output={"result": "Video generated", "video_id": video_id, "artifact": artifact},
         metadata=run_completion_metadata(worker_run_id, policy, started, usage),
     )
+
+
+async def process_grok_video_run(
+    payload: WorkerRunRequest,
+    worker_run_id: str,
+    started: float,
+    policy: SelectedPolicy,
+    prompt: str,
+) -> None:
+    mode = grok_video_mode(payload)
+    effective_policy = select_grok_video_mode_policy(payload, mode, policy)
+    await callback(
+        payload,
+        "progress",
+        status="running",
+        node_id=effective_policy.node_id,
+        role=effective_policy.role,
+        progress=0.2,
+        message=f"Starting Grok video job ({mode})",
+        metadata={**model_call_metadata(effective_policy), "generation_mode": mode},
+    )
+    if is_canceled(payload.run_id):
+        await callback(payload, "canceled", status="canceled", message="Run canceled before Grok video generation")
+        return
+
+    endpoint, request_body, source_metadata = await build_grok_video_request(payload, mode, prompt)
+    if is_canceled(payload.run_id):
+        await callback(payload, "canceled", status="canceled", message="Run canceled before Grok video request")
+        return
+
+    await callback(
+        payload,
+        "progress",
+        status="running",
+        node_id=effective_policy.node_id,
+        role=effective_policy.role,
+        progress=0.45,
+        message="Calling Grok video model",
+        metadata={
+            **model_call_metadata(effective_policy),
+            "generation_mode": mode,
+            "grok_video_endpoint": endpoint,
+            **source_metadata,
+        },
+    )
+    proxy_result = await call_model_proxy_request(
+        payload,
+        effective_policy,
+        endpoint=endpoint,
+        request_body=request_body,
+    )
+    if is_canceled(payload.run_id):
+        await callback(payload, "canceled", status="canceled", message="Run canceled after Grok video request")
+        return
+
+    usage = proxy_usage(proxy_result)
+    response = proxy_result.get("response", {})
+    if not isinstance(response, dict):
+        response = {}
+    request_id = grok_video_request_id(response)
+    if not request_id:
+        raise WorkerFailure("GROK_VIDEO_REQUEST_ID_MISSING", "The Grok video model returned no request ID.")
+
+    try:
+        response, usage = await poll_grok_video_response(
+            payload,
+            effective_policy,
+            request_id,
+            response,
+            usage,
+            mode,
+        )
+    except WorkerCanceled:
+        return
+    if is_canceled(payload.run_id):
+        await callback(payload, "canceled", status="canceled", message="Run canceled before Grok video download")
+        return
+
+    artifact_metadata = {
+        **model_call_metadata(effective_policy),
+        "worker_run_id": worker_run_id,
+        "media_type": "video",
+        "generation_mode": mode,
+        "grok_video_request_id": request_id,
+        "prompt": prompt,
+        **source_metadata,
+    }
+    artifact = await archive_grok_video_result(
+        payload,
+        response,
+        name=f"grok-video-{payload.run_id}.mp4",
+        metadata=artifact_metadata,
+    )
+    if is_canceled(payload.run_id):
+        await callback(payload, "canceled", status="canceled", message="Run canceled after Grok video archival")
+        return
+
+    await callback(
+        payload,
+        "succeeded",
+        status="succeeded",
+        node_id=effective_policy.node_id,
+        role=effective_policy.role,
+        progress=1.0,
+        message="Grok video generated",
+        output={
+            "result": "Grok video generated",
+            "prompt": prompt,
+            "generation_mode": mode,
+            "video_id": request_id,
+            "artifact": artifact,
+        },
+        metadata={
+            **run_completion_metadata(worker_run_id, effective_policy, started, usage),
+            "generation_mode": mode,
+            "grok_video_request_id": request_id,
+            **source_metadata,
+        },
+    )
+
+
+async def build_grok_video_request(
+    payload: WorkerRunRequest,
+    mode: str,
+    prompt: str,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    images = [artifact for artifact in input_artifacts(payload) if is_image_artifact_ref(artifact)]
+    videos = [artifact for artifact in input_artifacts(payload) if is_video_artifact_ref(artifact)]
+    source_video_url = grok_source_video_url(payload)
+    has_video_input = bool(videos or source_video_url)
+    source_metadata: dict[str, Any] = {
+        "input_image_count": len(images),
+        "input_video_count": len(videos) + (1 if source_video_url and not videos else 0),
+    }
+
+    if mode == "text_to_video":
+        if images or has_video_input:
+            raise WorkerFailure(
+                "GROK_VIDEO_INPUT_MISMATCH",
+                "text_to_video mode does not accept image or video input.",
+            )
+        request_body = {"prompt": prompt}
+        apply_grok_video_generation_options(payload.input, request_body, max_duration=GROK_VIDEO_DURATION_MAX_SECONDS)
+        return "/v1/videos/generations", request_body, source_metadata
+
+    if mode == "image_to_video":
+        if has_video_input:
+            raise WorkerFailure("GROK_VIDEO_INPUT_MISMATCH", "image_to_video mode does not accept video input.")
+        source_image = select_grok_source_image(payload, images)
+        if source_image is None:
+            raise WorkerFailure("GROK_VIDEO_IMAGE_REQUIRED", "image_to_video mode requires one source image.")
+        if len(images) > 1:
+            raise WorkerFailure(
+                "GROK_VIDEO_INPUT_MISMATCH",
+                "image_to_video mode accepts one source image. Use reference_to_video for multiple reference images.",
+            )
+        request_body = {
+            "prompt": prompt,
+            "image": {"image_url": await artifact_to_data_url(source_image, max_bytes=MAX_IMAGE_REFERENCE_BYTES)},
+        }
+        source_metadata.update(
+            {
+                "source_image_artifact_id": source_image.artifact_id,
+                "source_image_name": source_image.name,
+            }
+        )
+        apply_grok_video_generation_options(payload.input, request_body, max_duration=GROK_VIDEO_DURATION_MAX_SECONDS)
+        return "/v1/videos/generations", request_body, source_metadata
+
+    if mode == "reference_to_video":
+        if has_video_input:
+            raise WorkerFailure("GROK_VIDEO_INPUT_MISMATCH", "reference_to_video mode does not accept video input.")
+        references = select_grok_reference_images(payload, images)
+        if not references:
+            raise WorkerFailure("GROK_VIDEO_REFERENCES_REQUIRED", "reference_to_video mode requires reference images.")
+        if len(references) > GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT:
+            raise WorkerFailure(
+                "GROK_VIDEO_REFERENCE_COUNT_EXCEEDED",
+                f"At most {GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT} reference images are supported for Grok reference_to_video.",
+            )
+        request_body = {
+            "prompt": prompt,
+            "images": [
+                {"image_url": await artifact_to_data_url(reference, max_bytes=MAX_IMAGE_REFERENCE_BYTES)}
+                for reference in references
+            ],
+        }
+        source_metadata.update(
+            {
+                "reference_count": len(references),
+                "reference_artifact_ids": [item.artifact_id for item in references if item.artifact_id is not None],
+                "reference_names": [item.name for item in references],
+            }
+        )
+        apply_grok_video_generation_options(payload.input, request_body, max_duration=GROK_VIDEO_DURATION_MAX_SECONDS)
+        return "/v1/videos/generations", request_body, source_metadata
+
+    if mode == "edit_video":
+        if images:
+            raise WorkerFailure("GROK_VIDEO_INPUT_MISMATCH", "edit_video mode does not accept image input.")
+        ensure_no_grok_edit_unsupported_options(payload.input)
+        source_url, source_video = require_grok_source_video(payload, videos, source_video_url, "edit_video")
+        validate_grok_source_video_duration(
+            source_video,
+            max_seconds=GROK_VIDEO_EDIT_INPUT_MAX_SECONDS,
+            code="GROK_VIDEO_EDIT_INPUT_TOO_LONG",
+            message=f"edit_video input video must be at most {GROK_VIDEO_EDIT_INPUT_MAX_SECONDS:g} seconds.",
+        )
+        request_body = {"prompt": prompt, "video": {"url": source_url}}
+        source_metadata.update(grok_source_video_metadata(source_video, source_url))
+        return "/v1/videos/edits", request_body, source_metadata
+
+    if mode == "extend_video":
+        if images:
+            raise WorkerFailure("GROK_VIDEO_INPUT_MISMATCH", "extend_video mode does not accept image input.")
+        ensure_no_grok_extension_unsupported_options(payload.input)
+        source_url, source_video = require_grok_source_video(payload, videos, source_video_url, "extend_video")
+        validate_grok_source_video_duration(
+            source_video,
+            min_seconds=GROK_VIDEO_EXTENSION_INPUT_MIN_SECONDS,
+            max_seconds=GROK_VIDEO_EXTENSION_INPUT_MAX_SECONDS,
+            code="GROK_VIDEO_EXTENSION_INPUT_DURATION_INVALID",
+            message=(
+                f"extend_video input video must be between {GROK_VIDEO_EXTENSION_INPUT_MIN_SECONDS:g} "
+                f"and {GROK_VIDEO_EXTENSION_INPUT_MAX_SECONDS:g} seconds."
+            ),
+        )
+        request_body = {"prompt": prompt, "video": {"url": source_url}}
+        apply_grok_video_extension_options(payload.input, request_body)
+        source_metadata.update(grok_source_video_metadata(source_video, source_url))
+        return "/v1/videos/extensions", request_body, source_metadata
+
+    raise WorkerFailure("GROK_VIDEO_MODE_UNSUPPORTED", f"Unsupported Grok video mode: {mode}.")
+
+
+async def poll_grok_video_response(
+    payload: WorkerRunRequest,
+    policy: SelectedPolicy,
+    request_id: str,
+    response: dict[str, Any],
+    usage: dict[str, Any],
+    mode: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    status = grok_video_status(response)
+    if status in GROK_VIDEO_SUCCESS_STATUSES and extract_media_result(response, "video/mp4"):
+        return response, usage
+
+    video_timeout_seconds = payload.timeout_seconds if payload.timeout_seconds > 0 else 600
+    deadline = time.monotonic() + max(video_timeout_seconds, 10)
+    terminal_statuses = GROK_VIDEO_SUCCESS_STATUSES | GROK_VIDEO_FAILURE_STATUSES
+    while status not in terminal_statuses:
+        if is_canceled(payload.run_id):
+            await callback(payload, "canceled", status="canceled", message="Run canceled during Grok video generation")
+            raise WorkerCanceled()
+        if time.monotonic() >= deadline:
+            raise WorkerFailure("GROK_VIDEO_GENERATION_TIMEOUT", "Grok video generation did not finish before the Worker timeout.")
+        await callback(
+            payload,
+            "progress",
+            status="running",
+            node_id=policy.node_id,
+            role=policy.role,
+            progress=0.7,
+            message="Waiting for Grok video generation",
+            metadata={
+                **model_call_metadata(policy),
+                "generation_mode": mode,
+                "grok_video_request_id": request_id,
+                "grok_video_status": status or "queued",
+            },
+        )
+        await asyncio.sleep(VIDEO_POLL_INTERVAL_SECONDS)
+        if is_canceled(payload.run_id):
+            await callback(payload, "canceled", status="canceled", message="Run canceled during Grok video generation")
+            raise WorkerCanceled()
+        status_result = await call_model_proxy_request(
+            payload,
+            policy,
+            endpoint=f"/v1/videos/{request_id}",
+            method="GET",
+        )
+        current = status_result.get("response", {})
+        if isinstance(current, dict):
+            response = current
+        status = grok_video_status(response)
+        LOGGER.info(
+            "Grok video poll request_id=%s status=%s has_media=%s",
+            request_id,
+            status or "queued",
+            bool(extract_media_result(response, "video/mp4")),
+        )
+        status_usage = proxy_usage(status_result)
+        if status_usage:
+            usage = status_usage
+
+    if status in GROK_VIDEO_FAILURE_STATUSES:
+        message = grok_video_error_message(response) or f"Grok video generation ended with status {status}."
+        raise WorkerFailure("GROK_VIDEO_GENERATION_FAILED", message)
+    if not extract_media_result(response, "video/mp4"):
+        raise WorkerFailure("GROK_VIDEO_RESULT_EMPTY", "The Grok video model completed but returned no downloadable video.")
+    return response, usage
+
+
+async def archive_grok_video_result(
+    payload: WorkerRunRequest,
+    response: dict[str, Any],
+    *,
+    name: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    media = extract_media_result(response, "video/mp4")
+    if not media:
+        raise WorkerFailure("GROK_VIDEO_RESULT_EMPTY", "The Grok video model returned no downloadable video.")
+    if media.get("b64_json"):
+        return await upload_base64_artifact(
+            payload,
+            name=name,
+            b64_json=str(media["b64_json"]),
+            mime_type=str(media.get("mime_type") or "video/mp4"),
+            metadata=metadata,
+        )
+    if media.get("url"):
+        return await archive_remote_artifact(
+            payload,
+            name=name,
+            url=str(media["url"]),
+            mime_type=str(media.get("mime_type") or "video/mp4"),
+            metadata=metadata,
+        )
+    raise WorkerFailure("GROK_VIDEO_RESULT_EMPTY", "The Grok video model returned no downloadable video.")
 
 
 async def call_model_proxy(
@@ -1363,7 +1709,28 @@ def media_policy_kind(policy: ModelPolicy, payload: WorkerRunRequest) -> str:
         "text_to_image",
     }:
         return "image_generation"
-    if capability in {"video", "videos", "video_generation", "video_generate", "text_to_video"}:
+    if capability in {
+        "video",
+        "videos",
+        "video_generation",
+        "video_generate",
+        "text_to_video",
+        "image_to_video",
+        "reference_to_video",
+        "edit_video",
+        "extend_video",
+        "video_edit",
+        "video_extend",
+        "video_extension",
+        "grok_video",
+        "grok_video_generation",
+        "grok_video_generate",
+        "grok_text_to_video",
+        "grok_image_to_video",
+        "grok_reference_to_video",
+        "grok_video_edit",
+        "grok_video_extend",
+    }:
         return "video_generation"
     if capability in {"audio_transcription", "audio_transcriptions", "transcription", "speech_to_text", "stt"}:
         return "audio_transcription"
@@ -1518,6 +1885,406 @@ def is_image_artifact_ref(artifact: WorkerArtifactRef) -> bool:
     return artifact_ref_mime(artifact).startswith("image/") or artifact_ref_asset_type(artifact) == "image"
 
 
+def is_video_artifact_ref(artifact: WorkerArtifactRef) -> bool:
+    return artifact_ref_mime(artifact).startswith("video/") or artifact_ref_asset_type(artifact) == "video"
+
+
+def is_grok_video_request(payload: WorkerRunRequest, policy: SelectedPolicy) -> bool:
+    route = normalize_policy_value(str(payload.metadata.get("worker_route") or ""))
+    if "grok_video" in route:
+        return True
+    capability = normalize_policy_value(policy.capability)
+    if capability in {
+        "grok_video",
+        "grok_video_generation",
+        "grok_video_generate",
+        "grok_text_to_video",
+        "grok_image_to_video",
+        "grok_reference_to_video",
+        "grok_video_edit",
+        "grok_video_extend",
+    }:
+        return True
+    return policy.model.strip().lower().startswith("grok-imagine-video")
+
+
+def grok_video_mode(payload: WorkerRunRequest) -> str:
+    raw = ""
+    for key in ("mode", "video_mode", "generation_mode", "operation", "task"):
+        raw = string_input(payload.input, key)
+        if raw:
+            break
+    normalized = normalize_policy_value(raw)
+    aliases = {
+        "": "",
+        "text": "text_to_video",
+        "text_to_video": "text_to_video",
+        "txt2video": "text_to_video",
+        "t2v": "text_to_video",
+        "文生视频": "text_to_video",
+        "image": "image_to_video",
+        "image_to_video": "image_to_video",
+        "img2video": "image_to_video",
+        "i2v": "image_to_video",
+        "first_frame": "image_to_video",
+        "图生视频": "image_to_video",
+        "reference": "reference_to_video",
+        "reference_to_video": "reference_to_video",
+        "references_to_video": "reference_to_video",
+        "multi_image_to_video": "reference_to_video",
+        "multi_images_to_video": "reference_to_video",
+        "images_to_video": "reference_to_video",
+        "多图生视频": "reference_to_video",
+        "edit": "edit_video",
+        "edit_video": "edit_video",
+        "video_edit": "edit_video",
+        "视频编辑": "edit_video",
+        "extend": "extend_video",
+        "extension": "extend_video",
+        "extend_video": "extend_video",
+        "video_extend": "extend_video",
+        "video_extension": "extend_video",
+        "视频续写": "extend_video",
+    }
+    if normalized and normalized not in aliases:
+        raise WorkerFailure(
+            "GROK_VIDEO_MODE_UNSUPPORTED",
+            "Grok video mode must be one of text_to_video, image_to_video, reference_to_video, edit_video, extend_video.",
+        )
+    if normalized:
+        return aliases[normalized]
+
+    images = [artifact for artifact in input_artifacts(payload) if is_image_artifact_ref(artifact)]
+    videos = [artifact for artifact in input_artifacts(payload) if is_video_artifact_ref(artifact)]
+    if videos or grok_source_video_url(payload):
+        return "edit_video"
+    if len(images) > 1:
+        return "reference_to_video"
+    if images:
+        return "image_to_video"
+    return "text_to_video"
+
+
+def select_grok_video_mode_policy(
+    payload: WorkerRunRequest,
+    mode: str,
+    fallback: SelectedPolicy,
+) -> SelectedPolicy:
+    mode_aliases = {
+        mode,
+        mode.replace("_video", ""),
+        f"grok_{mode}",
+        f"video_{mode}",
+    }
+    if mode == "text_to_video":
+        mode_aliases.update({"video", "videos", "video_generation", "video_generate", "generate"})
+    elif mode == "image_to_video":
+        mode_aliases.update({"first_frame_to_video", "image_video"})
+    elif mode == "reference_to_video":
+        mode_aliases.update({"references_to_video", "multi_image_to_video", "images_to_video"})
+    elif mode == "edit_video":
+        mode_aliases.update({"video_edit", "edit"})
+    elif mode == "extend_video":
+        mode_aliases.update({"video_extend", "video_extension", "extend", "extension"})
+
+    candidates: list[tuple[int, str, ModelPolicy]] = []
+    for key, policy in (payload.node_model_policy or {}).items():
+        normalized = policy if isinstance(policy, ModelPolicy) else ModelPolicy.model_validate(policy)
+        node_id, role = policy_key_parts(key)
+        normalized.node_id = normalized.node_id or node_id
+        normalized.role = normalized.role or role or "generate"
+        capability = normalize_policy_value(normalized.capability)
+        role_value = normalize_policy_value(normalized.role)
+        key_value = normalize_policy_value(key)
+        if not (
+            capability in mode_aliases
+            or role_value in mode_aliases
+            or key_value in mode_aliases
+            or any(alias and alias in key_value for alias in mode_aliases if alias not in {"video", "generate"})
+        ):
+            continue
+        if not normalized.model.strip().lower().startswith("grok-imagine-video"):
+            continue
+        score = 50
+        if role_value == mode or capability == mode:
+            score -= 20
+        if normalized.model:
+            score -= 10
+        candidates.append((score, key, normalized))
+
+    if not candidates:
+        return fallback
+    _, key, policy = sorted(candidates, key=lambda item: (item[0], item[1]))[0]
+    if not policy.model:
+        raise WorkerFailure("MODEL_POLICY_MODEL_REQUIRED", f"Model policy {key} is missing model.")
+    return SelectedPolicy(
+        policy_key=key,
+        node_id=policy.node_id or fallback.node_id,
+        role=policy.role or fallback.role,
+        model=policy.model,
+        model_group_id=policy.model_group_id,
+        capability=policy.capability or mode,
+    )
+
+
+def artifact_ref_field_name(artifact: WorkerArtifactRef) -> str:
+    value = artifact.metadata.get("field_name")
+    return normalize_policy_value(value) if isinstance(value, str) else ""
+
+
+def artifact_ref_role(artifact: WorkerArtifactRef) -> str:
+    value = artifact.metadata.get("asset_role")
+    return normalize_policy_value(value) if isinstance(value, str) else ""
+
+
+def select_grok_source_image(payload: WorkerRunRequest, images: list[WorkerArtifactRef]) -> WorkerArtifactRef | None:
+    if not images:
+        return None
+    preferred_fields = {"source_image", "input_image", "first_frame", "image", "init_image"}
+    preferred_roles = {"source", "input", "first_frame", "init"}
+    for artifact in images:
+        if artifact_ref_field_name(artifact) in preferred_fields or artifact_ref_role(artifact) in preferred_roles:
+            return artifact
+    return images[0]
+
+
+def select_grok_reference_images(payload: WorkerRunRequest, images: list[WorkerArtifactRef]) -> list[WorkerArtifactRef]:
+    if not images:
+        return []
+    preferred_fields = {"reference", "reference_image", "reference_images", "references", "images"}
+    preferred_roles = {"reference"}
+    selected = [
+        artifact
+        for artifact in images
+        if artifact_ref_field_name(artifact) in preferred_fields or artifact_ref_role(artifact) in preferred_roles
+    ]
+    return selected or images
+
+
+def grok_source_video_url(payload: WorkerRunRequest) -> str:
+    for key in ("source_video_url", "video_url", "input_video_url", "reference_video_url"):
+        value = string_input(payload.input, key)
+        if value:
+            return value
+    return ""
+
+
+def require_grok_source_video(
+    payload: WorkerRunRequest,
+    videos: list[WorkerArtifactRef],
+    source_video_url: str,
+    mode: str,
+) -> tuple[str, WorkerArtifactRef | None]:
+    if len(videos) > 1 or (videos and source_video_url):
+        raise WorkerFailure("GROK_VIDEO_INPUT_MISMATCH", f"{mode} mode accepts exactly one source video.")
+    source_video = select_grok_source_video(videos)
+    if source_video is not None:
+        if not source_video.url:
+            raise WorkerFailure("GROK_VIDEO_SOURCE_URL_MISSING", f"{mode} input video has no download URL.")
+        return source_video.url, source_video
+    if source_video_url:
+        return source_video_url, None
+    raise WorkerFailure("GROK_VIDEO_SOURCE_REQUIRED", f"{mode} mode requires one source video.")
+
+
+def select_grok_source_video(videos: list[WorkerArtifactRef]) -> WorkerArtifactRef | None:
+    if not videos:
+        return None
+    preferred_fields = {"source_video", "input_video", "video", "reference_video"}
+    preferred_roles = {"source", "input", "reference"}
+    for artifact in videos:
+        if artifact_ref_field_name(artifact) in preferred_fields or artifact_ref_role(artifact) in preferred_roles:
+            return artifact
+    return videos[0]
+
+
+def grok_source_video_metadata(source_video: WorkerArtifactRef | None, source_url: str) -> dict[str, Any]:
+    if source_video is None:
+        return {"source_video_url_input": bool(source_url)}
+    return {
+        "source_video_artifact_id": source_video.artifact_id,
+        "source_video_name": source_video.name,
+        "source_video_duration_seconds": artifact_duration_seconds(source_video),
+    }
+
+
+async def artifact_to_data_url(artifact: WorkerArtifactRef, *, max_bytes: int | None = None) -> str:
+    raw = await download_input_artifact(artifact, max_bytes=max_bytes)
+    mime_type = artifact_ref_mime(artifact) or "application/octet-stream"
+    return f"data:{mime_type};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def apply_grok_video_generation_options(source: dict[str, Any], target: dict[str, Any], *, max_duration: float) -> None:
+    duration = numeric_input(source, "duration", "seconds")
+    if duration is not None:
+        if duration <= 0 or duration > max_duration:
+            raise WorkerFailure(
+                "GROK_VIDEO_DURATION_INVALID",
+                f"Grok video duration must be greater than 0 and at most {max_duration:g} seconds.",
+            )
+        target["duration"] = normalized_number(duration)
+    copy_alias_input_field(source, target, "resolution", "size")
+    copy_alias_input_field(source, target, "aspect_ratio", "ratio")
+
+
+def apply_grok_video_extension_options(source: dict[str, Any], target: dict[str, Any]) -> None:
+    duration = numeric_input(source, "duration", "seconds")
+    if duration is not None:
+        if duration < GROK_VIDEO_EXTENSION_DURATION_MIN_SECONDS or duration > GROK_VIDEO_EXTENSION_DURATION_MAX_SECONDS:
+            raise WorkerFailure(
+                "GROK_VIDEO_EXTENSION_DURATION_INVALID",
+                (
+                    f"Grok video extension duration must be between "
+                    f"{GROK_VIDEO_EXTENSION_DURATION_MIN_SECONDS:g} and "
+                    f"{GROK_VIDEO_EXTENSION_DURATION_MAX_SECONDS:g} seconds."
+                ),
+            )
+        target["duration"] = normalized_number(duration)
+
+
+def ensure_no_grok_edit_unsupported_options(source: dict[str, Any]) -> None:
+    unsupported = present_input_keys(source, "duration", "seconds", "resolution", "size", "aspect_ratio", "ratio")
+    if unsupported:
+        raise WorkerFailure(
+            "GROK_VIDEO_EDIT_OPTIONS_UNSUPPORTED",
+            f"edit_video does not support custom {', '.join(unsupported)}.",
+        )
+
+
+def ensure_no_grok_extension_unsupported_options(source: dict[str, Any]) -> None:
+    unsupported = present_input_keys(source, "resolution", "size", "aspect_ratio", "ratio")
+    if unsupported:
+        raise WorkerFailure(
+            "GROK_VIDEO_EXTENSION_OPTIONS_UNSUPPORTED",
+            f"extend_video does not support custom {', '.join(unsupported)}.",
+        )
+
+
+def present_input_keys(source: dict[str, Any], *keys: str) -> list[str]:
+    present: list[str] = []
+    for key in keys:
+        value = source.get(key)
+        if value is not None and value != "":
+            present.append(key)
+    return present
+
+
+def numeric_input(source: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = source.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, bool):
+            raise WorkerFailure("INPUT_NUMBER_INVALID", f"{key} must be a number.")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError as exc:
+                raise WorkerFailure("INPUT_NUMBER_INVALID", f"{key} must be a number.") from exc
+        raise WorkerFailure("INPUT_NUMBER_INVALID", f"{key} must be a number.")
+    return None
+
+
+def normalized_number(value: float) -> int | float:
+    return int(value) if value.is_integer() else value
+
+
+def artifact_duration_seconds(artifact: WorkerArtifactRef | None) -> float | None:
+    if artifact is None:
+        return None
+    for key in ("duration_seconds", "duration", "media_duration_seconds", "video_duration_seconds"):
+        value = artifact.metadata.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                continue
+    return None
+
+
+def validate_grok_source_video_duration(
+    artifact: WorkerArtifactRef | None,
+    *,
+    code: str,
+    message: str,
+    min_seconds: float | None = None,
+    max_seconds: float | None = None,
+) -> None:
+    duration = artifact_duration_seconds(artifact)
+    if duration is None:
+        return
+    if min_seconds is not None and duration < min_seconds:
+        raise WorkerFailure(code, message)
+    if max_seconds is not None and duration > max_seconds:
+        raise WorkerFailure(code, message)
+
+
+def grok_video_request_id(response: dict[str, Any]) -> str:
+    for key in ("request_id", "id", "video_id"):
+        value = first_string(response, key)
+        if value:
+            return value
+    for key in ("data", "video", "result", "output"):
+        nested = response.get(key)
+        if isinstance(nested, dict):
+            value = grok_video_request_id(nested)
+            if value:
+                return value
+        if isinstance(nested, list):
+            for item in nested:
+                if isinstance(item, dict):
+                    value = grok_video_request_id(item)
+                    if value:
+                        return value
+    return ""
+
+
+def grok_video_status(response: dict[str, Any]) -> str:
+    for key in ("status", "state"):
+        value = first_string(response, key)
+        if value:
+            return normalize_policy_value(value)
+    for key in ("data", "video", "result", "output"):
+        nested = response.get(key)
+        if isinstance(nested, dict):
+            value = grok_video_status(nested)
+            if value:
+                return value
+        if isinstance(nested, list):
+            for item in nested:
+                if isinstance(item, dict):
+                    value = grok_video_status(item)
+                    if value:
+                        return value
+    return ""
+
+
+def grok_video_error_message(response: dict[str, Any]) -> str:
+    for key in ("error", "message", "failure_reason", "reason"):
+        value = response.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            nested = first_string(value, "message", "error", "reason")
+            if nested:
+                return nested
+    for key in ("data", "video", "result", "output"):
+        nested = response.get(key)
+        if isinstance(nested, dict):
+            value = grok_video_error_message(nested)
+            if value:
+                return value
+    return ""
+
+
 def reference_image_artifacts(payload: WorkerRunRequest) -> list[WorkerArtifactRef]:
     images = [artifact for artifact in input_artifacts(payload) if is_image_artifact_ref(artifact)]
     if not images:
@@ -1647,7 +2414,7 @@ def extract_media_result(response: Any, default_mime: str) -> dict[str, Any] | N
         value = response.get(key)
         if isinstance(value, str) and value.strip() and not value.lstrip().startswith(("http://", "https://")):
             return {"b64_json": value.strip(), "mime_type": response.get("mime_type") or default_mime}
-    for key in ("data", "output", "result"):
+    for key in ("data", "video", "videos", "output", "outputs", "result"):
         nested = response.get(key)
         if isinstance(nested, dict):
             result = extract_media_result(nested, default_mime)

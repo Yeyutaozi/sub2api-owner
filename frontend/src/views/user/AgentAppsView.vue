@@ -1556,6 +1556,10 @@ async function buildRunInputPayload(): Promise<{ input: Record<string, unknown>;
 function handleInputFilesSelected(field: InputFieldItem, event: Event) {
   const target = event.target as HTMLInputElement
   const selected = Array.from(target.files || [])
+  if (selected.length === 0) {
+    target.value = ''
+    return
+  }
   const oversized = selected.find(file => file.size > maxInputFileBytes.value)
   if (oversized) {
     appStore.showError(`${oversized.name} 超过单文件 ${formatBytes(maxInputFileBytes.value)} 限制`)
@@ -1577,20 +1581,19 @@ function handleInputFilesSelected(field: InputFieldItem, event: Event) {
     target.value = ''
     return
   }
-  if (selected.length > 10) {
+  const existing = inputFiles.value[field.name] || []
+  const mergedFiles = [...existing, ...selected]
+  const dedupedFiles = Array.from(
+    new Map(mergedFiles.map(file => [uploadedAssetCacheKey(field.name, file), file])).values()
+  )
+  if (dedupedFiles.length > 10) {
     appStore.showError('单个输入项最多选择 10 个文件')
     target.value = ''
     return
   }
-  const nextAssets = { ...uploadedInputAssetIDs.value }
-  for (const file of inputFiles.value[field.name] || []) {
-    delete nextAssets[uploadedAssetCacheKey(field.name, file)]
-  }
-  uploadedInputAssetIDs.value = nextAssets
-  revokeInputFilePreviewURLs(field.name)
   inputFiles.value = {
     ...inputFiles.value,
-    [field.name]: selected
+    [field.name]: dedupedFiles
   }
   target.value = ''
 }

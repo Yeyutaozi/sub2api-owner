@@ -441,6 +441,345 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["/v1/videos"], proxy_endpoints)
         self.assertEqual("canceled", callbacks[-1]["event_type"])
 
+    async def test_grok_text_to_video_uses_generations_endpoint_and_archives_url(self) -> None:
+        video_bytes = b"fake-grok-text-video"
+        proxy_calls: list[dict[str, object]] = []
+        callbacks: list[dict[str, object]] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                proxy_calls.append(body)
+                endpoint = body["endpoint"]
+                if endpoint == "/v1/videos/generations":
+                    self.assertEqual("grok-imagine-video-1.5", body["model"])
+                    self.assertEqual("waves", body["request"]["prompt"])
+                    self.assertEqual(10, body["request"]["duration"])
+                    self.assertEqual("720p", body["request"]["resolution"])
+                    self.assertEqual("16:9", body["request"]["aspect_ratio"])
+                    return self.wrapped({"response": {"request_id": "grok_text_1", "status": "queued"}, "usage": {"prompt_tokens": 3}})
+                if endpoint == "/v1/videos/grok_text_1":
+                    self.assertEqual("GET", body["method"])
+                    return self.wrapped(
+                        {
+                            "response": {
+                                "request_id": "grok_text_1",
+                                "status": "done",
+                                "video": {"url": "https://private-upstream.test/grok-text.mp4"},
+                            }
+                        }
+                    )
+            if request.url.host == "private-upstream.test":
+                return httpx.Response(200, content=video_bytes, headers={"Content-Type": "video/mp4"})
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(video_bytes, request.content)
+                self.assertIn(b"text_to_video", request.content)
+                return self.wrapped({"artifact_id": 701, "url": "https://download.test/grok-text.mp4"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(
+            input_values={
+                "prompt": "waves",
+                "mode": "text_to_video",
+                "duration": "10",
+                "resolution": "720p",
+                "aspect_ratio": "16:9",
+            },
+            artifact_policy={"max_file_mb": 512},
+        )
+        transport = httpx.MockTransport(handle)
+        with (
+            patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)),
+            patch.object(worker.asyncio, "sleep", new=AsyncMock()),
+        ):
+            await worker.process_grok_video_run(
+                payload,
+                "worker-grok-text-video",
+                time.perf_counter(),
+                self.policy("video_generation", "grok-imagine-video-1.5"),
+                "waves",
+            )
+
+        self.assertEqual(["/v1/videos/generations", "/v1/videos/grok_text_1"], [call["endpoint"] for call in proxy_calls])
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("text_to_video", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(701, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+    async def test_grok_image_to_video_sends_source_image_data_url(self) -> None:
+        image_bytes = b"fake-person-png"
+        video_bytes = b"fake-grok-image-video"
+        callbacks: list[dict[str, object]] = []
+        source = worker.WorkerArtifactRef(
+            artifact_id=81,
+            name="person.png",
+            mime_type="image/png",
+            url="https://assets.test/person.png",
+            metadata={"field_name": "source_image", "asset_role": "source"},
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "assets.test":
+                return httpx.Response(200, content=image_bytes, headers={"Content-Type": "image/png"})
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                self.assertEqual("/v1/videos/generations", body["endpoint"])
+                self.assertEqual("grok-imagine-video-1.5", body["model"])
+                self.assertEqual("animate this person", body["request"]["prompt"])
+                image_url = body["request"]["image"]["image_url"]
+                self.assertTrue(image_url.startswith("data:image/png;base64,"))
+                self.assertEqual(image_bytes, base64.b64decode(image_url.split(",", 1)[1]))
+                return self.wrapped(
+                    {
+                        "response": {
+                            "request_id": "grok_i2v_1",
+                            "status": "completed",
+                            "b64_json": base64.b64encode(video_bytes).decode("ascii"),
+                        },
+                        "usage": {"video_count": 1},
+                    }
+                )
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(video_bytes, request.content)
+                self.assertIn(b"image_to_video", request.content)
+                return self.wrapped({"artifact_id": 702, "url": "https://download.test/grok-image.mp4"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(input_values={"prompt": "animate this person", "mode": "image_to_video"}, artifacts=[source])
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.process_grok_video_run(
+                payload,
+                "worker-grok-image-video",
+                time.perf_counter(),
+                self.policy("video_generation", "grok-imagine-video-1.5"),
+                "animate this person",
+            )
+
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("image_to_video", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(702, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+    async def test_grok_reference_to_video_sends_multiple_images_and_enforces_limit(self) -> None:
+        first_bytes = b"first-reference"
+        second_bytes = b"second-reference"
+        video_bytes = b"fake-grok-reference-video"
+        callbacks: list[dict[str, object]] = []
+        first = worker.WorkerArtifactRef(
+            artifact_id=91,
+            name="first.png",
+            mime_type="image/png",
+            url="https://assets.test/first.png",
+            metadata={"field_name": "reference_images", "asset_role": "reference"},
+        )
+        second = worker.WorkerArtifactRef(
+            artifact_id=92,
+            name="second.webp",
+            mime_type="image/webp",
+            url="https://assets.test/second.webp",
+            metadata={"field_name": "reference_images", "asset_role": "reference"},
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "assets.test":
+                if request.url.path.endswith("/first.png"):
+                    return httpx.Response(200, content=first_bytes, headers={"Content-Type": "image/png"})
+                return httpx.Response(200, content=second_bytes, headers={"Content-Type": "image/webp"})
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                self.assertEqual("/v1/videos/generations", body["endpoint"])
+                self.assertEqual("grok-imagine-video", body["model"])
+                images = body["request"]["images"]
+                self.assertEqual(2, len(images))
+                self.assertEqual(first_bytes, base64.b64decode(images[0]["image_url"].split(",", 1)[1]))
+                self.assertEqual(second_bytes, base64.b64decode(images[1]["image_url"].split(",", 1)[1]))
+                return self.wrapped(
+                    {
+                        "response": {
+                            "request_id": "grok_refs_1",
+                            "status": "completed",
+                            "b64_json": base64.b64encode(video_bytes).decode("ascii"),
+                        }
+                    }
+                )
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(video_bytes, request.content)
+                self.assertIn(b"reference_to_video", request.content)
+                return self.wrapped({"artifact_id": 703, "url": "https://download.test/grok-reference.mp4"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(input_values={"prompt": "combine references", "mode": "reference_to_video"}, artifacts=[first, second])
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.process_grok_video_run(
+                payload,
+                "worker-grok-reference-video",
+                time.perf_counter(),
+                self.policy("video_generation", "grok-imagine-video"),
+                "combine references",
+            )
+
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("reference_to_video", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(703, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+        too_many = [
+            worker.WorkerArtifactRef(name=f"ref-{index}.png", mime_type="image/png", url=f"https://assets.test/ref-{index}.png")
+            for index in range(worker.GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT + 1)
+        ]
+        with patch.object(worker, "callback", new=AsyncMock()):
+            with self.assertRaises(worker.WorkerFailure) as limit_error:
+                await worker.process_grok_video_run(
+                    self.payload(input_values={"prompt": "too many", "mode": "reference_to_video"}, artifacts=too_many),
+                    "worker-grok-reference-limit",
+                    time.perf_counter(),
+                    self.policy("video_generation", "grok-imagine-video"),
+                    "too many",
+                )
+        self.assertEqual("GROK_VIDEO_REFERENCE_COUNT_EXCEEDED", limit_error.exception.code)
+
+    async def test_grok_edit_video_uses_edits_endpoint_and_rejects_custom_options(self) -> None:
+        video_bytes = b"fake-grok-edit-video"
+        callbacks: list[dict[str, object]] = []
+        source = worker.WorkerArtifactRef(
+            artifact_id=101,
+            name="source.mp4",
+            mime_type="video/mp4",
+            url="https://assets.test/source.mp4",
+            metadata={"field_name": "source_video", "asset_role": "source", "duration_seconds": 8.0},
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                self.assertEqual("/v1/videos/edits", body["endpoint"])
+                self.assertEqual("polish the clip", body["request"]["prompt"])
+                self.assertEqual("https://assets.test/source.mp4", body["request"]["video"]["url"])
+                self.assertNotIn("duration", body["request"])
+                return self.wrapped(
+                    {
+                        "response": {
+                            "request_id": "grok_edit_1",
+                            "status": "completed",
+                            "b64_json": base64.b64encode(video_bytes).decode("ascii"),
+                        }
+                    }
+                )
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(video_bytes, request.content)
+                self.assertIn(b"edit_video", request.content)
+                return self.wrapped({"artifact_id": 704, "url": "https://download.test/grok-edit.mp4"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(input_values={"prompt": "polish the clip", "mode": "edit_video"}, artifacts=[source])
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.process_grok_video_run(
+                payload,
+                "worker-grok-edit-video",
+                time.perf_counter(),
+                self.policy("video_generation", "grok-imagine-video"),
+                "polish the clip",
+            )
+
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("edit_video", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(704, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+        invalid_payload = self.payload(
+            input_values={"prompt": "polish the clip", "mode": "edit_video", "duration": 6},
+            artifacts=[source],
+        )
+        with patch.object(worker, "callback", new=AsyncMock()):
+            with self.assertRaises(worker.WorkerFailure) as options_error:
+                await worker.process_grok_video_run(
+                    invalid_payload,
+                    "worker-grok-edit-invalid",
+                    time.perf_counter(),
+                    self.policy("video_generation", "grok-imagine-video"),
+                    "polish the clip",
+                )
+        self.assertEqual("GROK_VIDEO_EDIT_OPTIONS_UNSUPPORTED", options_error.exception.code)
+
+    async def test_grok_extend_video_uses_extensions_endpoint_and_duration_bounds(self) -> None:
+        video_bytes = b"fake-grok-extend-video"
+        callbacks: list[dict[str, object]] = []
+        source = worker.WorkerArtifactRef(
+            artifact_id=111,
+            name="source.mp4",
+            mime_type="video/mp4",
+            url="https://assets.test/source.mp4",
+            metadata={"field_name": "source_video", "asset_role": "source", "duration_seconds": 9.0},
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/model-proxy"):
+                body = json.loads(request.content)
+                self.assertEqual("/v1/videos/extensions", body["endpoint"])
+                self.assertEqual("continue the scene", body["request"]["prompt"])
+                self.assertEqual(6, body["request"]["duration"])
+                self.assertEqual("https://assets.test/source.mp4", body["request"]["video"]["url"])
+                return self.wrapped(
+                    {
+                        "response": {
+                            "request_id": "grok_extend_1",
+                            "status": "completed",
+                            "b64_json": base64.b64encode(video_bytes).decode("ascii"),
+                        }
+                    }
+                )
+            if request.url.path.endswith("/artifacts/upload"):
+                self.assertIn(video_bytes, request.content)
+                self.assertIn(b"extend_video", request.content)
+                return self.wrapped({"artifact_id": 705, "url": "https://download.test/grok-extend.mp4"})
+            if request.url.path.endswith("/callback"):
+                callbacks.append(json.loads(request.content))
+                return self.wrapped({"id": 101, "status": "running"})
+            self.fail(f"unexpected request: {request.method} {request.url}")
+
+        payload = self.payload(input_values={"prompt": "continue the scene", "mode": "extend_video", "duration": "6"}, artifacts=[source])
+        transport = httpx.MockTransport(handle)
+        with patch.object(worker.httpx, "AsyncClient", side_effect=self.client_factory(transport)):
+            await worker.process_grok_video_run(
+                payload,
+                "worker-grok-extend-video",
+                time.perf_counter(),
+                self.policy("video_generation", "grok-imagine-video"),
+                "continue the scene",
+            )
+
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual("extend_video", callbacks[-1]["output"]["generation_mode"])
+        self.assertEqual(705, callbacks[-1]["output"]["artifact"]["artifact_id"])
+
+        too_short_source = worker.WorkerArtifactRef(
+            name="short.mp4",
+            mime_type="video/mp4",
+            url="https://assets.test/short.mp4",
+            metadata={"duration_seconds": 1.5},
+        )
+        with patch.object(worker, "callback", new=AsyncMock()):
+            with self.assertRaises(worker.WorkerFailure) as duration_error:
+                await worker.process_grok_video_run(
+                    self.payload(input_values={"prompt": "continue", "mode": "extend_video", "duration": 6}, artifacts=[too_short_source]),
+                    "worker-grok-extend-invalid",
+                    time.perf_counter(),
+                    self.policy("video_generation", "grok-imagine-video"),
+                    "continue",
+                )
+        self.assertEqual("GROK_VIDEO_EXTENSION_INPUT_DURATION_INVALID", duration_error.exception.code)
+
     async def test_download_and_base64_limits_fail_before_upload(self) -> None:
         def handle(_: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=b"1234")
@@ -636,6 +975,18 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         }
         media_kind, selected = worker.select_media_policy(payload) or ("", None)
         self.assertEqual("image_generation", media_kind)
+        self.assertIsNotNone(selected)
+
+        payload.node_model_policy = {
+            "video.image_to_video": worker.ModelPolicy(
+                node_id="video",
+                role="image_to_video",
+                model="grok-imagine-video-1.5",
+                capability="image_to_video",
+            )
+        }
+        media_kind, selected = worker.select_media_policy(payload) or ("", None)
+        self.assertEqual("video_generation", media_kind)
         self.assertIsNotNone(selected)
 
 

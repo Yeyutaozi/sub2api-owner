@@ -12,6 +12,7 @@ routes:
     - /workflow/runs
     - /audio/runs
     - /video/runs
+    - /grok-video/runs
   cancel: /cancel
 capabilities:
   - text
@@ -22,6 +23,7 @@ capabilities:
   - audio_transcription
   - audio_translation
   - video_generation
+  - grok_video_generation
   - workflow
 input_schema:
   type: object

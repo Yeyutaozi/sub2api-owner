@@ -208,6 +208,7 @@
               <span class="badge badge-gray">可热插拔</span>
             </div>
             <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo')">Grok 生视频模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text')">文本模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image')">文生图 / 图生图模板</button>
             </div>
@@ -296,9 +297,24 @@
                 <Icon name="trash" size="sm" />
               </button>
               <div v-if="field.type === 'select'" class="md:col-span-6">
-                <label class="input-label">下拉选项</label>
-                <input v-model.trim="field.options" class="input" placeholder="用逗号或换行分隔，如 写实, 电商主图, 小红书风格" />
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">用户运行时会看到这些选项，不需要填写 JSON。</p>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <label class="input-label mb-0">下拉选项</label>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="addSelectOption(field)">添加选项</button>
+                </div>
+                <div class="space-y-2">
+                  <div
+                    v-for="(option, optionIndex) in selectOptionsForField(field)"
+                    :key="`publish-input-${index}-option-${optionIndex}`"
+                    class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_44px]"
+                  >
+                    <input v-model.trim="option.label" class="input" placeholder="用户看到的中文，如 文生视频" @input="syncSelectOptionString(field)" />
+                    <input v-model.trim="option.value" class="input" placeholder="提交给 Worker 的值，如 text_to_video" @input="syncSelectOptionString(field)" />
+                    <button type="button" class="btn btn-secondary btn-icon" title="删除选项" @click="removeSelectOption(field, optionIndex)">
+                      <Icon name="trash" size="sm" />
+                    </button>
+                  </div>
+                </div>
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">左边是用户看到的文字，右边是提交给 Worker 的真实值；例如“文生视频 / text_to_video”。</p>
               </div>
             </div>
           </div>
@@ -568,6 +584,7 @@
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text', versionForm)">文本模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image', versionForm)">文生图 / 图生图模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo', versionForm)">Grok 生视频模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="addInputField(versionForm)">添加输入项</button>
             </div>
           </div>
@@ -590,9 +607,24 @@
                 <Icon name="trash" size="sm" />
               </button>
               <div v-if="field.type === 'select'" class="md:col-span-6">
-                <label class="input-label">下拉选项</label>
-                <input v-model.trim="field.options" class="input" placeholder="用逗号或换行分隔，如 写实, 电商主图, 小红书风格" />
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">用户运行时会看到这些选项，不需要填写 JSON。</p>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <label class="input-label mb-0">下拉选项</label>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="addSelectOption(field)">添加选项</button>
+                </div>
+                <div class="space-y-2">
+                  <div
+                    v-for="(option, optionIndex) in selectOptionsForField(field)"
+                    :key="`version-input-${index}-option-${optionIndex}`"
+                    class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_44px]"
+                  >
+                    <input v-model.trim="option.label" class="input" placeholder="用户看到的中文，如 文生视频" @input="syncSelectOptionString(field)" />
+                    <input v-model.trim="option.value" class="input" placeholder="提交给 Worker 的值，如 text_to_video" @input="syncSelectOptionString(field)" />
+                    <button type="button" class="btn btn-secondary btn-icon" title="删除选项" @click="removeSelectOption(field, optionIndex)">
+                      <Icon name="trash" size="sm" />
+                    </button>
+                  </div>
+                </div>
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">左边是用户看到的文字，右边是提交给 Worker 的真实值；例如“文生视频 / text_to_video”。</p>
               </div>
             </div>
           </div>
@@ -929,6 +961,12 @@ interface InputFieldForm {
   required: boolean
   asset_role: string
   options: string
+  select_options?: SelectOptionForm[]
+}
+
+interface SelectOptionForm {
+  label: string
+  value: string
 }
 
 interface ModelRoleForm {
@@ -1082,7 +1120,8 @@ const providerOptions: Array<{ label: string; value: GroupPlatform | '' }> = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Anthropic', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
-  { label: 'Antigravity', value: 'antigravity' }
+  { label: 'Antigravity', value: 'antigravity' },
+  { label: 'Grok', value: 'grok' }
 ]
 
 const artifactTypeOptions: Array<{ label: string; value: ArtifactTypeKey }> = [
@@ -1428,17 +1467,27 @@ function inputFieldsFromSchema(schema: Record<string, unknown>): InputFieldForm[
       ? declaredKind as InputFieldType
       : field.type === 'number' ? 'number' : 'text'
     const rawOptions = Array.isArray(field['x-options']) ? field['x-options'] : Array.isArray(field.enum) ? field.enum : []
-    const options = rawOptions.map((item) => {
-      if (item && typeof item === 'object') return String((item as Record<string, unknown>).value ?? '')
-      return String(item ?? '')
-    }).filter(Boolean).join('\n')
+    const selectOptions = rawOptions
+      .map((item): SelectOptionForm | null => {
+        if (item && typeof item === 'object') {
+          const option = item as Record<string, unknown>
+          const value = String(option.value ?? '').trim()
+          const label = String(option.label ?? value).trim()
+          return value ? { label: label || value, value } : null
+        }
+        const value = String(item ?? '').trim()
+        return value ? { label: value, value } : null
+      })
+      .filter((item): item is SelectOptionForm => item !== null)
+    const options = serializeSelectOptions(selectOptions)
     return {
       name,
       label: String(field.title || name),
       type,
       required: required.has(name),
       asset_role: String(field['x-asset-role'] || ''),
-      options
+      options,
+      select_options: selectOptions
     }
   })
 }
@@ -1551,7 +1600,7 @@ function buildVersionPayload(form: VersionFormLike) {
     toast.error('至少需要一个输入项')
     return null
   }
-  const emptySelectField = inputFields.find(field => field.type === 'select' && parseInputOptions(field.options).length === 0)
+  const emptySelectField = inputFields.find(field => field.type === 'select' && normalizedSelectOptions(field).length === 0)
   if (emptySelectField) {
     toast.error(`${emptySelectField.label || emptySelectField.name} 是下拉选择，请先填写选项`)
     return null
@@ -1615,13 +1664,13 @@ function resetPublishVersionForm() {
   ensureVersionFormDefaults(publishVersionForm)
 }
 
-function applyVersionTemplate(type: 'text' | 'image', target: VersionFormLike = publishVersionForm) {
+function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo', target: VersionFormLike = publishVersionForm) {
   if (type === 'text') {
     Object.assign(target, {
       worker_route: '/runs',
       source_ref: 'sub2api-app-worker:text',
       input_fields: [
-        { name: 'prompt', label: '提示词', type: 'textarea', required: true, asset_role: '', options: '' }
+        { name: 'prompt', label: '提示词', type: 'textarea', required: true, asset_role: '', options: '', select_options: [] }
       ],
       output_fields: defaultOutputFields(),
       model_roles: [
@@ -1629,6 +1678,20 @@ function applyVersionTemplate(type: 'text' | 'image', target: VersionFormLike = 
       ],
       capabilities: capabilityMap(['text']),
       artifact_policy: defaultArtifactPolicyForm()
+    })
+    ensureVersionFormDefaults(target)
+    return
+  }
+
+  if (type === 'grokVideo') {
+    Object.assign(target, {
+      worker_route: '/grok-video/runs',
+      source_ref: 'sub2api-app-worker:grok-video',
+      input_fields: defaultGrokVideoInputFields(),
+      output_fields: defaultVideoOutputFields(),
+      model_roles: defaultGrokVideoModelRoles(),
+      capabilities: capabilityMap(['video', 'image', 'file']),
+      artifact_policy: defaultGrokVideoArtifactPolicyForm()
     })
     ensureVersionFormDefaults(target)
     return
@@ -1652,8 +1715,74 @@ function defaultImageCapabilities() {
 
 function defaultImageInputFields(): InputFieldForm[] {
   return [
-    { name: 'prompt', label: '提示词', type: 'textarea', required: true, asset_role: '', options: '' },
-    { name: 'reference_image', label: '参考图片（可选）', type: 'image', required: false, asset_role: 'reference', options: '' }
+    { name: 'prompt', label: '提示词', type: 'textarea', required: true, asset_role: '', options: '', select_options: [] },
+    { name: 'reference_image', label: '参考图片（可选）', type: 'image', required: false, asset_role: 'reference', options: '', select_options: [] }
+  ]
+}
+
+function defaultGrokVideoInputFields(): InputFieldForm[] {
+  const modeOptions = [
+    { label: '文生视频', value: 'text_to_video' },
+    { label: '图生视频', value: 'image_to_video' },
+    { label: '多参考图生视频', value: 'reference_to_video' },
+    { label: '视频编辑', value: 'edit_video' },
+    { label: '视频续写', value: 'extend_video' }
+  ]
+  const durationOptions = [
+    { label: '5 秒', value: '5' },
+    { label: '6 秒', value: '6' },
+    { label: '8 秒', value: '8' },
+    { label: '10 秒', value: '10' }
+  ]
+  const resolutionOptions = [
+    { label: '720p', value: '720p' }
+  ]
+  const aspectRatioOptions = [
+    { label: '横屏 16:9', value: '16:9' },
+    { label: '竖屏 9:16', value: '9:16' },
+    { label: '方形 1:1', value: '1:1' }
+  ]
+  return [
+    {
+      name: 'mode',
+      label: '生成模式',
+      type: 'select',
+      required: true,
+      asset_role: '',
+      options: serializeSelectOptions(modeOptions),
+      select_options: modeOptions
+    },
+    { name: 'prompt', label: '提示词 / 画面描述', type: 'textarea', required: true, asset_role: '', options: '', select_options: [] },
+    {
+      name: 'duration',
+      label: '视频时长',
+      type: 'select',
+      required: false,
+      asset_role: '',
+      options: serializeSelectOptions(durationOptions),
+      select_options: durationOptions
+    },
+    {
+      name: 'resolution',
+      label: '视频清晰度',
+      type: 'select',
+      required: false,
+      asset_role: '',
+      options: serializeSelectOptions(resolutionOptions),
+      select_options: resolutionOptions
+    },
+    {
+      name: 'aspect_ratio',
+      label: '画面比例',
+      type: 'select',
+      required: false,
+      asset_role: '',
+      options: serializeSelectOptions(aspectRatioOptions),
+      select_options: aspectRatioOptions
+    },
+    { name: 'source_image', label: '起始图片 / 人物图片', type: 'image', required: false, asset_role: 'source', options: '', select_options: [] },
+    { name: 'reference_images', label: '参考图片', type: 'image', required: false, asset_role: 'reference', options: '', select_options: [] },
+    { name: 'source_video', label: '原始视频', type: 'video', required: false, asset_role: 'source', options: '', select_options: [] }
   ]
 }
 
@@ -1664,9 +1793,24 @@ function defaultOutputFields(): OutputFieldForm[] {
   ]
 }
 
+function defaultVideoOutputFields(): OutputFieldForm[] {
+  return [
+    { name: 'result', label: '最终结果', type: 'text', primary: true },
+    { name: 'artifact', label: '视频文件', type: 'object', primary: false },
+    { name: 'generation_mode', label: '生成模式', type: 'text', primary: false }
+  ]
+}
+
 function defaultImageModelRoles(): ModelRoleForm[] {
   return [
     { node_id: 'image_generation', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-1', model_group_id: '', required: true }
+  ]
+}
+
+function defaultGrokVideoModelRoles(): ModelRoleForm[] {
+  return [
+    { node_id: 'video', role: 'generate', capability: 'video', provider: 'grok', model: 'grok-imagine-video', model_group_id: '', required: true },
+    { node_id: 'video', role: 'image_to_video', capability: 'video', provider: 'grok', model: 'grok-imagine-video-1.5', model_group_id: '', required: true }
   ]
 }
 
@@ -1697,6 +1841,21 @@ function defaultArtifactPolicyForm(): ArtifactPolicyForm {
   }
 }
 
+function defaultGrokVideoArtifactPolicyForm(): ArtifactPolicyForm {
+  return {
+    retention_days: 0,
+    max_file_mb: 512,
+    allowed_types: {
+      json: true,
+      image: true,
+      video: true,
+      audio: false,
+      file: true,
+      log: true
+    }
+  }
+}
+
 function ensureVersionFormDefaults(form: VersionFormLike) {
   if (!Array.isArray(form.input_fields)) {
     form.input_fields = []
@@ -1715,7 +1874,8 @@ function ensureVersionFormDefaults(form: VersionFormLike) {
   }))
   form.input_fields = form.input_fields.map(field => ({
     ...field,
-    options: field.options || ''
+    options: serializeSelectOptions(normalizedSelectOptions(field)),
+    select_options: normalizedSelectOptions(field)
   }))
   form.capabilities = {
     ...emptyCapabilities(),
@@ -1759,7 +1919,8 @@ function addInputField(form: VersionFormLike) {
     type: 'text',
     required: false,
     asset_role: '',
-    options: ''
+    options: '',
+    select_options: []
   })
 }
 
@@ -1788,14 +1949,18 @@ function removeModelRole(form: VersionFormLike, index: number) {
 
 function normalizeInputFields(fields: InputFieldForm[]): InputFieldForm[] {
   return fields
-    .map(field => ({
-      name: field.name.trim(),
-      label: field.label.trim(),
-      type: field.type,
-      required: field.required,
-      asset_role: field.asset_role.trim(),
-      options: field.options?.trim() || ''
-    }))
+    .map(field => {
+      const selectOptions = normalizedSelectOptions(field)
+      return {
+        name: field.name.trim(),
+        label: field.label.trim(),
+        type: field.type,
+        required: field.required,
+        asset_role: field.asset_role.trim(),
+        options: serializeSelectOptions(selectOptions),
+        select_options: selectOptions
+      }
+    })
     .filter(field => field.name !== '')
 }
 
@@ -1814,7 +1979,7 @@ function normalizeModelRoles(roles: ModelRoleForm[]): ModelRoleForm[] {
 }
 
 function normalizeProvider(value: unknown): GroupPlatform | '' {
-  return value === 'openai' || value === 'anthropic' || value === 'gemini' || value === 'antigravity'
+  return value === 'openai' || value === 'anthropic' || value === 'gemini' || value === 'antigravity' || value === 'grok'
     ? value
     : ''
 }
@@ -1844,7 +2009,8 @@ function providerLabel(provider: string): string {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Gemini',
-    antigravity: 'Antigravity'
+    antigravity: 'Antigravity',
+    grok: 'Grok'
   }
   return labels[provider] || provider
 }
@@ -1867,13 +2033,13 @@ function inputFieldToSchema(field: InputFieldForm): Record<string, unknown> {
     return { type: 'number', title: field.label || field.name }
   }
   if (field.type === 'select') {
-    const options = parseInputOptions(field.options)
+    const options = normalizedSelectOptions(field)
     return {
       type: 'string',
       title: field.label || field.name,
-      enum: options,
+      enum: options.map(option => option.value),
       'x-input-kind': 'select',
-      'x-options': options.map(value => ({ label: value, value }))
+      'x-options': options
     }
   }
   if (field.type === 'boolean') {
@@ -1901,11 +2067,74 @@ function inputFieldToSchema(field: InputFieldForm): Record<string, unknown> {
   }
 }
 
-function parseInputOptions(value: string): string[] {
-  return value
+function parseSelectOptionForms(value: string): SelectOptionForm[] {
+  return String(value || '')
     .split(/[\n,，]/)
-    .map(item => item.trim())
+    .map((item) => {
+      const raw = item.trim()
+      if (!raw) return null
+      const separatorIndex = raw.indexOf('=')
+      if (separatorIndex >= 0) {
+        const label = raw.slice(0, separatorIndex).trim()
+        const optionValue = raw.slice(separatorIndex + 1).trim()
+        if (optionValue) return { label: label || optionValue, value: optionValue }
+        if (label) return { label, value: label }
+        return null
+      }
+      return { label: raw, value: raw }
+    })
+    .filter((item): item is SelectOptionForm => item !== null)
+}
+
+function normalizedSelectOptions(field: InputFieldForm): SelectOptionForm[] {
+  const source = Array.isArray(field.select_options) && field.select_options.length > 0
+    ? field.select_options
+    : parseSelectOptionForms(field.options)
+  const seen = new Set<string>()
+  const normalized: SelectOptionForm[] = []
+  for (const item of source) {
+    const value = String(item.value || item.label || '').trim()
+    const label = String(item.label || value).trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    normalized.push({ label: label || value, value })
+  }
+  return normalized
+}
+
+function serializeSelectOptions(options: SelectOptionForm[]): string {
+  return options
+    .map((option) => {
+      const value = String(option.value || option.label || '').trim()
+      const label = String(option.label || value).trim()
+      if (!value) return ''
+      return label && label !== value ? `${label}=${value}` : value
+    })
     .filter(Boolean)
+    .join('\n')
+}
+
+function selectOptionsForField(field: InputFieldForm): SelectOptionForm[] {
+  if (!Array.isArray(field.select_options)) {
+    field.select_options = parseSelectOptionForms(field.options)
+  }
+  return field.select_options
+}
+
+function syncSelectOptionString(field: InputFieldForm) {
+  field.options = serializeSelectOptions(selectOptionsForField(field))
+}
+
+function addSelectOption(field: InputFieldForm) {
+  const options = selectOptionsForField(field)
+  options.push({ label: '', value: '' })
+  syncSelectOptionString(field)
+}
+
+function removeSelectOption(field: InputFieldForm, index: number) {
+  const options = selectOptionsForField(field)
+  options.splice(index, 1)
+  syncSelectOptionString(field)
 }
 
 function buildOutputSchema(form: VersionFormLike) {

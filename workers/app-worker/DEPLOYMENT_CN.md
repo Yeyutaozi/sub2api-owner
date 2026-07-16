@@ -56,7 +56,7 @@ MAX_MODEL_PROXY_ASSET_BYTES=62914560
 MAX_IMAGE_REFERENCE_COUNT=16
 MAX_IMAGE_REFERENCE_BYTES=20971520
 MAX_IMAGE_REFERENCE_TOTAL_BYTES=47185920
-VIDEO_POLL_INTERVAL_SECONDS=2
+VIDEO_POLL_INTERVAL_SECONDS=5
 
 VERIFY_WORKER_SIGNATURE=true
 SIGNATURE_MAX_AGE_SECONDS=300
@@ -218,3 +218,176 @@ docker run -d \
 ### 修改 `.env` 后没有生效
 
 Docker 不会自动重新读取 `.env`。删除并重新创建 Worker 容器即可，不需要重新构建镜像。
+
+## 13. Grok 生视频 Worker 应用配置
+
+本 Worker 已内置 Grok 视频专用入口：
+
+```text
+/grok-video/runs
+```
+
+它和旧的 `/video/runs` 不同：旧入口继续走 OpenAI 兼容 `/v1/videos`；Grok 入口会按模式调用：
+
+- 文生视频、图生视频、多参考图生视频：`/v1/videos/generations`
+- 视频编辑：`/v1/videos/edits`
+- 视频续写/扩展：`/v1/videos/extensions`
+- 任务状态轮询：`/v1/videos/{request_id}`
+
+### 13.1 Worker Host
+
+管理后台创建或编辑 Worker Host：
+
+```text
+服务地址：http://WORKER_PRIVATE_IP:8091
+健康路径：/health
+默认运行路径：/grok-video/runs
+取消路径：/cancel
+最大并发：按服务器能力填写，例如 2 或 4
+```
+
+也可以把默认运行路径仍设为 `/runs`，然后在具体应用版本里把运行路径填成 `/grok-video/runs`。
+
+### 13.2 应用输入字段
+
+建议同一个智能体支持五种模式，用一个下拉字段控制：
+
+```text
+mode：select，必填
+  text_to_video
+  image_to_video
+  reference_to_video
+  edit_video
+  extend_video
+
+prompt：textarea，必填
+duration：number/select，可选
+resolution：select，可选，例如 720p
+aspect_ratio：select，可选，例如 16:9、9:16
+source_image：image，可选，用于 image_to_video
+reference_images：image，多文件，可选，用于 reference_to_video
+source_video：video/file，可选，用于 edit_video / extend_video
+```
+
+字段名不是硬性唯一，但推荐使用上面的名字。Worker 也兼容 `video_mode`、`generation_mode`、`operation`、`source_video_url`、`video_url` 等别名。
+
+### 13.3 模式边界
+
+```text
+text_to_video
+  只允许 prompt，不允许上传图片或视频。
+
+image_to_video
+  需要 1 张 source_image。
+  多张图片请改用 reference_to_video。
+
+reference_to_video
+  需要 reference_images。
+  默认最多 7 张，可用 GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT 调整。
+
+edit_video
+  需要 1 个 source_video 或 source_video_url。
+  不接受 duration / resolution / aspect_ratio。
+  如果输入视频元数据里有 duration_seconds，默认限制最长 8.7 秒。
+
+extend_video
+  需要 1 个 source_video 或 source_video_url。
+  只接受 duration，不接受 resolution / aspect_ratio。
+  duration 默认限制 2-10 秒。
+  如果输入视频元数据里有 duration_seconds，默认要求源视频 2-15 秒。
+```
+
+相关环境变量：
+
+```env
+GROK_VIDEO_REFERENCE_IMAGE_MAX_COUNT=7
+GROK_VIDEO_DURATION_MAX_SECONDS=10
+GROK_VIDEO_EXTENSION_DURATION_MIN_SECONDS=2
+GROK_VIDEO_EXTENSION_DURATION_MAX_SECONDS=10
+GROK_VIDEO_EDIT_INPUT_MAX_SECONDS=8.7
+GROK_VIDEO_EXTENSION_INPUT_MIN_SECONDS=2
+GROK_VIDEO_EXTENSION_INPUT_MAX_SECONDS=15
+```
+
+修改 `.env` 后需要重建容器：
+
+```bash
+docker rm -f sub2api-app-worker
+docker run -d \
+  --name sub2api-app-worker \
+  --restart unless-stopped \
+  --env-file /opt/sub2api-owner/workers/app-worker/.env \
+  -p 8091:8091 \
+  sub2api-app-worker:0.1.0
+```
+
+### 13.4 模型策略
+
+应用版本里模型厂商选择 `Grok`。至少配置一个视频模型策略：
+
+```json
+{
+  "video.generate": {
+    "node_id": "video",
+    "role": "generate",
+    "capability": "video_generation",
+    "model": "grok-imagine-video"
+  }
+}
+```
+
+如果你想让图生视频单独使用 `grok-imagine-video-1.5`，可以再加一个更具体的策略。Worker 会按 `mode` 优先匹配：
+
+```json
+{
+  "video.generate": {
+    "node_id": "video",
+    "role": "generate",
+    "capability": "video_generation",
+    "model": "grok-imagine-video"
+  },
+  "video.image_to_video": {
+    "node_id": "video",
+    "role": "image_to_video",
+    "capability": "image_to_video",
+    "model": "grok-imagine-video-1.5"
+  }
+}
+```
+
+注意：Worker 不保存 Grok API Key。Grok Key 仍在 Sub2API 主服务的用户 Key / 模型代理链路里管理。
+
+### 13.5 Artifact / COS 注意点
+
+- 生视频结果仍通过 Sub2API Artifact 接口写入对象存储，Worker 不需要 COS SecretId/SecretKey。
+- 图生视频和多参考图会把用户上传的图片转成 data URL 交给主服务 Model Proxy。
+- 视频编辑/续写会把 `source_video` 的签名 URL 传给上游模型；这个 URL 必须能被 xAI/Grok 上游访问。若你的对象存储只允许内网访问，真实调用会失败。
+- 视频结果通常较大，应用版本的 artifact policy 建议把 `max_file_mb` 设置到 512MB 左右，同时主服务 `agent_artifacts.max_upload_bytes` 也要足够大。
+
+### 13.6 快速验收
+
+1. 主服务确认 Grok 账号/Key 可用。
+2. Worker 服务器：
+
+```bash
+curl http://127.0.0.1:8091/health
+```
+
+3. 主服务服务器：
+
+```bash
+curl http://WORKER_PRIVATE_IP:8091/health
+```
+
+4. 应用中心发布 Grok 视频应用，运行路径填 `/grok-video/runs`。
+5. 依次测试五个 mode：
+
+```text
+text_to_video：只填 prompt
+image_to_video：prompt + 1 张 source_image
+reference_to_video：prompt + 多张 reference_images
+edit_video：prompt + 1 个 source_video
+extend_video：prompt + 1 个 source_video + duration
+```
+
+6. 检查运行记录状态、用户侧结果预览、对象存储文件、扣费记录。
