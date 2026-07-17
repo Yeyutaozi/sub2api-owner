@@ -38,6 +38,7 @@ type AdminHandlers struct {
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
+	AuditLog               *admin.AuditLogHandler
 	TokenReward            *admin.TokenRewardHandler
 	AgentWorkerHost        *admin.AgentWorkerHostHandler
 	AgentApp               *admin.AgentAppHandler
@@ -62,6 +63,7 @@ type Handlers struct {
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
+	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler
 	TokenReward      *TokenRewardHandler
 	AgentRun         *AgentRunHandler
