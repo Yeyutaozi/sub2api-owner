@@ -191,6 +191,9 @@ export default {
     channelStatus: 'Channel Status',
     riskControl: 'Risk Control',
     tokenRewards: 'Token Rewards',
+    securityAudit: 'Security Audit',
+    contentModeration: 'Content Moderation',
+    promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
   },
 
