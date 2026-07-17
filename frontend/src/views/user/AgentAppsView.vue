@@ -180,12 +180,44 @@
                 </div>
               </section>
 
-              <div v-if="runPrimaryText(selectedRun)" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60">
+              <div
+                v-if="runPrimaryText(selectedRun)"
+                :class="isProductMarketingApp ? '' : 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60'"
+              >
                 <div class="mb-2 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   <Icon name="sparkles" size="sm" />
                   <span>{{ isTerminalRunStatus(selectedRun.status) ? '最终结果' : '实时输出' }}</span>
                 </div>
-                <div class="whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100">{{ runPrimaryText(selectedRun) }}</div>
+                <div
+                  class="whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100"
+                  :class="isProductMarketingApp ? 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60' : ''"
+                >{{ runPrimaryText(selectedRun) }}</div>
+                <div
+                  v-if="isProductMarketingApp && runResultArtifacts(selectedRun).length"
+                  class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2"
+                >
+                  <div
+                    v-for="artifact in runResultArtifacts(selectedRun)"
+                    :key="artifact.id"
+                    class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900/40"
+                  >
+                    <div v-if="isImageArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-gray-50 dark:bg-dark-800">
+                      <img :src="artifactPreviewURL(artifact)" :alt="artifact.name" class="max-h-96 w-full object-contain" />
+                    </div>
+                    <div v-else-if="isVideoArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-black">
+                      <video :src="artifactPreviewURL(artifact)" controls class="max-h-96 w-full" />
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-3 py-3 text-sm">
+                      <span class="min-w-0">
+                        <span class="block truncate text-gray-800 dark:text-gray-100">{{ artifact.name }}</span>
+                        <span class="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">{{ artifactDescription(artifact) }}</span>
+                      </span>
+                      <button type="button" class="btn btn-secondary btn-sm flex-shrink-0" title="下载结果" @click="downloadArtifact(artifact.id)">
+                        <Icon name="download" size="sm" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div v-else-if="selectedRun.status === 'succeeded' && !runResultArtifacts(selectedRun).length" class="rounded-lg bg-green-50 p-4 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-300">
                 运行已完成，暂无可直接展示的结果。
@@ -241,7 +273,7 @@
                 <div v-if="selectedRun.error_code" class="mt-1 text-xs opacity-75">错误编号：{{ selectedRun.error_code }}</div>
               </div>
 
-              <div v-if="runResultArtifacts(selectedRun).length" class="mt-5">
+              <div v-if="!isProductMarketingApp && runResultArtifacts(selectedRun).length" class="mt-5">
                 <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">最终结果</h3>
                 <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div
@@ -725,6 +757,7 @@ import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AgentAppCatalog, AgentArtifact, AgentInputAsset, AgentRun, AgentRunEvent, ApiKey, GroupPlatform, PaginatedResponse, UsageLog } from '@/types'
+import { agentAppProviderLabel, inferAgentAppProvider, normalizeAgentAppProvider } from '@/utils/agentAppModelProvider'
 
 type ModelPolicyItem = {
   policyKey: string
@@ -769,6 +802,7 @@ const runUsageLogs = ref<UsageLog[]>([])
 const apiKeys = ref<ApiKey[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const selectedApp = ref<AgentAppCatalog | null>(null)
+const isProductMarketingApp = computed(() => selectedApp.value?.slug === 'ai-product-marketing')
 const selectedRun = ref<AgentRun | null>(null)
 const runResultSection = ref<HTMLElement | null>(null)
 
@@ -1862,7 +1896,7 @@ function normalizeModelPolicyItem(policyKey: string, value: unknown): ModelPolic
     nodeId: stringValue(record.node_id) || fallbackNodeId,
     role: stringValue(record.role) || fallbackRole,
     capability: stringValue(record.capability) || 'model',
-    provider: normalizeProvider(stringValue(record.provider) || stringValue(record.platform)) || inferProviderFromModel(model),
+    provider: normalizeAgentAppProvider(stringValue(record.provider) || stringValue(record.platform)) || inferAgentAppProvider(model),
     model,
     modelGroupId: numberValue(record.model_group_id),
     optional: record.optional === true
@@ -1938,37 +1972,7 @@ function apiKeyPlatformLabel(key: ApiKey): string {
 }
 
 function providerLabel(platform: string): string {
-  const labels: Record<string, string> = {
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    gemini: 'Gemini',
-    antigravity: 'Antigravity'
-  }
-  return labels[platform] || platform
-}
-
-function normalizeProvider(value: unknown): GroupPlatform | '' {
-  return value === 'openai' || value === 'anthropic' || value === 'gemini' || value === 'antigravity'
-    ? value
-    : ''
-}
-
-function inferProviderFromModel(model: string): GroupPlatform | '' {
-  const normalized = model.trim().toLowerCase()
-  if (!normalized) return ''
-  if (normalized.startsWith('gpt-') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4') || normalized.includes('openai')) {
-    return 'openai'
-  }
-  if (normalized.startsWith('claude') || normalized.includes('anthropic')) {
-    return 'anthropic'
-  }
-  if (normalized.startsWith('gemini') || normalized.includes('gemini')) {
-    return 'gemini'
-  }
-  if (normalized.includes('antigravity')) {
-    return 'antigravity'
-  }
-  return ''
+  return agentAppProviderLabel(platform)
 }
 
 function apiKeyRateLabel(key: ApiKey): string {

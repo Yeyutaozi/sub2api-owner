@@ -209,6 +209,7 @@
             </div>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo')">Grok 生视频模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('productMarketing')">商品营销包模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text')">文本模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image')">文生图 / 图生图模板</button>
             </div>
@@ -585,6 +586,7 @@
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text', versionForm)">文本模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image', versionForm)">文生图 / 图生图模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo', versionForm)">Grok 生视频模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('productMarketing', versionForm)">商品营销包模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="addInputField(versionForm)">添加输入项</button>
             </div>
           </div>
@@ -1664,7 +1666,7 @@ function resetPublishVersionForm() {
   ensureVersionFormDefaults(publishVersionForm)
 }
 
-function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo', target: VersionFormLike = publishVersionForm) {
+function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo' | 'productMarketing', target: VersionFormLike = publishVersionForm) {
   if (type === 'text') {
     Object.assign(target, {
       worker_route: '/runs',
@@ -1674,7 +1676,7 @@ function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo', target: Vers
       ],
       output_fields: defaultOutputFields(),
       model_roles: [
-        { node_id: 'text', role: 'generate', capability: 'text', provider: 'openai', model: 'gpt-4.1-mini', model_group_id: '', required: true }
+        { node_id: 'text', role: 'generate', capability: 'text', provider: 'openai', model: 'gpt-5.5', model_group_id: '', required: true }
       ],
       capabilities: capabilityMap(['text']),
       artifact_policy: defaultArtifactPolicyForm()
@@ -1692,6 +1694,20 @@ function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo', target: Vers
       model_roles: defaultGrokVideoModelRoles(),
       capabilities: capabilityMap(['video', 'image', 'file']),
       artifact_policy: defaultGrokVideoArtifactPolicyForm()
+    })
+    ensureVersionFormDefaults(target)
+    return
+  }
+
+  if (type === 'productMarketing') {
+    Object.assign(target, {
+      worker_route: '/product-marketing/runs',
+      source_ref: 'sub2api-app-worker:product-marketing',
+      input_fields: defaultProductMarketingInputFields(),
+      output_fields: defaultProductMarketingOutputFields(),
+      model_roles: defaultProductMarketingModelRoles(),
+      capabilities: capabilityMap(['text', 'vision', 'image', 'file']),
+      artifact_policy: defaultArtifactPolicyForm()
     })
     ensureVersionFormDefaults(target)
     return
@@ -1786,6 +1802,37 @@ function defaultGrokVideoInputFields(): InputFieldForm[] {
   ]
 }
 
+function defaultProductMarketingInputFields(): InputFieldForm[] {
+  const platformOptions = [
+    { label: '淘宝 / 天猫', value: 'taobao' },
+    { label: '京东', value: 'jd' },
+    { label: '抖音', value: 'douyin' },
+    { label: '小红书', value: 'xiaohongshu' },
+    { label: 'Amazon', value: 'amazon' },
+    { label: '独立站', value: 'independent_store' }
+  ]
+  const styleOptions = [
+    { label: '干净通勤', value: 'clean_urban' },
+    { label: '高级商业', value: 'premium_commercial' },
+    { label: '自然生活方式', value: 'natural_lifestyle' },
+    { label: '社媒醒目', value: 'social_bold' },
+    { label: '极简棚拍', value: 'minimal_studio' }
+  ]
+  const outputCountOptions = [1, 2, 3, 4].map(value => ({ label: `${value} 张`, value: String(value) }))
+  return [
+    { name: 'product_name', label: '商品名称', type: 'text', required: true, asset_role: '', options: '', select_options: [] },
+    { name: 'selling_points', label: '商品卖点', type: 'textarea', required: true, asset_role: '', options: '', select_options: [] },
+    { name: 'target_audience', label: '目标人群', type: 'text', required: false, asset_role: '', options: '', select_options: [] },
+    { name: 'platform', label: '投放平台', type: 'select', required: true, asset_role: '', options: serializeSelectOptions(platformOptions), select_options: platformOptions },
+    { name: 'visual_style', label: '视觉风格', type: 'select', required: true, asset_role: '', options: serializeSelectOptions(styleOptions), select_options: styleOptions },
+    { name: 'language', label: '文案语言', type: 'text', required: false, asset_role: '', options: '', select_options: [] },
+    { name: 'campaign_goal', label: '营销目标', type: 'text', required: false, asset_role: '', options: '', select_options: [] },
+    { name: 'output_count', label: '生成图片数量', type: 'select', required: true, asset_role: '', options: serializeSelectOptions(outputCountOptions), select_options: outputCountOptions },
+    { name: 'product_images', label: '商品参考图（可多选）', type: 'image', required: false, asset_role: 'reference', options: '', select_options: [] },
+    { name: 'additional_requirements', label: '补充要求', type: 'textarea', required: false, asset_role: '', options: '', select_options: [] }
+  ]
+}
+
 function defaultOutputFields(): OutputFieldForm[] {
   return [
     { name: 'result', label: '最终结果', type: 'text', primary: true },
@@ -1801,9 +1848,17 @@ function defaultVideoOutputFields(): OutputFieldForm[] {
   ]
 }
 
+function defaultProductMarketingOutputFields(): OutputFieldForm[] {
+  return [
+    { name: 'result', label: '营销方向', type: 'text', primary: true },
+    { name: 'marketing_plan', label: '营销方案', type: 'object', primary: false },
+    { name: 'image_count', label: '图片数量', type: 'number', primary: false }
+  ]
+}
+
 function defaultImageModelRoles(): ModelRoleForm[] {
   return [
-    { node_id: 'image_generation', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-1', model_group_id: '', required: true }
+    { node_id: 'image_generation', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-2', model_group_id: '', required: true }
   ]
 }
 
@@ -1811,6 +1866,13 @@ function defaultGrokVideoModelRoles(): ModelRoleForm[] {
   return [
     { node_id: 'video', role: 'generate', capability: 'video', provider: 'grok', model: 'grok-imagine-video', model_group_id: '', required: true },
     { node_id: 'video', role: 'image_to_video', capability: 'video', provider: 'grok', model: 'grok-imagine-video-1.5', model_group_id: '', required: true }
+  ]
+}
+
+function defaultProductMarketingModelRoles(): ModelRoleForm[] {
+  return [
+    { node_id: 'marketing', role: 'analyze', capability: 'vision', provider: 'openai', model: 'gpt-5.5', model_group_id: '', required: true },
+    { node_id: 'image', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-2', model_group_id: '', required: true }
   ]
 }
 

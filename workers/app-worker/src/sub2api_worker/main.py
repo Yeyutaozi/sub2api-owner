@@ -144,6 +144,7 @@ async def health() -> dict[str, Any]:
             "audio_translation",
             "video_generation",
             "grok_video_generation",
+            "product_marketing",
             "workflow",
         ],
         "routes": {
@@ -156,6 +157,7 @@ async def health() -> dict[str, Any]:
                 "/audio/runs",
                 "/video/runs",
                 "/grok-video/runs",
+                "/product-marketing/runs",
             ],
             "cancel": "/cancel",
         },
@@ -172,6 +174,7 @@ async def health() -> dict[str, Any]:
 @app.post("/audio/runs")
 @app.post("/video/runs")
 @app.post("/grok-video/runs")
+@app.post("/product-marketing/runs")
 async def submit_run(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     raw_body = await request.body()
     try:
@@ -234,6 +237,10 @@ async def process_run(payload: WorkerRunRequest, worker_run_id: str) -> None:
         )
 
         try:
+            if is_product_marketing_run(payload):
+                await process_product_marketing_run(payload, worker_run_id, started)
+                return
+
             prompt = extract_prompt(payload.input)
             media_policy = select_media_policy(payload)
             if media_policy is not None:
@@ -351,6 +358,129 @@ async def process_run(payload: WorkerRunRequest, worker_run_id: str) -> None:
             await callback_failure(payload, "WORKER_RUNTIME_ERROR", str(exc))
         finally:
             canceled_runs.discard(payload.run_id)
+
+
+async def process_product_marketing_run(payload: WorkerRunRequest, worker_run_id: str, started: float) -> None:
+    product_name = string_input(payload.input, "product_name")
+    selling_points = string_input(payload.input, "selling_points") or string_input(payload.input, "selling")
+    if not product_name:
+        raise WorkerFailure("PRODUCT_NAME_REQUIRED", "Please provide a product name.")
+    if not selling_points:
+        raise WorkerFailure("SELLING_POINTS_REQUIRED", "Please provide the product selling points.")
+
+    output_count = bounded_int_input(payload.input, "output_count", default=3, minimum=1, maximum=4)
+    analysis_policy = find_policy(
+        payload,
+        capabilities={"vision", "text", "model"},
+        roles={"analyze", "marketing", "generate"},
+    )
+    image_policy = find_policy(
+        payload,
+        capabilities={"image", "image_generation", "image_edit", "text_to_image", "image_to_image"},
+        roles={"generate"},
+    )
+    if analysis_policy is None:
+        raise WorkerFailure("MARKETING_POLICY_REQUIRED", "Product marketing requires a text or vision model policy.")
+    if image_policy is None:
+        raise WorkerFailure("IMAGE_POLICY_REQUIRED", "Product marketing requires an image generation model policy.")
+
+    await callback(
+        payload,
+        "progress",
+        status="running",
+        node_id=analysis_policy.node_id,
+        role=analysis_policy.role,
+        progress=0.12,
+        message="Analyzing product and planning the marketing package",
+        metadata=model_call_metadata(analysis_policy),
+    )
+    ensure_run_active(payload, "before product analysis")
+    analysis_result = await call_model_proxy(payload, analysis_policy, build_product_marketing_prompt(payload.input, output_count))
+    analysis_text = extract_model_text(analysis_result.get("response", {}))
+    if not analysis_text:
+        raise WorkerFailure("MARKETING_PLAN_EMPTY", "The marketing model returned no usable plan.")
+    plan = parse_product_marketing_plan(analysis_text, payload.input, output_count)
+
+    ensure_run_active(payload, "before image generation")
+
+    references = reference_image_artifacts(payload)
+    reference_bodies = await download_reference_images(references) if references else []
+    image_artifacts: list[dict[str, Any]] = []
+    image_usages: list[dict[str, Any]] = []
+    prompts = plan["image_prompts"]
+    for index, image_prompt in enumerate(prompts, start=1):
+        ensure_run_active(payload, f"before image {index}")
+        await callback(
+            payload,
+            "progress",
+            status="running",
+            node_id=image_policy.node_id,
+            role=image_policy.role,
+            progress=0.25 + (index - 1) * (0.65 / output_count),
+            message=f"Generating marketing image {index} of {output_count}",
+            output={"completed_images": len(image_artifacts), "total_images": output_count},
+            metadata={**model_call_metadata(image_policy), "image_index": index, "reference_count": len(references)},
+        )
+        proxy_result = await call_image_model_proxy(
+            payload,
+            image_policy,
+            image_prompt,
+            references=references,
+            reference_bodies=reference_bodies,
+        )
+        image = extract_image_result(proxy_result.get("response", {}))
+        if not image:
+            raise WorkerFailure("IMAGE_RESULT_EMPTY", f"Image model returned no image for output {index}.")
+        artifact_metadata = {
+            "workflow": "product_marketing",
+            "product_name": product_name,
+            "artifact_role": "marketing_image",
+            "image_index": index,
+            "prompt": image_prompt,
+            "reference_count": len(references),
+        }
+        if image.get("url"):
+            artifact = await archive_remote_artifact(
+                payload,
+                name=f"product-marketing-{payload.run_id}-{index}.png",
+                url=str(image["url"]),
+                mime_type=str(image.get("mime_type") or "image/png"),
+                metadata=artifact_metadata,
+            )
+        else:
+            artifact = await upload_base64_artifact(
+                payload,
+                name=f"product-marketing-{payload.run_id}-{index}.png",
+                b64_json=str(image["b64_json"]),
+                mime_type=str(image.get("mime_type") or "image/png"),
+                metadata=artifact_metadata,
+            )
+        image_artifacts.append(artifact)
+        image_usages.append(proxy_usage(proxy_result))
+
+    ensure_run_active(payload, "after image generation")
+    await callback(
+        payload,
+        "succeeded",
+        status="succeeded",
+        node_id=image_policy.node_id,
+        role=image_policy.role,
+        progress=1.0,
+        message="Product marketing package completed",
+        output={
+            "result": format_product_marketing_result(plan, product_name),
+            "marketing_plan": plan,
+            "image_count": len(image_artifacts),
+        },
+        metadata={
+            "workflow": "product_marketing",
+            "worker_run_id": worker_run_id,
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "analysis_usage": proxy_usage(analysis_result),
+            "image_usages": image_usages,
+            "reference_count": len(references),
+        },
+    )
 
 
 async def process_image_run(payload: WorkerRunRequest, worker_run_id: str, started: float, image_policy: SelectedPolicy, prompt: str) -> None:
@@ -766,6 +896,8 @@ async def process_video_run(
             )
         except WorkerCanceled:
             await callback(payload, "canceled", status="canceled", message="Run canceled during model stream")
+        except WorkerCanceled:
+            await callback(payload, "canceled", status="canceled", message="Run canceled")
         except WorkerFailure as exc:
             if exc.code != "MODEL_PROXY_FAILED" or not completed_media or not completed_media.get("url"):
                 raise
@@ -1751,6 +1883,115 @@ def media_policy_kind(policy: ModelPolicy, payload: WorkerRunRequest) -> str:
 
 def normalize_policy_value(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def is_product_marketing_run(payload: WorkerRunRequest) -> bool:
+    route = normalize_policy_value(str(payload.metadata.get("worker_route") or ""))
+    return "product_marketing" in route
+
+
+def ensure_run_active(payload: WorkerRunRequest, stage: str) -> None:
+    if is_canceled(payload.run_id):
+        raise WorkerCanceled(f"Run canceled {stage}")
+
+
+def bounded_int_input(values: dict[str, Any], key: str, *, default: int, minimum: int, maximum: int) -> int:
+    value = values.get(key, default)
+    if isinstance(value, bool):
+        raise WorkerFailure("INPUT_INVALID", f"{key} must be an integer between {minimum} and {maximum}.")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise WorkerFailure("INPUT_INVALID", f"{key} must be an integer between {minimum} and {maximum}.") from exc
+    if parsed < minimum or parsed > maximum:
+        raise WorkerFailure("INPUT_INVALID", f"{key} must be between {minimum} and {maximum}.")
+    return parsed
+
+
+def build_product_marketing_prompt(values: dict[str, Any], output_count: int) -> str:
+    fields = {
+        "product_name": string_input(values, "product_name"),
+        "selling_points": string_input(values, "selling_points") or string_input(values, "selling"),
+        "target_audience": string_input(values, "target_audience"),
+        "platform": string_input(values, "platform") or "general ecommerce",
+        "visual_style": string_input(values, "visual_style") or string_input(values, "style") or "clean commercial photography",
+        "language": string_input(values, "language") or "zh-CN",
+        "campaign_goal": string_input(values, "campaign_goal") or "conversion",
+        "additional_requirements": string_input(values, "additional_requirements"),
+    }
+    return f"""You are a senior ecommerce creative director. Analyze the supplied product images when present and create a production-ready marketing package.
+Product brief:
+{json.dumps(fields, ensure_ascii=False, indent=2)}
+
+Return JSON only, without Markdown fences. Use exactly this shape:
+{{
+  "summary": "short campaign direction",
+  "headlines": ["3 to 5 platform-ready headlines"],
+  "selling_points": ["3 to 6 concise benefit-led points"],
+  "description": "finished product description in the requested language",
+  "visual_direction": "consistent art direction",
+  "image_prompts": ["exactly {output_count} detailed image-generation prompts"]
+}}
+Each image prompt must identify the product, intended composition, background, lighting, camera angle, platform, and visual style. When reference product images are supplied, explicitly require preserving product shape, materials, colors, logo, labels, and packaging details. Do not invent certifications, prices, discounts, or unsupported product claims."""
+
+
+def format_product_marketing_result(plan: dict[str, Any], product_name: str) -> str:
+    sections: list[str] = [f"{product_name} AI 商品营销包"]
+
+    summary = str(plan.get("summary") or "").strip()
+    if summary:
+        sections.append(f"营销策略\n{summary}")
+
+    for title, key in (("标题建议", "headlines"), ("核心卖点", "selling_points")):
+        values = plan.get(key)
+        items = [str(item).strip() for item in values if str(item).strip()] if isinstance(values, list) else []
+        if items:
+            sections.append(f"{title}\n" + "\n".join(f"- {item}" for item in items))
+
+    description = str(plan.get("description") or "").strip()
+    if description:
+        sections.append(f"商品文案\n{description}")
+
+    visual_direction = str(plan.get("visual_direction") or "").strip()
+    if visual_direction:
+        sections.append(f"视觉方向\n{visual_direction}")
+
+    return "\n\n".join(sections)
+
+
+def parse_product_marketing_plan(raw: str, values: dict[str, Any], output_count: int) -> dict[str, Any]:
+    candidate = raw.strip()
+    if candidate.startswith("```"):
+        candidate = candidate.split("\n", 1)[1] if "\n" in candidate else candidate[3:]
+        candidate = candidate.rsplit("```", 1)[0].strip()
+    try:
+        parsed = json.loads(candidate)
+    except (TypeError, ValueError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+
+    product_name = string_input(values, "product_name")
+    style = string_input(values, "visual_style") or string_input(values, "style") or "clean commercial photography"
+    platform = string_input(values, "platform") or "ecommerce"
+    prompts = parsed.get("image_prompts")
+    valid_prompts = [item.strip() for item in prompts if isinstance(item, str) and item.strip()] if isinstance(prompts, list) else []
+    while len(valid_prompts) < output_count:
+        index = len(valid_prompts) + 1
+        valid_prompts.append(
+            f"Commercial marketing image {index} for {product_name}; {style}; optimized for {platform}; "
+            "preserve the exact product design, colors, materials, logo, labels, and packaging from the reference images; "
+            "clear product focus, professional lighting, realistic details, no unsupported text or claims."
+        )
+    parsed["image_prompts"] = valid_prompts[:output_count]
+    parsed.setdefault("summary", raw.strip())
+    for key in ("headlines", "selling_points"):
+        if not isinstance(parsed.get(key), list):
+            parsed[key] = []
+    for key in ("description", "visual_direction"):
+        if not isinstance(parsed.get(key), str):
+            parsed[key] = ""
+    return parsed
 
 
 def select_policy(payload: WorkerRunRequest) -> SelectedPolicy:

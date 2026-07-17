@@ -167,6 +167,109 @@ class WorkerMediaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("high", proxy_bodies[0]["request"]["quality"])
         self.assertNotIn("multipart", proxy_bodies[0])
 
+    async def test_product_marketing_orchestrates_plan_and_multiple_images(self) -> None:
+        analysis_policy = worker.SelectedPolicy(
+            policy_key="marketing.analyze",
+            node_id="marketing",
+            role="analyze",
+            model="gpt-4.1-mini",
+            capability="vision",
+        )
+        image_policy = self.policy("image_generation", "gpt-image-1")
+        reference = worker.WorkerArtifactRef(
+            artifact_id=44,
+            name="product.png",
+            mime_type="image/png",
+            url="https://assets.test/product.png",
+            metadata={"asset_role": "reference"},
+        )
+        payload = self.payload(
+            input_values={
+                "product_name": "轻薄城市冲锋衣",
+                "selling_points": "防水、透气、轻薄",
+                "platform": "小红书",
+                "visual_style": "干净通勤",
+                "output_count": 2,
+            },
+            artifacts=[reference],
+        )
+        payload.metadata["worker_route"] = "/product-marketing/runs"
+        payload.node_model_policy = {
+            "marketing.analyze": worker.ModelPolicy(
+                node_id="marketing", role="analyze", model="gpt-4.1-mini", capability="vision"
+            ),
+            "image.generate": worker.ModelPolicy(
+                node_id="image", role="generate", model="gpt-image-1", capability="image_generation"
+            ),
+        }
+        plan = {
+            "summary": "城市通勤与轻户外",
+            "headlines": ["轻装出发"],
+            "selling_points": ["轻薄防水"],
+            "description": "成品文案",
+            "visual_direction": "自然光",
+            "image_prompts": ["hero prompt", "commute prompt"],
+        }
+        callbacks: list[dict[str, object]] = []
+
+        async def record_callback(_: worker.WorkerRunRequest, event_type: str, **kwargs: object) -> None:
+            callbacks.append({"event_type": event_type, **kwargs})
+
+        with (
+            patch.object(worker, "find_policy", side_effect=[analysis_policy, image_policy]),
+            patch.object(
+                worker,
+                "call_model_proxy",
+                new=AsyncMock(return_value={"response": {"text": json.dumps(plan, ensure_ascii=False)}, "usage": {"total_tokens": 20}}),
+            ) as analyze,
+            patch.object(worker, "download_reference_images", new=AsyncMock(return_value=[b"product-image"])) as download,
+            patch.object(
+                worker,
+                "call_image_model_proxy",
+                new=AsyncMock(return_value={"response": {"data": [{"b64_json": "aW1hZ2U="}]}, "usage": {"images": 1}}),
+            ) as generate,
+            patch.object(
+                worker,
+                "upload_base64_artifact",
+                new=AsyncMock(side_effect=[
+                    {"artifact_id": 701, "url": "https://download.test/1.png"},
+                    {"artifact_id": 702, "url": "https://download.test/2.png"},
+                ]),
+            ) as upload_image,
+            patch.object(worker, "callback", new=record_callback),
+        ):
+            await worker.process_product_marketing_run(payload, "worker-marketing", time.perf_counter())
+
+        self.assertEqual(1, analyze.await_count)
+        self.assertIn("轻薄城市冲锋衣", analyze.await_args.args[2])
+        self.assertEqual(1, download.await_count)
+        self.assertEqual(2, generate.await_count)
+        self.assertEqual(["hero prompt", "commute prompt"], [call.args[2] for call in generate.await_args_list])
+        self.assertEqual(2, upload_image.await_count)
+        self.assertEqual("succeeded", callbacks[-1]["event_type"])
+        self.assertEqual(2, callbacks[-1]["output"]["image_count"])
+        self.assertEqual({"result", "marketing_plan", "image_count"}, set(callbacks[-1]["output"]))
+        result = callbacks[-1]["output"]["result"]
+        self.assertIn("AI 商品营销包", result)
+        self.assertIn("标题建议", result)
+        self.assertIn("核心卖点", result)
+        self.assertIn("商品文案", result)
+        self.assertIn("视觉方向", result)
+        self.assertNotIn("plan_artifact", callbacks[-1]["output"])
+        self.assertNotIn("image_artifacts", callbacks[-1]["output"])
+
+    def test_product_marketing_plan_fills_missing_image_prompts(self) -> None:
+        plan = worker.parse_product_marketing_plan(
+            '```json\n{"summary":"方向","image_prompts":["first"]}\n```',
+            {"product_name": "旅行杯", "platform": "Amazon", "visual_style": "minimal"},
+            3,
+        )
+
+        self.assertEqual(3, len(plan["image_prompts"]))
+        self.assertEqual("first", plan["image_prompts"][0])
+        self.assertIn("旅行杯", plan["image_prompts"][1])
+        self.assertEqual([], plan["headlines"])
+
     async def test_image_edit_forwards_multiple_reference_images_and_keeps_single_output(self) -> None:
         first = worker.WorkerArtifactRef(name="first.png", mime_type="image/png")
         second = worker.WorkerArtifactRef(name="second.webp", mime_type="image/webp")
