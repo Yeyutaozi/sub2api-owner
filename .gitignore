@@ -118,6 +118,8 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!workers/app-worker/tests/
+!workers/app-worker/tests/**
 CLAUDE.md
 .claude
 scripts

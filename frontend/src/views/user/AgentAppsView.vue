@@ -182,7 +182,7 @@
 
               <div
                 v-if="runPrimaryText(selectedRun)"
-                :class="isProductMarketingApp ? '' : 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60'"
+                :class="isBundledResultApp ? '' : 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60'"
               >
                 <div class="mb-2 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   <Icon name="sparkles" size="sm" />
@@ -190,15 +190,16 @@
                 </div>
                 <div
                   class="whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100"
-                  :class="isProductMarketingApp ? 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60' : ''"
+                  :class="isBundledResultApp ? 'rounded-lg bg-gray-50 p-4 dark:bg-dark-900/60' : ''"
                 >{{ runPrimaryText(selectedRun) }}</div>
                 <div
-                  v-if="isProductMarketingApp && runResultArtifacts(selectedRun).length"
+                  v-if="isBundledResultApp && runResultArtifacts(selectedRun).length"
                   class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2"
                 >
                   <div
                     v-for="artifact in runResultArtifacts(selectedRun)"
                     :key="artifact.id"
+                    :class="isWordArtifact(artifact) ? 'lg:col-span-2' : ''"
                     class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900/40"
                   >
                     <div v-if="isImageArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-gray-50 dark:bg-dark-800">
@@ -212,8 +213,9 @@
                         <span class="block truncate text-gray-800 dark:text-gray-100">{{ artifact.name }}</span>
                         <span class="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">{{ artifactDescription(artifact) }}</span>
                       </span>
-                      <button type="button" class="btn btn-secondary btn-sm flex-shrink-0" title="下载结果" @click="downloadArtifact(artifact.id)">
+                      <button type="button" class="btn btn-secondary btn-sm flex-shrink-0" :title="isWordArtifact(artifact) ? '下载 Word 论文' : '下载结果'" @click="downloadArtifact(artifact.id)">
                         <Icon name="download" size="sm" />
+                        <span v-if="isWordArtifact(artifact)" class="ml-1">下载 Word</span>
                       </button>
                     </div>
                   </div>
@@ -273,7 +275,7 @@
                 <div v-if="selectedRun.error_code" class="mt-1 text-xs opacity-75">错误编号：{{ selectedRun.error_code }}</div>
               </div>
 
-              <div v-if="!isProductMarketingApp && runResultArtifacts(selectedRun).length" class="mt-5">
+              <div v-if="!isBundledResultApp && runResultArtifacts(selectedRun).length" class="mt-5">
                 <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">最终结果</h3>
                 <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div
@@ -501,16 +503,149 @@
                 </div>
 
                 <div v-if="inputFields.length" class="space-y-4">
-                  <div
-                    v-for="field in inputFields"
-                    :key="field.name"
+                  <component
+                    :is="isAcademicPaperApp ? 'details' : 'div'"
+                    v-for="group in inputFieldGroups"
+                    :key="group.key"
+                    :open="isAcademicPaperApp && group.defaultOpen"
+                    :class="isAcademicPaperApp ? 'rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900/30' : ''"
                   >
+                    <summary
+                      v-if="isAcademicPaperApp"
+                      class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white"
+                    >
+                      {{ group.label }}
+                      <span class="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">{{ group.fields.length }} 项</span>
+                    </summary>
+                    <div :class="isAcademicPaperApp ? 'space-y-4 border-t border-gray-100 p-4 dark:border-dark-700' : 'space-y-4'">
+                      <div
+                        v-for="field in group.fields"
+                        :key="field.name"
+                      >
                     <label class="input-label">
                       {{ field.label }}
                       <span v-if="field.required" class="text-red-500">*</span>
                     </label>
+                    <div v-if="isAcademicOutlineField(field)" class="space-y-3">
+                      <textarea
+                        v-model="outlineImportText"
+                        rows="5"
+                        class="input resize-y"
+                        placeholder="1 绪论&#10;1.1 研究背景&#10;1.2 研究目的与意义&#10;2 研究设计"
+                        @input="outlineImportError = ''"
+                      />
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                          {{ outlineNodes.length }} 个标题 · 最高 {{ outlineMaxLevel }} 级
+                        </span>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="importOutlineRequirements">
+                          <Icon name="clipboard" size="sm" class="mr-1.5" />
+                          解析为目录
+                        </button>
+                      </div>
+                      <p v-if="outlineImportError" class="text-xs leading-5 text-red-600 dark:text-red-300">
+                        {{ outlineImportError }}
+                      </p>
+
+                      <div class="border-y border-gray-200 dark:border-dark-700">
+                        <div
+                          v-for="(node, nodeIndex) in outlineNodes"
+                          :key="node.id"
+                          class="border-b border-gray-100 py-3 last:border-b-0 dark:border-dark-700/70"
+                        >
+                          <div
+                            class="flex min-w-0 items-center gap-2"
+                            :style="{ paddingLeft: `${(node.level - 1) * 12}px` }"
+                          >
+                            <span class="w-12 flex-shrink-0 text-right text-xs font-medium tabular-nums text-gray-500 dark:text-gray-400">
+                              {{ outlineNumberLabels[nodeIndex] }}
+                            </span>
+                            <input
+                              v-model="node.title"
+                              class="input min-w-0 flex-1"
+                              :placeholder="`${node.level} 级标题`"
+                              @input="syncOutlineLegacyText"
+                            />
+                          </div>
+                          <div class="mt-2 flex flex-wrap justify-end gap-1">
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm"
+                              :disabled="node.level >= 5"
+                              title="添加下级标题"
+                              aria-label="添加下级标题"
+                              @click="addOutlineChild(nodeIndex)"
+                            >
+                              <Icon name="plus" size="sm" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm"
+                              :disabled="!canPromoteOutlineNode(nodeIndex)"
+                              title="提升一级"
+                              aria-label="提升一级"
+                              @click="promoteOutlineNode(nodeIndex)"
+                            >
+                              <Icon name="chevronLeft" size="sm" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm"
+                              :disabled="!canDemoteOutlineNode(nodeIndex)"
+                              title="降低一级"
+                              aria-label="降低一级"
+                              @click="demoteOutlineNode(nodeIndex)"
+                            >
+                              <Icon name="chevronRight" size="sm" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm"
+                              :disabled="!canMoveOutlineNodeUp(nodeIndex)"
+                              title="上移"
+                              aria-label="上移"
+                              @click="moveOutlineNodeUp(nodeIndex)"
+                            >
+                              <Icon name="arrowUp" size="sm" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm"
+                              :disabled="!canMoveOutlineNodeDown(nodeIndex)"
+                              title="下移"
+                              aria-label="下移"
+                              @click="moveOutlineNodeDown(nodeIndex)"
+                            >
+                              <Icon name="arrowDown" size="sm" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-icon btn-sm text-red-600 hover:text-red-700 dark:text-red-300"
+                              title="删除标题"
+                              aria-label="删除标题"
+                              @click="removeOutlineNode(nodeIndex)"
+                            >
+                              <Icon name="trash" size="sm" />
+                            </button>
+                          </div>
+                        </div>
+                        <div v-if="outlineNodes.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                          暂无目录标题
+                        </div>
+                      </div>
+
+                      <div class="flex justify-end">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="addOutlineRoot">
+                          <Icon name="plus" size="sm" class="mr-1.5" />
+                          添加一级标题
+                        </button>
+                      </div>
+                      <p v-if="outlineValidationMessage" class="text-xs leading-5 text-red-600 dark:text-red-300">
+                        {{ outlineValidationMessage }}
+                      </p>
+                    </div>
                     <textarea
-                      v-if="field.kind === 'textarea'"
+                      v-else-if="field.kind === 'textarea'"
                       v-model="inputValues[field.name]"
                       rows="5"
                       class="input resize-y"
@@ -596,8 +731,10 @@
                       class="input"
                       :placeholder="inputPlaceholder(field)"
                     />
+                      </div>
+                    </div>
+                  </component>
                   </div>
-                </div>
 
                 <div v-else>
                   <label class="input-label">需求说明</label>
@@ -719,6 +856,9 @@
                 <p v-else-if="missingRequiredInputs.length" class="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
                   请填写必填项：{{ missingRequiredInputs.map(field => field.label).join('、') }}
                 </p>
+                <p v-else-if="outlineValidationMessage" class="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
+                  {{ outlineValidationMessage }}
+                </p>
 
                 <button class="btn btn-primary w-full justify-center" :disabled="submittingRun || !canRunWithInputs" @click="submitRun">
                   <Icon name="play" size="md" class="mr-2" />
@@ -782,6 +922,21 @@ type InputFieldItem = {
   options: Array<{ label: string; value: string }>
 }
 
+type InputFieldGroup = {
+  key: string
+  label: string
+  fields: InputFieldItem[]
+  defaultOpen: boolean
+}
+
+type OutlineNode = {
+  id: string
+  title: string
+  level: number
+}
+
+type OutlineNodeTemplate = Omit<OutlineNode, 'id'>
+
 type ApiKeyOptionItem = {
   label: string
   value: number | ''
@@ -803,6 +958,21 @@ const apiKeys = ref<ApiKey[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const selectedApp = ref<AgentAppCatalog | null>(null)
 const isProductMarketingApp = computed(() => selectedApp.value?.slug === 'ai-product-marketing')
+const isAcademicPaperApp = computed(() => {
+  const version = selectedApp.value?.published_version
+  const inputProperties = version?.input_schema_json?.properties
+  const outputProperties = version?.output_schema_json?.properties
+  const paperInputs = inputProperties && typeof inputProperties === 'object'
+    ? inputProperties as Record<string, unknown>
+    : {}
+  const paperOutputs = outputProperties && typeof outputProperties === 'object'
+    ? outputProperties as Record<string, unknown>
+    : {}
+  return selectedApp.value?.slug === 'ai-academic-paper' || (
+    'topic' in paperInputs && 'word_count' in paperInputs && ('document' in paperOutputs || 'quality_report' in paperOutputs)
+  )
+})
+const isBundledResultApp = computed(() => isProductMarketingApp.value || isAcademicPaperApp.value)
 const selectedRun = ref<AgentRun | null>(null)
 const runResultSection = ref<HTMLElement | null>(null)
 
@@ -812,6 +982,9 @@ const selectedApiKeyId = ref<number | ''>('')
 const policyApiKeySelections = ref<Record<string, number | ''>>({})
 const inputText = ref('')
 const inputValues = ref<Record<string, string>>({})
+const outlineNodes = ref<OutlineNode[]>([])
+const outlineImportText = ref('')
+const outlineImportError = ref('')
 const inputFiles = ref<Record<string, File[]>>({})
 const inputFilePreviewURLs = ref<Record<string, string>>({})
 const uploadedInputAssetIDs = ref<Record<string, number>>({})
@@ -846,6 +1019,20 @@ const typeOptions = [
   { label: '外部应用', value: 'external' }
 ]
 
+const defaultAcademicOutline: OutlineNodeTemplate[] = [
+  { title: '绪论', level: 1 },
+  { title: '研究背景', level: 2 },
+  { title: '研究目的与意义', level: 2 },
+  { title: '文献综述与理论基础', level: 1 },
+  { title: '国内外研究现状', level: 2 },
+  { title: '核心概念与理论基础', level: 2 },
+  { title: '研究设计', level: 1 },
+  { title: '研究方法', level: 2 },
+  { title: '数据来源与分析方法', level: 2 },
+  { title: '研究结果与分析', level: 1 },
+  { title: '结论与建议', level: 1 }
+]
+
 const apiKeyOptions = computed<ApiKeyOptionItem[]>(() => [
   { label: loadingKeys.value ? '加载中...' : '选择 API Key', value: '' },
   ...apiKeys.value
@@ -861,7 +1048,74 @@ const modelPolicyItems = computed<ModelPolicyItem[]>(() => {
     .filter((item): item is ModelPolicyItem => item !== null)
 })
 
-const inputFields = computed<InputFieldItem[]>(() => normalizeInputFields(selectedApp.value?.published_version?.input_schema_json))
+const inputFields = computed<InputFieldItem[]>(() => normalizeInputFields(selectedApp.value?.published_version?.input_schema_json)
+  .filter(field => !(isAcademicPaperApp.value && field.name === 'outline_spec')))
+const outlineNumberLabels = computed(() => buildOutlineNumberLabels(outlineNodes.value))
+const outlineMaxLevel = computed(() => outlineNodes.value.length
+  ? outlineNodes.value.reduce((maximum, node) => Math.max(maximum, node.level), 1)
+  : 0)
+const outlineImportPending = computed(() => isAcademicPaperApp.value &&
+  outlineImportText.value.trim() !== outlineNodesToText(outlineNodes.value).trim())
+const outlineValidationMessage = computed(() => {
+  if (!isAcademicPaperApp.value) return ''
+  if (outlineImportPending.value) return '目录文本已修改，请先解析为目录并确认预览'
+  return validateOutlineNodes(outlineNodes.value)
+})
+const inputFieldGroups = computed<InputFieldGroup[]>(() => {
+  if (!isAcademicPaperApp.value) {
+    return [{ key: 'all', label: '', fields: inputFields.value, defaultOpen: true }]
+  }
+  const groups: InputFieldGroup[] = [
+    { key: 'content', label: '论文内容与写作目标', fields: [], defaultOpen: true },
+    { key: 'structure', label: '目录结构与章节要求', fields: [], defaultOpen: true },
+    { key: 'sources', label: '引用规范与参考资料', fields: [], defaultOpen: true },
+    { key: 'page', label: '页面、封面与目录', fields: [], defaultOpen: false },
+    { key: 'title', label: '论文标题格式', fields: [], defaultOpen: false },
+    { key: 'body', label: '正文格式', fields: [], defaultOpen: false },
+    { key: 'abstract', label: '摘要与关键词', fields: [], defaultOpen: false },
+    { key: 'heading1', label: '一级标题格式', fields: [], defaultOpen: false },
+    { key: 'heading2', label: '二级标题格式', fields: [], defaultOpen: false },
+    { key: 'heading3', label: '三级标题格式', fields: [], defaultOpen: false },
+    { key: 'heading4', label: '四级标题格式', fields: [], defaultOpen: false },
+    { key: 'heading5', label: '五级标题格式', fields: [], defaultOpen: false },
+    { key: 'references', label: '参考文献格式', fields: [], defaultOpen: false },
+    { key: 'backMatter', label: '致谢与附录', fields: [], defaultOpen: false },
+    { key: 'headerFooter', label: '页眉、页脚与页码', fields: [], defaultOpen: false },
+    { key: 'other', label: '其他设置', fields: [], defaultOpen: false }
+  ]
+  const byKey = new Map(groups.map(group => [group.key, group]))
+  for (const field of inputFields.value) {
+    const name = field.name.toLowerCase()
+    let key = 'other'
+    if (name.startsWith('heading1_')) key = 'heading1'
+    else if (name.startsWith('heading2_')) key = 'heading2'
+    else if (name.startsWith('heading3_')) key = 'heading3'
+    else if (name.startsWith('heading4_')) key = 'heading4'
+    else if (name.startsWith('heading5_')) key = 'heading5'
+    else if (name.startsWith('title_')) key = 'title'
+    else if (name.startsWith('body_')) key = 'body'
+    else if (name.startsWith('abstract_') || name.startsWith('keyword')) key = 'abstract'
+    else if (name.startsWith('references_')) key = 'references'
+    else if (name.startsWith('acknowledgement') || name.startsWith('appendix_')) key = 'backMatter'
+    else if (
+      name.startsWith('page_') || name.startsWith('cover_') || name.startsWith('toc_') ||
+      name.startsWith('pagination_') || name.startsWith('heading_numbering_') || name === 'format_preset'
+    ) key = 'page'
+    else if (name.startsWith('header_') || name.startsWith('footer_') || name.startsWith('page_number_')) key = 'headerFooter'
+    else if (
+      name.startsWith('citation_') || name.startsWith('reference_') || name === 'template_file'
+    ) key = 'sources'
+    else if (name.includes('outline') || name.includes('directory')) key = 'structure'
+    else if (
+      [
+        'topic', 'paper_title', 'paper_type', 'discipline', 'education_level', 'language', 'word_count',
+        'writing_requirements', 'writing_style', 'research_method', 'additional_requirements'
+      ].includes(name)
+    ) key = 'content'
+    byKey.get(key)?.fields.push(field)
+  }
+  return groups.filter(group => group.fields.length > 0)
+})
 
 const missingPolicySelections = computed(() =>
   modelPolicyItems.value.filter((item) => !item.optional).filter((item) => {
@@ -887,11 +1141,14 @@ const missingRequiredInputs = computed(() => inputFields.value.filter(field => {
   if (isAssetInputField(field)) return !(inputFiles.value[field.name] || []).length
   return String(inputValues.value[field.name] ?? '').trim() === ''
 }))
-const inputsValid = computed(() => missingRequiredInputs.value.length === 0)
+const inputsValid = computed(() => missingRequiredInputs.value.length === 0 && outlineValidationMessage.value === '')
 const canRunWithInputs = computed(() => canRun.value && inputsValid.value)
-const inputFormDirty = computed(() => inputText.value.trim() !== '' ||
-  Object.values(inputValues.value).some(value => String(value || '').trim() !== '') ||
-  Object.values(inputFiles.value).some(files => files.length > 0))
+const inputFormDirty = computed(() => {
+  const valuesDirty = isAcademicPaperApp.value
+    ? inputFields.value.some(field => !isAssetInputField(field) && String(inputValues.value[field.name] ?? '').trim() !== academicPaperInputDefault(field))
+    : Object.values(inputValues.value).some(value => String(value || '').trim() !== '')
+  return inputText.value.trim() !== '' || valuesDirty || outlineImportPending.value || Object.values(inputFiles.value).some(files => files.length > 0)
+})
 const maxInputFileBytes = computed(() => {
   const maxFileMB = Number(selectedApp.value?.published_version?.artifact_policy_json?.max_file_mb)
   return Number.isFinite(maxFileMB) && maxFileMB > 0 ? maxFileMB * 1024 * 1024 : 100 * 1024 * 1024
@@ -1252,6 +1509,10 @@ async function submitRun() {
     inputError.value = '请为每个模型能力选择可用 API Key'
     return
   }
+  if (outlineValidationMessage.value) {
+    inputError.value = outlineValidationMessage.value
+    return
+  }
   if (!inputsValid.value) {
     inputError.value = `请填写必填项：${missingRequiredInputs.value.map(field => field.label).join('、')}`
     return
@@ -1441,6 +1702,11 @@ function isAudioArtifact(artifact: AgentArtifact): boolean {
   return artifactMime(artifact).startsWith('audio/')
 }
 
+function isWordArtifact(artifact: AgentArtifact): boolean {
+  const mime = artifactMime(artifact)
+  return mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || artifact.name.toLowerCase().endsWith('.docx')
+}
+
 function artifactMime(artifact: AgentArtifact): string {
   const direct = String(artifact.mime_type || '').trim().toLowerCase()
   if (direct) return direct
@@ -1452,7 +1718,8 @@ function artifactMime(artifact: AgentArtifact): string {
   const byExtension: Record<string, string> = {
     apng: 'image/apng', avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
     aac: 'audio/aac', flac: 'audio/flac', m4a: 'audio/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav',
-    avi: 'video/x-msvideo', m4v: 'video/mp4', mkv: 'video/x-matroska', mov: 'video/quicktime', mp4: 'video/mp4', webm: 'video/webm'
+    avi: 'video/x-msvideo', m4v: 'video/mp4', mkv: 'video/x-matroska', mov: 'video/quicktime', mp4: 'video/mp4', webm: 'video/webm',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   }
   return byExtension[extension] || ''
 }
@@ -1492,6 +1759,11 @@ async function buildRunInputPayload(): Promise<{ input: Record<string, unknown>;
   if (!inputFields.value.length) {
     const prompt = inputText.value.trim()
     return { input: prompt ? { prompt } : {}, assetIds: [] }
+  }
+
+  if (outlineValidationMessage.value) {
+    inputError.value = outlineValidationMessage.value
+    return null
   }
 
   for (const field of inputFields.value) {
@@ -1584,7 +1856,263 @@ async function buildRunInputPayload(): Promise<{ input: Record<string, unknown>;
       input[field.name] = raw
     }
   }
+  if (isAcademicPaperApp.value) {
+    const legacyOutline = outlineNodesToText(outlineNodes.value)
+    if (inputFields.value.some(field => field.name === 'outline_requirements')) {
+      input.outline_requirements = legacyOutline
+    }
+    input.outline_spec = {
+      version: 1,
+      nodes: outlineNodes.value.map(node => ({
+        id: node.id,
+        title: node.title.trim(),
+        level: node.level
+      }))
+    }
+  }
   return { input, assetIds }
+}
+
+let outlineNodeSequence = 0
+
+function isAcademicOutlineField(field: InputFieldItem): boolean {
+  return isAcademicPaperApp.value && field.name === 'outline_requirements'
+}
+
+function nextOutlineNodeID(): string {
+  outlineNodeSequence += 1
+  return `outline-${Date.now().toString(36)}-${outlineNodeSequence.toString(36)}`
+}
+
+function createOutlineNode(template: OutlineNodeTemplate): OutlineNode {
+  return {
+    id: nextOutlineNodeID(),
+    title: template.title,
+    level: Math.min(5, Math.max(1, Math.trunc(template.level)))
+  }
+}
+
+function createDefaultOutlineNodes(): OutlineNode[] {
+  return defaultAcademicOutline.map(createOutlineNode)
+}
+
+function buildOutlineNumberLabels(nodes: Array<Pick<OutlineNode, 'level'>>): string[] {
+  const counters = [0, 0, 0, 0, 0]
+  return nodes.map((node) => {
+    const level = Math.min(5, Math.max(1, Math.trunc(node.level)))
+    counters[level - 1] += 1
+    for (let index = level; index < counters.length; index++) counters[index] = 0
+    return counters.slice(0, level).join('.')
+  })
+}
+
+function outlineNodesToText(nodes: Array<Pick<OutlineNode, 'title' | 'level'>>): string {
+  const numbers = buildOutlineNumberLabels(nodes)
+  return nodes
+    .map((node, index) => `${numbers[index]} ${node.title.trim()}`.trim())
+    .join('\n')
+}
+
+function defaultAcademicOutlineText(): string {
+  return outlineNodesToText(defaultAcademicOutline)
+}
+
+function validateOutlineNodes(nodes: OutlineNode[]): string {
+  if (nodes.length === 0) return '请至少添加一个一级标题'
+  const ids = new Set<string>()
+  for (let index = 0; index < nodes.length; index++) {
+    const node = nodes[index]
+    if (!node.id || ids.has(node.id)) return `目录第 ${index + 1} 项的标识无效，请重新导入目录`
+    ids.add(node.id)
+    if (!Number.isInteger(node.level) || node.level < 1 || node.level > 5) {
+      return `目录第 ${index + 1} 项的层级必须在 1 到 5 之间`
+    }
+    if (!node.title.trim()) return `目录第 ${index + 1} 项的标题不能为空`
+    if (index === 0 && node.level !== 1) return '目录第 1 项必须是一级标题'
+    if (index > 0 && node.level > nodes[index - 1].level + 1) {
+      return `目录第 ${index + 1} 项不能从 ${nodes[index - 1].level} 级直接跳到 ${node.level} 级`
+    }
+  }
+  return ''
+}
+
+function parseOutlineLine(rawLine: string): OutlineNodeTemplate | null {
+  const leadingWhitespace = rawLine.match(/^[\t ]*/)?.[0] || ''
+  const line = rawLine.trim()
+  let match = line.match(/^(#{1,5})\s+(.+)$/)
+  if (match) return { level: match[1].length, title: match[2].trim() }
+
+  match = line.match(/^第[零〇一二三四五六七八九十百千万\d]+章(?:[\s、.．:：-]+)?(.+)$/)
+  if (match) return { level: 1, title: match[1].trim() }
+
+  match = line.match(/^第[零〇一二三四五六七八九十百千万\d]+节(?:[\s、.．:：-]+)?(.+)$/)
+  if (match) return { level: 2, title: match[1].trim() }
+
+  match = line.match(/^([一二三四五六七八九十百千万]+)[、.．]\s*(.+)$/)
+  if (match) return { level: 1, title: match[2].trim() }
+
+  match = line.match(/^[（(]([一二三四五六七八九十百千万]+)[)）]\s*(.+)$/)
+  if (match) return { level: 2, title: match[2].trim() }
+
+  match = line.match(/^[（(](\d+)[)）]\s*(.+)$/)
+  if (match) return { level: 2, title: match[2].trim() }
+
+  match = line.match(/^(\d+(?:\.\d+){0,4})(?:[.．、:：)）]\s*|\s+)(.+)$/)
+  if (match) return { level: match[1].split('.').length, title: match[2].trim() }
+
+  match = line.match(/^[-*+]\s+(.+)$/)
+  if (match) {
+    const indentationWidth = Array.from(leadingWhitespace).reduce((width, character) => width + (character === '\t' ? 2 : 1), 0)
+    return { level: Math.min(5, Math.floor(indentationWidth / 2) + 1), title: match[1].trim() }
+  }
+  return null
+}
+
+function importOutlineRequirements() {
+  const sourceLines = outlineImportText.value.replace(/\r\n?/g, '\n').split('\n')
+  const parsed: OutlineNode[] = []
+  let previousLevel = 0
+  for (let sourceIndex = 0; sourceIndex < sourceLines.length; sourceIndex++) {
+    const rawLine = sourceLines[sourceIndex]
+    if (!rawLine.trim()) continue
+    const template = parseOutlineLine(rawLine)
+    if (!template || !template.title) {
+      outlineImportError.value = `第 ${sourceIndex + 1} 行无法识别，请使用明确的标题编号或 Markdown 标题`
+      return
+    }
+    if (parsed.length === 0 && template.level !== 1) {
+      outlineImportError.value = `第 ${sourceIndex + 1} 行必须是一级标题`
+      return
+    }
+    if (parsed.length > 0 && template.level > previousLevel + 1) {
+      outlineImportError.value = `第 ${sourceIndex + 1} 行不能从 ${previousLevel} 级直接跳到 ${template.level} 级`
+      return
+    }
+    parsed.push(createOutlineNode(template))
+    previousLevel = template.level
+  }
+  if (parsed.length === 0) {
+    outlineImportError.value = '请先输入需要解析的目录文本'
+    return
+  }
+  outlineNodes.value = parsed
+  outlineImportError.value = ''
+  inputError.value = ''
+  syncOutlineLegacyText()
+  appStore.showSuccess(`已解析 ${parsed.length} 个标题，请确认目录预览`)
+}
+
+function syncOutlineLegacyText() {
+  const legacyText = outlineNodesToText(outlineNodes.value)
+  inputValues.value.outline_requirements = legacyText
+  outlineImportText.value = legacyText
+  outlineImportError.value = ''
+}
+
+function outlineSubtreeEnd(nodes: OutlineNode[], index: number): number {
+  const level = nodes[index]?.level
+  if (!level) return index
+  let end = index + 1
+  while (end < nodes.length && nodes[end].level > level) end += 1
+  return end
+}
+
+function previousOutlineSiblingStart(nodes: OutlineNode[], index: number): number {
+  const level = nodes[index]?.level
+  if (!level || index <= 0) return -1
+  let candidate = index - 1
+  while (candidate >= 0 && nodes[candidate].level > level) candidate -= 1
+  return candidate >= 0 && nodes[candidate].level === level ? candidate : -1
+}
+
+function canMoveOutlineNodeUp(index: number): boolean {
+  return previousOutlineSiblingStart(outlineNodes.value, index) >= 0
+}
+
+function canMoveOutlineNodeDown(index: number): boolean {
+  const nodes = outlineNodes.value
+  const nextIndex = outlineSubtreeEnd(nodes, index)
+  return nextIndex < nodes.length && nodes[nextIndex].level === nodes[index]?.level
+}
+
+function canPromoteOutlineNode(index: number): boolean {
+  return (outlineNodes.value[index]?.level || 1) > 1
+}
+
+function canDemoteOutlineNode(index: number): boolean {
+  const nodes = outlineNodes.value
+  const previousSibling = previousOutlineSiblingStart(nodes, index)
+  if (previousSibling < 0) return false
+  const subtreeEnd = outlineSubtreeEnd(nodes, index)
+  return nodes.slice(index, subtreeEnd).every(node => node.level < 5)
+}
+
+function addOutlineRoot() {
+  outlineNodes.value = [...outlineNodes.value, createOutlineNode({ title: '', level: 1 })]
+  syncOutlineLegacyText()
+}
+
+function addOutlineChild(index: number) {
+  const parent = outlineNodes.value[index]
+  if (!parent || parent.level >= 5) return
+  const nodes = [...outlineNodes.value]
+  const insertAt = outlineSubtreeEnd(nodes, index)
+  nodes.splice(insertAt, 0, createOutlineNode({ title: '', level: parent.level + 1 }))
+  outlineNodes.value = nodes
+  syncOutlineLegacyText()
+}
+
+function promoteOutlineNode(index: number) {
+  if (!canPromoteOutlineNode(index)) return
+  const nodes = [...outlineNodes.value]
+  const subtreeEnd = outlineSubtreeEnd(nodes, index)
+  outlineNodes.value = nodes.map((node, nodeIndex) => nodeIndex >= index && nodeIndex < subtreeEnd
+    ? { ...node, level: node.level - 1 }
+    : node)
+  syncOutlineLegacyText()
+}
+
+function demoteOutlineNode(index: number) {
+  if (!canDemoteOutlineNode(index)) return
+  const nodes = [...outlineNodes.value]
+  const subtreeEnd = outlineSubtreeEnd(nodes, index)
+  outlineNodes.value = nodes.map((node, nodeIndex) => nodeIndex >= index && nodeIndex < subtreeEnd
+    ? { ...node, level: node.level + 1 }
+    : node)
+  syncOutlineLegacyText()
+}
+
+function moveOutlineNodeUp(index: number) {
+  const nodes = [...outlineNodes.value]
+  const previousStart = previousOutlineSiblingStart(nodes, index)
+  if (previousStart < 0) return
+  const currentEnd = outlineSubtreeEnd(nodes, index)
+  const previousBlock = nodes.slice(previousStart, index)
+  const currentBlock = nodes.slice(index, currentEnd)
+  nodes.splice(previousStart, currentEnd - previousStart, ...currentBlock, ...previousBlock)
+  outlineNodes.value = nodes
+  syncOutlineLegacyText()
+}
+
+function moveOutlineNodeDown(index: number) {
+  const nodes = [...outlineNodes.value]
+  const currentEnd = outlineSubtreeEnd(nodes, index)
+  if (currentEnd >= nodes.length || nodes[currentEnd].level !== nodes[index]?.level) return
+  const nextEnd = outlineSubtreeEnd(nodes, currentEnd)
+  const currentBlock = nodes.slice(index, currentEnd)
+  const nextBlock = nodes.slice(currentEnd, nextEnd)
+  nodes.splice(index, nextEnd - index, ...nextBlock, ...currentBlock)
+  outlineNodes.value = nodes
+  syncOutlineLegacyText()
+}
+
+function removeOutlineNode(index: number) {
+  const nodes = [...outlineNodes.value]
+  const subtreeEnd = outlineSubtreeEnd(nodes, index)
+  if (subtreeEnd - index > 1 && !window.confirm('删除该标题会同时删除其下级标题，确认继续吗？')) return
+  nodes.splice(index, subtreeEnd - index)
+  outlineNodes.value = nodes
+  syncOutlineLegacyText()
 }
 
 function handleInputFilesSelected(field: InputFieldItem, event: Event) {
@@ -1688,14 +2216,58 @@ function resetInputForm() {
     if (isAssetInputField(field)) {
       files[field.name] = []
     } else {
-      values[field.name] = ''
+      values[field.name] = isAcademicPaperApp.value ? academicPaperInputDefault(field) : ''
     }
   }
   inputValues.value = values
+  outlineNodes.value = isAcademicPaperApp.value ? createDefaultOutlineNodes() : []
+  outlineImportText.value = isAcademicPaperApp.value ? outlineNodesToText(outlineNodes.value) : ''
+  outlineImportError.value = ''
   inputFiles.value = files
   inputText.value = ''
   inputError.value = ''
   uploadedInputAssetIDs.value = {}
+}
+
+function academicPaperInputDefault(field: InputFieldItem): string {
+  const defaults: Record<string, string> = {
+    paper_type: 'course_paper',
+    education_level: 'undergraduate',
+    language: 'zh-CN',
+    word_count: '5000',
+    outline_requirements: defaultAcademicOutlineText(),
+    writing_style: 'academic',
+    abstract_enabled: 'true',
+    keywords_enabled: 'true',
+    keywords_count: '5',
+    citation_style: 'gbt7714_numeric',
+    page_format_preset: 'standard_cn_academic',
+    page_size: 'A4',
+    page_orientation: 'portrait',
+    cover_enabled: 'true',
+    toc_enabled: 'true',
+    toc_levels: '3',
+    heading_numbering_enabled: 'true',
+    heading_numbering_style: 'decimal',
+    references_enabled: 'true',
+    acknowledgements_enabled: 'false',
+    appendix_enabled: 'false',
+    header_enabled: 'false',
+    footer_enabled: 'false',
+    page_number_enabled: 'true',
+    page_number_position: 'footer',
+    page_number_alignment: 'center',
+    page_number_start: '1',
+    page_number_format: 'decimal',
+    pagination_title_page_break_after: 'true',
+    pagination_toc_page_break_after: 'true',
+    pagination_abstract_page_break_after: 'true',
+    pagination_chapter_page_break_before: 'true',
+    pagination_keep_paragraphs_together: 'true'
+  }
+  const value = defaults[field.name] || ''
+  if (field.kind === 'select' && value && !field.options.some(option => option.value === value)) return ''
+  return value
 }
 
 function handleAppPageChange(page: number) {
@@ -2373,7 +2945,7 @@ function runInputAssets(run: AgentRun | null): AgentInputAsset[] {
 
 function isTechnicalInputKey(key: string): boolean {
   const normalized = key.toLowerCase()
-  return normalized === 'input_assets' || normalized === 'input_asset_ids' || normalized === 'input_files'
+  return normalized === 'input_assets' || normalized === 'input_asset_ids' || normalized === 'input_files' || normalized === 'outline_spec'
 }
 
 function inputFieldDisplayLabel(key: string): string {
@@ -2496,6 +3068,7 @@ function artifactTypeLabel(artifact: AgentArtifact): string {
   if (mime.startsWith('image/')) return '图片'
   if (mime.startsWith('video/')) return '视频'
   if (mime.startsWith('audio/')) return '音频'
+  if (isWordArtifact(artifact)) return 'Word 论文文档'
   if (artifact.artifact_type === 'log') return '日志'
   if (artifact.artifact_type === 'preview') return '预览'
   return '文件'

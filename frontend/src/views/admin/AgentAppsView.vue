@@ -210,6 +210,7 @@
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo')">Grok 生视频模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('productMarketing')">商品营销包模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('academicPaper')">Word 论文模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('text')">文本模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image')">文生图 / 图生图模板</button>
             </div>
@@ -587,6 +588,7 @@
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('image', versionForm)">文生图 / 图生图模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('grokVideo', versionForm)">Grok 生视频模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('productMarketing', versionForm)">商品营销包模板</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="applyVersionTemplate('academicPaper', versionForm)">Word 论文模板</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="addInputField(versionForm)">添加输入项</button>
             </div>
           </div>
@@ -1666,7 +1668,7 @@ function resetPublishVersionForm() {
   ensureVersionFormDefaults(publishVersionForm)
 }
 
-function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo' | 'productMarketing', target: VersionFormLike = publishVersionForm) {
+function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo' | 'productMarketing' | 'academicPaper', target: VersionFormLike = publishVersionForm) {
   if (type === 'text') {
     Object.assign(target, {
       worker_route: '/runs',
@@ -1708,6 +1710,20 @@ function applyVersionTemplate(type: 'text' | 'image' | 'grokVideo' | 'productMar
       model_roles: defaultProductMarketingModelRoles(),
       capabilities: capabilityMap(['text', 'vision', 'image', 'file']),
       artifact_policy: defaultArtifactPolicyForm()
+    })
+    ensureVersionFormDefaults(target)
+    return
+  }
+
+  if (type === 'academicPaper') {
+    Object.assign(target, {
+      worker_route: '/academic-paper/runs',
+      source_ref: 'sub2api-app-worker:academic-paper',
+      input_fields: defaultAcademicPaperInputFields(),
+      output_fields: defaultAcademicPaperOutputFields(),
+      model_roles: defaultAcademicPaperModelRoles(),
+      capabilities: capabilityMap(['text', 'file']),
+      artifact_policy: defaultAcademicPaperArtifactPolicyForm()
     })
     ensureVersionFormDefaults(target)
     return
@@ -1833,6 +1849,337 @@ function defaultProductMarketingInputFields(): InputFieldForm[] {
   ]
 }
 
+function academicPaperInputField(
+  name: string,
+  label: string,
+  type: InputFieldType = 'text',
+  required = false,
+  assetRole = ''
+): InputFieldForm {
+  return { name, label, type, required, asset_role: assetRole, options: '', select_options: [] }
+}
+
+function academicPaperSelectField(
+  name: string,
+  label: string,
+  options: SelectOptionForm[],
+  required = false
+): InputFieldForm {
+  const selectOptions = options.map(option => ({ ...option }))
+  return {
+    name,
+    label,
+    type: 'select',
+    required,
+    asset_role: '',
+    options: serializeSelectOptions(selectOptions),
+    select_options: selectOptions
+  }
+}
+
+function defaultAcademicPaperInputFields(): InputFieldForm[] {
+  const paperTypeOptions = [
+    { label: '课程论文', value: 'course_paper' },
+    { label: '本科毕业论文', value: 'undergraduate_thesis' },
+    { label: '硕士学位论文', value: 'master_thesis' },
+    { label: '博士学位论文', value: 'doctoral_dissertation' },
+    { label: '期刊论文', value: 'journal_article' },
+    { label: '文献综述', value: 'literature_review' },
+    { label: '研究报告', value: 'research_report' },
+    { label: '案例分析', value: 'case_study' },
+    { label: '开题报告', value: 'research_proposal' },
+    { label: '其他', value: 'other' }
+  ]
+  const educationLevelOptions = [
+    { label: '专科', value: 'college' },
+    { label: '本科', value: 'undergraduate' },
+    { label: '硕士', value: 'master' },
+    { label: '博士', value: 'doctoral' },
+    { label: '职业教育', value: 'vocational' },
+    { label: '其他', value: 'other' }
+  ]
+  const languageOptions = [
+    { label: '简体中文', value: 'zh-CN' },
+    { label: '繁体中文', value: 'zh-TW' },
+    { label: '英语', value: 'en' },
+    { label: '中英双语', value: 'zh-en' },
+    { label: '其他语言', value: 'other' }
+  ]
+  const writingStyleOptions = [
+    { label: '严谨学术', value: 'academic' },
+    { label: '清晰规范', value: 'formal' },
+    { label: '实证研究', value: 'empirical' },
+    { label: '理论分析', value: 'theoretical' },
+    { label: '文献综述', value: 'literature_review' },
+    { label: '案例研究', value: 'case_study' },
+    { label: '自定义', value: 'custom' }
+  ]
+  const citationStyleOptions = [
+    { label: 'GB/T 7714-2015 顺序编码制', value: 'gbt7714_numeric' },
+    { label: 'GB/T 7714-2015 著者-出版年制', value: 'gbt7714_author_year' },
+    { label: 'APA 第 7 版', value: 'apa7' },
+    { label: 'MLA 第 9 版', value: 'mla9' },
+    { label: 'Chicago 著者-日期制', value: 'chicago_author_date' },
+    { label: 'Chicago 脚注制', value: 'chicago_notes' },
+    { label: 'IEEE', value: 'ieee' },
+    { label: 'Vancouver', value: 'vancouver' },
+    { label: 'Harvard', value: 'harvard' },
+    { label: '自定义', value: 'custom' }
+  ]
+  const formatPresetOptions = [
+    { label: '通用中文论文（推荐）', value: 'standard_cn_academic' },
+    { label: '本科毕业论文', value: 'undergraduate_thesis' },
+    { label: '硕士 / 博士学位论文', value: 'graduate_thesis' },
+    { label: '中文期刊论文', value: 'cn_journal' },
+    { label: '英文 APA 论文', value: 'apa_english' },
+    { label: '严格按上传模板', value: 'uploaded_template' },
+    { label: '完全自定义', value: 'custom' }
+  ]
+  const pageSizeOptions = [
+    { label: 'A4（210 × 297 mm）', value: 'A4' },
+    { label: 'A3（297 × 420 mm）', value: 'A3' },
+    { label: 'B5（176 × 250 mm）', value: 'B5' },
+    { label: 'Letter（216 × 279 mm）', value: 'LETTER' },
+    { label: 'Legal（216 × 356 mm）', value: 'LEGAL' },
+    { label: '自定义尺寸', value: 'CUSTOM' }
+  ]
+  const orientationOptions = [
+    { label: '纵向', value: 'portrait' },
+    { label: '横向', value: 'landscape' }
+  ]
+  const eastAsiaFontOptions = [
+    { label: '宋体', value: '宋体' },
+    { label: '黑体', value: '黑体' },
+    { label: '仿宋', value: '仿宋' },
+    { label: '楷体', value: '楷体' },
+    { label: '微软雅黑', value: '微软雅黑' },
+    { label: '等线', value: '等线' },
+    { label: '华文中宋', value: '华文中宋' },
+    { label: '华文宋体', value: '华文宋体' },
+    { label: '华文仿宋', value: '华文仿宋' },
+    { label: '华文楷体', value: '华文楷体' },
+    { label: '方正小标宋简体', value: '方正小标宋简体' },
+    { label: '方正仿宋简体', value: '方正仿宋简体' },
+    { label: '方正楷体简体', value: '方正楷体简体' },
+    { label: '思源宋体', value: '思源宋体' },
+    { label: '思源黑体', value: '思源黑体' }
+  ]
+  const latinFontOptions = [
+    { label: 'Times New Roman', value: 'Times New Roman' },
+    { label: 'Arial', value: 'Arial' },
+    { label: 'Calibri', value: 'Calibri' },
+    { label: 'Cambria', value: 'Cambria' },
+    { label: 'Georgia', value: 'Georgia' },
+    { label: 'Garamond', value: 'Garamond' },
+    { label: 'Helvetica', value: 'Helvetica' },
+    { label: 'Verdana', value: 'Verdana' },
+    { label: 'Tahoma', value: 'Tahoma' },
+    { label: 'Courier New', value: 'Courier New' },
+    { label: 'Book Antiqua', value: 'Book Antiqua' },
+    { label: 'Palatino Linotype', value: 'Palatino Linotype' }
+  ]
+  const fontSizeOptions = [
+    { label: '初号（42 pt）', value: '42' },
+    { label: '小初（36 pt）', value: '36' },
+    { label: '一号（26 pt）', value: '26' },
+    { label: '小一（24 pt）', value: '24' },
+    { label: '二号（22 pt）', value: '22' },
+    { label: '小二（18 pt）', value: '18' },
+    { label: '三号（16 pt）', value: '16' },
+    { label: '小三（15 pt）', value: '15' },
+    { label: '四号（14 pt）', value: '14' },
+    { label: '小四（12 pt）', value: '12' },
+    { label: '五号（10.5 pt）', value: '10.5' },
+    { label: '小五（9 pt）', value: '9' },
+    { label: '六号（7.5 pt）', value: '7.5' },
+    { label: '小六（6.5 pt）', value: '6.5' },
+    { label: '七号（5.5 pt）', value: '5.5' },
+    { label: '八号（5 pt）', value: '5' },
+    { label: '11 pt', value: '11' },
+    { label: '13 pt', value: '13' },
+    { label: '20 pt', value: '20' },
+    { label: '28 pt', value: '28' },
+    { label: '32 pt', value: '32' }
+  ]
+  const alignmentOptions = [
+    { label: '左对齐', value: 'left' },
+    { label: '居中', value: 'center' },
+    { label: '右对齐', value: 'right' },
+    { label: '两端对齐', value: 'justify' },
+    { label: '分散对齐', value: 'distribute' }
+  ]
+  const lineSpacingModeOptions = [
+    { label: '单倍行距', value: 'single' },
+    { label: '多倍行距（配合数值）', value: 'multiple' },
+    { label: '固定值（pt）', value: 'exact' },
+    { label: '最小值（pt）', value: 'at_least' }
+  ]
+  const headingNumberingStyleOptions = [
+    { label: '中文章节：第一章 / 第一节', value: 'chinese_chapter' },
+    { label: '阿拉伯数字：1 / 1.1 / 1.1.1', value: 'decimal' },
+    { label: '中文序号：一、/（一）/ 1.', value: 'chinese_outline' },
+    { label: '不编号', value: 'none' },
+    { label: '自定义格式', value: 'custom' }
+  ]
+  const pageNumberPositionOptions = [
+    { label: '页脚', value: 'footer' },
+    { label: '页眉', value: 'header' }
+  ]
+  const pageNumberFormatOptions = [
+    { label: '阿拉伯数字：1, 2, 3', value: 'decimal' },
+    { label: '大写罗马数字：I, II, III', value: 'upperRoman' },
+    { label: '小写罗马数字：i, ii, iii', value: 'lowerRoman' }
+  ]
+
+  const styleFields = (
+    prefix: string,
+    label: string,
+    settings: { paragraph?: boolean; pagination?: boolean } = {}
+  ): InputFieldForm[] => {
+    const fields = [
+      academicPaperSelectField(`${prefix}_east_asia_font`, `${label}｜中文字体`, eastAsiaFontOptions),
+      academicPaperSelectField(`${prefix}_latin_font`, `${label}｜英文字体`, latinFontOptions),
+      academicPaperSelectField(`${prefix}_size_pt`, `${label}｜字号`, fontSizeOptions),
+      academicPaperInputField(`${prefix}_bold`, `${label}｜加粗`, 'boolean'),
+      academicPaperInputField(`${prefix}_italic`, `${label}｜斜体`, 'boolean'),
+      academicPaperSelectField(`${prefix}_alignment`, `${label}｜对齐方式`, alignmentOptions),
+      academicPaperSelectField(`${prefix}_line_spacing_mode`, `${label}｜行距类型`, lineSpacingModeOptions),
+      academicPaperInputField(`${prefix}_line_spacing_value`, `${label}｜行距值`, 'number'),
+      academicPaperInputField(`${prefix}_space_before_pt`, `${label}｜段前（pt）`, 'number'),
+      academicPaperInputField(`${prefix}_space_after_pt`, `${label}｜段后（pt）`, 'number')
+    ]
+    if (settings.paragraph) {
+      fields.push(
+        academicPaperInputField(`${prefix}_first_line_indent_chars`, `${label}｜首行缩进（字符）`, 'number'),
+        academicPaperInputField(`${prefix}_first_line_indent_cm`, `${label}｜首行缩进（cm）`, 'number')
+      )
+    }
+    if (settings.pagination) {
+      fields.push(
+        academicPaperInputField(`${prefix}_keep_with_next`, `${label}｜与下段同页`, 'boolean'),
+        academicPaperInputField(`${prefix}_page_break_before`, `${label}｜段前分页`, 'boolean')
+      )
+    }
+    return fields
+  }
+
+  return [
+    academicPaperInputField('topic', '论文主题 / 研究方向', 'textarea', true),
+    academicPaperInputField('paper_title', '指定论文题目（可选）'),
+    academicPaperSelectField('paper_type', '论文类型', paperTypeOptions, true),
+    academicPaperInputField('discipline', '学科 / 专业', 'text', true),
+    academicPaperSelectField('education_level', '学历层次', educationLevelOptions, true),
+    academicPaperSelectField('language', '写作语言', languageOptions, true),
+    academicPaperInputField('word_count', '目标字数（建议 1000–50000）', 'number', true),
+    academicPaperInputField('outline_requirements', '目录结构 / 章节层级要求', 'textarea'),
+    academicPaperInputField('writing_requirements', '写作要求', 'textarea'),
+    academicPaperSelectField('writing_style', '写作风格', writingStyleOptions),
+    academicPaperInputField('research_method', '研究方法（可填写多个）', 'textarea'),
+    academicPaperInputField('additional_requirements', '其他补充要求', 'textarea'),
+    academicPaperInputField('abstract_enabled', '生成摘要', 'boolean'),
+    academicPaperInputField('abstract_requirements', '摘要要求', 'textarea'),
+    academicPaperInputField('keywords_enabled', '生成关键词', 'boolean'),
+    academicPaperInputField('keywords_count', '关键词数量', 'number'),
+    academicPaperInputField('keywords_requirements', '关键词要求', 'textarea'),
+    academicPaperSelectField('citation_style', '引用格式', citationStyleOptions),
+    academicPaperInputField('citation_requirements', '引文与脚注要求', 'textarea'),
+    academicPaperInputField('reference_requirements', '参考文献数量 / 年限 / 来源要求', 'textarea'),
+    academicPaperInputField('reference_materials', '参考资料（可多文件）', 'file', false, 'reference'),
+    academicPaperInputField('template_file', '学校 / 期刊 Word 模板（可选）', 'file', false, 'template'),
+
+    academicPaperSelectField('page_format_preset', '格式预设', formatPresetOptions, true),
+    academicPaperSelectField('page_size', '纸张大小', pageSizeOptions),
+    academicPaperSelectField('page_orientation', '纸张方向', orientationOptions),
+    academicPaperInputField('page_width_mm', '自定义纸张宽度（mm）', 'number'),
+    academicPaperInputField('page_height_mm', '自定义纸张高度（mm）', 'number'),
+    academicPaperInputField('page_margin_top_mm', '上边距（mm）', 'number'),
+    academicPaperInputField('page_margin_bottom_mm', '下边距（mm）', 'number'),
+    academicPaperInputField('page_margin_left_mm', '左边距（mm）', 'number'),
+    academicPaperInputField('page_margin_right_mm', '右边距（mm）', 'number'),
+    academicPaperInputField('page_gutter_mm', '装订线（mm）', 'number'),
+
+    academicPaperInputField('cover_enabled', '生成封面', 'boolean'),
+    academicPaperInputField('cover_school', '学校名称'),
+    academicPaperInputField('cover_department', '院系名称'),
+    academicPaperInputField('cover_major', '专业名称'),
+    academicPaperInputField('cover_author', '作者姓名'),
+    academicPaperInputField('cover_student_id', '学号'),
+    academicPaperInputField('cover_supervisor', '指导教师'),
+    academicPaperInputField('cover_submission_date', '提交日期'),
+    academicPaperInputField('cover_requirements', '封面补充要求', 'textarea'),
+
+    ...styleFields('title', '论文标题', { pagination: true }),
+
+    academicPaperInputField('toc_enabled', '生成自动目录', 'boolean'),
+    academicPaperInputField('toc_title', '目录标题'),
+    academicPaperInputField('toc_levels', '目录显示级数（1–5）', 'number'),
+    academicPaperInputField('toc_page_break_before', '目录前分页', 'boolean'),
+    academicPaperInputField('toc_page_break_after', '目录后分页', 'boolean'),
+    academicPaperInputField('heading_numbering_enabled', '启用标题自动编号', 'boolean'),
+    academicPaperSelectField('heading_numbering_style', '标题编号样式', headingNumberingStyleOptions),
+    academicPaperInputField('heading1_number_format', '一级标题编号格式（如 第%1章）'),
+    academicPaperInputField('heading2_number_format', '二级标题编号格式（如 %1.%2）'),
+    academicPaperInputField('heading3_number_format', '三级标题编号格式（如 %1.%2.%3）'),
+    academicPaperInputField('heading4_number_format', '四级标题编号格式'),
+    academicPaperInputField('heading5_number_format', '五级标题编号格式'),
+    academicPaperInputField('heading_numbering_separator', '标题编号与标题间隔符'),
+
+    ...styleFields('heading1', '一级标题', { pagination: true }),
+    ...styleFields('heading2', '二级标题', { pagination: true }),
+    ...styleFields('heading3', '三级标题', { pagination: true }),
+    ...styleFields('heading4', '四级标题', { pagination: true }),
+    ...styleFields('heading5', '五级标题', { pagination: true }),
+    ...styleFields('body', '正文', { paragraph: true }),
+    ...styleFields('abstract', '摘要', { paragraph: true }),
+    ...styleFields('keywords', '关键词', { paragraph: true }),
+
+    academicPaperInputField('references_enabled', '生成参考文献', 'boolean'),
+    academicPaperInputField('references_title', '参考文献标题'),
+    academicPaperInputField('references_hanging_indent_cm', '悬挂缩进（cm）', 'number'),
+    ...styleFields('references', '参考文献', { paragraph: true, pagination: true }),
+
+    academicPaperInputField('acknowledgements_enabled', '生成致谢', 'boolean'),
+    academicPaperInputField('acknowledgements_title', '致谢标题'),
+    academicPaperInputField('acknowledgements_requirements', '致谢内容要求', 'textarea'),
+    ...styleFields('acknowledgements', '致谢', { paragraph: true, pagination: true }),
+
+    academicPaperInputField('appendix_enabled', '生成附录', 'boolean'),
+    academicPaperInputField('appendix_title', '附录标题'),
+    academicPaperInputField('appendix_requirements', '附录内容要求', 'textarea'),
+    ...styleFields('appendix', '附录', { paragraph: true, pagination: true }),
+
+    academicPaperInputField('header_enabled', '启用页眉', 'boolean'),
+    academicPaperInputField('header_text', '页眉文字'),
+    academicPaperSelectField('header_alignment', '页眉对齐方式', alignmentOptions),
+    academicPaperSelectField('header_east_asia_font', '页眉中文字体', eastAsiaFontOptions),
+    academicPaperSelectField('header_latin_font', '页眉英文字体', latinFontOptions),
+    academicPaperSelectField('header_size_pt', '页眉字号', fontSizeOptions),
+    academicPaperInputField('header_different_first_page', '首页不同页眉', 'boolean'),
+    academicPaperInputField('header_distance_cm', '页眉距边界（cm）', 'number'),
+
+    academicPaperInputField('footer_enabled', '启用页脚', 'boolean'),
+    academicPaperInputField('footer_text', '页脚文字'),
+    academicPaperSelectField('footer_alignment', '页脚对齐方式', alignmentOptions),
+    academicPaperSelectField('footer_east_asia_font', '页脚中文字体', eastAsiaFontOptions),
+    academicPaperSelectField('footer_latin_font', '页脚英文字体', latinFontOptions),
+    academicPaperSelectField('footer_size_pt', '页脚字号', fontSizeOptions),
+    academicPaperInputField('footer_different_first_page', '首页不同页脚', 'boolean'),
+    academicPaperInputField('footer_distance_cm', '页脚距边界（cm）', 'number'),
+
+    academicPaperInputField('page_number_enabled', '显示页码', 'boolean'),
+    academicPaperSelectField('page_number_position', '页码位置', pageNumberPositionOptions),
+    academicPaperSelectField('page_number_alignment', '页码对齐方式', alignmentOptions),
+    academicPaperInputField('page_number_start', '起始页码', 'number'),
+    academicPaperSelectField('page_number_format', '页码格式', pageNumberFormatOptions),
+
+    academicPaperInputField('pagination_title_page_break_after', '封面后分页', 'boolean'),
+    academicPaperInputField('pagination_toc_page_break_after', '目录后分页', 'boolean'),
+    academicPaperInputField('pagination_abstract_page_break_after', '摘要后分页', 'boolean'),
+    academicPaperInputField('pagination_chapter_page_break_before', '一级章节前分页', 'boolean'),
+    academicPaperInputField('pagination_keep_paragraphs_together', '尽量保持段落同页', 'boolean')
+  ]
+}
+
 function defaultOutputFields(): OutputFieldForm[] {
   return [
     { name: 'result', label: '最终结果', type: 'text', primary: true },
@@ -1856,6 +2203,15 @@ function defaultProductMarketingOutputFields(): OutputFieldForm[] {
   ]
 }
 
+function defaultAcademicPaperOutputFields(): OutputFieldForm[] {
+  return [
+    { name: 'result', label: '论文生成结果', type: 'text', primary: true },
+    { name: 'document', label: 'Word 论文文件', type: 'object', primary: false },
+    { name: 'word_count', label: '实际字数', type: 'number', primary: false },
+    { name: 'quality_report', label: '质量检查报告', type: 'object', primary: false }
+  ]
+}
+
 function defaultImageModelRoles(): ModelRoleForm[] {
   return [
     { node_id: 'image_generation', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-2', model_group_id: '', required: true }
@@ -1873,6 +2229,13 @@ function defaultProductMarketingModelRoles(): ModelRoleForm[] {
   return [
     { node_id: 'marketing', role: 'analyze', capability: 'vision', provider: 'openai', model: 'gpt-5.5', model_group_id: '', required: true },
     { node_id: 'image', role: 'generate', capability: 'image', provider: 'openai', model: 'gpt-image-2', model_group_id: '', required: true }
+  ]
+}
+
+function defaultAcademicPaperModelRoles(): ModelRoleForm[] {
+  return [
+    { node_id: 'academic_paper', role: 'plan', capability: 'text', provider: 'openai', model: 'gpt-5.5', model_group_id: '', required: true },
+    { node_id: 'academic_paper', role: 'write', capability: 'text', provider: 'openai', model: 'gpt-5.5', model_group_id: '', required: true }
   ]
 }
 
@@ -1911,6 +2274,21 @@ function defaultGrokVideoArtifactPolicyForm(): ArtifactPolicyForm {
       json: true,
       image: true,
       video: true,
+      audio: false,
+      file: true,
+      log: true
+    }
+  }
+}
+
+function defaultAcademicPaperArtifactPolicyForm(): ArtifactPolicyForm {
+  return {
+    retention_days: 0,
+    max_file_mb: 200,
+    allowed_types: {
+      json: true,
+      image: true,
+      video: false,
       audio: false,
       file: true,
       log: true

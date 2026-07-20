@@ -99,6 +99,46 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 - `/workflow/runs`：图文工作流入口
 - `/audio/runs`：语音合成、音频转写或翻译入口
 - `/video/runs`：OpenAI 兼容视频生成入口
+- `/grok-video/runs`：Grok 视频生成、编辑和续写入口
+- `/product-marketing/runs`：AI 商品营销包工作流
+- `/academic-paper/runs`：分章节生成并排版 Word 论文的工作流
+
+## Word 论文工作流
+
+`/academic-paper/runs` 会依次执行论文规划、分章节写作、全文一致性检查、DOCX 排版和 Artifact 上传。管理员端可直接应用“Word 论文模板”，配置两项 `gpt-5.5` 文本模型角色：`academic_paper.plan` 与 `academic_paper.write`。
+
+论文工作流支持：
+
+- 论文方向、类型、学科、学历、目标字数和可视化五级目录树
+- 目录以 `outline_spec.version = 1` 的稳定节点 ID、标题和层级提交；模型只填写节点正文，不能改动目录
+- `.docx`、`.pdf`、`.txt`、`.md`、`.csv`、`.json` 参考资料提取
+- 可选学校或期刊 `.docx` 模板
+- A3、A4、A5、B5、Letter、Legal 和自定义纸张
+- 中文与西文字体、标题 1–5 级字号/行距/段距/对齐、正文缩进
+- 自动目录字段、多级标题编号、封面、页眉页脚、页码、参考文献、致谢和附录
+- 最终 `.docx` 通过 Sub2API Artifact 接口写入对象存储
+
+参考资料提取上限可通过以下环境变量调整：
+
+- `PAPER_REFERENCE_MAX_FILE_BYTES`：单个参考文件最大下载字节数
+- `PAPER_REFERENCE_MAX_CHARS_PER_FILE`：单文件最多加入模型上下文的字符数
+- `PAPER_REFERENCE_MAX_TOTAL_CHARS`：一次运行全部参考资料的最大上下文字符数
+
+模型只允许使用上传资料中能够明确识别出处的引用。资料不足时不会承诺参考文献、实验数据、访谈或调查结果真实存在。
+
+结构化目录输入使用以下协议。`nodes` 必须按文档顺序扁平排列，首节点必须为一级标题，层级不能一次跳过一级：
+
+```json
+{
+  "version": 1,
+  "nodes": [
+    { "id": "chapter-1", "title": "绪论", "level": 1 },
+    { "id": "section-1-1", "title": "研究背景", "level": 2 }
+  ]
+}
+```
+
+Worker 会按顶层章节分配正文预算，只接受 `ID -> content` 的模型结果；未知节点会被忽略，缺失节点只补写一次，最终目录签名不一致时停止输出。未提交 `outline_spec` 的旧应用版本继续使用原有目录规划流程。
 
 ## 开发一个新智能体/工作流
 

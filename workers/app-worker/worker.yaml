@@ -1,5 +1,5 @@
 name: sub2api-app-worker
-version: 0.1.0
+version: 0.2.0
 protocol: sub2api-worker-v1
 runtime: python-fastapi
 routes:
@@ -14,6 +14,7 @@ routes:
     - /video/runs
     - /grok-video/runs
     - /product-marketing/runs
+    - /academic-paper/runs
   cancel: /cancel
 capabilities:
   - text
@@ -26,6 +27,7 @@ capabilities:
   - video_generation
   - grok_video_generation
   - product_marketing
+  - academic_paper
   - workflow
 input_schema:
   type: object

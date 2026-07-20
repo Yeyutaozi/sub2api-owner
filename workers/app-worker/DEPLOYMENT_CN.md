@@ -18,6 +18,15 @@ Worker 不需要部署 PostgreSQL、Sub2API Redis 或对象存储密钥。对象
 - Sub2API 主服务器可以访问 Worker 服务器的 `8091` 端口。
 - 推荐两台服务器使用内网通信；如果只能使用公网，应通过防火墙限制来源 IP，或为 Worker 配置 HTTPS。
 
+Word 论文工作流不依赖 Microsoft Word、Office COM 或 Windows 字体。Worker 使用
+`python-docx` 直接生成标准 `.docx` 文件，因此可以在纯 Linux Docker 服务器运行。
+字体名称和字号会写入 Word 文档；只有额外在服务器端转换 PDF/图片预览时，才需要
+安装对应中文字体和 LibreOffice，这不是当前 Worker 生成 Word 成品的必需条件。
+
+新版论文表单会额外提交 `outline_spec.version = 1` 的结构化目录。Worker 在 Linux
+服务器上按节点 ID 锁定标题、层级和顺序，模型只生成各节点正文。没有该字段的旧版
+应用仍走兼容流程，因此升级 Worker 后不要求立即重新发布所有历史应用版本。
+
 ## 3. 拉取代码
 
 在 Worker 服务器执行：
@@ -56,6 +65,9 @@ MAX_MODEL_PROXY_ASSET_BYTES=62914560
 MAX_IMAGE_REFERENCE_COUNT=16
 MAX_IMAGE_REFERENCE_BYTES=20971520
 MAX_IMAGE_REFERENCE_TOTAL_BYTES=47185920
+PAPER_REFERENCE_MAX_FILE_BYTES=12582912
+PAPER_REFERENCE_MAX_CHARS_PER_FILE=24000
+PAPER_REFERENCE_MAX_TOTAL_CHARS=60000
 VIDEO_POLL_INTERVAL_SECONDS=5
 
 VERIFY_WORKER_SIGNATURE=true
@@ -74,7 +86,7 @@ SIGNATURE_MAX_AGE_SECONDS=300
 
 ```bash
 cd /opt/sub2api-owner/workers/app-worker
-docker build -t sub2api-app-worker:0.1.0 .
+docker build -t sub2api-app-worker:0.2.0 .
 ```
 
 ## 6. 使用配置文件启动
@@ -85,7 +97,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.1.0
+  sub2api-app-worker:0.2.0
 ```
 
 检查容器和日志：
@@ -162,6 +174,9 @@ https://sub.example.com
 工作流：/workflow/runs
 音频：/audio/runs
 视频：/video/runs
+Grok 视频：/grok-video/runs
+AI 商品营销包：/product-marketing/runs
+Word 论文：/academic-paper/runs
 ```
 
 ## 10. 修改配置后重启
@@ -176,7 +191,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.1.0
+  sub2api-app-worker:0.2.0
 ```
 
 ## 11. 更新 Worker 代码
@@ -188,7 +203,7 @@ cd /opt/sub2api-owner
 git pull --ff-only origin main
 
 cd workers/app-worker
-docker build -t sub2api-app-worker:0.1.0 .
+docker build -t sub2api-app-worker:0.2.0 .
 docker rm -f sub2api-app-worker
 
 docker run -d \
@@ -196,7 +211,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.1.0
+  sub2api-app-worker:0.2.0
 ```
 
 最后重新执行健康检查和一次真实应用运行。
@@ -318,7 +333,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.1.0
+  sub2api-app-worker:0.2.0
 ```
 
 ### 13.4 模型策略
