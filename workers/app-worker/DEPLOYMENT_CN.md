@@ -27,6 +27,10 @@ Word 论文工作流不依赖 Microsoft Word、Office COM 或 Windows 字体。W
 服务器上按节点 ID 锁定标题、层级和顺序，模型只生成各节点正文。没有该字段的旧版
 应用仍走兼容流程，因此升级 Worker 后不要求立即重新发布所有历史应用版本。
 
+严格引用证据核验同样不依赖 Office：PDF 按页、DOCX 按段落/表格、文本按行提取。
+新版应用开启后，需要连续编号书目，并以 `[1]`、`[2]` 开头命名对应全文文件。
+Worker 只声明“已与上传来源逐字核对”，不会把该结果描述为联网验证出版物真伪。
+
 ## 3. 拉取代码
 
 在 Worker 服务器执行：
@@ -68,6 +72,16 @@ MAX_IMAGE_REFERENCE_TOTAL_BYTES=47185920
 PAPER_REFERENCE_MAX_FILE_BYTES=12582912
 PAPER_REFERENCE_MAX_CHARS_PER_FILE=24000
 PAPER_REFERENCE_MAX_TOTAL_CHARS=60000
+PAPER_EVIDENCE_MIN_QUOTE_CHARS=12
+PAPER_EVIDENCE_AUDIT_BATCH_SIZE=24
+PAPER_EVIDENCE_CHUNKS_PER_OCCURRENCE=5
+PAPER_EVIDENCE_MAX_PROMPT_CHARS=80000
+PAPER_LITERATURE_TIMEOUT_SECONDS=20
+PAPER_LITERATURE_MAX_RESULTS=12
+PAPER_LITERATURE_MAX_PDF_BYTES=12582912
+PAPER_LITERATURE_MAILTO=admin@example.com
+PAPER_LITERATURE_USER_AGENT=Sub2API-App-Worker/0.4
+PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP=false
 VIDEO_POLL_INTERVAL_SECONDS=5
 
 VERIFY_WORKER_SIGNATURE=true
@@ -86,7 +100,7 @@ SIGNATURE_MAX_AGE_SECONDS=300
 
 ```bash
 cd /opt/sub2api-owner/workers/app-worker
-docker build -t sub2api-app-worker:0.2.0 .
+docker build -t sub2api-app-worker:0.4.0 .
 ```
 
 ## 6. 使用配置文件启动
@@ -97,7 +111,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.2.0
+  sub2api-app-worker:0.4.0
 ```
 
 检查容器和日志：
@@ -179,6 +193,11 @@ AI 商品营销包：/product-marketing/runs
 Word 论文：/academic-paper/runs
 ```
 
+Git 只发布 Worker 和前端代码，不会同步数据库中的应用、应用版本、Worker Host 或对象存储配置。
+升级论文 Worker 后，管理员还必须在应用管理中基于“Word 论文模板”创建并发布新版本，确认版本绑定
+`/academic-paper/runs`，且输入结构包含联网文献检索和严格引用证据字段。发布新版本不需要重启
+Sub2API 或 Worker；旧版本会继续保留用于历史运行回溯。
+
 ## 10. 修改配置后重启
 
 修改 `.env` 后必须重建容器，镜像不需要重新构建：
@@ -191,7 +210,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.2.0
+  sub2api-app-worker:0.4.0
 ```
 
 ## 11. 更新 Worker 代码
@@ -203,7 +222,7 @@ cd /opt/sub2api-owner
 git pull --ff-only origin main
 
 cd workers/app-worker
-docker build -t sub2api-app-worker:0.2.0 .
+docker build -t sub2api-app-worker:0.4.0 .
 docker rm -f sub2api-app-worker
 
 docker run -d \
@@ -211,7 +230,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.2.0
+  sub2api-app-worker:0.4.0
 ```
 
 最后重新执行健康检查和一次真实应用运行。
@@ -333,7 +352,7 @@ docker run -d \
   --restart unless-stopped \
   --env-file /opt/sub2api-owner/workers/app-worker/.env \
   -p 8091:8091 \
-  sub2api-app-worker:0.2.0
+  sub2api-app-worker:0.4.0
 ```
 
 ### 13.4 模型策略

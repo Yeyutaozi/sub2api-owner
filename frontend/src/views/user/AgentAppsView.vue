@@ -519,6 +519,74 @@
                     </summary>
                     <div :class="isAcademicPaperApp ? 'space-y-4 border-t border-gray-100 p-4 dark:border-dark-700' : 'space-y-4'">
                       <div
+                        v-if="isAcademicPaperApp && group.key === 'sources'"
+                        class="border-l-4 border-primary-400 bg-primary-50/70 px-4 py-3 dark:border-primary-500 dark:bg-primary-900/15"
+                      >
+                        <div class="flex items-start gap-3">
+                          <Icon name="infoCircle" size="sm" class="mt-0.5 flex-shrink-0 text-primary-600 dark:text-primary-300" />
+                          <div class="min-w-0 flex-1">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                              {{ manualReferenceMode ? '当前只使用你提供的参考文献' : '可以同时使用你自己的参考文献' }}
+                            </div>
+                            <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-300">
+                              <template v-if="manualReferenceMode && strictCitationEvidenceEnabled">
+                                联网检索已关闭，严格核验已开启。请填写编号参考文献表并上传每一篇对应的全文，否则无法运行。
+                              </template>
+                              <template v-else-if="manualReferenceMode">
+                                联网检索已关闭。填写参考文献表后，系统会按你的清单写作；上传全文可提供更完整的写作依据。
+                              </template>
+                              <template v-else>
+                                先填写并上传自己的文献，系统会优先保留，并对联网结果按 DOI 或题名去重后补充。
+                              </template>
+                            </p>
+                          </div>
+                        </div>
+
+                        <ol v-if="manualReferenceMode" class="mt-3 space-y-2 text-xs leading-5 text-gray-700 dark:text-gray-200">
+                          <li class="flex gap-2">
+                            <span class="font-semibold text-primary-700 dark:text-primary-300">1.</span>
+                            <span>在“编号参考文献表”中每行填写一篇，按 <code>[1]</code>、<code>[2]</code> 连续编号。</span>
+                          </li>
+                          <li class="flex gap-2">
+                            <span class="font-semibold text-primary-700 dark:text-primary-300">2.</span>
+                            <span>上传对应的 PDF、DOCX 或 TXT 全文，文件名以相同编号开头，例如 <code>[1] 论文题目.pdf</code>。</span>
+                          </li>
+                          <li v-if="strictCitationEvidenceEnabled" class="flex gap-2">
+                            <span class="font-semibold text-primary-700 dark:text-primary-300">3.</span>
+                            <span>系统会核对题名或 DOI，并逐条验证正文引用；文献与全文不一致时会停止生成。</span>
+                          </li>
+                        </ol>
+
+                        <div v-if="manualReferenceMode" class="mt-3 flex flex-wrap gap-2 text-xs">
+                          <span
+                            class="inline-flex items-center gap-1.5 rounded px-2 py-1 ring-1"
+                            :class="manualReferenceEntryCount > 0
+                              ? 'bg-green-50 text-green-700 ring-green-200 dark:bg-green-900/20 dark:text-green-300 dark:ring-green-800'
+                              : 'bg-white text-gray-500 ring-gray-200 dark:bg-dark-800 dark:text-gray-400 dark:ring-dark-700'"
+                          >
+                            <Icon :name="manualReferenceEntryCount > 0 ? 'checkCircle' : 'document'" size="xs" />
+                            {{ manualReferenceEntryCount > 0 ? `已识别 ${manualReferenceEntryCount} 条文献` : '参考文献表待填写' }}
+                          </span>
+                          <span
+                            class="inline-flex items-center gap-1.5 rounded px-2 py-1 ring-1"
+                            :class="manualReferenceFileCount > 0
+                              ? 'bg-green-50 text-green-700 ring-green-200 dark:bg-green-900/20 dark:text-green-300 dark:ring-green-800'
+                              : 'bg-white text-gray-500 ring-gray-200 dark:bg-dark-800 dark:text-gray-400 dark:ring-dark-700'"
+                          >
+                            <Icon :name="manualReferenceFileCount > 0 ? 'checkCircle' : 'upload'" size="xs" />
+                            {{ manualReferenceFileCount > 0 ? `已选择 ${manualReferenceFileCount} 个全文文件` : '全文文件待上传' }}
+                          </span>
+                        </div>
+
+                        <p
+                          v-if="manualReferenceValidationMessage"
+                          class="mt-3 flex items-start gap-2 text-xs leading-5 text-red-600 dark:text-red-300"
+                        >
+                          <Icon name="exclamationCircle" size="xs" class="mt-0.5 flex-shrink-0" />
+                          <span>{{ manualReferenceValidationMessage }}</span>
+                        </p>
+                      </div>
+                      <div
                         v-for="field in group.fields"
                         :key="field.name"
                       >
@@ -731,6 +799,12 @@
                       class="input"
                       :placeholder="inputPlaceholder(field)"
                     />
+                    <p v-if="field.name === 'reference_bibliography'" class="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      每行一篇并连续编号，例如：<code>[1] 作者. 论文题目[J]. 期刊, 2024.</code>
+                    </p>
+                    <p v-else-if="field.name === 'reference_materials'" class="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      支持 PDF、DOCX、TXT。严格核验时，每个文件名必须以参考文献表中的对应编号开头。
+                    </p>
                       </div>
                     </div>
                   </component>
@@ -855,6 +929,9 @@
                 </p>
                 <p v-else-if="missingRequiredInputs.length" class="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
                   请填写必填项：{{ missingRequiredInputs.map(field => field.label).join('、') }}
+                </p>
+                <p v-else-if="citationEvidenceValidationMessage" class="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
+                  {{ citationEvidenceValidationMessage }}
                 </p>
                 <p v-else-if="outlineValidationMessage" class="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
                   {{ outlineValidationMessage }}
@@ -1103,7 +1180,7 @@ const inputFieldGroups = computed<InputFieldGroup[]>(() => {
     ) key = 'page'
     else if (name.startsWith('header_') || name.startsWith('footer_') || name.startsWith('page_number_')) key = 'headerFooter'
     else if (
-      name.startsWith('citation_') || name.startsWith('reference_') || name === 'template_file'
+      name.startsWith('citation_') || name.startsWith('reference_') || name.startsWith('literature_') || name === 'template_file'
     ) key = 'sources'
     else if (name.includes('outline') || name.includes('directory')) key = 'structure'
     else if (
@@ -1141,7 +1218,66 @@ const missingRequiredInputs = computed(() => inputFields.value.filter(field => {
   if (isAssetInputField(field)) return !(inputFiles.value[field.name] || []).length
   return String(inputValues.value[field.name] ?? '').trim() === ''
 }))
-const inputsValid = computed(() => missingRequiredInputs.value.length === 0 && outlineValidationMessage.value === '')
+const strictCitationEvidenceEnabled = computed(() => inputValues.value.citation_evidence_enabled === 'true')
+const literatureSearchEnabled = computed(() => inputValues.value.literature_search_enabled === 'true')
+const manualReferenceMode = computed(() => isAcademicPaperApp.value && !literatureSearchEnabled.value)
+const manualReferenceLines = computed(() => String(inputValues.value.reference_bibliography || '')
+  .split(/\r?\n/)
+  .map(line => line.trim())
+  .filter(Boolean))
+const manualReferenceIDs = computed(() => manualReferenceLines.value
+  .map(line => referenceNumberFromText(line))
+  .filter((value): value is number => value !== null))
+const manualReferenceFiles = computed(() => inputFiles.value.reference_materials || [])
+const manualReferenceEntryCount = computed(() => manualReferenceIDs.value.length)
+const manualReferenceFileCount = computed(() => manualReferenceFiles.value.length)
+const manualReferenceValidationMessage = computed(() => {
+  if (!manualReferenceMode.value || !strictCitationEvidenceEnabled.value) return ''
+  if (manualReferenceLines.value.length === 0) {
+    return '请先填写编号参考文献表，每行以 [1]、[2] 开头。'
+  }
+  if (manualReferenceIDs.value.length !== manualReferenceLines.value.length) {
+    return '参考文献表中存在未编号的内容；请确保每个非空行都以 [数字] 开头。'
+  }
+  const expectedIDs = manualReferenceIDs.value.map((_, index) => index + 1)
+  if (manualReferenceIDs.value.some((id, index) => id !== expectedIDs[index])) {
+    return '参考文献编号必须从 [1] 开始连续递增，不能重复或跳号。'
+  }
+  if (manualReferenceFiles.value.length === 0) {
+    return '请上传每篇参考文献对应的 PDF、DOCX 或 TXT 全文。'
+  }
+  const fileIDs = manualReferenceFiles.value.map(file => referenceNumberFromText(file.name))
+  if (fileIDs.some(id => id === null)) {
+    return '存在未按编号命名的全文文件；请将文件名改为类似“[1] 论文题目.pdf”。'
+  }
+  const numberedFileIDs = new Set(fileIDs.filter((value): value is number => value !== null))
+  const missingIDs = manualReferenceIDs.value.filter(id => !numberedFileIDs.has(id))
+  if (missingIDs.length > 0) {
+    return `缺少编号 ${missingIDs.map(id => `[${id}]`).join('、')} 对应的全文文件。`
+  }
+  const registeredIDs = new Set(manualReferenceIDs.value)
+  const extraIDs = [...numberedFileIDs].filter(id => !registeredIDs.has(id))
+  if (extraIDs.length > 0) {
+    return `全文文件包含未登记的编号 ${extraIDs.map(id => `[${id}]`).join('、')}，请补充文献表或移除文件。`
+  }
+  return ''
+})
+const citationEvidenceValidationMessage = computed(() => {
+  if (!isAcademicPaperApp.value) return ''
+  if (literatureSearchEnabled.value && inputValues.value.references_enabled === 'false') {
+    return '联网文献检索需要同时开启“生成参考文献”。'
+  }
+  if (!strictCitationEvidenceEnabled.value) return ''
+  if (inputValues.value.references_enabled === 'false') {
+    return '严格引用证据核验需要同时开启“生成参考文献”。'
+  }
+  return manualReferenceValidationMessage.value
+})
+const inputsValid = computed(() =>
+  missingRequiredInputs.value.length === 0 &&
+  citationEvidenceValidationMessage.value === '' &&
+  outlineValidationMessage.value === ''
+)
 const canRunWithInputs = computed(() => canRun.value && inputsValid.value)
 const inputFormDirty = computed(() => {
   const valuesDirty = isAcademicPaperApp.value
@@ -1513,6 +1649,10 @@ async function submitRun() {
     inputError.value = outlineValidationMessage.value
     return
   }
+  if (citationEvidenceValidationMessage.value) {
+    inputError.value = citationEvidenceValidationMessage.value
+    return
+  }
   if (!inputsValid.value) {
     inputError.value = `请填写必填项：${missingRequiredInputs.value.map(field => field.label).join('、')}`
     return
@@ -1763,6 +1903,11 @@ async function buildRunInputPayload(): Promise<{ input: Record<string, unknown>;
 
   if (outlineValidationMessage.value) {
     inputError.value = outlineValidationMessage.value
+    return null
+  }
+
+  if (citationEvidenceValidationMessage.value) {
+    inputError.value = citationEvidenceValidationMessage.value
     return null
   }
 
@@ -2241,6 +2386,12 @@ function academicPaperInputDefault(field: InputFieldItem): string {
     keywords_enabled: 'true',
     keywords_count: '5',
     citation_style: 'gbt7714_numeric',
+    citation_evidence_enabled: 'true',
+    literature_search_enabled: 'false',
+    literature_provider: 'auto',
+    literature_max_results: '8',
+    literature_open_access_only: 'true',
+    literature_download_open_access_full_text: 'true',
     page_format_preset: 'standard_cn_academic',
     page_size: 'A4',
     page_orientation: 'portrait',
@@ -2424,6 +2575,7 @@ function isAssetInputField(field: InputFieldItem): boolean {
 }
 
 function assetInputActionLabel(field: InputFieldItem): string {
+  if (field.name === 'reference_materials') return '上传参考文献全文'
   const labels: Partial<Record<InputFieldKind, string>> = {
     image: '上传图片',
     audio: '上传音频',
@@ -2442,9 +2594,20 @@ function inputFileAccept(field: InputFieldItem): string | undefined {
 }
 
 function inputPlaceholder(field: InputFieldItem): string {
+  if (field.name === 'reference_bibliography') {
+    return '[1] 作者. 论文题目[J]. 期刊, 2024.\n[2] 作者. 书名[M]. 出版社, 2023.'
+  }
+  if (field.name === 'literature_query') return '输入题名、研究主题或关键词；留空时使用论文主题'
   if (field.kind === 'textarea') return `输入${field.label}`
   if (field.kind === 'number') return '输入数字'
   return field.required ? `填写${field.label}` : '可选'
+}
+
+function referenceNumberFromText(value: string): number | null {
+  const matched = value.match(/^\s*\[(\d+)]/)
+  if (!matched) return null
+  const id = Number(matched[1])
+  return Number.isInteger(id) && id > 0 ? id : null
 }
 
 function formatBytes(size: number): string {

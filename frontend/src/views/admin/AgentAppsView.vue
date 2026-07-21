@@ -1926,6 +1926,11 @@ function defaultAcademicPaperInputFields(): InputFieldForm[] {
     { label: 'Harvard', value: 'harvard' },
     { label: '自定义', value: 'custom' }
   ]
+  const literatureProviderOptions = [
+    { label: '自动选择（OpenAlex + Crossref）', value: 'auto' },
+    { label: 'OpenAlex', value: 'openalex' },
+    { label: 'Crossref', value: 'crossref' }
+  ]
   const formatPresetOptions = [
     { label: '通用中文论文（推荐）', value: 'standard_cn_academic' },
     { label: '本科毕业论文', value: 'undergraduate_thesis' },
@@ -2082,9 +2087,19 @@ function defaultAcademicPaperInputFields(): InputFieldForm[] {
     academicPaperInputField('keywords_count', '关键词数量', 'number'),
     academicPaperInputField('keywords_requirements', '关键词要求', 'textarea'),
     academicPaperSelectField('citation_style', '引用格式', citationStyleOptions),
+    academicPaperInputField('citation_evidence_enabled', '严格核验正文引用证据（需上传全文或检索到开放全文）', 'boolean'),
     academicPaperInputField('citation_requirements', '引文与脚注要求', 'textarea'),
     academicPaperInputField('reference_requirements', '参考文献数量 / 年限 / 来源要求', 'textarea'),
-    academicPaperInputField('reference_materials', '参考资料（可多文件）', 'file', false, 'reference'),
+    academicPaperInputField('literature_search_enabled', '联网检索文献', 'boolean'),
+    academicPaperSelectField('literature_provider', '文献检索来源', literatureProviderOptions),
+    academicPaperInputField('literature_query', '文献检索关键词（留空使用论文主题）', 'textarea'),
+    academicPaperInputField('literature_max_results', '最多纳入文献数量', 'number'),
+    academicPaperInputField('literature_from_year', '文献起始年份', 'number'),
+    academicPaperInputField('literature_to_year', '文献截止年份', 'number'),
+    academicPaperInputField('literature_open_access_only', '仅检索开放获取文献', 'boolean'),
+    academicPaperInputField('literature_download_open_access_full_text', '下载并解析开放全文', 'boolean'),
+    academicPaperInputField('reference_bibliography', '编号参考文献表（每行 [1]...）', 'textarea'),
+    academicPaperInputField('reference_materials', '参考文献全文（文件名以 [1]、[2] 开头对应编号，可多文件）', 'file', false, 'reference'),
     academicPaperInputField('template_file', '学校 / 期刊 Word 模板（可选）', 'file', false, 'template'),
 
     academicPaperSelectField('page_format_preset', '格式预设', formatPresetOptions, true),
@@ -2208,6 +2223,7 @@ function defaultAcademicPaperOutputFields(): OutputFieldForm[] {
     { name: 'result', label: '论文生成结果', type: 'text', primary: true },
     { name: 'document', label: 'Word 论文文件', type: 'object', primary: false },
     { name: 'word_count', label: '实际字数', type: 'number', primary: false },
+    { name: 'literature_search', label: '联网文献检索结果', type: 'object', primary: false },
     { name: 'quality_report', label: '质量检查报告', type: 'object', primary: false }
   ]
 }

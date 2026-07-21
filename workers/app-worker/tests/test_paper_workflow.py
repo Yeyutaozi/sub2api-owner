@@ -6,7 +6,7 @@ import time
 import unittest
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from docx import Document
 
@@ -14,6 +14,7 @@ from docx import Document
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sub2api_worker import main as worker  # noqa: E402
+from sub2api_worker.literature_search import LiteratureSearchReport  # noqa: E402
 
 
 class AcademicPaperWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -893,6 +894,519 @@ class AcademicPaperWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([1], quality["citation_ids_used"])
         self.assertEqual([], quality["citation_ids_missing"])
         self.assertEqual([], quality["citation_ids_unknown"])
+
+    async def test_reference_context_builds_numbered_evidence_corpus_without_redownloading(self) -> None:
+        artifacts = [
+            worker.WorkerArtifactRef(
+                artifact_id=11,
+                name="[1] governance.txt",
+                mime_type="text/plain",
+                url="https://assets.test/ref-1",
+                metadata={"field_name": "reference_materials"},
+            ),
+            worker.WorkerArtifactRef(
+                artifact_id=12,
+                name="[2] costs.txt",
+                mime_type="text/plain",
+                url="https://assets.test/ref-2",
+                metadata={"field_name": "reference_materials"},
+            ),
+        ]
+        payload = self.payload(
+            input_values={
+                "reference_bibliography": "[1] 作者甲. 数字治理研究[J].\n[2] 作者乙. 技术成本研究[J].",
+            },
+            artifacts=artifacts,
+        )
+        with patch.object(
+            worker,
+            "download_input_artifact",
+            new=AsyncMock(
+                side_effect=[
+                    "数字治理能够提高公共服务响应效率。".encode(),
+                    "技术部署需要考虑组织成本与维护成本。".encode(),
+                ]
+            ),
+        ) as download:
+            result = await worker.extract_paper_reference_context(payload, include_evidence=True)
+
+        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
+        registry = worker.parse_paper_reference_registry(result["context"])
+        self.assertEqual([1, 2], registry["ids"])
+        self.assertEqual((1, 2), result["evidence_corpus"].reference_ids)
+        self.assertEqual(2, download.await_count)
+
+    async def test_online_literature_search_merges_metadata_into_reference_registry(self) -> None:
+        record = worker.LiteratureRecord(
+            title="Artificial Intelligence in Education",
+            authors=("Smith John",),
+            year=2025,
+            venue="Education Journal",
+            doi="10.1234/aiedu.2025",
+            url="https://doi.org/10.1234/aiedu.2025",
+            abstract="This study reviews artificial intelligence in education.",
+            providers=("openalex", "crossref"),
+        )
+        report = LiteratureSearchReport(
+            query="artificial intelligence education",
+            records=(record,),
+            providers=("openalex", "crossref"),
+            provider_errors=(),
+            duration_ms=25,
+        )
+        client = Mock()
+        client.search = AsyncMock(return_value=report)
+        client.download_open_access_pdf = AsyncMock()
+        payload = self.payload(
+            input_values={
+                "topic": "人工智能教育",
+                "word_count": 1000,
+                "literature_search_enabled": True,
+                "literature_query": "artificial intelligence education",
+                "literature_download_open_access_full_text": False,
+                "citation_evidence_enabled": False,
+            }
+        )
+
+        with patch.object(worker, "create_literature_search_client", return_value=client):
+            bundle = await worker.prepare_academic_paper_literature(
+                payload,
+                reference_registry=None,
+                evidence_corpus=worker.EvidenceCorpus(()),
+                citation_evidence_enabled=False,
+                expected_reference_count=None,
+            )
+
+        self.assertEqual([1], bundle["reference_registry"]["ids"])
+        self.assertIn("10.1234/aiedu.2025", bundle["reference_registry"]["bibliography"][0])
+        self.assertIn("Artificial Intelligence in Education", bundle["context"])
+        self.assertEqual(1, bundle["report"]["included_reference_count"])
+        client.download_open_access_pdf.assert_not_awaited()
+
+    async def test_online_literature_strict_mode_requires_verified_open_full_text(self) -> None:
+        source_text = (
+            "Open Evidence Research\nDOI: 10.1234/open.2025\n"
+            "The open full text contains a verifiable research conclusion."
+        )
+        source_corpus = worker.build_evidence_corpus(
+            [
+                worker.EvidenceSource(
+                    artifact_name="[1] open.txt",
+                    data=source_text.encode(),
+                    mime_type="text/plain",
+                    reference_id=1,
+                    artifact_id="online-open",
+                )
+            ]
+        )
+        record = worker.LiteratureRecord(
+            title="Open Evidence Research",
+            authors=("Author One",),
+            year=2025,
+            venue="Open Journal",
+            doi="10.1234/open.2025",
+            providers=("openalex",),
+            is_open_access=True,
+            pdf_url="https://papers.test/open.pdf",
+        )
+        report = LiteratureSearchReport(
+            query="open evidence",
+            records=(record,),
+            providers=("openalex",),
+            provider_errors=(),
+            duration_ms=10,
+        )
+        client = Mock()
+        client.search = AsyncMock(return_value=report)
+        client.download_open_access_pdf = AsyncMock(return_value=b"%PDF-1.7 fake")
+        payload = self.payload(
+            input_values={
+                "topic": "开放证据",
+                "word_count": 1000,
+                "literature_search_enabled": True,
+                "citation_evidence_enabled": True,
+            }
+        )
+
+        with (
+            patch.object(worker, "create_literature_search_client", return_value=client),
+            patch.object(worker, "build_evidence_corpus", return_value=source_corpus),
+        ):
+            bundle = await worker.prepare_academic_paper_literature(
+                payload,
+                reference_registry=None,
+                evidence_corpus=worker.EvidenceCorpus(()),
+                citation_evidence_enabled=True,
+                expected_reference_count=None,
+            )
+
+        self.assertEqual((1,), bundle["evidence_corpus"].reference_ids)
+        self.assertEqual("open_access_pdf_verified", bundle["report"]["results"][0]["full_text_status"])
+        self.assertEqual(1, bundle["report"]["full_text_reference_count"])
+
+    async def test_online_literature_search_failure_is_a_worker_error(self) -> None:
+        client = Mock()
+        client.search = AsyncMock(side_effect=worker.LiteratureSearchError("providers unavailable"))
+        payload = self.payload(
+            input_values={
+                "topic": "检索失败",
+                "word_count": 1000,
+                "literature_search_enabled": True,
+            }
+        )
+        with patch.object(worker, "create_literature_search_client", return_value=client):
+            with self.assertRaises(worker.WorkerFailure) as raised:
+                await worker.prepare_academic_paper_literature(
+                    payload,
+                    reference_registry=None,
+                    evidence_corpus=worker.EvidenceCorpus(()),
+                    citation_evidence_enabled=False,
+                    expected_reference_count=None,
+                )
+        self.assertEqual("PAPER_LITERATURE_SEARCH_FAILED", raised.exception.code)
+
+    def test_evidence_occurrences_use_internal_markers_and_code_claim_context(self) -> None:
+        sections = [
+            {
+                "id": "chapter-one",
+                "title": "正文",
+                "content": "研究显示数字治理能够提升公共服务效率[[CITE:1]]。普通编号 [7] 不可信。",
+                "children": [],
+            }
+        ]
+        records = worker.enumerate_academic_paper_citation_occurrences(
+            sections,
+            internal_markers_only=True,
+        )
+
+        self.assertEqual(1, len(records))
+        self.assertEqual("chapter-one:citation-1", records[0]["occurrence_id"])
+        self.assertEqual(1, records[0]["reference_id"])
+        self.assertEqual("研究显示数字治理能够提升公共服务效率。", records[0]["claim_context"])
+        self.assertEqual(2, worker.count_academic_paper_citation_occurrences(sections))
+
+        normal_records = worker.enumerate_academic_paper_citation_occurrences(
+            [
+                {
+                    "title": "第一章",
+                    "content": "一级正文论断[[CITE:1]]。",
+                    "children": [
+                        {"title": "第一节", "content": "二级正文论断[[CITE:2]]。", "children": []}
+                    ],
+                }
+            ],
+            internal_markers_only=True,
+        )
+        self.assertEqual(
+            ["section-1:citation-1", "section-1-1:citation-1"],
+            [record["occurrence_id"] for record in normal_records],
+        )
+
+        marker_after_period = worker.enumerate_academic_paper_citation_occurrences(
+            [{"title": "正文", "content": "应被核验的前一句。[[CITE:1]] 后一句不属于该引用。", "children": []}],
+            internal_markers_only=True,
+        )
+        self.assertEqual("应被核验的前一句。", marker_after_period[0]["claim_context"])
+
+    async def test_citation_evidence_is_verified_against_uploaded_source_before_docx(self) -> None:
+        source_quote = "上传全文明确指出数字治理能够提升公共服务响应效率。"
+        source_text = "数字治理研究\nDOI: 10.1234/governance.2026\n" + source_quote
+        corpus = worker.build_evidence_corpus(
+            [worker.EvidenceSource(artifact_name="[1] governance.txt", artifact_id=1, data=source_text.encode())]
+        )
+        chunk_id = next(block.chunk_id for block in corpus.blocks if source_quote in block.text)
+        payload = self.payload(
+            input_values={
+                "topic": "数字治理",
+                "word_count": 1000,
+                "citation_evidence_enabled": True,
+                "outline_spec": {
+                    "version": 1,
+                    "nodes": [{"id": "chapter-1", "title": "正文", "level": 1}],
+                },
+            }
+        )
+        section_content = "数字治理能够提升公共服务响应效率。" * 60 + "[[CITE:1]]"
+        model_results = [
+            {"response": {"text": json.dumps({"title": "数字治理", "abstract": "摘要"}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"contents": {"chapter-1": section_content}}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"consistency_notes": ["已检查"]}, ensure_ascii=False)}},
+            {
+                "response": {
+                    "text": json.dumps(
+                        {
+                            "citation_evidence": [
+                                {
+                                    "occurrence_id": "chapter-1:citation-1",
+                                    "evidence_chunk_id": chunk_id,
+                                    "evidence_quote": source_quote,
+                                }
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+            },
+        ]
+        callbacks: list[dict[str, object]] = []
+
+        async def record_callback(_: worker.WorkerRunRequest, event_type: str, **kwargs: object) -> None:
+            callbacks.append({"event_type": event_type, **kwargs})
+
+        with (
+            patch.object(
+                worker,
+                "extract_paper_reference_context",
+                new=AsyncMock(
+                    return_value={
+                        "context": (
+                            "来源 [1]\n作者甲. 数字治理研究[J]. 治理学报, 2026. "
+                            "DOI: 10.1234/governance.2026."
+                        ),
+                        "evidence_corpus": corpus,
+                    }
+                ),
+            ),
+            patch.object(worker, "call_model_proxy", new=AsyncMock(side_effect=model_results)),
+            patch.object(worker, "build_academic_paper_docx", return_value=b"evidence-docx") as build_docx,
+            patch.object(worker, "upload_artifact_bytes", new=AsyncMock(return_value={})),
+            patch.object(worker, "callback", new=record_callback),
+        ):
+            await worker.process_academic_paper_run(payload, "worker-evidence", time.perf_counter())
+
+        paper = build_docx.call_args.args[0]
+        self.assertIn("[1]", paper["sections"][0]["content"])
+        self.assertNotIn("[[CITE:", paper["sections"][0]["content"])
+        quality = callbacks[-1]["output"]["quality_report"]
+        self.assertTrue(quality["citation_evidence_valid"])
+        self.assertTrue(quality["citation_evidence_verified_against_uploaded_sources"])
+        self.assertEqual(1, quality["citation_occurrence_count"])
+        self.assertEqual(1, quality["citation_evidence_verified_count"])
+        self.assertEqual(source_quote, quality["citation_evidence_records"][0]["evidence_quote"])
+
+    async def test_citation_evidence_repairs_markers_once_then_reaudits(self) -> None:
+        source_quote = "全文证据表明协同机制能够改善公共服务资源配置。"
+        source_text = "协同治理机制研究\nDOI: 10.1234/collaboration.2026\n" + source_quote
+        corpus = worker.build_evidence_corpus(
+            [worker.EvidenceSource(artifact_name="[1] source.txt", artifact_id=2, data=source_text.encode())]
+        )
+        chunk_id = next(block.chunk_id for block in corpus.blocks if source_quote in block.text)
+        payload = self.payload(
+            input_values={
+                "topic": "协同治理",
+                "word_count": 1000,
+                "citation_evidence_enabled": True,
+                "outline_spec": {
+                    "version": 1,
+                    "nodes": [{"id": "chapter-1", "title": "正文", "level": 1}],
+                },
+            }
+        )
+        section_content = "正" * 950 + "。协同机制能够改善公共服务资源配置[[CITE:1]]。"
+        invalid_audit = {
+            "citation_evidence": [
+                {
+                    "occurrence_id": "chapter-1:citation-1",
+                    "evidence_chunk_id": chunk_id,
+                    "evidence_quote": "这是模型伪造且不在上传全文中的证据原句。",
+                }
+            ]
+        }
+        valid_audit = {
+            "citation_evidence": [
+                {
+                    "occurrence_id": "chapter-1:citation-1",
+                    "evidence_chunk_id": chunk_id,
+                    "evidence_quote": source_quote,
+                }
+            ]
+        }
+        model_results = [
+            {"response": {"text": json.dumps({"title": "协同治理", "abstract": "摘要", "keywords": []}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"contents": {"chapter-1": section_content}}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"consistency_notes": ["已检查"]}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps(invalid_audit, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"contents": {"chapter-1": section_content}}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps(valid_audit, ensure_ascii=False)}},
+        ]
+        callbacks: list[dict[str, object]] = []
+
+        async def record_callback(_: worker.WorkerRunRequest, event_type: str, **kwargs: object) -> None:
+            callbacks.append({"event_type": event_type, **kwargs})
+
+        with (
+            patch.object(
+                worker,
+                "extract_paper_reference_context",
+                new=AsyncMock(
+                    return_value={
+                        "context": (
+                            "来源 [1]\n作者乙. 协同治理机制研究[J]. 公共管理学报, 2026. "
+                            "DOI: 10.1234/collaboration.2026."
+                        ),
+                        "evidence_corpus": corpus,
+                    }
+                ),
+            ),
+            patch.object(worker, "call_model_proxy", new=AsyncMock(side_effect=model_results)) as proxy,
+            patch.object(worker, "build_academic_paper_docx", return_value=b"repaired-docx"),
+            patch.object(worker, "upload_artifact_bytes", new=AsyncMock(return_value={})),
+            patch.object(worker, "callback", new=record_callback),
+        ):
+            await worker.process_academic_paper_run(payload, "worker-evidence-repair", time.perf_counter())
+
+        self.assertEqual(6, proxy.await_count)
+        quality = callbacks[-1]["output"]["quality_report"]
+        self.assertTrue(quality["citation_evidence_valid"])
+        self.assertTrue(quality["citation_evidence_repaired"])
+
+    async def test_citation_evidence_fails_closed_and_never_builds_docx(self) -> None:
+        source_quote = "原始全文仅支持这一条明确且长度充分的研究结论。"
+        source_text = "证据边界研究\nDOI: 10.1234/evidence.2026\n" + source_quote
+        corpus = worker.build_evidence_corpus(
+            [worker.EvidenceSource(artifact_name="[1] source.txt", artifact_id=3, data=source_text.encode())]
+        )
+        chunk_id = next(block.chunk_id for block in corpus.blocks if source_quote in block.text)
+        payload = self.payload(
+            input_values={
+                "topic": "证据失败测试",
+                "word_count": 1000,
+                "citation_evidence_enabled": True,
+                "outline_spec": {
+                    "version": 1,
+                    "nodes": [{"id": "chapter-1", "title": "正文", "level": 1}],
+                },
+            }
+        )
+        section_content = "正" * 950 + "。正文论断没有得到上传全文支持[[CITE:1]]。"
+        invalid_audit = {
+            "citation_evidence": [
+                {
+                    "occurrence_id": "chapter-1:citation-1",
+                    "evidence_chunk_id": chunk_id,
+                    "evidence_quote": "模型伪造的全文证据不会通过逐字校验。",
+                }
+            ]
+        }
+        model_results = [
+            {"response": {"text": json.dumps({"title": "证据失败测试", "abstract": "摘要"}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"contents": {"chapter-1": section_content}}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"consistency_notes": ["已检查"]}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps(invalid_audit, ensure_ascii=False)}},
+            {"response": {"text": json.dumps({"contents": {"chapter-1": section_content}}, ensure_ascii=False)}},
+            {"response": {"text": json.dumps(invalid_audit, ensure_ascii=False)}},
+        ]
+        build_docx = patch.object(worker, "build_academic_paper_docx")
+        upload = AsyncMock(return_value={})
+        with (
+            patch.object(
+                worker,
+                "extract_paper_reference_context",
+                new=AsyncMock(
+                    return_value={
+                        "context": (
+                            "来源 [1]\n作者丙. 证据边界研究[J]. 信息资源学报, 2026. "
+                            "DOI: 10.1234/evidence.2026."
+                        ),
+                        "evidence_corpus": corpus,
+                    }
+                ),
+            ),
+            patch.object(worker, "call_model_proxy", new=AsyncMock(side_effect=model_results)),
+            build_docx as build,
+            patch.object(worker, "upload_artifact_bytes", new=upload),
+            patch.object(worker, "callback", new=AsyncMock()),
+        ):
+            with self.assertRaises(worker.WorkerFailure) as raised:
+                await worker.process_academic_paper_run(payload, "worker-evidence-fail", time.perf_counter())
+
+        self.assertEqual("PAPER_CITATION_EVIDENCE_CONTRACT_INVALID", raised.exception.code)
+        build.assert_not_called()
+        upload.assert_not_awaited()
+
+    async def test_citation_evidence_rejects_source_identity_before_model_calls(self) -> None:
+        corpus = worker.build_evidence_corpus(
+            [
+                worker.EvidenceSource(
+                    artifact_name="[1] wrong-source.txt",
+                    artifact_id=4,
+                    data=(
+                        "完全不同的研究\nDOI: 10.9999/wrong.2025\n"
+                        "该文件不应被绑定到用户填写的参考文献。"
+                    ).encode(),
+                )
+            ]
+        )
+        payload = self.payload(
+            input_values={
+                "topic": "来源身份失败测试",
+                "word_count": 1000,
+                "citation_evidence_enabled": True,
+                "outline_spec": {
+                    "version": 1,
+                    "nodes": [{"id": "chapter-1", "title": "正文", "level": 1}],
+                },
+            }
+        )
+        model_proxy = AsyncMock()
+        with (
+            patch.object(
+                worker,
+                "extract_paper_reference_context",
+                new=AsyncMock(
+                    return_value={
+                        "context": (
+                            "来源 [1]\n作者甲. 数字治理研究[J]. 治理学报, 2026. "
+                            "DOI: 10.1234/governance.2026."
+                        ),
+                        "evidence_corpus": corpus,
+                    }
+                ),
+            ),
+            patch.object(worker, "call_model_proxy", new=model_proxy),
+            patch.object(worker, "callback", new=AsyncMock()),
+        ):
+            with self.assertRaises(worker.WorkerFailure) as raised:
+                await worker.process_academic_paper_run(
+                    payload,
+                    "worker-identity-fail",
+                    time.perf_counter(),
+                )
+
+        self.assertEqual("PAPER_CITATION_EVIDENCE_SOURCE_IDENTITY_INVALID", raised.exception.code)
+        model_proxy.assert_not_awaited()
+
+    async def test_citation_evidence_rejects_conflicting_or_unmapped_configuration(self) -> None:
+        with self.assertRaises(worker.WorkerFailure) as references_disabled:
+            await worker.process_academic_paper_run(
+                self.payload(
+                    input_values={
+                        "topic": "配置测试",
+                        "word_count": 1000,
+                        "references_enabled": False,
+                        "citation_evidence_enabled": True,
+                    }
+                ),
+                "worker-config",
+                time.perf_counter(),
+            )
+        self.assertEqual("PAPER_CITATION_EVIDENCE_REQUIRES_REFERENCES", references_disabled.exception.code)
+
+        with self.assertRaises(worker.WorkerFailure) as style_unsupported:
+            await worker.process_academic_paper_run(
+                self.payload(
+                    input_values={
+                        "topic": "配置测试",
+                        "word_count": 1000,
+                        "citation_style": "apa7",
+                        "citation_evidence_enabled": True,
+                    }
+                ),
+                "worker-config",
+                time.perf_counter(),
+            )
+        self.assertEqual("PAPER_CITATION_EVIDENCE_STYLE_UNSUPPORTED", style_unsupported.exception.code)
 
     async def test_academic_paper_orchestrates_plan_sections_review_and_docx(self) -> None:
         payload = self.payload(
