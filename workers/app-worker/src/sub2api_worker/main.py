@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -2000,6 +2001,7 @@ async def process_grok_video_run(
     }
     artifact = await archive_grok_video_result(
         payload,
+        effective_policy,
         response,
         name=f"grok-video-{payload.run_id}.mp4",
         metadata=artifact_metadata,
@@ -2216,6 +2218,7 @@ async def poll_grok_video_response(
 
 async def archive_grok_video_result(
     payload: WorkerRunRequest,
+    policy: SelectedPolicy,
     response: dict[str, Any],
     *,
     name: str,
@@ -2233,10 +2236,21 @@ async def archive_grok_video_result(
             metadata=metadata,
         )
     if media.get("url"):
+        url = str(media["url"])
+        proxy_endpoint = relative_model_proxy_media_endpoint(url)
+        if proxy_endpoint:
+            proxy_result = await call_model_proxy_request(payload, policy, endpoint=proxy_endpoint, method="GET")
+            return await archive_proxy_media_result(
+                payload,
+                proxy_result,
+                default_name=name,
+                default_mime=str(media.get("mime_type") or "video/mp4"),
+                metadata=metadata,
+            )
         return await archive_remote_artifact(
             payload,
             name=name,
-            url=str(media["url"]),
+            url=url,
             mime_type=str(media.get("mime_type") or "video/mp4"),
             metadata=metadata,
         )
@@ -6771,6 +6785,21 @@ def response_content_length(headers: httpx.Headers) -> int:
         return max(int(headers.get("content-length") or 0), 0)
     except ValueError:
         return 0
+
+
+def relative_model_proxy_media_endpoint(raw_url: str) -> str:
+    value = raw_url.strip()
+    if not value or value.startswith("//") or "://" in value:
+        return ""
+    parsed = urlsplit(value)
+    if parsed.query or parsed.fragment:
+        return ""
+    path = parsed.path.strip()
+    if path.startswith("/videos/"):
+        path = "/v1" + path
+    if not path.startswith("/v1/videos/") or not path.endswith("/content"):
+        return ""
+    return path
 
 
 def require_artifact_response(value: Any) -> dict[str, Any]:
