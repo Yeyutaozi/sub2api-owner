@@ -8,53 +8,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCalculateOpenAIVideoCost_SeedanceUsesRequestedModelPriceMatrix(t *testing.T) {
+func TestRecordSeedanceUsage_UsesRequestedModelPriceMatrix(t *testing.T) {
 	pro720P := 0.16
 	fast720P := 0.08
 	groupID := int64(701)
-	apiKey := &APIKey{
-		GroupID: &groupID,
-		Group: &Group{
-			ID:       groupID,
-			Platform: PlatformSeedance,
-			VideoModelPrices: VideoModelPrices{
-				"doubao-seedance-2-0-pro":  {Price720P: &pro720P},
-				"doubao-seedance-2-0-fast": {Price720P: &fast720P},
+	for _, tc := range []struct {
+		model string
+		want  float64
+	}{
+		{model: "doubao-seedance-2-0-pro", want: 1.6},
+		{model: "doubao-seedance-2-0-fast", want: 0.8},
+	} {
+		usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+		svc := newOpenAIRecordUsageServiceForTest(
+			usageRepo,
+			&openAIRecordUsageUserRepoStub{},
+			&openAIRecordUsageSubRepoStub{},
+			nil,
+		)
+		apiKey := &APIKey{
+			ID:      1701,
+			UserID:  2701,
+			GroupID: &groupID,
+			User:    &User{ID: 2701},
+			Group: &Group{
+				ID:             groupID,
+				Platform:       PlatformSeedance,
+				RateMultiplier: 1,
+				VideoModelPrices: VideoModelPrices{
+					"doubao-seedance-2-0-pro":  {Price720P: &pro720P},
+					"doubao-seedance-2-0-fast": {Price720P: &fast720P},
+				},
 			},
-		},
+		}
+		err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+			OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{
+					Model:                "mapped-model-must-not-select-the-price",
+					VideoCount:           1,
+					VideoResolution:      VideoBillingResolution720P,
+					VideoDurationSeconds: 10,
+				},
+				APIKey:  apiKey,
+				User:    apiKey.User,
+				Account: &Account{ID: 3701, Platform: PlatformSeedance},
+			},
+			TaskID:         "matrix-" + tc.model,
+			RequestedModel: tc.model,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, usageRepo.lastLog)
+		require.InDelta(t, tc.want, usageRepo.lastLog.TotalCost, 1e-12)
+		require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
 	}
-	result := &OpenAIForwardResult{
-		Model:                "mapped-model-must-not-select-the-price",
-		VideoCount:           1,
-		VideoResolution:      VideoBillingResolution720P,
-		VideoDurationSeconds: 10,
-	}
-	svc := &OpenAIGatewayService{billingService: NewBillingService(&config.Config{}, nil)}
-
-	proCost := svc.calculateOpenAIVideoCost(
-		context.Background(),
-		"seedance-2.0-pro",
-		"doubao-seedance-2-0-pro",
-		apiKey,
-		result,
-		1,
-	)
-	fastCost := svc.calculateOpenAIVideoCost(
-		context.Background(),
-		"seedance-2.0-fast",
-		"doubao-seedance-2-0-fast",
-		apiKey,
-		result,
-		1,
-	)
-
-	require.InDelta(t, 1.6, proCost.TotalCost, 1e-12)
-	require.InDelta(t, 0.8, fastCost.TotalCost, 1e-12)
-	require.Equal(t, string(BillingModeVideo), proCost.BillingMode)
-	require.Equal(t, string(BillingModeVideo), fastCost.BillingMode)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_SeedanceUsesInboundRequestedModel(t *testing.T) {
+func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesInboundRequestedModel(t *testing.T) {
 	pro720P := 0.16
 	groupID := int64(703)
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -79,26 +88,30 @@ func TestOpenAIGatewayServiceRecordUsage_SeedanceUsesInboundRequestedModel(t *te
 		},
 	}
 
-	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
-		Result: &OpenAIForwardResult{
-			RequestID:            "seedance-requested-model-billing",
-			Model:                "seedance-2.0-pro",
-			BillingModel:         "seedance-2.0-pro",
-			UpstreamModel:        "seedance-2.0-pro",
-			VideoCount:           1,
-			VideoResolution:      VideoBillingResolution720P,
-			VideoDurationSeconds: 10,
+	err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				RequestID:            "seedance-requested-model-billing",
+				Model:                "seedance-2.0-pro",
+				BillingModel:         "seedance-2.0-pro",
+				UpstreamModel:        "seedance-2.0-pro",
+				VideoCount:           1,
+				VideoResolution:      VideoBillingResolution720P,
+				VideoDurationSeconds: 10,
+			},
+			APIKey: apiKey,
+			User:   apiKey.User,
+			Account: &Account{
+				ID:       3703,
+				Platform: PlatformSeedance,
+			},
+			ChannelUsageFields: ChannelUsageFields{
+				OriginalModel:      "doubao-seedance-2-0-pro",
+				ChannelMappedModel: "seedance-2.0-pro",
+			},
 		},
-		APIKey: apiKey,
-		User:   apiKey.User,
-		Account: &Account{
-			ID:       3703,
-			Platform: PlatformSeedance,
-		},
-		ChannelUsageFields: ChannelUsageFields{
-			OriginalModel:      "doubao-seedance-2-0-pro",
-			ChannelMappedModel: "seedance-2.0-pro",
-		},
+		TaskID:         "seedance-requested-model-billing",
+		RequestedModel: "doubao-seedance-2-0-pro",
 	})
 
 	require.NoError(t, err)
@@ -133,7 +146,6 @@ func TestCalculateOpenAIVideoCost_GrokIgnoresSeedanceModelPriceMatrix(t *testing
 	cost := svc.calculateOpenAIVideoCost(
 		context.Background(),
 		"grok-imagine-video",
-		"grok-imagine-video",
 		apiKey,
 		result,
 		1,
@@ -142,9 +154,9 @@ func TestCalculateOpenAIVideoCost_GrokIgnoresSeedanceModelPriceMatrix(t *testing
 	require.InDelta(t, groupPrice720P*5, cost.TotalCost, 1e-12)
 }
 
-func TestGroupMediaPricingLooksIncomplete_SeedanceMatrixIsComplete(t *testing.T) {
+func TestGroupMediaPricingLooksIncomplete_IgnoresSeedanceOnlyMatrix(t *testing.T) {
 	free := 0.0
-	require.False(t, groupMediaPricingLooksIncomplete(&Group{
+	require.True(t, groupMediaPricingLooksIncomplete(&Group{
 		Platform: PlatformSeedance,
 		VideoModelPrices: VideoModelPrices{
 			"doubao-seedance-2-0-fast": {Price480P: &free},

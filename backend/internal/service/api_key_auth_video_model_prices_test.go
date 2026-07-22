@@ -74,13 +74,42 @@ func TestAPIKeyService_SnapshotIgnoresVideoModelPricesForOtherPlatforms(t *testi
 	require.Empty(t, roundTrip.Group.VideoModelPrices)
 }
 
-func TestAPIKeyService_RejectsV15AuthSnapshotWithoutSeedanceVideoModelPrices(t *testing.T) {
+func TestAPIKeyService_AcceptsV15AuthSnapshotForExistingPlatforms(t *testing.T) {
 	groupID := int64(803)
+	svc := &APIKeyService{}
+	require.Equal(t, 16, apiKeyAuthSnapshotVersion)
+
+	apiKey, ok, err := svc.applyAuthCacheEntry("existing-grok-key", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{
+			Version:  15,
+			APIKeyID: 1,
+			UserID:   2,
+			GroupID:  &groupID,
+			Status:   StatusActive,
+			User:     APIKeyAuthUserSnapshot{ID: 2, Status: StatusActive},
+			Group: &APIKeyAuthGroupSnapshot{
+				ID:       groupID,
+				Platform: PlatformGrok,
+				Status:   StatusActive,
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, apiKey)
+	require.NotNil(t, apiKey.Group)
+	require.Equal(t, PlatformGrok, apiKey.Group.Platform)
+	require.Empty(t, apiKey.Group.VideoModelPrices)
+}
+
+func TestAPIKeyService_RejectsV15AuthSnapshotForSeedance(t *testing.T) {
+	groupID := int64(804)
 	svc := &APIKeyService{}
 
 	apiKey, ok, err := svc.applyAuthCacheEntry("stale-seedance-key", &APIKeyAuthCacheEntry{
 		Snapshot: &APIKeyAuthSnapshot{
-			Version:  15,
+			Version:  apiKeyAuthSnapshotVersionBeforeSeedance,
 			APIKeyID: 1,
 			UserID:   2,
 			GroupID:  &groupID,

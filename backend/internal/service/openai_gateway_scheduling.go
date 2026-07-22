@@ -164,12 +164,27 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the compact-specific error when applicable.
 func normalizeOpenAICompatiblePlatform(platform string) string {
-	switch platform {
-	case PlatformGrok, PlatformSeedance:
-		return platform
-	default:
-		return PlatformOpenAI
+	if platform == PlatformGrok {
+		return PlatformGrok
 	}
+	if platform == PlatformSeedance {
+		return PlatformSeedance
+	}
+	return PlatformOpenAI
+}
+
+func accountMatchesOpenAICompatiblePlatform(account *Account, platform string) bool {
+	if account == nil {
+		return false
+	}
+	platform = normalizeOpenAICompatiblePlatform(platform)
+	if account.Platform != platform {
+		return false
+	}
+	if platform == PlatformSeedance {
+		return account.IsSeedance()
+	}
+	return account.IsOpenAICompatible()
 }
 
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -233,7 +248,7 @@ func openAICompactSupportTier(account *Account) int {
 // 检查母账号凭据可用性；该检查未内置于本函数，以避免注入 DB 依赖。
 func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if account == nil || account.Platform != platform || !accountMatchesOpenAICompatiblePlatform(account, platform) || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if account.IsOpenAI() {

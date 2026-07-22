@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDefaultSeedanceVideoModelPriceRows,
   createVideoModelPriceRow,
+  supportsSeedanceVideoModelPricingPlatform,
   validateVideoModelPriceRows,
   videoModelPriceRowsToPrices,
   videoModelPricesPayloadForPlatform,
@@ -10,6 +11,13 @@ import {
 } from "../groupsVideoModelPricing";
 
 describe("Seedance video model pricing form conversion", () => {
+  it("uses a Seedance-only platform gate", () => {
+    expect(supportsSeedanceVideoModelPricingPlatform("seedance")).toBe(true);
+    for (const platform of ["grok", "openai", "gemini", "antigravity", "anthropic"]) {
+      expect(supportsSeedanceVideoModelPricingPlatform(platform)).toBe(false);
+    }
+  });
+
   it("starts new Seedance groups with the Pro and Fast model rows", () => {
     expect(createDefaultSeedanceVideoModelPriceRows()).toEqual([
       createVideoModelPriceRow("doubao-seedance-2-0-pro"),

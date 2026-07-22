@@ -169,6 +169,15 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 }
 
 func groupFromServiceBase(g *service.Group) Group {
+	var videoModelPrices *service.VideoModelPrices
+	if g.Platform == service.PlatformSeedance {
+		prices := g.VideoModelPrices
+		if prices == nil {
+			prices = service.VideoModelPrices{}
+		}
+		videoModelPrices = &prices
+	}
+
 	return Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
@@ -199,7 +208,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		VideoPrice480P:                  g.VideoPrice480P,
 		VideoPrice720P:                  g.VideoPrice720P,
 		VideoPrice1080P:                 g.VideoPrice1080P,
-		VideoModelPrices:                g.VideoModelPrices,
+		VideoModelPrices:                videoModelPrices,
 		WebSearchPricePerCall:           g.WebSearchPricePerCall,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,

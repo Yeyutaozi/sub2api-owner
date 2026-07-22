@@ -910,7 +910,7 @@ func TestOpenAIGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamReque
 	require.Equal(t, "client:openai-client-stable-123", usageRepo.lastLog.RequestID)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_UsageRequestIDOverridesHTTPContext(t *testing.T) {
+func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesStableTaskID(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
 	videoPrice := 0.08
@@ -923,17 +923,26 @@ func TestOpenAIGatewayServiceRecordUsage_UsageRequestIDOverridesHTTPContext(t *t
 	)
 
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "http-request-123")
-	err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
-		Result: &OpenAIForwardResult{
-			RequestID:  "upstream-request-456",
-			Model:      "doubao-seedance-2-0-pro",
-			Duration:   time.Second,
-			VideoCount: 1,
+	err := svc.RecordSeedanceUsage(ctx, &SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				RequestID:       "upstream-request-456",
+				Model:           "seedance-2.0-pro",
+				Duration:        time.Second,
+				VideoCount:      1,
+				VideoResolution: VideoBillingResolution720P,
+			},
+			APIKey: &APIKey{ID: 10051, Group: &Group{
+				Platform: PlatformSeedance,
+				VideoModelPrices: VideoModelPrices{
+					"doubao-seedance-2-0-pro": {Price720P: &videoPrice},
+				},
+			}},
+			User:    &User{ID: 20051},
+			Account: &Account{ID: 30051, Platform: PlatformSeedance},
 		},
-		APIKey:         &APIKey{ID: 10051, Group: &Group{VideoPrice720P: &videoPrice}},
-		User:           &User{ID: 20051},
-		Account:        &Account{ID: 30051},
-		UsageRequestID: SeedanceUsageRequestID("vidjob_123"),
+		TaskID:         "vidjob_123",
+		RequestedModel: "doubao-seedance-2-0-pro",
 	})
 
 	require.NoError(t, err)

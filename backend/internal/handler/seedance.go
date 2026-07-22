@@ -382,21 +382,24 @@ func recordSeedanceUsage(
 	// The task ID is returned only after its provisional charge and usage row are
 	// durable. This prevents an immediate terminal-status poll from racing ahead
 	// of the refundable usage record.
-	if err := h.gatewayService.RecordUsage(c.Request.Context(), &service.OpenAIRecordUsageInput{
-		Result:             result,
-		APIKey:             apiKey,
-		User:               apiKey.User,
-		Account:            account,
-		Subscription:       subscription,
-		InboundEndpoint:    inboundEndpoint,
-		UpstreamEndpoint:   upstreamEndpoint,
-		UserAgent:          userAgent,
-		IPAddress:          clientIP,
-		RequestPayloadHash: service.HashUsageRequestPayload(body),
-		UsageRequestID:     service.SeedanceUsageRequestID(result.ResponseID),
-		APIKeyService:      h.apiKeyService,
-		QuotaPlatform:      quotaPlatform,
-		ChannelUsageFields: service.ChannelUsageFields{OriginalModel: requestModel, ChannelMappedModel: requestModel},
+	if err := h.gatewayService.RecordSeedanceUsage(c.Request.Context(), &service.SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: service.OpenAIRecordUsageInput{
+			Result:             result,
+			APIKey:             apiKey,
+			User:               apiKey.User,
+			Account:            account,
+			Subscription:       subscription,
+			InboundEndpoint:    inboundEndpoint,
+			UpstreamEndpoint:   upstreamEndpoint,
+			UserAgent:          userAgent,
+			IPAddress:          clientIP,
+			RequestPayloadHash: service.HashUsageRequestPayload(body),
+			APIKeyService:      h.apiKeyService,
+			QuotaPlatform:      quotaPlatform,
+			ChannelUsageFields: service.ChannelUsageFields{OriginalModel: requestModel, ChannelMappedModel: requestModel},
+		},
+		TaskID:         result.ResponseID,
+		RequestedModel: requestModel,
 	}); err != nil {
 		logger.L().With(
 			zap.String("component", "handler.seedance"),

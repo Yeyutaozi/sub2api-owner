@@ -20,6 +20,10 @@ export type VideoModelPriceRowValidationError =
   | { code: "invalidPrice"; row: number; model: string }
   | { code: "priceRequired"; row: number; model: string };
 
+export const supportsSeedanceVideoModelPricingPlatform = (
+  platform: string,
+): boolean => platform === "seedance";
+
 const resolutionFields = [
   ["price_480p", "480p"],
   ["price_720p", "720p"],

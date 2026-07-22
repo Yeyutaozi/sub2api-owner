@@ -202,6 +202,14 @@ func TestSeedancePlatformIsolation(t *testing.T) {
 	require.Equal(t, PlatformSeedance, normalizeOpenAICompatiblePlatform(PlatformSeedance))
 	require.Equal(t, PlatformOpenAI, normalizeOpenAICompatiblePlatform(PlatformOpenAI))
 	require.Equal(t, PlatformGrok, normalizeOpenAICompatiblePlatform(PlatformGrok))
+	require.Equal(t, PlatformOpenAI, normalizeOpenAICompatiblePlatform(PlatformAnthropic))
+
+	openAI := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	grok := &Account{Platform: PlatformGrok, Type: AccountTypeAPIKey}
+	require.True(t, accountMatchesOpenAICompatiblePlatform(openAI, PlatformOpenAI))
+	require.False(t, accountMatchesOpenAICompatiblePlatform(openAI, PlatformGrok))
+	require.True(t, accountMatchesOpenAICompatiblePlatform(grok, PlatformGrok))
+	require.False(t, accountMatchesOpenAICompatiblePlatform(grok, PlatformOpenAI))
 
 	seedance := &Account{
 		Platform: PlatformSeedance,
@@ -211,6 +219,9 @@ func TestSeedancePlatformIsolation(t *testing.T) {
 		},
 	}
 	require.True(t, seedance.IsSeedance())
+	require.False(t, seedance.IsOpenAICompatible())
+	require.True(t, accountMatchesOpenAICompatiblePlatform(seedance, PlatformSeedance))
+	require.False(t, accountMatchesOpenAICompatiblePlatform(seedance, PlatformOpenAI))
 	require.Equal(t, DefaultSeedanceBaseURL, seedance.GetSeedanceBaseURL())
 	require.Equal(t, "upstream-secret", seedance.GetSeedanceAPIKey())
 	require.False(t, (&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}).IsSeedance())
