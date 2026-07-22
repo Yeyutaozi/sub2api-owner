@@ -202,6 +202,20 @@ export default {
 
   // Auth
   auth: {
+    gateway: {
+      online: 'Gateway online',
+      eyebrow: 'Unified AI gateway',
+      headline: 'One endpoint.\nEvery model.',
+      apiRequest: 'API request',
+      ready: 'Ready',
+      routed: 'Routed',
+      secureRouting: 'Secure routing',
+      usageMetering: 'Usage metering',
+      automaticFailover: 'Automatic failover',
+      protectedConnection: 'Protected connection',
+      switchToLight: 'Switch to light mode',
+      switchToDark: 'Switch to dark mode'
+    },
     welcomeBack: 'Welcome Back',
     signInToAccount: 'Sign in to your account to continue',
     signIn: 'Sign In',
@@ -220,6 +234,8 @@ export default {
     passwordLabel: 'Password',
     passwordPlaceholder: 'Enter your password',
     createPasswordPlaceholder: 'Create a strong password',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
     passwordHint: 'At least 6 characters',
     emailRequired: 'Email is required',
     invalidEmail: 'Please enter a valid email address',

@@ -17,6 +17,24 @@ export default {
     // 新增：面向用户的价值主张
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
     heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
+    ui: {
+      primaryNavigation: '主导航',
+      routingPreview: 'API 路由预览',
+      requestInspector: '请求检查器',
+      liveRoutingPreview: '实时路由预览',
+      live: '实时',
+      primaryRoute: '主路由',
+      ready: '就绪',
+      standby: '待命',
+      gatewayCapabilities: '网关能力',
+      modelNetwork: '模型网络',
+      messagesApi: '消息 API',
+      responsesApi: 'Responses API',
+      openAiCompatible: 'OpenAI 兼容',
+      generativeLanguage: '生成式语言',
+      modelGateway: '模型网关',
+      readyWhenYouAre: '随时可以开始'
+    },
     tags: {
       subscriptionToApi: '订阅转 API',
       stickySession: '会话保持',
@@ -100,6 +118,7 @@ export default {
       soon: '即将推出',
       claude: 'Claude',
       gemini: 'Gemini',
+      grok: 'Grok',
       antigravity: 'Antigravity',
       more: '更多'
     },

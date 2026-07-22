@@ -236,4 +236,18 @@ function documentIcon(index: number, title: string): 'document' | 'shield' | 'gl
   opacity: 0;
   transform: translateY(8px) scale(0.98);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .agreement-fade-enter-active,
+  .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div,
+  .agreement-fade-leave-active > div {
+    transition: none;
+  }
+
+  .agreement-fade-enter-from > div,
+  .agreement-fade-leave-to > div {
+    transform: none;
+  }
+}
 </style>

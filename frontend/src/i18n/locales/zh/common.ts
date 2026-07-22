@@ -202,6 +202,20 @@ export default {
 
   // Auth
   auth: {
+    gateway: {
+      online: '网关在线',
+      eyebrow: '统一 AI 网关',
+      headline: '一个端点，\n连接所有模型。',
+      apiRequest: 'API 请求',
+      ready: '就绪',
+      routed: '已路由',
+      secureRouting: '安全路由',
+      usageMetering: '用量计量',
+      automaticFailover: '自动故障转移',
+      protectedConnection: '连接已保护',
+      switchToLight: '切换到浅色模式',
+      switchToDark: '切换到深色模式'
+    },
     welcomeBack: '欢迎回来',
     signInToAccount: '登录您的账户以继续',
     signIn: '登录',
@@ -220,6 +234,8 @@ export default {
     passwordLabel: '密码',
     passwordPlaceholder: '请输入密码',
     createPasswordPlaceholder: '创建一个安全的密码',
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
     passwordHint: '至少 6 个字符',
     emailRequired: '请输入邮箱',
     invalidEmail: '请输入有效的邮箱地址',

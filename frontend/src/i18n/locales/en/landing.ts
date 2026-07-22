@@ -17,6 +17,24 @@ export default {
     // User-focused value proposition
     heroSubtitle: 'One Key, All AI Models',
     heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
+    ui: {
+      primaryNavigation: 'Primary navigation',
+      routingPreview: 'API routing preview',
+      requestInspector: 'Request inspector',
+      liveRoutingPreview: 'Live routing preview',
+      live: 'Live',
+      primaryRoute: 'Primary route',
+      ready: 'Ready',
+      standby: 'Standby',
+      gatewayCapabilities: 'Gateway capabilities',
+      modelNetwork: 'Model network',
+      messagesApi: 'Messages API',
+      responsesApi: 'Responses API',
+      openAiCompatible: 'OpenAI-compatible',
+      generativeLanguage: 'Generative Language',
+      modelGateway: 'Model gateway',
+      readyWhenYouAre: 'Ready when you are'
+    },
     tags: {
       subscriptionToApi: 'Subscription to API',
       stickySession: 'Session Persistence',
@@ -100,6 +118,7 @@ export default {
       soon: 'Soon',
       claude: 'Claude',
       gemini: 'Gemini',
+      grok: 'Grok',
       antigravity: 'Antigravity',
       more: 'More'
     },

@@ -1,442 +1,210 @@
 <template>
-  <!-- Custom Home Content: Full Page Mode -->
   <div v-if="homeContent" class="min-h-screen">
-    <!-- iframe mode -->
     <iframe
       v-if="isHomeContentUrl"
       :src="homeContent.trim()"
       class="h-screen w-full border-0"
       allowfullscreen
     ></iframe>
-    <!-- HTML mode - SECURITY: homeContent is admin-only setting, XSS risk is acceptable -->
     <div v-else v-html="homeContent"></div>
   </div>
 
-  <!-- Default Home Page -->
-  <div
-    v-else
-    class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
-  >
-    <!-- Background Decorations -->
-    <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div
-        class="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-400/20 blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-primary-500/15 blur-3xl"
-      ></div>
-      <div
-        class="absolute left-1/3 top-1/4 h-72 w-72 rounded-full bg-primary-300/10 blur-3xl"
-      ></div>
-      <div
-        class="absolute bottom-1/4 right-1/4 h-64 w-64 rounded-full bg-primary-400/10 blur-3xl"
-      ></div>
-      <div
-        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:64px_64px]"
-      ></div>
-    </div>
+  <div v-else class="portal" :class="{ 'is-dark': isDark }">
+    <header class="portal-header">
+      <nav class="portal-nav" :aria-label="t('home.ui.primaryNavigation')">
+        <router-link to="/home" class="wordmark" :aria-label="siteName">
+          <span class="wordmark-logo"><img :src="siteLogo || '/logo.svg'" alt="" /></span>
+          <span>{{ siteName }}</span>
+        </router-link>
 
-    <!-- Header -->
-    <header class="relative z-20 px-6 py-4">
-      <nav class="mx-auto flex max-w-6xl items-center justify-between">
-        <!-- Logo -->
-        <div class="flex items-center">
-          <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
-          </div>
+        <div class="header-status">
+          <span><i></i> API</span>
+          <code>/v1</code>
+          <span>READY</span>
         </div>
 
-        <!-- Nav Actions -->
-        <div class="flex items-center gap-3">
-          <!-- Language Switcher -->
+        <div class="header-actions">
           <LocaleSwitcher />
-
-          <!-- Doc Link -->
           <a
             v-if="docUrl"
             :href="docUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            class="square-action"
             :title="t('home.viewDocs')"
+            :aria-label="t('home.viewDocs')"
           >
-            <Icon name="book" size="md" />
+            <Icon name="book" size="sm" />
           </a>
-
-          <!-- Theme Toggle -->
           <button
-            @click="toggleTheme"
-            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            type="button"
+            class="square-action"
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            @click="toggleTheme"
           >
-            <Icon v-if="isDark" name="sun" size="md" />
-            <Icon v-else name="moon" size="md" />
+            <Icon :name="isDark ? 'sun' : 'moon'" size="sm" />
           </button>
-
-          <!-- Login / Dashboard Button -->
-          <router-link
-            v-if="isAuthenticated"
-            :to="dashboardPath"
-            class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            <span
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-[10px] font-semibold text-white"
-            >
-              {{ userInitial }}
-            </span>
-            <span class="text-xs font-medium text-white">{{ t('home.dashboard') }}</span>
-            <svg
-              class="h-3 w-3 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"
-              />
-            </svg>
-          </router-link>
-          <router-link
-            v-else
-            to="/login"
-            class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            {{ t('home.login') }}
+          <router-link :to="isAuthenticated ? dashboardPath : '/login'" class="header-login">
+            <span v-if="isAuthenticated" class="user-token">{{ userInitial }}</span>
+            {{ isAuthenticated ? t('home.dashboard') : t('home.login') }}
+            <Icon name="arrowRight" size="sm" />
           </router-link>
         </div>
       </nav>
     </header>
 
-    <!-- Main Content -->
-    <main class="relative z-10 flex-1 px-6 py-16">
-      <div class="mx-auto max-w-6xl">
-        <!-- Hero Section - Left/Right Layout -->
-        <div class="mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
-          <!-- Left: Text Content -->
-          <div class="flex-1 text-center lg:text-left">
-            <h1
-              class="mb-4 text-4xl font-bold text-gray-900 dark:text-white md:text-5xl lg:text-6xl"
-            >
-              {{ siteName }}
-            </h1>
-            <p class="mb-8 text-lg text-gray-600 dark:text-dark-300 md:text-xl">
-              {{ siteSubtitle }}
-            </p>
+    <main>
+      <section class="masthead">
+        <TechBackground3D
+          v-if="routeMotionAllowed"
+          class="masthead-orbit"
+          variant="home"
+          :route-index="activeRouteIndex"
+        />
 
-            <!-- CTA Button -->
+        <div class="masthead-meta">
+          <span>{{ t('home.ui.gatewayCapabilities') }}</span>
+          <code>POST /v1/messages</code>
+          <span class="meta-right">CLAUDE / OPENAI / GEMINI / GROK</span>
+        </div>
+
+        <h1>{{ siteName }}</h1>
+
+        <div class="masthead-intro">
+          <p class="value-line">{{ t('home.heroSubtitle') }}</p>
+          <div class="intro-action">
+            <p>{{ siteSubtitle }}</p>
             <div>
-              <router-link
-                :to="isAuthenticated ? dashboardPath : '/login'"
-                class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
-              >
+              <router-link :to="isAuthenticated ? dashboardPath : '/login'" class="action-primary">
                 {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
-                <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+                <Icon name="arrowRight" size="sm" />
               </router-link>
+              <a
+                v-if="docUrl"
+                :href="docUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="action-text"
+              >
+                {{ t('home.docs') }} <Icon name="externalLink" size="sm" />
+              </a>
             </div>
           </div>
+        </div>
 
-          <!-- Right: Terminal Animation -->
-          <div class="flex flex-1 justify-center lg:justify-end">
-            <div class="terminal-container">
-              <div class="terminal-window">
-                <!-- Window header -->
-                <div class="terminal-header">
-                  <div class="terminal-buttons">
-                    <span class="btn-close"></span>
-                    <span class="btn-minimize"></span>
-                    <span class="btn-maximize"></span>
-                  </div>
-                  <span class="terminal-title">terminal</span>
-                </div>
-                <!-- Terminal content -->
-                <div class="terminal-body">
-                  <div class="code-line line-1">
-                    <span class="code-prompt">$</span>
-                    <span class="code-cmd">curl</span>
-                    <span class="code-flag">-X POST</span>
-                    <span class="code-url">/v1/messages</span>
-                  </div>
-                  <div class="code-line line-2">
-                    <span class="code-comment"># Routing to upstream...</span>
-                  </div>
-                  <div class="code-line line-3">
-                    <span class="code-success">200 OK</span>
-                    <span class="code-response">{ "content": "Hello!" }</span>
-                  </div>
-                  <div class="code-line line-4">
-                    <span class="code-prompt">$</span>
-                    <span class="cursor"></span>
-                  </div>
-                </div>
+        <div class="routing-loom" :aria-label="t('home.ui.routingPreview')">
+          <div class="loom-labels">
+            <span>01 / SAMPLE REQUEST</span>
+            <span>02 / ROUTE</span>
+            <span>03 / MODEL</span>
+          </div>
+
+          <div class="loom-flow">
+            <div class="request-source">
+              <span class="method">POST</span>
+              <div>
+                <strong>{{ t('home.ui.requestInspector') }}</strong>
+                <code>/v1/messages</code>
+              </div>
+              <small>TRACE / SAMPLE</small>
+            </div>
+
+            <div class="incoming-track"><i></i></div>
+
+            <div class="router-core">
+              <Icon name="swap" size="md" />
+              <span>ROUTER</span>
+              <b>POLICY OK</b>
+            </div>
+
+            <div class="branch-track">
+              <i
+                v-for="(_, index) in routeModels"
+                :key="index"
+                :class="{ active: index === activeRouteIndex }"
+              ></i>
+            </div>
+
+            <div class="model-targets">
+              <div
+                v-for="(route, index) in routeModels"
+                :key="route.name"
+                class="model-target"
+                :class="{ active: index === activeRouteIndex }"
+              >
+                <span class="model-mark" :class="route.tone">
+                  <PlatformIcon :platform="route.platform" size="md" />
+                </span>
+                <strong>{{ route.name }}</strong>
+                <small>{{ index === activeRouteIndex ? t('home.ui.primaryRoute') : t('home.ui.ready') }}</small>
+                <b>{{ index === activeRouteIndex ? 'SELECTED' : t('home.ui.standby') }}</b>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Feature Tags - Centered -->
-        <div class="mb-12 flex flex-wrap items-center justify-center gap-4 md:gap-6">
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
-          >
-            <Icon name="swap" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.subscriptionToApi')
-            }}</span>
-          </div>
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
-          >
-            <Icon name="shield" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.stickySession')
-            }}</span>
-          </div>
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
-          >
-            <Icon name="chart" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.realtimeBilling')
-            }}</span>
+          <div class="loom-response">
+            <span><i></i> 200 OK</span>
+            <code>ROUTE / {{ activeRoute.name.toUpperCase() }} / COMPLETE</code>
+            <b>TRACE COMPLETE</b>
           </div>
         </div>
-
-        <!-- Features Grid -->
-        <div class="mb-12 grid gap-6 md:grid-cols-3">
-          <!-- Feature 1: Unified Gateway -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30 transition-transform group-hover:scale-110"
-            >
-              <Icon name="server" size="lg" class="text-white" />
-            </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.unifiedGateway') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.unifiedGatewayDesc') }}
-            </p>
-          </div>
-
-          <!-- Feature 2: Account Pool -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 transition-transform group-hover:scale-110"
-            >
-              <svg
-                class="h-6 w-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
-                />
-              </svg>
-            </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.multiAccount') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.multiAccountDesc') }}
-            </p>
-          </div>
-
-          <!-- Feature 3: Billing & Quota -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/30 transition-transform group-hover:scale-110"
-            >
-              <svg
-                class="h-6 w-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
-                />
-              </svg>
-            </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.balanceQuota') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.balanceQuotaDesc') }}
-            </p>
-          </div>
-        </div>
-
-        <!-- Supported Providers -->
-        <div class="mb-8 text-center">
-          <h2 class="mb-3 text-2xl font-bold text-gray-900 dark:text-white">
-            {{ t('home.providers.title') }}
-          </h2>
-          <p class="text-sm text-gray-600 dark:text-dark-400">
-            {{ t('home.providers.description') }}
-          </p>
-        </div>
-
-        <div class="mb-16 flex flex-wrap items-center justify-center gap-4">
-          <!-- Claude - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-orange-500"
-            >
-              <span class="text-xs font-bold text-white">C</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.claude') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- GPT - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-green-600"
-            >
-              <span class="text-xs font-bold text-white">G</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">GPT</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- Gemini - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600"
-            >
-              <span class="text-xs font-bold text-white">G</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.gemini') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- Antigravity - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-pink-600"
-            >
-              <span class="text-xs font-bold text-white">A</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.antigravity') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- More - Coming Soon -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-gray-200/50 bg-white/40 px-5 py-3 opacity-60 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/40"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-gray-500 to-gray-600"
-            >
-              <span class="text-xs font-bold text-white">+</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.more') }}</span>
-            <span
-              class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-dark-400"
-              >{{ t('home.providers.soon') }}</span
-            >
-          </div>
-        </div>
-      </div>
+      </section>
     </main>
-
-    <!-- Footer -->
-    <footer class="relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
-      <div
-        class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left"
-      >
-        <p class="text-sm text-gray-500 dark:text-dark-400">
-          &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
-        </p>
-        <div class="flex items-center gap-4">
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
-          >
-            {{ t('home.docs') }}
-          </a>
-          <a
-            :href="githubUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
-          >
-            GitHub
-          </a>
-        </div>
-      </div>
-    </footer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
+import type { GroupPlatform } from '@/types'
+
+const TechBackground3D = defineAsyncComponent({
+  loader: () => import('@/components/visual/TechBackground3D.vue'),
+  suspensible: false
+})
 
 const { t } = useI18n()
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
 
-// Site settings - directly from appStore (already initialized from injected config)
+interface RouteModel {
+  name: string
+  platform: GroupPlatform
+  tone: string
+}
+
+const routeModels: RouteModel[] = [
+  { name: 'Claude', platform: 'anthropic', tone: 'claude' },
+  { name: 'OpenAI', platform: 'openai', tone: 'openai' },
+  { name: 'Gemini', platform: 'gemini', tone: 'gemini' },
+  { name: 'Grok', platform: 'grok', tone: 'grok' }
+]
+const activeRouteIndex = ref(0)
+const activeRoute = computed(() => routeModels[activeRouteIndex.value] ?? routeModels[0])
+const routeMotionAllowed = ref(!window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+const routeCycleMs = 5600
+let routeCycleTimer: number | undefined
+let routeMotionPreference: MediaQueryList | undefined
+
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 
-// Check if homeContent is a URL (for iframe display)
 const isHomeContentUrl = computed(() => {
   const content = homeContent.value.trim()
   return content.startsWith('http://') || content.startsWith('https://')
 })
 
-// Theme
 const isDark = ref(document.documentElement.classList.contains('dark'))
-
-// GitHub URL
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
-
-// Auth state
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const dashboardPath = computed(() => isAdmin.value ? '/admin/dashboard' : '/dashboard')
@@ -446,17 +214,35 @@ const userInitial = computed(() => {
   return user.email.charAt(0).toUpperCase()
 })
 
-// Current year for footer
-const currentYear = computed(() => new Date().getFullYear())
+function stopRouteCycle() {
+  if (routeCycleTimer !== undefined) {
+    window.clearInterval(routeCycleTimer)
+    routeCycleTimer = undefined
+  }
+}
 
-// Toggle theme
+function syncRouteCycle() {
+  stopRouteCycle()
+  if (routeMotionPreference?.matches) {
+    activeRouteIndex.value = 0
+    return
+  }
+  routeCycleTimer = window.setInterval(() => {
+    activeRouteIndex.value = (activeRouteIndex.value + 1) % routeModels.length
+  }, routeCycleMs)
+}
+
+function handleRouteMotionChange() {
+  routeMotionAllowed.value = !routeMotionPreference?.matches
+  syncRouteCycle()
+}
+
 function toggleTheme() {
   isDark.value = !isDark.value
   document.documentElement.classList.toggle('dark', isDark.value)
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
 }
 
-// Initialize theme
 function initTheme() {
   const savedTheme = localStorage.getItem('theme')
   if (
@@ -470,176 +256,1032 @@ function initTheme() {
 
 onMounted(() => {
   initTheme()
-
-  // Check auth state
   authStore.checkAuth()
-
-  // Ensure public settings are loaded (will use cache if already loaded from injected config)
   if (!appStore.publicSettingsLoaded) {
     appStore.fetchPublicSettings()
   }
+  routeMotionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+  routeMotionAllowed.value = !routeMotionPreference.matches
+  routeMotionPreference.addEventListener('change', handleRouteMotionChange)
+  syncRouteCycle()
+})
+
+onBeforeUnmount(() => {
+  stopRouteCycle()
+  routeMotionPreference?.removeEventListener('change', handleRouteMotionChange)
 })
 </script>
 
 <style scoped>
-/* Terminal Container */
-.terminal-container {
-  position: relative;
-  display: inline-block;
-}
-
-/* Terminal Window */
-.terminal-window {
-  width: 420px;
-  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-  border-radius: 14px;
-  box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+.portal {
+  --canvas: #e8efed;
+  --surface: #f8fbfa;
+  --ink: #0a1213;
+  --muted: #536562;
+  --rule: #b7c5c2;
+  --cobalt: #176bff;
+  --coral: #ef6b45;
+  --mint: #68dfbd;
+  --tech-bg: #071012;
+  --tech-panel: #0b1518;
+  --tech-panel-raised: #101d20;
+  --tech-ink: #eef7f5;
+  --tech-muted: #8ba09d;
+  --tech-rule: #29403f;
+  --tech-electric: #6f91ff;
+  --tech-signal: #42d5b5;
+  --route-cycle: 5.6s;
+  display: flex;
+  height: 100svh;
+  min-height: 100svh;
+  flex-direction: column;
   overflow: hidden;
-  transform: perspective(1000px) rotateX(2deg) rotateY(-2deg);
-  transition: transform 0.3s ease;
+  background: var(--tech-bg);
+  color: var(--ink);
+  font-family: Aptos, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-.terminal-window:hover {
-  transform: perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(-4px);
+.portal.is-dark {
+  --canvas: #070b0d;
+  --surface: #101719;
+  --ink: #eef5f3;
+  --muted: #99aaa6;
+  --rule: #2a3938;
+  --cobalt: #6f91ff;
+  --coral: #ff8768;
+  --mint: #42d5b5;
+  --tech-bg: #04090b;
+  --tech-panel: #091114;
+  --tech-panel-raised: #0e1a1d;
+  --tech-rule: #243837;
 }
 
-/* Terminal Header */
-.terminal-header {
+.portal-header {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--tech-rule);
+  background: var(--tech-bg);
+  color: var(--tech-ink);
+}
+
+.portal > main {
   display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  background: rgba(30, 41, 59, 0.8);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.terminal-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.terminal-buttons span {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.btn-close {
-  background: #ef4444;
-}
-.btn-minimize {
-  background: #eab308;
-}
-.btn-maximize {
-  background: #22c55e;
-}
-
-.terminal-title {
   flex: 1;
-  text-align: center;
-  font-size: 12px;
-  font-family: ui-monospace, monospace;
-  color: #64748b;
-  margin-right: 52px;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--tech-bg);
 }
 
-/* Terminal Body */
-.terminal-body {
-  padding: 20px 24px;
-  font-family: ui-monospace, 'Fira Code', monospace;
+.portal-nav,
+.masthead {
+  width: min(1240px, calc(100% - 48px));
+  margin: 0 auto;
+}
+
+.portal-nav {
+  display: grid;
+  min-height: 68px;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--ink);
   font-size: 14px;
-  line-height: 2;
+  font-weight: 800;
+  text-decoration: none;
 }
 
-.code-line {
+.wordmark-logo {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.wordmark-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+.portal-header .wordmark { color: var(--tech-ink); }
+.portal-header .wordmark-logo {
+  border-color: var(--tech-rule);
+  background: var(--tech-panel-raised);
+}
+
+.header-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  opacity: 0;
-  animation: line-appear 0.5s ease forwards;
+  gap: 10px;
+  color: var(--tech-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
 }
 
-.line-1 {
-  animation-delay: 0.3s;
-}
-.line-2 {
-  animation-delay: 1s;
-}
-.line-3 {
-  animation-delay: 1.8s;
-}
-.line-4 {
-  animation-delay: 2.5s;
-}
-
-@keyframes line-appear {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.code-prompt {
-  color: #22c55e;
-  font-weight: bold;
-}
-.code-cmd {
-  color: #38bdf8;
-}
-.code-flag {
-  color: #a78bfa;
-}
-.code-url {
-  color: #14b8a6;
-}
-.code-comment {
-  color: #64748b;
-  font-style: italic;
-}
-.code-success {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.15);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 600;
-}
-.code-response {
-  color: #fbbf24;
-}
-
-/* Blinking Cursor */
-.cursor {
+.header-status span:first-child { color: var(--tech-ink); }
+.header-status i,
+.loom-response i {
   display: inline-block;
-  width: 8px;
-  height: 16px;
-  background: #22c55e;
-  animation: blink 1s step-end infinite;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 1px;
+  background: var(--tech-signal);
+  box-shadow: none;
 }
 
-@keyframes blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
-/* Dark mode adjustments */
-:deep(.dark) .terminal-window {
+.square-action {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.portal-header .square-action { color: var(--tech-muted); }
+
+.portal-header .header-actions :deep(.relative > button:first-child) {
+  color: var(--tech-muted);
+}
+
+.square-action:hover,
+.square-action:focus-visible {
+  border-color: var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+}
+
+.portal-header .square-action:hover,
+.portal-header .square-action:focus-visible {
+  border-color: var(--tech-rule);
+  background: var(--tech-panel-raised);
+  color: var(--tech-ink);
+}
+
+.header-login,
+.action-primary {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  padding: 0 15px;
+  background: var(--ink);
+  color: var(--canvas);
+  font-size: 14px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.header-login:hover,
+.action-primary:hover {
+  transform: translateY(-2px);
+  border-color: var(--cobalt);
+  background: var(--cobalt);
+  color: white;
+}
+
+.portal-header .header-login {
+  border-color: var(--tech-electric);
+  background: var(--tech-electric);
+  color: #071012;
+}
+
+.portal-header .header-login:hover {
+  border-color: var(--tech-signal);
+  background: var(--tech-signal);
+  color: #071012;
+}
+
+.header-login:focus-visible,
+.action-primary:focus-visible,
+.action-text:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--cobalt) 28%, transparent);
+  outline-offset: 3px;
+}
+
+.user-token {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--coral);
+  color: white;
+  font-size: 11px;
+}
+
+.masthead {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  isolation: isolate;
+  padding: 32px 0 0;
+  color: var(--tech-ink);
+}
+
+.masthead::before {
+  position: absolute;
+  z-index: -2;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 50vw);
+  width: 100vw;
+  background: var(--tech-bg);
+  content: "";
+  pointer-events: none;
+}
+
+.masthead-orbit {
+  z-index: -1;
+  right: auto;
+  left: calc(50% - 50vw);
+  width: 100vw;
+}
+
+.masthead-meta,
+.loom-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.masthead-meta {
+  color: var(--tech-muted);
+  animation: portal-module-enter 420ms 40ms ease-out both;
+}
+
+.masthead-meta code { text-align: center; }
+.meta-right { text-align: right; }
+
+.masthead h1 {
+  margin: 22px 0 0;
+  color: var(--tech-ink);
+  font-family: Bahnschrift, "Arial Narrow", "Aptos Narrow", "PingFang SC", sans-serif;
+  font-size: 84px;
+  font-stretch: condensed;
+  font-weight: 800;
+  line-height: 0.9;
+  overflow-wrap: anywhere;
+  animation: portal-module-enter 520ms 100ms ease-out both;
+}
+
+.masthead h1::after {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-left: 18px;
+  background: var(--tech-signal);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--tech-signal) 13%, transparent);
+  content: "";
+  vertical-align: 0.2em;
+}
+
+.masthead-intro {
+  display: grid;
+  max-width: 700px;
+  grid-template-columns: 1fr;
+  gap: 15px;
+  align-items: end;
+  margin-top: 24px;
+  animation: portal-module-enter 520ms 180ms ease-out both;
+}
+
+.value-line {
+  max-width: 650px;
+  margin: 0;
+  font-family: Bahnschrift, "Arial Narrow", "Aptos Narrow", "PingFang SC", sans-serif;
+  font-size: 36px;
+  font-weight: 650;
+  line-height: 1.18;
+}
+
+.intro-action {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) auto;
+  align-items: end;
+  gap: 30px;
+}
+
+.intro-action > p {
+  max-width: 390px;
+  margin: 0;
+  color: var(--tech-muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.intro-action > div {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-top: 0;
+}
+
+.action-primary { min-height: 44px; padding: 0 19px; }
+
+.action-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.action-text:hover { color: var(--cobalt); }
+
+.masthead .action-primary {
+  border-color: var(--tech-electric);
+  background: var(--tech-electric);
+  color: #071012;
+}
+
+.masthead .action-primary:hover {
+  border-color: var(--tech-signal);
+  background: var(--tech-signal);
+  color: #071012;
+}
+
+.masthead .action-text { color: var(--tech-ink); }
+.masthead .action-text:hover { color: var(--tech-signal); }
+
+.routing-loom {
+  --loom-gutter: max(24px, calc((100vw - 1240px) / 2));
+  width: 100vw;
+  display: flex;
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  margin-top: 30px;
+  margin-left: calc(50% - 50vw);
+  border-top: 1px solid var(--tech-rule);
+  border-bottom: 1px solid var(--tech-rule);
+  background: var(--tech-panel);
+  color: var(--tech-ink);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tech-ink) 4%, transparent);
+  animation: portal-loom-enter 580ms 260ms ease-out both;
+}
+
+.routing-loom::before,
+.routing-loom::after {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--tech-rule);
+  content: "";
+  pointer-events: none;
+}
+
+.routing-loom::before { left: var(--loom-gutter); }
+.routing-loom::after { right: var(--loom-gutter); }
+
+.loom-labels,
+.loom-flow,
+.loom-response {
+  width: min(1240px, calc(100% - 48px));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.loom-labels {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  min-height: 42px;
+  align-items: center;
+  border-bottom: 1px solid var(--tech-rule);
+  padding: 0 18px;
+  color: var(--tech-muted);
+}
+
+.loom-labels::after {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 16%;
+  height: 2px;
+  background: var(--tech-signal);
+  box-shadow: -10px 0 0 color-mix(in srgb, var(--tech-signal) 42%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: route-stage-rail var(--route-cycle) linear infinite;
+}
+
+.loom-labels span:first-child { animation: route-stage-request var(--route-cycle) linear infinite; }
+.loom-labels span:nth-child(2) { text-align: center; animation: route-stage-router var(--route-cycle) linear infinite; }
+.loom-labels span:last-child { text-align: right; animation: route-stage-model var(--route-cycle) linear infinite; }
+
+.loom-flow {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 214px;
+  grid-template-columns: minmax(230px, 1.15fr) minmax(50px, 0.65fr) 92px minmax(70px, 0.65fr) minmax(260px, 1.3fr);
+  align-items: center;
+  padding: 8px 18px;
+}
+
+.request-source {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 11px 13px;
+  align-items: center;
+}
+
+.request-source .method { animation: route-ingress var(--route-cycle) linear infinite; }
+
+.method {
+  grid-row: span 2;
+  border-radius: 3px;
+  padding: 7px 8px;
+  background: var(--coral);
+  color: #fff;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.request-source strong,
+.request-source code { display: block; }
+.request-source strong { color: var(--tech-ink); font-size: 14px; }
+.request-source code { margin-top: 4px; color: var(--tech-muted); font-size: 12px; }
+.request-source small {
+  grid-column: 2;
+  color: var(--tech-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.incoming-track {
+  position: relative;
+  height: 1px;
+  margin: 0 12px;
+  background: var(--tech-rule);
+}
+
+.incoming-track::before,
+.incoming-track::after {
+  position: absolute;
+  top: -10px;
+  display: grid;
+  min-width: 38px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--tech-rule);
+  background: var(--tech-panel);
+  color: var(--tech-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.incoming-track::before { left: 18%; content: "KEY"; animation: route-key-check var(--route-cycle) linear infinite; }
+.incoming-track::after { right: 10%; content: "POLICY"; animation: route-policy-check var(--route-cycle) linear infinite; }
+
+.incoming-track i {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 12px;
+  height: 4px;
+  z-index: 2;
+  border: 0;
+  border-radius: 0;
+  background: var(--tech-signal);
   box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(20, 184, 166, 0.2),
-    0 0 40px rgba(20, 184, 166, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    -7px 0 0 color-mix(in srgb, var(--tech-signal) 68%, transparent),
+    -14px 0 0 color-mix(in srgb, var(--tech-signal) 28%, transparent);
+  transform-origin: right center;
+  will-change: left, opacity, transform;
+  animation: route-packet var(--route-cycle) linear infinite;
+}
+
+.router-core {
+  position: relative;
+  display: grid;
+  width: 82px;
+  height: 72px;
+  place-items: center;
+  align-content: center;
+  border: 1px solid var(--tech-electric);
+  transform: none;
+  background: var(--tech-panel-raised);
+  color: var(--tech-electric);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tech-electric) 8%, transparent);
+  transform-origin: center;
+  animation: route-core-lock var(--route-cycle) linear infinite;
+}
+
+.router-core::before,
+.router-core::after {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  content: "";
+  pointer-events: none;
+  animation: route-core-brackets var(--route-cycle) linear infinite;
+}
+
+.router-core::before { top: -4px; left: -4px; border-top: 2px solid var(--tech-signal); border-left: 2px solid var(--tech-signal); transform-origin: top left; }
+.router-core::after { right: -4px; bottom: -4px; border-right: 2px solid var(--tech-signal); border-bottom: 2px solid var(--tech-signal); transform-origin: bottom right; }
+.router-core > * { transform: none; }
+.router-core svg { transform-origin: center; animation: route-decision var(--route-cycle) linear infinite; }
+.router-core span { margin-top: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
+.router-core b { margin-top: 2px; color: var(--tech-muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; animation: route-policy-state var(--route-cycle) linear infinite; }
+
+.branch-track {
+  display: grid;
+  height: 208px;
+  grid-template-rows: repeat(4, 49px);
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  border-left: 1px solid var(--tech-rule);
+}
+
+.branch-track i { display: block; position: relative; height: 1px; background: var(--tech-rule); transform-origin: left center; }
+.branch-track i.active { animation: route-branch-draw var(--route-cycle) linear infinite; }
+.branch-track i.active::after {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 9px;
+  height: 3px;
+  background: var(--tech-signal);
+  box-shadow:
+    -6px 0 0 color-mix(in srgb, var(--tech-signal) 58%, transparent),
+    -12px 0 0 color-mix(in srgb, var(--tech-signal) 22%, transparent);
+  content: "";
+  opacity: 0;
+  transform-origin: right center;
+  animation: route-branch-packet var(--route-cycle) linear infinite;
+}
+
+.model-targets { display: grid; gap: 4px; }
+
+.model-target {
+  display: grid;
+  position: relative;
+  overflow: hidden;
+  min-height: 44px;
+  grid-template-columns: 32px 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 1px 11px;
+  border: 1px solid var(--tech-rule);
+  border-radius: 4px;
+  padding: 5px 10px;
+  background: var(--tech-panel-raised);
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.model-target.active {
+  border-color: var(--tech-electric);
+  background: color-mix(in srgb, var(--tech-electric) 12%, var(--tech-panel-raised));
+  animation: route-target-enter 180ms ease-out both, route-target-lock var(--route-cycle) linear infinite;
+}
+
+.model-target.active::before {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--tech-signal);
+  box-shadow:
+    -6px 0 0 color-mix(in srgb, var(--tech-signal) 48%, transparent),
+    -13px 0 0 color-mix(in srgb, var(--tech-signal) 18%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: route-target-scan var(--route-cycle) linear infinite;
+}
+
+.model-target.active::after {
+  position: absolute;
+  top: 7px;
+  right: -1px;
+  bottom: 7px;
+  width: 3px;
+  background: var(--tech-signal);
+  content: "";
+  animation: route-target-indicator var(--route-cycle) linear infinite;
+}
+
+.model-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  grid-row: span 2;
+  place-items: center;
+  border-radius: 3px;
+  color: white;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.claude { background: #bf6746; }
+.openai { background: #24725b; }
+.gemini { background: #3568a8; }
+.grok { background: #dbe4e2; color: #071012; }
+
+.model-target strong { font-size: 13px; }
+.model-target small { color: var(--tech-muted); font-size: 11px; }
+.model-target > b {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--tech-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.model-target.active > b { color: var(--tech-electric); }
+.model-target.active .model-mark { animation: route-mark-lock var(--route-cycle) linear infinite; }
+
+.loom-response {
+  display: grid;
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  min-height: 42px;
+  grid-template-columns: 1fr 2fr 1fr;
+  align-items: center;
+  border-top: 1px solid var(--tech-rule);
+  padding: 0 18px;
+  color: var(--tech-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.loom-response::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--tech-signal);
+  box-shadow:
+    -8px 0 0 color-mix(in srgb, var(--tech-signal) 52%, transparent),
+    -18px 0 0 color-mix(in srgb, var(--tech-signal) 18%, transparent);
+  content: "";
+  opacity: 0;
+  animation: route-response-scan var(--route-cycle) linear infinite;
+}
+
+.loom-response::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--tech-signal);
+  content: "";
+  pointer-events: none;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: route-response-rail var(--route-cycle) linear infinite;
+}
+
+.loom-response > span { animation: route-response-ok var(--route-cycle) linear infinite; }
+.loom-response > code { animation: route-response-code var(--route-cycle) linear infinite; }
+.loom-response > b { animation: route-response-complete var(--route-cycle) linear infinite; }
+
+.loom-response i { background: var(--tech-signal); transform-origin: center; animation: route-response-led var(--route-cycle) linear infinite; }
+.loom-response b { color: var(--tech-ink); }
+
+.loom-response code { text-align: center; }
+.loom-response b { text-align: right; font-size: 11px; }
+
+@keyframes portal-module-enter {
+  from { opacity: 0; transform: translateY(10px); clip-path: inset(0 0 24% 0); }
+  to { opacity: 1; transform: translateY(0); clip-path: inset(0); }
+}
+
+@keyframes portal-loom-enter {
+  from { opacity: 0; clip-path: inset(0 0 100% 0); }
+  to { opacity: 1; clip-path: inset(0); }
+}
+
+@keyframes route-stage-rail {
+  0%, 4% { left: 0; opacity: 0; transform: scaleX(0.25); }
+  7%, 24% { left: 0; opacity: 1; transform: scaleX(1); }
+  31%, 42% { left: 42%; opacity: 1; transform: scaleX(0.72); }
+  48%, 76% { left: 84%; opacity: 1; transform: scaleX(1); }
+  82%, 100% { left: 84%; opacity: 0; transform: scaleX(0.25); }
+}
+
+@keyframes route-stage-request {
+  0%, 4%, 30%, 100% { color: var(--tech-muted); }
+  7%, 25% { color: var(--tech-signal); }
+}
+
+@keyframes route-stage-router {
+  0%, 27%, 46%, 100% { color: var(--tech-muted); }
+  31%, 42% { color: var(--tech-signal); }
+}
+
+@keyframes route-stage-model {
+  0%, 43%, 82%, 100% { color: var(--tech-muted); }
+  48%, 78% { color: var(--tech-signal); }
+}
+
+@keyframes route-ingress {
+  0%, 5%, 88%, 100% { opacity: 0.66; }
+  8%, 76% { opacity: 1; }
+}
+
+@keyframes route-packet {
+  0%, 5% { left: 0; opacity: 0; transform: scaleX(0.25); }
+  7% { left: 0; opacity: 1; transform: scaleX(1); }
+  23% { opacity: 1; transform: scaleX(2.15); }
+  30% { left: calc(100% - 12px); opacity: 1; transform: scaleX(0.72); }
+  33%, 100% { left: calc(100% - 12px); opacity: 0; transform: scaleX(0.2); }
+}
+
+@keyframes route-key-check {
+  0%, 10%, 82%, 100% { border-color: var(--tech-rule); background: var(--tech-panel); color: var(--tech-muted); }
+  13%, 76% { border-color: var(--tech-signal); background: var(--tech-panel-raised); color: var(--tech-ink); }
+}
+
+@keyframes route-policy-check {
+  0%, 19%, 82%, 100% { border-color: var(--tech-rule); background: var(--tech-panel); color: var(--tech-muted); }
+  22%, 76% { border-color: var(--tech-signal); background: var(--tech-panel-raised); color: var(--tech-ink); }
+}
+
+@keyframes route-core-lock {
+  0%, 27%, 84%, 100% {
+    border-color: var(--tech-electric);
+    background: var(--tech-panel-raised);
+    color: var(--tech-electric);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tech-electric) 8%, transparent);
+    transform: scale(1);
+  }
+  29% { transform: scale(0.96); }
+  32% {
+    border-color: var(--tech-signal);
+    background: color-mix(in srgb, var(--tech-signal) 13%, var(--tech-panel-raised));
+    color: var(--tech-signal);
+    box-shadow: inset 4px 0 0 var(--tech-signal), inset -4px 0 0 color-mix(in srgb, var(--tech-signal) 42%, transparent), 0 0 0 2px color-mix(in srgb, var(--tech-signal) 24%, transparent);
+    transform: scale(1.045);
+  }
+  37%, 76% {
+    border-color: var(--tech-signal);
+    background: color-mix(in srgb, var(--tech-signal) 8%, var(--tech-panel-raised));
+    color: var(--tech-signal);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tech-signal) 66%, transparent), inset -1px 0 0 color-mix(in srgb, var(--tech-signal) 24%, transparent);
+    transform: scale(1);
+  }
+}
+
+@keyframes route-core-brackets {
+  0%, 27%, 84%, 100% { width: 11px; height: 11px; border-color: var(--tech-signal); opacity: 0.72; }
+  30% { width: 19px; height: 19px; border-color: var(--tech-electric); opacity: 1; }
+  34%, 76% { width: 14px; height: 14px; border-color: var(--tech-signal); opacity: 1; }
+}
+
+@keyframes route-decision {
+  0%, 28%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(45deg); }
+  32% { transform: rotate(90deg); }
+  34% { transform: rotate(135deg); }
+  36%, 83% { transform: rotate(180deg); }
+  86% { transform: rotate(0deg); }
+}
+
+@keyframes route-policy-state {
+  0%, 27%, 84%, 100% { color: var(--tech-muted); }
+  31%, 78% { color: var(--tech-signal); }
+}
+
+@keyframes route-branch-draw {
+  0%, 35%, 87%, 100% { transform: scaleX(0); background: var(--tech-rule); }
+  39% { transform: scaleX(0.42); background: var(--tech-signal); }
+  44%, 79% { transform: scaleX(1); background: var(--tech-signal); }
+}
+
+@keyframes route-branch-packet {
+  0%, 39%, 83%, 100% { left: 0; opacity: 0; transform: scaleX(0.3); }
+  42% { left: 0; opacity: 1; transform: scaleX(1.8); }
+  51% { left: calc(100% - 9px); opacity: 1; transform: scaleX(0.8); }
+  54% { left: calc(100% - 9px); opacity: 0; transform: scaleX(0.2); }
+}
+
+@keyframes route-target-enter {
+  from { opacity: 0.62; transform: translateX(-5px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes route-target-lock {
+  0%, 42%, 87%, 100% {
+    border-color: var(--tech-electric);
+    background: color-mix(in srgb, var(--tech-electric) 12%, var(--tech-panel-raised));
+    box-shadow: inset 0 0 0 transparent;
+  }
+  46% {
+    border-color: var(--tech-signal);
+    background: color-mix(in srgb, var(--tech-signal) 17%, var(--tech-panel-raised));
+    box-shadow: inset 5px 0 0 var(--tech-signal), inset -2px 0 0 color-mix(in srgb, var(--tech-signal) 42%, transparent);
+  }
+  51%, 80% {
+    border-color: var(--tech-signal);
+    background: color-mix(in srgb, var(--tech-signal) 10%, var(--tech-panel-raised));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tech-signal) 62%, transparent);
+  }
+}
+
+@keyframes route-target-indicator {
+  0%, 42%, 86%, 100% { opacity: 0; }
+  47%, 80% { opacity: 1; }
+}
+
+@keyframes route-target-scan {
+  0%, 43% { left: 0; opacity: 0; }
+  46% { left: 0; opacity: 1; }
+  55% { left: calc(100% - 2px); opacity: 1; }
+  58%, 100% { left: calc(100% - 2px); opacity: 0; }
+}
+
+@keyframes route-mark-lock {
+  0%, 43%, 84%, 100% { box-shadow: 0 0 0 transparent; transform: scale(1); }
+  46% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tech-signal) 28%, transparent); transform: scale(0.88); }
+  49% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tech-signal) 46%, transparent); transform: scale(1.12); }
+  54%, 80% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--tech-signal) 22%, transparent); transform: scale(1); }
+}
+
+@keyframes route-response-scan {
+  0%, 49% { left: 0; opacity: 0; }
+  52% { left: 0; opacity: 1; }
+  66% { left: calc(100% - 3px); opacity: 1; }
+  69%, 100% { left: calc(100% - 3px); opacity: 0; }
+}
+
+@keyframes route-response-rail {
+  0%, 49%, 90%, 100% { transform: scaleX(0); transform-origin: left center; }
+  53%, 78% { transform: scaleX(1); transform-origin: left center; }
+  84% { transform: scaleX(0); transform-origin: right center; }
+}
+
+@keyframes route-response-ok {
+  0%, 51%, 89%, 100% { color: var(--tech-muted); opacity: 0.58; }
+  55%, 84% { color: var(--tech-signal); opacity: 1; }
+}
+
+@keyframes route-response-code {
+  0%, 56%, 89%, 100% { color: var(--tech-muted); opacity: 0.58; }
+  60%, 84% { color: var(--tech-ink); opacity: 1; }
+}
+
+@keyframes route-response-complete {
+  0%, 61%, 89%, 100% { color: var(--tech-muted); opacity: 0.58; }
+  65%, 84% { color: var(--tech-signal); opacity: 1; }
+}
+
+@keyframes route-response-led {
+  0%, 51%, 89%, 100% { opacity: 0.42; transform: scale(0.72); }
+  55% { opacity: 1; transform: scale(1.65); }
+  59%, 84% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes route-packet-mobile {
+  0%, 6% { top: 0; left: -2px; opacity: 0; box-shadow: 0 -7px 0 color-mix(in srgb, var(--tech-signal) 52%, transparent), 0 -14px 0 color-mix(in srgb, var(--tech-signal) 20%, transparent); transform: scaleX(0.4); }
+  9% { top: 0; left: -2px; opacity: 1; transform: scaleX(1); }
+  20% { top: calc(100% - 4px); left: -2px; opacity: 1; box-shadow: 0 -7px 0 color-mix(in srgb, var(--tech-signal) 52%, transparent), 0 -14px 0 color-mix(in srgb, var(--tech-signal) 20%, transparent); transform: scaleX(1); }
+  22% { box-shadow: -7px 0 0 color-mix(in srgb, var(--tech-signal) 62%, transparent), -14px 0 0 color-mix(in srgb, var(--tech-signal) 24%, transparent); transform: scaleX(1.7); }
+  30% { top: calc(100% - 4px); left: calc(100% - 12px); opacity: 1; box-shadow: -7px 0 0 color-mix(in srgb, var(--tech-signal) 62%, transparent), -14px 0 0 color-mix(in srgb, var(--tech-signal) 24%, transparent); transform: scaleX(0.75); }
+  33%, 100% { top: calc(100% - 4px); left: calc(100% - 12px); opacity: 0; transform: scaleX(0.2); }
+}
+
+@media (max-width: 1000px) {
+  .masthead h1 { font-size: 72px; }
+  .masthead-intro { gap: 15px; }
+  .loom-flow { grid-template-columns: minmax(190px, 1fr) 45px 82px 50px minmax(220px, 1.1fr); }
+  .incoming-track::before,
+  .incoming-track::after { display: none; }
+}
+
+@media (max-width: 760px) {
+  .portal-nav,
+  .masthead { width: min(100% - 28px, 1240px); }
+
+  .portal-nav { min-height: 62px; grid-template-columns: auto 1fr; }
+  .wordmark > span:last-child,
+  .header-status,
+  .header-actions > a.square-action,
+  .header-login svg,
+  .user-token { display: none; }
+  .header-actions { justify-self: end; }
+  .header-login { padding: 0 13px; }
+
+  .masthead { padding: 24px 0 0; }
+  .masthead-meta { grid-template-columns: 1fr auto; }
+  .masthead-meta code { text-align: right; }
+  .meta-right { display: none; }
+  .masthead h1 { margin-top: 26px; font-size: 54px; line-height: 0.92; }
+  .masthead h1::after { width: 8px; height: 8px; margin-left: 11px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--tech-signal) 13%, transparent); }
+  .masthead-intro { max-width: none; grid-template-columns: 1fr; gap: 22px; margin-top: 32px; }
+  .intro-action { display: block; }
+  .value-line { font-size: 27px; }
+  .intro-action > p { font-size: 13px; }
+  .intro-action > div { justify-content: space-between; margin-top: 20px; }
+
+  .routing-loom { --loom-gutter: 14px; margin-top: 40px; }
+  .loom-labels,
+  .loom-flow,
+  .loom-response { width: calc(100% - 28px); }
+  .loom-labels { grid-template-columns: 1fr 1fr; }
+  .loom-labels span:nth-child(2) { text-align: right; }
+  .loom-labels span:last-child { display: none; }
+  .loom-flow { display: block; min-height: 0; padding: 22px 14px; }
+  .request-source { max-width: 280px; }
+  .incoming-track { width: calc(50% - 32px); height: 70px; margin: 16px 0 16px 32px; border-bottom: 1px solid var(--tech-rule); border-left: 1px solid var(--tech-rule); background: transparent; }
+  .incoming-track::before,
+  .incoming-track::after { display: none; }
+  .incoming-track i { top: 0; bottom: auto; animation: route-packet-mobile var(--route-cycle) linear infinite; }
+  .router-core { width: 72px; height: 72px; margin: -52px auto 34px; }
+  .branch-track { display: none; }
+  .model-targets { margin-top: 0; }
+  .model-target:not(.active) { display: none; }
+  .loom-response { grid-template-columns: 1fr auto; padding: 0 14px; }
+  .loom-response code { display: none; }
+}
+
+@media (min-width: 561px) and (max-width: 760px) {
+  .loom-labels { grid-template-columns: 1fr 1fr 1fr; }
+  .loom-labels span:nth-child(2) { text-align: center; }
+  .loom-labels span:last-child { display: block; text-align: right; }
+
+  .loom-flow {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) 34px 72px 34px minmax(170px, 1fr);
+    align-items: center;
+    padding: 8px 14px;
+  }
+
+  .request-source { max-width: none; }
+  .incoming-track {
+    width: auto;
+    height: 1px;
+    margin: 0 8px;
+    border: 0;
+    background: var(--tech-rule);
+  }
+  .incoming-track i { top: -2px; animation: route-packet var(--route-cycle) linear infinite; }
+  .router-core { width: 72px; height: 72px; margin: 0; }
+  .branch-track {
+    display: block;
+    height: 1px;
+    margin-left: 8px;
+    border: 0;
+  }
+  .branch-track i { display: none; }
+  .branch-track i.active { display: block; }
+  .model-targets { min-width: 0; margin: 0; }
+  .model-target.active { display: grid; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal *, .portal *::before, .portal *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .incoming-track i,
+  .loom-response::before { display: none; }
+  .branch-track i.active { transform: scaleX(1); }
 }
 </style>
