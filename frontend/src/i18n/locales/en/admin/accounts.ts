@@ -104,6 +104,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        seedance: 'Seedance',
       },
       types: {
         oauth: 'OAuth',

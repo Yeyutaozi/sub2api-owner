@@ -1006,7 +1006,15 @@
             {{ t(videoPricingI18nKey("title")) }}
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ t(videoPricingI18nKey("description")) }}
+            {{
+              t(
+                videoPricingI18nKey(
+                  createForm.platform === "seedance"
+                    ? "seedanceDescription"
+                    : "description",
+                ),
+              )
+            }}
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -1034,57 +1042,176 @@
               placeholder="1"
             />
           </div>
-          <div class="grid grid-cols-3 gap-3">
-            <div>
-              <label class="input-label">480p ($/s)</label>
-              <input
-                v-model.number="createForm.video_price_480p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_480p')"
-              />
-            </div>
-            <div>
-              <label class="input-label">720p ($/s)</label>
-              <input
-                v-model.number="createForm.video_price_720p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_720p')"
-              />
-            </div>
-            <div>
-              <label class="input-label">1080p ($/s)</label>
-              <input
-                v-model.number="createForm.video_price_1080p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_1080p')"
-              />
-            </div>
-          </div>
-          <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            {{ t(videoPricingI18nKey("modeHint")) }}
-          </p>
-          <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-            <div class="mb-1 font-medium">
-              {{ t(videoPricingI18nKey("finalPricePreview")) }}
-            </div>
-            <div class="grid grid-cols-3 gap-2">
+          <template v-if="createForm.platform === 'seedance'">
+            <div
+              class="space-y-3"
+              data-testid="create-seedance-video-model-pricing"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t(videoPricingI18nKey("modelPrices")) }}
+                </span>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="createVideoModelPriceRows.length > 0"
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-dark-700 dark:hover:text-white"
+                    data-testid="create-seedance-clear-prices"
+                    @click="createVideoModelPriceRows.splice(0)"
+                  >
+                    <Icon name="trash" size="xs" />
+                    {{ t(videoPricingI18nKey("clearMatrix")) }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded bg-primary-50 px-2 py-1.5 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:bg-primary-900/20 dark:text-primary-300 dark:hover:bg-primary-900/40"
+                    data-testid="create-seedance-add-model"
+                    @click="addCreateVideoModelPriceRow"
+                  >
+                    <Icon name="plus" size="xs" />
+                    {{ t(videoPricingI18nKey("addModel")) }}
+                  </button>
+                </div>
+              </div>
+
               <div
-                v-for="item in createVideoFinalPricePreview"
-                :key="item.label"
+                v-if="createVideoModelPriceRows.length === 0"
+                class="rounded-md border border-dashed border-gray-300 px-3 py-4 text-center text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400"
+                data-testid="create-seedance-empty-prices"
               >
-                {{ item.label }}: {{ item.value }}
+                {{ t(videoPricingI18nKey("emptyMatrix")) }}
+              </div>
+
+              <div
+                v-for="(row, index) in createVideoModelPriceRows"
+                :key="resolveCreateVideoModelPriceRowKey(row)"
+                class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-dark-600 dark:bg-dark-800/60"
+                data-testid="create-seedance-price-row"
+              >
+                <div class="mb-3 flex items-end gap-2">
+                  <div class="min-w-0 flex-1">
+                    <label class="input-label">
+                      {{ t(videoPricingI18nKey("model")) }}
+                    </label>
+                    <input
+                      v-model="row.model"
+                      type="text"
+                      class="input font-mono text-sm"
+                      autocomplete="off"
+                      spellcheck="false"
+                      :placeholder="t(videoPricingI18nKey('modelPlaceholder'))"
+                      data-testid="create-seedance-model-input"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                    :title="t(videoPricingI18nKey('removeModel'), { model: row.model || index + 1 })"
+                    :aria-label="t(videoPricingI18nKey('removeModel'), { model: row.model || index + 1 })"
+                    data-testid="create-seedance-remove-model"
+                    @click="removeVideoModelPriceRow(createVideoModelPriceRows, row)"
+                  >
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div>
+                    <label class="input-label">480p ($/s)</label>
+                    <input
+                      v-model.number="row.price_480p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="create-seedance-price-480p"
+                    />
+                  </div>
+                  <div>
+                    <label class="input-label">720p ($/s)</label>
+                    <input
+                      v-model.number="row.price_720p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="create-seedance-price-720p"
+                    />
+                  </div>
+                  <div>
+                    <label class="input-label">1080p ($/s)</label>
+                    <input
+                      v-model.number="row.price_1080p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="create-seedance-price-1080p"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+            <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t(videoPricingI18nKey("seedanceModeHint")) }}
+            </p>
+          </template>
+
+          <template v-else>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="input-label">480p ($/s)</label>
+                <input
+                  v-model.number="createForm.video_price_480p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_480p')"
+                />
+              </div>
+              <div>
+                <label class="input-label">720p ($/s)</label>
+                <input
+                  v-model.number="createForm.video_price_720p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_720p')"
+                />
+              </div>
+              <div>
+                <label class="input-label">1080p ($/s)</label>
+                <input
+                  v-model.number="createForm.video_price_1080p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_1080p')"
+                />
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t(videoPricingI18nKey("modeHint")) }}
+            </p>
+            <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              <div class="mb-1 font-medium">
+                {{ t(videoPricingI18nKey("finalPricePreview")) }}
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <div
+                  v-for="item in createVideoFinalPricePreview"
+                  :key="item.label"
+                >
+                  {{ item.label }}: {{ item.value }}
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
@@ -2520,7 +2647,15 @@
             {{ t(videoPricingI18nKey("title")) }}
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ t(videoPricingI18nKey("description")) }}
+            {{
+              t(
+                videoPricingI18nKey(
+                  editForm.platform === "seedance"
+                    ? "seedanceDescription"
+                    : "description",
+                ),
+              )
+            }}
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -2548,57 +2683,176 @@
               placeholder="1"
             />
           </div>
-          <div class="grid grid-cols-3 gap-3">
-            <div>
-              <label class="input-label">480p ($/s)</label>
-              <input
-                v-model.number="editForm.video_price_480p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_480p')"
-              />
-            </div>
-            <div>
-              <label class="input-label">720p ($/s)</label>
-              <input
-                v-model.number="editForm.video_price_720p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_720p')"
-              />
-            </div>
-            <div>
-              <label class="input-label">1080p ($/s)</label>
-              <input
-                v-model.number="editForm.video_price_1080p"
-                type="number"
-                step="0.001"
-                min="0"
-                class="input"
-                :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_1080p')"
-              />
-            </div>
-          </div>
-          <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            {{ t(videoPricingI18nKey("modeHint")) }}
-          </p>
-          <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-            <div class="mb-1 font-medium">
-              {{ t(videoPricingI18nKey("finalPricePreview")) }}
-            </div>
-            <div class="grid grid-cols-3 gap-2">
+          <template v-if="editForm.platform === 'seedance'">
+            <div
+              class="space-y-3"
+              data-testid="edit-seedance-video-model-pricing"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t(videoPricingI18nKey("modelPrices")) }}
+                </span>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="editVideoModelPriceRows.length > 0"
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-dark-700 dark:hover:text-white"
+                    data-testid="edit-seedance-clear-prices"
+                    @click="editVideoModelPriceRows.splice(0)"
+                  >
+                    <Icon name="trash" size="xs" />
+                    {{ t(videoPricingI18nKey("clearMatrix")) }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded bg-primary-50 px-2 py-1.5 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:bg-primary-900/20 dark:text-primary-300 dark:hover:bg-primary-900/40"
+                    data-testid="edit-seedance-add-model"
+                    @click="addEditVideoModelPriceRow"
+                  >
+                    <Icon name="plus" size="xs" />
+                    {{ t(videoPricingI18nKey("addModel")) }}
+                  </button>
+                </div>
+              </div>
+
               <div
-                v-for="item in editVideoFinalPricePreview"
-                :key="item.label"
+                v-if="editVideoModelPriceRows.length === 0"
+                class="rounded-md border border-dashed border-gray-300 px-3 py-4 text-center text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400"
+                data-testid="edit-seedance-empty-prices"
               >
-                {{ item.label }}: {{ item.value }}
+                {{ t(videoPricingI18nKey("emptyMatrix")) }}
+              </div>
+
+              <div
+                v-for="(row, index) in editVideoModelPriceRows"
+                :key="resolveEditVideoModelPriceRowKey(row)"
+                class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-dark-600 dark:bg-dark-800/60"
+                data-testid="edit-seedance-price-row"
+              >
+                <div class="mb-3 flex items-end gap-2">
+                  <div class="min-w-0 flex-1">
+                    <label class="input-label">
+                      {{ t(videoPricingI18nKey("model")) }}
+                    </label>
+                    <input
+                      v-model="row.model"
+                      type="text"
+                      class="input font-mono text-sm"
+                      autocomplete="off"
+                      spellcheck="false"
+                      :placeholder="t(videoPricingI18nKey('modelPlaceholder'))"
+                      data-testid="edit-seedance-model-input"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                    :title="t(videoPricingI18nKey('removeModel'), { model: row.model || index + 1 })"
+                    :aria-label="t(videoPricingI18nKey('removeModel'), { model: row.model || index + 1 })"
+                    data-testid="edit-seedance-remove-model"
+                    @click="removeVideoModelPriceRow(editVideoModelPriceRows, row)"
+                  >
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div>
+                    <label class="input-label">480p ($/s)</label>
+                    <input
+                      v-model.number="row.price_480p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="edit-seedance-price-480p"
+                    />
+                  </div>
+                  <div>
+                    <label class="input-label">720p ($/s)</label>
+                    <input
+                      v-model.number="row.price_720p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="edit-seedance-price-720p"
+                    />
+                  </div>
+                  <div>
+                    <label class="input-label">1080p ($/s)</label>
+                    <input
+                      v-model.number="row.price_1080p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="edit-seedance-price-1080p"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+            <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t(videoPricingI18nKey("seedanceModeHint")) }}
+            </p>
+          </template>
+
+          <template v-else>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="input-label">480p ($/s)</label>
+                <input
+                  v-model.number="editForm.video_price_480p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_480p')"
+                />
+              </div>
+              <div>
+                <label class="input-label">720p ($/s)</label>
+                <input
+                  v-model.number="editForm.video_price_720p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_720p')"
+                />
+              </div>
+              <div>
+                <label class="input-label">1080p ($/s)</label>
+                <input
+                  v-model.number="editForm.video_price_1080p"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="input"
+                  :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_1080p')"
+                />
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t(videoPricingI18nKey("modeHint")) }}
+            </p>
+            <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              <div class="mb-1 font-medium">
+                {{ t(videoPricingI18nKey("finalPricePreview")) }}
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <div
+                  v-for="item in editVideoFinalPricePreview"
+                  :key="item.label"
+                >
+                  {{ item.label }}: {{ item.value }}
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
@@ -3624,6 +3878,14 @@ import {
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
 import {
+  createDefaultSeedanceVideoModelPriceRows,
+  createVideoModelPriceRow,
+  validateVideoModelPriceRows,
+  videoModelPricesPayloadForPlatform,
+  videoModelPricesToRows,
+  type VideoModelPriceRow,
+} from "./groupsVideoModelPricing";
+import {
   getDefaultImagePreviewPrice,
   getDefaultVideoPreviewPrice,
   getImagePricePlaceholder,
@@ -3818,6 +4080,7 @@ const platformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "seedance", label: "Seedance" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -3827,6 +4090,7 @@ const platformFilterOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "seedance", label: "Seedance" },
 ]);
 
 const editStatusOptions = computed(() => [
@@ -4000,6 +4264,10 @@ const createModelsListState = reactive(createInitialModelsListState());
 const editModelsListState = reactive(createInitialModelsListState());
 const createModelsListLoading = ref(false);
 const editModelsListLoading = ref(false);
+const createVideoModelPriceRows = ref<VideoModelPriceRow[]>(
+  createDefaultSeedanceVideoModelPriceRows(),
+);
+const editVideoModelPriceRows = ref<VideoModelPriceRow[]>([]);
 const modelsListCandidatesTracker = createModelsListCandidatesTracker();
 const createModelsListSelectedCount = computed(
   () => createModelsListState.items.filter((item) => item.selected).length,
@@ -4007,6 +4275,28 @@ const createModelsListSelectedCount = computed(
 const editModelsListSelectedCount = computed(
   () => editModelsListState.items.filter((item) => item.selected).length,
 );
+const resolveCreateVideoModelPriceRowKey =
+  createStableObjectKeyResolver<VideoModelPriceRow>("create-video-price-row");
+const resolveEditVideoModelPriceRowKey =
+  createStableObjectKeyResolver<VideoModelPriceRow>("edit-video-price-row");
+
+const addCreateVideoModelPriceRow = () => {
+  createVideoModelPriceRows.value.push(createVideoModelPriceRow());
+};
+
+const addEditVideoModelPriceRow = () => {
+  editVideoModelPriceRows.value.push(createVideoModelPriceRow());
+};
+
+const removeVideoModelPriceRow = (
+  rows: VideoModelPriceRow[],
+  row: VideoModelPriceRow,
+) => {
+  const index = rows.indexOf(row);
+  if (index !== -1) {
+    rows.splice(index, 1);
+  }
+};
 
 const createForm = reactive({
   name: "",
@@ -4028,7 +4318,7 @@ const createForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
-  // 视频生成计费配置（仅 Grok 平台）
+  // 视频生成计费配置（Grok 使用通用三档价格，Seedance 使用独立模型矩阵）
   video_rate_independent: false,
   video_rate_multiplier: 1,
   video_price_480p: null as number | null,
@@ -4375,7 +4665,7 @@ const editForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
-  // 视频生成计费配置（仅 Grok 平台）
+  // 视频生成计费配置（Grok 使用通用三档价格，Seedance 使用独立模型矩阵）
   video_rate_independent: false,
   video_rate_multiplier: 1,
   video_price_480p: null as number | null,
@@ -4786,6 +5076,7 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
+  createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows();
   createForm.web_search_price_per_call = null;
   createForm.peak_rate_enabled = false;
   createForm.peak_start = "";
@@ -4834,9 +5125,32 @@ const normalizeRateMultiplier = (
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
+const ensureValidSeedanceVideoModelPrices = (
+  rows: VideoModelPriceRow[],
+): boolean => {
+  const error = validateVideoModelPriceRows(rows);
+  if (!error) {
+    return true;
+  }
+
+  appStore.showError(
+    t(`admin.groups.videoPricing.validation.${error.code}`, {
+      row: error.row,
+      model: "model" in error ? error.model : "",
+    }),
+  );
+  return false;
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
+    return;
+  }
+  if (
+    createForm.platform === "seedance" &&
+    !ensureValidSeedanceVideoModelPrices(createVideoModelPriceRows.value)
+  ) {
     return;
   }
   submitting.value = true;
@@ -4871,6 +5185,11 @@ const handleCreateGroup = async () => {
               exact_model_mappings: createForm.exact_model_mappings,
             })
           : undefined,
+      video_model_prices:
+        videoModelPricesPayloadForPlatform(
+          createForm.platform,
+          createVideoModelPriceRows.value,
+        ),
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
@@ -4954,6 +5273,10 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_480p = group.video_price_480p;
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
+  editVideoModelPriceRows.value =
+    group.platform === "seedance"
+      ? videoModelPricesToRows(group.video_model_prices)
+      : [];
   editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
   editForm.peak_rate_enabled = group.peak_rate_enabled ?? false;
   editForm.peak_start = group.peak_start ?? "";
@@ -5012,6 +5335,7 @@ const closeEditModal = () => {
   editForm.video_price_480p = null;
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
+  editVideoModelPriceRows.value = [];
   editForm.web_search_price_per_call = null;
   resetMessagesDispatchFormState(editForm);
   resetModelsListState(editModelsListState);
@@ -5021,6 +5345,12 @@ const handleUpdateGroup = async () => {
   if (!editingGroup.value) return;
   if (!editForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
+    return;
+  }
+  if (
+    editForm.platform === "seedance" &&
+    !ensureValidSeedanceVideoModelPrices(editVideoModelPriceRows.value)
+  ) {
     return;
   }
 
@@ -5062,6 +5392,11 @@ const handleUpdateGroup = async () => {
               exact_model_mappings: editForm.exact_model_mappings,
             })
           : undefined,
+      video_model_prices:
+        videoModelPricesPayloadForPlatform(
+          editForm.platform,
+          editVideoModelPriceRows.value,
+        ),
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);

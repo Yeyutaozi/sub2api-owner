@@ -190,6 +190,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldVideoPrice480p,
 				group.FieldVideoPrice720p,
 				group.FieldVideoPrice1080p,
+				group.FieldVideoModelPrices,
 				group.FieldWebSearchPricePerCall,
 				group.FieldClaudeCodeOnly,
 				group.FieldFallbackGroupID,
@@ -907,6 +908,10 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 	if g == nil {
 		return nil
 	}
+	videoModelPrices := service.VideoModelPrices{}
+	if g.Platform == service.PlatformSeedance {
+		videoModelPrices = g.VideoModelPrices
+	}
 	return &service.Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
@@ -935,6 +940,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		VideoPrice480P:                  g.VideoPrice480p,
 		VideoPrice720P:                  g.VideoPrice720p,
 		VideoPrice1080P:                 g.VideoPrice1080p,
+		VideoModelPrices:                videoModelPrices,
 		WebSearchPricePerCall:           g.WebSearchPricePerCall,
 		DefaultValidityDays:             g.DefaultValidityDays,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,

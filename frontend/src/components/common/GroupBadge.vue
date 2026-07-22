@@ -162,6 +162,9 @@ const labelClass = computed(() => {
   if (props.platform === 'grok') {
     return `${base} bg-zinc-300/70 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-200`
   }
+  if (props.platform === 'seedance') {
+    return `${base} bg-rose-200/70 text-rose-800 dark:bg-rose-800/40 dark:text-rose-200`
+  }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
 })
 
@@ -196,6 +199,11 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
       : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'
+  }
+  if (props.platform === 'seedance') {
+    return isSubscription.value
+      ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+      : 'bg-pink-50 text-pink-700 dark:bg-pink-900/20 dark:text-pink-400'
   }
   // Fallback: original colors
   return isSubscription.value

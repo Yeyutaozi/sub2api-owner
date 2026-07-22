@@ -483,6 +483,12 @@ func (_c *GroupCreate) SetNillableVideoPrice1080p(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetVideoModelPrices sets the "video_model_prices" field.
+func (_c *GroupCreate) SetVideoModelPrices(v domain.VideoModelPrices) *GroupCreate {
+	_c.mutation.SetVideoModelPrices(v)
+	return _c
+}
+
 // SetWebSearchPricePerCall sets the "web_search_price_per_call" field.
 func (_c *GroupCreate) SetWebSearchPricePerCall(v float64) *GroupCreate {
 	_c.mutation.SetWebSearchPricePerCall(v)
@@ -904,6 +910,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultVideoRateMultiplier
 		_c.mutation.SetVideoRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.VideoModelPrices(); !ok {
+		v := group.DefaultVideoModelPrices
+		_c.mutation.SetVideoModelPrices(v)
+	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
@@ -1054,6 +1064,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.VideoRateMultiplier(); !ok {
 		return &ValidationError{Name: "video_rate_multiplier", err: errors.New(`ent: missing required field "Group.video_rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.VideoModelPrices(); !ok {
+		return &ValidationError{Name: "video_model_prices", err: errors.New(`ent: missing required field "Group.video_model_prices"`)}
 	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
@@ -1254,6 +1267,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.VideoPrice1080p(); ok {
 		_spec.SetField(group.FieldVideoPrice1080p, field.TypeFloat64, value)
 		_node.VideoPrice1080p = &value
+	}
+	if value, ok := _c.mutation.VideoModelPrices(); ok {
+		_spec.SetField(group.FieldVideoModelPrices, field.TypeJSON, value)
+		_node.VideoModelPrices = value
 	}
 	if value, ok := _c.mutation.WebSearchPricePerCall(); ok {
 		_spec.SetField(group.FieldWebSearchPricePerCall, field.TypeFloat64, value)
@@ -2006,6 +2023,18 @@ func (u *GroupUpsert) AddVideoPrice1080p(v float64) *GroupUpsert {
 // ClearVideoPrice1080p clears the value of the "video_price_1080p" field.
 func (u *GroupUpsert) ClearVideoPrice1080p() *GroupUpsert {
 	u.SetNull(group.FieldVideoPrice1080p)
+	return u
+}
+
+// SetVideoModelPrices sets the "video_model_prices" field.
+func (u *GroupUpsert) SetVideoModelPrices(v domain.VideoModelPrices) *GroupUpsert {
+	u.Set(group.FieldVideoModelPrices, v)
+	return u
+}
+
+// UpdateVideoModelPrices sets the "video_model_prices" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateVideoModelPrices() *GroupUpsert {
+	u.SetExcluded(group.FieldVideoModelPrices)
 	return u
 }
 
@@ -2923,6 +2952,20 @@ func (u *GroupUpsertOne) UpdateVideoPrice1080p() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearVideoPrice1080p() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearVideoPrice1080p()
+	})
+}
+
+// SetVideoModelPrices sets the "video_model_prices" field.
+func (u *GroupUpsertOne) SetVideoModelPrices(v domain.VideoModelPrices) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVideoModelPrices(v)
+	})
+}
+
+// UpdateVideoModelPrices sets the "video_model_prices" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateVideoModelPrices() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVideoModelPrices()
 	})
 }
 
@@ -4047,6 +4090,20 @@ func (u *GroupUpsertBulk) UpdateVideoPrice1080p() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearVideoPrice1080p() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearVideoPrice1080p()
+	})
+}
+
+// SetVideoModelPrices sets the "video_model_prices" field.
+func (u *GroupUpsertBulk) SetVideoModelPrices(v domain.VideoModelPrices) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVideoModelPrices(v)
+	})
+}
+
+// UpdateVideoModelPrices sets the "video_model_prices" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateVideoModelPrices() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVideoModelPrices()
 	})
 }
 

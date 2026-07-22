@@ -453,6 +453,9 @@ func normalizeGrokMediaEligibilityUpdateExtra(account *Account, input *UpdateAcc
 }
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := ValidateSeedanceAccountConfiguration(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	// Probe state is system-managed. New accounts always start with auto probe disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingProbeExtraKey)
@@ -783,6 +786,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				return nil, err
 			}
 		}
+	}
+	if err := ValidateSeedanceAccountConfiguration(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
 	}
 
 	probeEnabledAppliedAtomically := false

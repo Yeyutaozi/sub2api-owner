@@ -12,6 +12,8 @@ import (
 
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
 type GroupModelsListConfig = domain.GroupModelsListConfig
+type VideoModelPrice = domain.VideoModelPrice
+type VideoModelPrices = domain.VideoModelPrices
 
 type Group struct {
 	ID             int64
@@ -53,6 +55,7 @@ type Group struct {
 	VideoPrice480P               *float64
 	VideoPrice720P               *float64
 	VideoPrice1080P              *float64
+	VideoModelPrices             VideoModelPrices
 	// Codex alpha/search 网页搜索单次价格（USD/次，仅 openai 平台使用）；
 	// nil 表示使用默认价 defaultWebSearchPricePerCall（官方 $10/1000 次）。
 	WebSearchPricePerCall *float64
@@ -148,6 +151,34 @@ func (g *Group) GetVideoPrice(resolution string) *float64 {
 		return g.VideoPrice1080P
 	default:
 		return g.VideoPrice480P
+	}
+}
+
+// GetVideoPriceForModel resolves the exact requested-model price card first.
+// Once a matrix is configured it is authoritative: unlisted models and blank
+// tiers are rejected instead of silently borrowing another model's price.
+// Empty matrices retain the legacy group-wide resolution prices.
+func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
+	if g == nil {
+		return nil
+	}
+	if g.Platform != PlatformSeedance || len(g.VideoModelPrices) == 0 {
+		return g.GetVideoPrice(resolution)
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	price, ok := g.VideoModelPrices[model]
+	if !ok {
+		return nil
+	}
+	switch NormalizeVideoBillingResolutionOrDefault(resolution) {
+	case VideoBillingResolution480P:
+		return price.Price480P
+	case VideoBillingResolution720P:
+		return price.Price720P
+	case VideoBillingResolution1080P:
+		return price.Price1080P
+	default:
+		return price.Price480P
 	}
 }
 

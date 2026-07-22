@@ -910,6 +910,39 @@ func TestOpenAIGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamReque
 	require.Equal(t, "client:openai-client-stable-123", usageRepo.lastLog.RequestID)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_UsageRequestIDOverridesHTTPContext(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	videoPrice := 0.08
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "http-request-123")
+	err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:  "upstream-request-456",
+			Model:      "doubao-seedance-2-0-pro",
+			Duration:   time.Second,
+			VideoCount: 1,
+		},
+		APIKey:         &APIKey{ID: 10051, Group: &Group{VideoPrice720P: &videoPrice}},
+		User:           &User{ID: 20051},
+		Account:        &Account{ID: 30051},
+		UsageRequestID: SeedanceUsageRequestID("vidjob_123"),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.Equal(t, "seedance:vidjob_123", billingRepo.lastCmd.RequestID)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, "seedance:vidjob_123", usageRepo.lastLog.RequestID)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_WSModePrefersUpstreamRequestIDOverClientRequestID(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

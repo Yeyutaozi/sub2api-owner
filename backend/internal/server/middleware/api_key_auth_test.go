@@ -863,6 +863,14 @@ func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned, businessLimitedReason)
 }
 
+func TestIsSeedanceTaskRead(t *testing.T) {
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/vidjob_123"))
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/vidjob_123/content"))
+	require.True(t, isSeedanceTaskRead(http.MethodDelete, "/api/v3/contents/generations/tasks/vidjob_123"))
+	require.False(t, isSeedanceTaskRead(http.MethodPost, "/api/v3/contents/generations/tasks"))
+	require.False(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/"))
+}
+
 func TestAPIKeyAuthIPRestrictionUsesTrustedPathWhenSwitchDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

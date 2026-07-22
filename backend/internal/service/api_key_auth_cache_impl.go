@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 15 // v15: include group web search per-call pricing
+const apiKeyAuthSnapshotVersion = 16 // v16: include Seedance per-model video pricing
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -377,6 +377,10 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
 	}
 	if apiKey.Group != nil {
+		videoModelPrices := VideoModelPrices{}
+		if apiKey.Group.Platform == PlatformSeedance {
+			videoModelPrices = cloneVideoModelPrices(apiKey.Group.VideoModelPrices)
+		}
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
 			ID:                              apiKey.Group.ID,
 			Name:                            apiKey.Group.Name,
@@ -400,6 +404,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			VideoPrice480P:                  apiKey.Group.VideoPrice480P,
 			VideoPrice720P:                  apiKey.Group.VideoPrice720P,
 			VideoPrice1080P:                 apiKey.Group.VideoPrice1080P,
+			VideoModelPrices:                videoModelPrices,
 			WebSearchPricePerCall:           apiKey.Group.WebSearchPricePerCall,
 			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
@@ -460,6 +465,10 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		},
 	}
 	if snapshot.Group != nil {
+		videoModelPrices := VideoModelPrices{}
+		if snapshot.Group.Platform == PlatformSeedance {
+			videoModelPrices = cloneVideoModelPrices(snapshot.Group.VideoModelPrices)
+		}
 		apiKey.Group = &Group{
 			ID:                              snapshot.Group.ID,
 			Name:                            snapshot.Group.Name,
@@ -484,6 +493,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			VideoPrice480P:                  snapshot.Group.VideoPrice480P,
 			VideoPrice720P:                  snapshot.Group.VideoPrice720P,
 			VideoPrice1080P:                 snapshot.Group.VideoPrice1080P,
+			VideoModelPrices:                videoModelPrices,
 			WebSearchPricePerCall:           snapshot.Group.WebSearchPricePerCall,
 			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,

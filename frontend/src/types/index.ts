@@ -755,7 +755,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'seedance'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -765,6 +765,14 @@ export interface OpenAIMessagesDispatchModelConfig {
   haiku_mapped_model?: string
   exact_model_mappings?: Record<string, string>
 }
+
+export interface VideoModelPrice {
+  '480p'?: number | null
+  '720p'?: number | null
+  '1080p'?: number | null
+}
+
+export type VideoModelPrices = Record<string, VideoModelPrice>
 
 export interface Group {
   id: number
@@ -794,6 +802,7 @@ export interface Group {
   video_price_480p: number | null
   video_price_720p: number | null
   video_price_1080p: number | null
+  video_model_prices?: VideoModelPrices
   // Codex 网页搜索单次价格（USD/次）；null 表示使用默认价 0.01
   web_search_price_per_call: number | null
   // 高峰时段倍率配置
@@ -929,6 +938,7 @@ export interface CreateGroupRequest {
   video_price_480p?: number | null
   video_price_720p?: number | null
   video_price_1080p?: number | null
+  video_model_prices?: VideoModelPrices
   web_search_price_per_call?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string
@@ -977,6 +987,7 @@ export interface UpdateGroupRequest {
   video_price_480p?: number | null
   video_price_720p?: number | null
   video_price_1080p?: number | null
+  video_model_prices?: VideoModelPrices
   web_search_price_per_call?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string
@@ -1001,7 +1012,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'seedance'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'

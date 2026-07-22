@@ -43,6 +43,8 @@
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'grok'
                       ? 'https://api.x.ai/v1'
+                      : account.platform === 'seedance'
+                        ? 'https://api.fflink.top'
                       : 'https://api.anthropic.com'
             "
           />
@@ -72,6 +74,8 @@
                     ? 'sk-...'
                     : account.platform === 'grok'
                       ? 'xai-...'
+                      : account.platform === 'seedance'
+                        ? 'Sub2API Key'
                       : 'sk-ant-...'
             "
           />
@@ -2674,7 +2678,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok') return ''
+  if (props.account.platform === 'grok' || props.account.platform === 'seedance') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3123,6 +3127,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
+  if (props.account?.platform === 'seedance') return 'https://api.fflink.top'
   return 'https://api.anthropic.com'
 })
 
@@ -3452,6 +3457,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'seedance'
+              ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
@@ -3523,6 +3530,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'seedance'
+              ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 

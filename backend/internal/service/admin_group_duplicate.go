@@ -110,6 +110,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		VideoPrice480P:                  cloneGroupValuePointer(source.VideoPrice480P),
 		VideoPrice720P:                  cloneGroupValuePointer(source.VideoPrice720P),
 		VideoPrice1080P:                 cloneGroupValuePointer(source.VideoPrice1080P),
+		VideoModelPrices:                cloneGroupVideoModelPrices(source.Platform, source.VideoModelPrices),
 		WebSearchPricePerCall:           cloneGroupValuePointer(source.WebSearchPricePerCall),
 		ClaudeCodeOnly:                  source.ClaudeCodeOnly,
 		FallbackGroupID:                 cloneGroupValuePointer(source.FallbackGroupID),
@@ -130,6 +131,13 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		},
 		RPMLimit: source.RPMLimit,
 	}
+}
+
+func cloneGroupVideoModelPrices(platform string, prices VideoModelPrices) VideoModelPrices {
+	if platform != PlatformSeedance {
+		return VideoModelPrices{}
+	}
+	return cloneVideoModelPrices(prices)
 }
 
 // RecoverDuplicateGroup performs a read-only lookup for a copy that was already

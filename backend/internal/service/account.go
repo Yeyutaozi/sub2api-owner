@@ -256,12 +256,16 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsSeedance() bool {
+	return a != nil && a.Platform == PlatformSeedance
+}
+
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.Platform == PlatformSeedance)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1354,6 +1358,23 @@ func (a *Account) GetOpenAIApiKey() string {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetSeedanceBaseURL() string {
+	if !a.IsSeedance() || a.Type != AccountTypeAPIKey {
+		return ""
+	}
+	if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+		return baseURL
+	}
+	return DefaultSeedanceBaseURL
+}
+
+func (a *Account) GetSeedanceAPIKey() string {
+	if !a.IsSeedance() || a.Type != AccountTypeAPIKey {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
 }
 
 func (a *Account) GetOpenAIUserAgent() string {

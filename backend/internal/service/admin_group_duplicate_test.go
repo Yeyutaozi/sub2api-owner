@@ -55,6 +55,7 @@ func cloneGroupForDuplicateTest(group *Group) *Group {
 	cloned.VideoPrice480P = cloneGroupValuePointer(group.VideoPrice480P)
 	cloned.VideoPrice720P = cloneGroupValuePointer(group.VideoPrice720P)
 	cloned.VideoPrice1080P = cloneGroupValuePointer(group.VideoPrice1080P)
+	cloned.VideoModelPrices = cloneVideoModelPrices(group.VideoModelPrices)
 	cloned.WebSearchPricePerCall = cloneGroupValuePointer(group.WebSearchPricePerCall)
 	cloned.FallbackGroupID = cloneGroupValuePointer(group.FallbackGroupID)
 	cloned.FallbackGroupIDOnInvalidRequest = cloneGroupValuePointer(group.FallbackGroupIDOnInvalidRequest)
@@ -226,6 +227,40 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, "gpt-special", source.MessagesDispatchModelConfig.ExactModelMappings["claude-special"])
 	require.Equal(t, "gpt-5.4", source.ModelsListConfig.Models[0])
 	require.Equal(t, 11.0, *source.DailyLimitUSD)
+}
+
+func TestCloneGroupForDuplicateCopiesOnlySeedanceVideoModelPricesDeeply(t *testing.T) {
+	price480P := 0.12
+	price720P := 0.16
+	seedanceSource := &Group{
+		Platform: PlatformSeedance,
+		VideoModelPrices: VideoModelPrices{
+			"doubao-seedance-2-0-pro": {
+				Price480P: &price480P,
+				Price720P: &price720P,
+			},
+		},
+	}
+
+	duplicate := cloneGroupForDuplicate(seedanceSource, "operation")
+	require.Equal(t, seedanceSource.VideoModelPrices, duplicate.VideoModelPrices)
+	require.NotSame(t,
+		seedanceSource.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P,
+		duplicate.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P,
+	)
+
+	*duplicate.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P = 9
+	delete(duplicate.VideoModelPrices, "doubao-seedance-2-0-pro")
+	require.InDelta(t, 0.12, *seedanceSource.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P, 1e-12)
+	require.Contains(t, seedanceSource.VideoModelPrices, "doubao-seedance-2-0-pro")
+
+	grokSource := &Group{
+		Platform: PlatformGrok,
+		VideoModelPrices: VideoModelPrices{
+			"unexpected": {Price480P: &price480P},
+		},
+	}
+	require.Empty(t, cloneGroupForDuplicate(grokSource, "operation").VideoModelPrices)
 }
 
 func TestDuplicateGroupRecoversSameOperationAndScopesByAdmin(t *testing.T) {

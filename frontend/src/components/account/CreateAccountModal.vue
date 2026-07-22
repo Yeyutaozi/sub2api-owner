@@ -160,6 +160,19 @@
             <PlatformIcon platform="grok" size="sm" />
             Grok
           </button>
+          <button
+            type="button"
+            @click="form.platform = 'seedance'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'seedance'
+                ? 'bg-white text-rose-600 shadow-sm dark:bg-dark-600 dark:text-rose-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="seedance" size="sm" />
+            Seedance
+          </button>
         </div>
       </div>
 
@@ -1113,6 +1126,8 @@
                   ? 'https://generativelanguage.googleapis.com'
                   : form.platform === 'grok'
                     ? 'https://api.x.ai/v1'
+                    : form.platform === 'seedance'
+                      ? 'https://api.fflink.top'
                     : 'https://api.anthropic.com'
             "
           />
@@ -1137,6 +1152,8 @@
                   ? 'AIza...'
                   : form.platform === 'grok'
                     ? 'xai-...'
+                    : form.platform === 'seedance'
+                      ? 'Sub2API Key'
                     : 'sk-ant-...'
             "
           />
@@ -3598,14 +3615,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok') return ''
+  if (form.platform === 'grok' || form.platform === 'seedance') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok') return ''
+  if (form.platform === 'grok' || form.platform === 'seedance') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4147,6 +4164,11 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (form.platform === 'seedance') {
+      accountCategory.value = 'apikey'
+      form.type = 'apikey'
+      return
+    }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -4180,12 +4202,17 @@ watch(
           ? 'https://generativelanguage.googleapis.com'
           : newPlatform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newPlatform === 'seedance'
+              ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'antigravity') {
+    if (newPlatform === 'seedance') {
+      accountCategory.value = 'apikey'
+      form.type = 'apikey'
+    } else if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
       fetchAntigravityDefaultMappings().then(mappings => {
         antigravityModelMappings.value = [...mappings]
@@ -5057,7 +5084,9 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
-          : 'https://api.anthropic.com'
+          : form.platform === 'seedance'
+            ? 'https://api.fflink.top'
+            : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {

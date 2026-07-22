@@ -114,6 +114,11 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return ids
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
+	case PlatformSeedance:
+		return []string{
+			"doubao-seedance-2-0-pro",
+			"doubao-seedance-2-0-fast",
+		}
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
@@ -156,6 +161,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	videoPrice480P := normalizePrice(input.VideoPrice480P)
 	videoPrice720P := normalizePrice(input.VideoPrice720P)
 	videoPrice1080P := normalizePrice(input.VideoPrice1080P)
+	videoModelPrices, err := normalizeVideoModelPrices(platform, input.VideoModelPrices)
+	if err != nil {
+		return nil, err
+	}
 	webSearchPricePerCall := normalizePrice(input.WebSearchPricePerCall)
 	imageRateMultiplier := 1.0
 	if input.ImageRateMultiplier != nil {
@@ -288,6 +297,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		VideoPrice480P:                  videoPrice480P,
 		VideoPrice720P:                  videoPrice720P,
 		VideoPrice1080P:                 videoPrice1080P,
+		VideoModelPrices:                videoModelPrices,
 		WebSearchPricePerCall:           webSearchPricePerCall,
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
@@ -544,6 +554,16 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.VideoPrice1080P != nil {
 		group.VideoPrice1080P = normalizePrice(input.VideoPrice1080P)
+	}
+	if input.VideoModelPrices != nil {
+		videoModelPrices, err := normalizeVideoModelPrices(group.Platform, *input.VideoModelPrices)
+		if err != nil {
+			return nil, err
+		}
+		group.VideoModelPrices = videoModelPrices
+	}
+	if group.Platform != PlatformSeedance {
+		group.VideoModelPrices = VideoModelPrices{}
 	}
 	if input.WebSearchPricePerCall != nil {
 		group.WebSearchPricePerCall = normalizePrice(input.WebSearchPricePerCall)

@@ -159,6 +159,13 @@ const xaiModels = [
   'grok-imagine-video-1.5'
 ]
 
+const seedanceModels = [
+  'doubao-seedance-2-0-pro',
+  'doubao-seedance-2-0-fast',
+  'seedance-2.0',
+  'seedance-2.0-fast'
+]
+
 // Cohere
 const cohereModels = [
   'command-a-03-2025',
@@ -239,6 +246,7 @@ const allModelsList: string[] = [
   ...mistralModels,
   ...metaModels,
   ...xaiModels,
+  ...seedanceModels,
   ...cohereModels,
   ...yiModels,
   ...moonshotModels,
@@ -314,6 +322,11 @@ const grokPresetMappings = [
   { label: 'Imagine Image', from: 'grok-imagine', to: 'grok-imagine-image-quality', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'Imagine Edit', from: 'grok-imagine-edit', to: 'grok-imagine-edit', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Imagine Video', from: 'grok-imagine-video-1.5', to: 'grok-imagine-video-1.5', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
+]
+
+const seedancePresetMappings = [
+  { label: 'Seedance 2.0 Pro', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Seedance 2.0 Fast', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]
 
 // Antigravity 预设映射（支持通配符）
@@ -420,6 +433,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'meta': return metaModels
     case 'xai':
     case 'grok': return xaiModels
+    case 'seedance': return seedanceModels
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot': return moonshotModels
@@ -438,6 +452,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
+  if (platform === 'seedance') return seedancePresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings

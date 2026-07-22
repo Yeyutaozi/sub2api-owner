@@ -31,6 +31,7 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	requireGroupArk := middleware.RequireGroupAssignment(settingService, middleware.ArkErrorWriter)
 	openAIMediaHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -257,6 +258,22 @@ func RegisterGatewayRoutes(
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
 		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+	}
+
+	// Volcengine Ark-compatible Seedance API. Requests are authenticated with
+	// local API keys, then adapted to the FYLink asynchronous video contract.
+	seedance := r.Group("/api/v3")
+	seedance.Use(bodyLimit)
+	seedance.Use(clientRequestID)
+	seedance.Use(opsErrorLogger)
+	seedance.Use(endpointNorm)
+	seedance.Use(gin.HandlerFunc(apiKeyAuth))
+	seedance.Use(requireGroupArk)
+	{
+		seedance.POST("/contents/generations/tasks", h.OpenAIGateway.SeedanceCreateTask)
+		seedance.GET("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceGetTask)
+		seedance.DELETE("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceCancelTask)
+		seedance.GET("/contents/generations/tasks/:task_id/content", h.OpenAIGateway.SeedanceTaskContent)
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform

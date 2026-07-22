@@ -119,6 +119,28 @@ type UsageBillingApplyResult struct {
 	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
 }
 
+// SeedanceUsageRefundResult describes an idempotent reversal of an accepted
+// Seedance task that later reached a failed or cancelled terminal state.
+type SeedanceUsageRefundResult struct {
+	Applied        bool
+	UsageLogID     int64
+	UserID         int64
+	APIKeyID       int64
+	AccountID      int64
+	GroupID        *int64
+	SubscriptionID *int64
+	BillingType    int8
+	Platform       string
+	RefundedCost   float64
+}
+
+// SeedanceUsageRefundRepository is an optional capability implemented by the
+// production billing repository. Keeping it separate avoids widening the core
+// billing interface used by lightweight test doubles.
+type SeedanceUsageRefundRepository interface {
+	RefundSeedanceUsage(ctx context.Context, taskID string, userID, apiKeyID int64) (*SeedanceUsageRefundResult, error)
+}
+
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.
 type BatchImageBalanceHoldCommand struct {
 	RequestID          string

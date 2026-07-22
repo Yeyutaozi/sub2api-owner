@@ -929,6 +929,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        seedance: 'Seedance',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -969,12 +970,29 @@ export default {
         title: 'Video Generation Pricing',
         description:
           'Configure Grok video generation prices in USD per second of output video. Leave empty to use the default per-second rates (grok-imagine-video: $0.05/s 480p, $0.07/s 720p; video-1.5: $0.08/s 480p, $0.14/s 720p, $0.25/s 1080p).',
+        seedanceDescription:
+          'Configure Seedance prices in USD per generated second for each requested model and resolution.',
         independentMultiplier: 'Use independent video multiplier',
         videoMultiplier: 'Video multiplier',
+        modelPrices: 'Model and resolution prices',
+        model: 'Requested model',
+        modelPlaceholder: 'doubao-seedance-2-0-pro',
+        addModel: 'Add model',
+        removeModel: 'Remove model {model}',
+        clearMatrix: 'Clear matrix',
+        emptyMatrix: 'No model-specific prices. The legacy group resolution prices will be used.',
         modeHint:
           'Videos are billed per second: per-second price × duration (1-15s, default 8s). By default the current effective group multiplier applies; independent mode uses the video multiplier instead.',
+        seedanceModeHint:
+          'Seedance is billed per second: the requested model and resolution price × duration (4-15s, default 8s). A non-empty matrix is also the allowed model list; clear it to fall back to the legacy group resolution prices.',
         finalPricePreview: 'Final per-second price preview',
-        notConfigured: 'Not configured'
+        notConfigured: 'Not configured',
+        validation: {
+          modelRequired: 'Enter a model name in row {row}.',
+          duplicateModel: 'Model "{model}" is configured more than once.',
+          invalidPrice: 'Model "{model}" contains an invalid price. Prices must be zero or greater.',
+          priceRequired: 'Configure at least one resolution price for model "{model}", or remove the row.'
+        }
       },
       webSearchPricing: {
         title: 'Codex Web Search Pricing',
