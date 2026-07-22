@@ -1,0 +1,1128 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TKCreazy Seedance 视频生成 API",
+    "version": "1.0.0",
+    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档仅包含 Seedance 接口，不包含 OpenAI、Grok、Claude 或 Gemini 接口。\n\n所有请求都使用本站 API Key 鉴权。创建任务后，请使用创建任务时的同一个 API Key 查询、取消或下载视频；任务与用户、API Key、Seedance 分组及上游账号绑定。\n\n模型名不是固定枚举。管理员在 Seedance 分组中配置的模型价格矩阵决定可调用的入站模型名以及各模型在 480p、720p、1080p 下的每秒价格。计费金额按“对应模型与分辨率的每秒价格 × 归一化时长 × 分组视频倍率”计算。",
+    "license": {
+      "name": "LGPL-3.0-or-later",
+      "url": "https://www.gnu.org/licenses/lgpl-3.0.html"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://tkcreazy.top",
+      "description": "TKCreazy 生产环境"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Seedance 视频生成",
+      "description": "创建、查询、取消 Seedance 视频任务并下载生成结果。"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v3/contents/generations/tasks": {
+      "post": {
+        "tags": [
+          "Seedance 视频生成"
+        ],
+        "summary": "创建 Seedance 视频生成任务",
+        "description": "以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。\n\n请求必须至少包含一个非空文本内容项。图片可用于首帧、尾帧或参考图，但参考图模式不能与首尾帧模式混用。",
+        "operationId": "createSeedanceVideoTask",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Seedance 视频生成参数。未知顶层字段或未知 content 项字段会返回 400。",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedanceCreateTaskRequest"
+              },
+              "examples": {
+                "textToVideo720p": {
+                  "summary": "纯文本生成 720p 横屏视频",
+                  "value": {
+                    "model": "doubao-seedance-2-0-pro",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "清晨的海岸城市，镜头从海面缓慢升高，阳光穿过薄雾照亮建筑，电影级运镜，真实光影"
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 8,
+                    "resolution": "720p",
+                    "generate_audio": false,
+                    "watermark": false
+                  }
+                },
+                "long1080pWithAudio": {
+                  "summary": "15 秒 1080p 复杂任务并生成音频",
+                  "value": {
+                    "model": "doubao-seedance-2-0-pro",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "一镜到底：雨夜的未来都市街道，一辆银色跑车经过霓虹商店和有轨电车，镜头先低位跟拍，再平滑升至俯视视角；保持车辆外观一致，水面反射清晰，加入雨声、车辆声和远处城市环境声"
+                      }
+                    ],
+                    "ratio": "21:9",
+                    "duration": 15,
+                    "resolution": "1080p",
+                    "generate_audio": true,
+                    "watermark": false
+                  }
+                },
+                "imageToVideo": {
+                  "summary": "使用单张首帧图片生成视频",
+                  "value": {
+                    "model": "doubao-seedance-2-0-fast",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "镜头缓慢向前推进，人物自然眨眼并轻微转头，背景树叶随风摆动，保持人物身份和服装细节一致"
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": "https://example.com/images/start-frame.png"
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 8,
+                    "resolution": "720p",
+                    "generate_audio": false
+                  }
+                },
+                "firstAndLastFrames": {
+                  "summary": "指定首帧和尾帧",
+                  "value": {
+                    "model": "doubao-seedance-2-0-pro",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "从白天自然过渡到日落，镜头沿街道稳定前进，建筑结构保持一致，最终准确衔接尾帧构图"
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://example.com/images/day.png",
+                          "role": "first_frame"
+                        }
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://example.com/images/sunset.png",
+                          "role": "last_frame"
+                        }
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 10,
+                    "resolution": "1080p",
+                    "generate_audio": false
+                  }
+                },
+                "referenceImages": {
+                  "summary": "使用多张参考图保持主体一致",
+                  "value": {
+                    "model": "doubao-seedance-2-0-pro",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "产品在现代厨房台面上缓慢旋转，保持包装、标志、材质和颜色准确一致，镜头平稳环绕，商业广告灯光"
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://example.com/images/product-front.png",
+                          "role": "reference_image",
+                          "strength": "HIGH"
+                        }
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://example.com/images/product-side.png",
+                          "role": "reference_image",
+                          "strength": "MID"
+                        }
+                      }
+                    ],
+                    "ratio": "9:16",
+                    "duration": 8,
+                    "resolution": "720p",
+                    "generate_audio": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "任务创建成功。返回本站任务 ID。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceCreateTaskResponse"
+                },
+                "example": {
+                  "id": "vidjob_example123"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v3/contents/generations/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "Seedance 视频生成"
+        ],
+        "summary": "查询 Seedance 视频任务",
+        "description": "查询异步任务状态。必须使用创建任务时的同一个本站 API Key。建议轮询直到 status 为 succeeded、failed 或 cancelled；只有 succeeded 响应包含 content.video_url。任务与本地 Key 的绑定当前保留 7 天。",
+        "operationId": "getSeedanceVideoTask",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceTask"
+                },
+                "examples": {
+                  "queued": {
+                    "summary": "任务排队中",
+                    "value": {
+                      "id": "vidjob_example123",
+                      "status": "queued",
+                      "model": "seedance-2.0",
+                      "resolution": "720p",
+                      "duration": 8
+                    }
+                  },
+                  "running": {
+                    "summary": "任务生成中",
+                    "value": {
+                      "id": "vidjob_example123",
+                      "status": "running",
+                      "model": "seedance-2.0",
+                      "resolution": "720p",
+                      "duration": 8
+                    }
+                  },
+                  "succeeded": {
+                    "summary": "任务成功",
+                    "value": {
+                      "id": "vidjob_example123",
+                      "status": "succeeded",
+                      "model": "seedance-2.0",
+                      "resolution": "720p",
+                      "duration": 8,
+                      "content": {
+                        "video_url": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
+                      }
+                    }
+                  },
+                  "failed": {
+                    "summary": "任务失败",
+                    "value": {
+                      "id": "vidjob_example123",
+                      "status": "failed",
+                      "model": "seedance-2.0",
+                      "error": {
+                        "message": "Video generation failed"
+                      }
+                    }
+                  },
+                  "cancelled": {
+                    "summary": "任务已取消",
+                    "value": {
+                      "id": "vidjob_example123",
+                      "status": "cancelled",
+                      "model": "seedance-2.0"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Seedance 视频生成"
+        ],
+        "summary": "取消 Seedance 视频任务",
+        "description": "请求取消指定任务。必须使用创建任务时的同一个本站 API Key。上游接受取消后返回 204，不包含响应体。已经完成或无法取消的任务可能返回上游错误。",
+        "operationId": "cancelSeedanceVideoTask",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "任务取消成功，无响应体。"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v3/contents/generations/tasks/{task_id}/content": {
+      "get": {
+        "tags": [
+          "Seedance 视频生成"
+        ],
+        "summary": "下载生成的视频",
+        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。支持 Range 请求，用于断点续传或媒体播放器分段读取。响应的媒体类型和长度等头部由上游视频响应透传。",
+        "operationId": "downloadSeedanceVideoTaskContent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskId"
+          },
+          {
+            "$ref": "#/components/parameters/Range"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "完整视频内容。",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRanges"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
+              "Content-Disposition": {
+                "$ref": "#/components/headers/ContentDisposition"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Range 请求对应的部分视频内容。",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRanges"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
+              "Content-Range": {
+                "$ref": "#/components/headers/ContentRange"
+              },
+              "Content-Disposition": {
+                "$ref": "#/components/headers/ContentDisposition"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskNotFound"
+          },
+          "416": {
+            "description": "请求的字节范围无效或不可满足。错误体使用标准 Seedance 错误格式。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "upstream_error",
+                    "message": "Requested range is not satisfiable",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key",
+        "description": "本站 API Key。请求头格式：Authorization: Bearer YOUR_TKCREAZY_API_KEY。不要在查询参数中传 key 或 api_key；查询参数鉴权会返回 400。"
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "可选的幂等键，会原样转发给视频上游。对同一次业务创建重试时应复用同一个值，以降低重复创建任务和重复计费的风险。不同任务应使用不同的值。",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "example": "video-order-20260723-0001"
+      },
+      "TaskId": {
+        "name": "task_id",
+        "in": "path",
+        "required": true,
+        "description": "创建任务返回的 id。长度为 1 至 256 个字符；首字符必须是字母或数字，其余字符只能是字母、数字、点、下划线或连字符。任务只能由创建它的同一个本站 API Key 查询、取消和下载。",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
+        },
+        "example": "vidjob_example123"
+      },
+      "Range": {
+        "name": "Range",
+        "in": "header",
+        "required": false,
+        "description": "HTTP 字节范围。省略时下载完整视频；例如 bytes=0-1048575 表示请求前 1 MiB。",
+        "schema": {
+          "type": "string",
+          "pattern": "^bytes=[0-9]*-[0-9]*(,[0-9]*-[0-9]*)*$"
+        },
+        "example": "bytes=0-1048575"
+      }
+    },
+    "headers": {
+      "AcceptRanges": {
+        "description": "服务端支持的范围单位，通常为 bytes。",
+        "schema": {
+          "type": "string"
+        },
+        "example": "bytes"
+      },
+      "ContentLength": {
+        "description": "当前响应体的字节数。",
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        },
+        "example": 1048576
+      },
+      "ContentRange": {
+        "description": "部分响应覆盖的字节范围以及完整文件大小。",
+        "schema": {
+          "type": "string"
+        },
+        "example": "bytes 0-1048575/8388608"
+      },
+      "ContentDisposition": {
+        "description": "视频文件名或展示方式；是否返回取决于上游响应。",
+        "schema": {
+          "type": "string"
+        },
+        "example": "attachment; filename=seedance-video.mp4"
+      }
+    },
+    "schemas": {
+      "SeedanceCreateTaskRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "content"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "本站 Seedance 分组中配置的入站模型名。该字段由管理员自行定义，不是代码写死的枚举；示例名称仅用于演示。分组存在非空模型价格矩阵时，矩阵也是模型白名单：模型未配置返回 400 model_not_supported；模型存在但当前分辨率没有价格返回 503 billing_not_configured。账号可再将此名称映射为上游模型名。",
+            "example": "doubao-seedance-2-0-pro"
+          },
+          "content": {
+            "type": "array",
+            "minItems": 1,
+            "description": "提示词和可选图片的数组。必须至少包含一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片支持单首帧、首尾帧或最多 4 张参考图。",
+            "items": {
+              "$ref": "#/components/schemas/SeedanceContentItem"
+            }
+          },
+          "ratio": {
+            "type": "string",
+            "enum": [
+              "adaptive",
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "9:21"
+            ],
+            "default": "adaptive",
+            "description": "视频宽高比。省略或设置为 adaptive 时由上游自适应，并且不会向上游发送 aspect_ratio；其他值会映射为上游 aspect_ratio。",
+            "example": "16:9"
+          },
+          "duration": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 4,
+            "maximum": 15,
+            "default": 8,
+            "description": "目标视频时长，单位为秒，支持 4 至 15 秒。省略时默认为 8 秒。当前实现也会把显式的 0 兼容处理为 8 秒，但新客户端不应发送 0。计费使用归一化后的时长。",
+            "example": 8
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "default": "720p",
+            "description": "输出分辨率档位。省略时默认为 720p。所选模型必须在 Seedance 分组中配置该分辨率的每秒价格，否则返回 503 billing_not_configured。",
+            "example": "720p"
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否请求上游同时生成音频，映射为上游 audio。具体模型是否支持音频由上游决定。",
+            "example": false
+          },
+          "watermark": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "nullable": true,
+            "default": false,
+            "description": "当前只允许省略、null 或 false，且不会转发给上游。传 true 返回 400 invalid_request。"
+          },
+          "seed": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "deprecated": true,
+            "description": "当前上游适配不支持 seed。请省略或传 null；任何非 null 数值都会返回 400 invalid_request。"
+          },
+          "camera_fixed": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "nullable": true,
+            "default": false,
+            "description": "当前只允许省略、null 或 false，且不会转发给上游。传 true 返回 400 invalid_request。"
+          }
+        }
+      },
+      "SeedanceContentItem": {
+        "description": "单个内容项。type 和角色名称在服务端匹配时不区分大小写，但建议使用文档中的小写规范值；strength 建议使用大写规范值。",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceTextContentItem"
+          },
+          {
+            "$ref": "#/components/schemas/SeedanceImageContentItem"
+          }
+        ]
+      },
+      "SeedanceTextContentItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "text"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text"
+            ],
+            "description": "固定为 text。",
+            "example": "text"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "视频提示词。仅空白字符会被视为空；整个 content 至少需要一个非空文本项。多个非空文本项会用换行符拼接。",
+            "example": "电影级航拍镜头从海面缓慢升起，展示日出时的海岸城市"
+          }
+        }
+      },
+      "SeedanceImageContentItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "image_url"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "image_url"
+            ],
+            "description": "固定为 image_url。",
+            "example": "image_url"
+          },
+          "image_url": {
+            "description": "图片地址，可以直接传绝对 HTTP(S) URL 字符串，也可以传包含 url、role、strength 的对象。对象内部的 role/strength 优先于内容项外层的同名字段。",
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https?://",
+                "example": "https://example.com/images/start-frame.png"
+              },
+              {
+                "$ref": "#/components/schemas/SeedanceImageInput"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/SeedanceImageRole"
+          },
+          "strength": {
+            "$ref": "#/components/schemas/SeedanceReferenceStrength"
+          }
+        },
+        "description": "图片内容项。无 role 的单张图片按首帧处理；存在多张图片时应明确每张图片的角色。最多一个首帧和一个尾帧，尾帧必须同时提供首帧；最多 4 张参考图，参考图不能与首帧或尾帧混用。"
+      },
+      "SeedanceImageInput": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://",
+            "description": "可由网关和上游访问的绝对 HTTP 或 HTTPS 图片 URL。相对路径、data URL 和其他协议不被接受。",
+            "example": "https://example.com/images/reference.png"
+          },
+          "role": {
+            "$ref": "#/components/schemas/SeedanceImageRole"
+          },
+          "strength": {
+            "$ref": "#/components/schemas/SeedanceReferenceStrength"
+          }
+        },
+        "description": "结构化图片输入。当前实现会忽略该嵌套对象中的未知字段，但客户端不应依赖这一行为。"
+      },
+      "SeedanceImageRole": {
+        "type": "string",
+        "enum": [
+          "first_frame",
+          "start_frame",
+          "first",
+          "last_frame",
+          "end_frame",
+          "last",
+          "reference_image",
+          "reference",
+          "ref"
+        ],
+        "description": "图片角色，不区分大小写。首帧规范值为 first_frame，兼容 start_frame 和 first；尾帧规范值为 last_frame，兼容 end_frame 和 last；参考图规范值为 reference_image，兼容 reference 和 ref。建议只使用三个规范值。",
+        "example": "first_frame"
+      },
+      "SeedanceReferenceStrength": {
+        "type": "string",
+        "enum": [
+          "LOW",
+          "MID",
+          "HIGH"
+        ],
+        "default": "MID",
+        "description": "参考图约束强度，仅对 reference_image 有意义。匹配不区分大小写；省略、空值或无法识别的值会被归一化为 MID。",
+        "example": "HIGH"
+      },
+      "SeedanceCreateTaskResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "本站视频任务 ID。后续查询、取消和下载都使用此值。",
+            "example": "vidjob_example123"
+          }
+        }
+      },
+      "SeedanceTask": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "本站视频任务 ID。",
+            "example": "vidjob_example123"
+          },
+          "status": {
+            "type": "string",
+            "description": "归一化状态通常为 queued、running、succeeded、failed 或 cancelled。上游返回未知状态时，网关会将其转为小写后原样返回，因此这里不使用封闭枚举。",
+            "example": "succeeded"
+          },
+          "model": {
+            "type": "string",
+            "description": "上游任务响应中的模型名，可能是账号模型映射后的上游模型名，不保证与创建请求中的入站模型名相同。",
+            "example": "seedance-2.0"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/FlexibleTimestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/FlexibleTimestamp"
+          },
+          "completed_at": {
+            "$ref": "#/components/schemas/FlexibleTimestamp"
+          },
+          "seed": {
+            "description": "上游任务响应中的 seed，存在时原样返回；创建接口当前不支持指定 seed。"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "上游返回的任务分辨率。",
+            "example": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "上游返回的视频时长，单位为秒。",
+            "example": 8
+          },
+          "ratio": {
+            "type": "string",
+            "description": "上游返回的宽高比。",
+            "example": "16:9"
+          },
+          "content": {
+            "$ref": "#/components/schemas/SeedanceTaskContent"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "任务失败时的上游错误详情。具体字段由上游决定；若上游只返回 error_message，网关会包装为包含 message 的对象。",
+            "example": {
+              "message": "Video generation failed"
+            }
+          }
+        },
+        "description": "任务查询结果。可选字段仅在上游实际返回时出现；content 只在 status=succeeded 时出现，error 通常只在 status=failed 时出现。"
+      },
+      "SeedanceTaskContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "video_url"
+        ],
+        "properties": {
+          "video_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "本站鉴权下载地址。请求该地址时仍必须携带创建任务时的同一个 Bearer API Key。",
+            "example": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
+          }
+        }
+      },
+      "FlexibleTimestamp": {
+        "description": "上游时间字段，可能是 ISO 8601 字符串或 Unix 时间戳，网关不改变其类型。",
+        "oneOf": [
+          {
+            "type": "string",
+            "example": "2026-07-23T12:34:56Z"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "example": 1784800496
+          },
+          {
+            "type": "number",
+            "format": "double",
+            "example": 1784800496.123
+          }
+        ]
+      },
+      "SeedanceErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message",
+              "type"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "机器可读错误码，例如 invalid_request、model_not_supported、task_not_found、billing_not_configured、upstream_error。",
+                "example": "invalid_request"
+              },
+              "message": {
+                "type": "string",
+                "description": "可读错误信息。",
+                "example": "duration must be between 4 and 15 seconds"
+              },
+              "type": {
+                "type": "string",
+                "description": "Seedance Handler 错误类型，当前为 invalid_request_error。",
+                "example": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "MiddlewareErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "鉴权或入口中间件错误码，例如 API_KEY_REQUIRED、INVALID_API_KEY、API_KEY_DISABLED、ACCESS_DENIED。",
+            "example": "INVALID_API_KEY"
+          },
+          "message": {
+            "type": "string",
+            "description": "错误信息。",
+            "example": "Invalid API key"
+          }
+        }
+      },
+      "AnyGatewayErrorResponse": {
+        "description": "错误可能由 Seedance Handler 或 API Key 中间件产生，因此存在两种兼容格式。",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceErrorResponse"
+          },
+          {
+            "$ref": "#/components/schemas/MiddlewareErrorResponse"
+          }
+        ]
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "请求参数或 JSON 无效。常见 code：invalid_request、model_not_supported；若在查询参数中传 API Key，可能返回 api_key_in_query_deprecated。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "examples": {
+              "invalidRequest": {
+                "summary": "参数校验失败",
+                "value": {
+                  "error": {
+                    "code": "invalid_request",
+                    "message": "duration must be between 4 and 15 seconds",
+                    "type": "invalid_request_error"
+                  }
+                }
+              },
+              "modelNotSupported": {
+                "summary": "模型不在 Seedance 分组白名单中",
+                "value": {
+                  "error": {
+                    "code": "model_not_supported",
+                    "message": "The requested model is not configured for this Seedance group",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "本站 API Key 缺失、无效、已禁用或无法鉴权。入口中间件通常返回扁平的 code/message 格式。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "examples": {
+              "missingKey": {
+                "summary": "缺少 API Key",
+                "value": {
+                  "code": "API_KEY_REQUIRED",
+                  "message": "API key is required in Authorization header (Bearer scheme), x-api-key header, or x-goog-api-key header"
+                }
+              },
+              "invalidKey": {
+                "summary": "API Key 无效",
+                "value": {
+                  "code": "INVALID_API_KEY",
+                  "message": "Invalid API key"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "API Key 无权调用 Seedance、未分配到 Seedance 分组、分组未启用视频生成、IP 被拒绝或计费资格不足。常见 code：permission_denied、ACCESS_DENIED、billing_error。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "permission_denied",
+                "message": "API key group does not support Seedance",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "TaskNotFound": {
+        "description": "任务不存在、任务绑定已过期，或当前 API Key 不是创建该任务的 Key。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SeedanceErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "task_not_found",
+                "message": "Seedance task not found",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "RequestTooLarge": {
+        "description": "请求体超过网关配置的最大大小。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SeedanceErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "request_too_large",
+                "message": "Request body is too large",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "超过用户、账号或媒体生成并发限制，或触发速率限制。部分响应会携带 Retry-After。",
+        "headers": {
+          "Retry-After": {
+            "description": "建议等待的秒数；仅在网关能确定重试时间时返回。",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "example": 10
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "rate_limit_exceeded",
+                "message": "Too many concurrent requests",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "视频上游请求失败、上游响应格式无效，或已接受的任务无法在本地绑定。常见 code：upstream_error、invalid_upstream_response、task_binding_failed。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SeedanceErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "upstream_error",
+                "message": "Seedance upstream request failed",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "模型对应分辨率未配置价格、没有可用 Seedance 上游账号，或鉴权/计费服务暂时不可用。常见 code：billing_not_configured、no_available_account、billing_service_error、API_KEY_AUTH_OVERLOADED。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "examples": {
+              "billingNotConfigured": {
+                "summary": "当前模型和分辨率未配置价格",
+                "value": {
+                  "error": {
+                    "code": "billing_not_configured",
+                    "message": "Video price per second is not configured for the requested model and resolution",
+                    "type": "invalid_request_error"
+                  }
+                }
+              },
+              "noAvailableAccount": {
+                "summary": "没有可用的 Seedance 上游账号",
+                "value": {
+                  "error": {
+                    "code": "no_available_account",
+                    "message": "No available Seedance upstream account in this API key group",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -134,6 +134,8 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/openapi/
+!docs/openapi/tkcreazy-seedance.openapi.json
 !docs/APP_CENTER_AGENT_WORKFLOW_PLAN_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
