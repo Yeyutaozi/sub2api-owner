@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy Seedance 视频生成 API",
-    "version": "1.0.0",
-    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档仅包含 Seedance 接口，不包含 OpenAI、Grok、Claude 或 Gemini 接口。\n\n所有请求都使用本站 API Key 鉴权。创建任务后，请使用创建任务时的同一个 API Key 查询、取消或下载视频；任务与用户、API Key、Seedance 分组及上游账号绑定。\n\n模型名不是固定枚举。管理员在 Seedance 分组中配置的模型价格矩阵决定可调用的入站模型名以及各模型在 480p、720p、1080p 下的每秒价格。计费金额按“对应模型与分辨率的每秒价格 × 归一化时长 × 分组视频倍率”计算。",
+    "version": "1.1.0",
+    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档只包含 4 个 Seedance 操作：创建、查询、取消和下载，不包含 OpenAI、Grok、Claude 或 Gemini 接口。\n\n所有请求都使用本站 API Key 鉴权，支持 Authorization: Bearer、x-api-key 或 x-goog-api-key 三种请求头；不要把 key 或 api_key 放在查询参数中。创建任务后，必须使用创建任务时的同一个 API Key 查询、取消或下载视频；任务与用户、API Key、Seedance 分组及上游账号绑定。\n\n通用解析范围不等于模型能力承诺：model 是管理员在当前 Seedance 分组中配置的入站名称；resolution 接受 480p、720p、1080p；duration 省略或传 0 时归一化为 8 秒，其他值必须是 4 至 15 的整数；generate_audio 是布尔值。某个请求通过网关参数校验和价格校验，只表示可以提交给上游，不保证该模型最终能生成该分辨率、时长、音频或图片模式。\n\n当前部署实测快照（2026-07-23，仅描述当日配置和观测，不是跨部署的通用保证）：seedance-2.0 在 480p/720p、15 秒、generate_audio=true 下任务成功并下载到有效 MP4；在 1080p、8 秒、generate_audio=false 下任务成功并下载到有效 MP4；在 1080p、15 秒下，使用不同提示词且覆盖 generate_audio=true/false 的连续 3 个任务均进入 failed，因此本文档不把 seedance-2.0 的 1080p/15 秒列为已支持组合。seedance-2.0-fast 在 480p/720p、15 秒、generate_audio=true 下任务成功；其 1080p 请求在创建任务前返回 HTTP 503 billing_not_configured，不会产生任务。管理员调整模型映射、价格或上游账号后，此快照可能失效。\n\n计费金额 = 当前分组中对应入站模型与归一化分辨率的每秒价格 × 归一化时长 × 有效视频计费倍率。归一化时长规则与 duration 字段一致。价格矩阵非空时同时作为模型白名单；矩阵为空时沿用分组级分辨率价格。若分组启用了独立视频倍率，有效视频计费倍率取 video_rate_multiplier；否则取该用户与分组最终生效的基础倍率。创建任务被接受后记录预扣费用；成功取消，或查询到 failed/cancelled 终态时执行幂等退款。客户端应持续查询到终态，以便网关观察任务结果。价格单位、余额展示精度和舍入以站点当前计费配置及账单为准，本接口不返回报价。当前公式不为 ratio、generate_audio 或图片数量单独增加计费项。",
     "license": {
       "name": "LGPL-3.0-or-later",
       "url": "https://www.gnu.org/licenses/lgpl-3.0.html"
@@ -24,6 +24,12 @@
   "security": [
     {
       "BearerAuth": []
+    },
+    {
+      "XApiKeyAuth": []
+    },
+    {
+      "XGoogApiKeyAuth": []
     }
   ],
   "paths": {
@@ -33,7 +39,7 @@
           "Seedance 视频生成"
         ],
         "summary": "创建 Seedance 视频生成任务",
-        "description": "以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。\n\n请求必须至少包含一个非空文本内容项。图片可用于首帧、尾帧或参考图，但参考图模式不能与首尾帧模式混用。",
+        "description": "以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。HTTP 200 只表示任务已创建，最终结果必须通过查询接口确认。\n\n请求必须至少包含一个去除首尾空白后仍非空的文本内容项。图片可用于单首帧、首尾帧或最多 4 张参考图；尾帧必须与首帧同时出现，参考图模式不能与首尾帧模式混用。\n\n2026-07-23 当前部署实测：seedance-2.0 的 480p/720p、15 秒、音频开启成功，1080p、8 秒、音频关闭成功；1080p、15 秒连续 3 个任务失败，不能据此视为支持。seedance-2.0-fast 的 480p/720p、15 秒、音频开启成功；1080p 在创建前返回 503 billing_not_configured。该结果是部署快照，通用字段解析范围仍以请求 schema 为准。",
         "operationId": "createSeedanceVideoTask",
         "parameters": [
           {
@@ -49,42 +55,93 @@
                 "$ref": "#/components/schemas/SeedanceCreateTaskRequest"
               },
               "examples": {
-                "textToVideo720p": {
-                  "summary": "纯文本生成 720p 横屏视频",
+                "seedance20Observed480p15sAudio": {
+                  "summary": "当前部署实测成功：seedance-2.0 480p、15 秒、音频开启",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
                       {
                         "type": "text",
-                        "text": "清晨的海岸城市，镜头从海面缓慢升高，阳光穿过薄雾照亮建筑，电影级运镜，真实光影"
+                        "text": "A single unbroken dolly shot moves through a busy glassblowing studio at dusk. An artisan rotates a glowing vessel while an assistant adds cobalt glass, sparks rise, furnaces flicker, tools remain physically consistent, and reflections travel correctly across the forming surface. In the background another worker opens a kiln and walks behind the main bench. Preserve coherent hands, faces, object geometry, realistic heat shimmer, stable camera motion, and synchronized furnace, tool, and workshop sounds for the entire shot without cuts."
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 15,
+                    "resolution": "480p",
+                    "generate_audio": true,
+                    "watermark": false
+                  }
+                },
+                "seedance20Observed720p15sAudio": {
+                  "summary": "当前部署实测成功：seedance-2.0 720p、15 秒、音频开启",
+                  "value": {
+                    "model": "seedance-2.0",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "A continuous cinematic crane shot begins above a snow-covered mountain railway station, descends beside a green steam locomotive, then tracks a conductor walking along the platform as passengers board. Snow falls at changing depths, warm carriage windows reflect on icy ground, steam interacts naturally with people, luggage remains consistent, and the train slowly starts moving. Maintain readable faces, accurate wheel motion, coherent architecture, realistic lighting, and synchronized whistle, footsteps, steam, and crowd ambience with no cuts."
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 15,
+                    "resolution": "720p",
+                    "generate_audio": true,
+                    "watermark": false
+                  }
+                },
+                "seedance20Observed1080p8s": {
+                  "summary": "当前部署实测成功：seedance-2.0 1080p、8 秒、音频关闭",
+                  "value": {
+                    "model": "seedance-2.0",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "A slow aerial shot over a coastal city at sunrise, with smooth camera movement, natural ocean waves, stable buildings, realistic morning light, and no cuts."
                       }
                     ],
                     "ratio": "16:9",
                     "duration": 8,
-                    "resolution": "720p",
+                    "resolution": "1080p",
                     "generate_audio": false,
                     "watermark": false
                   }
                 },
-                "long1080pWithAudio": {
-                  "summary": "15 秒 1080p 复杂任务并生成音频",
+                "seedance20FastObserved480p15sAudio": {
+                  "summary": "当前部署实测成功：seedance-2.0-fast 480p、15 秒、音频开启",
                   "value": {
-                    "model": "seedance-2.0",
+                    "model": "seedance-2.0-fast",
                     "content": [
                       {
                         "type": "text",
-                        "text": "一镜到底：雨夜的未来都市街道，一辆银色跑车经过霓虹商店和有轨电车，镜头先低位跟拍，再平滑升至俯视视角；保持车辆外观一致，水面反射清晰，加入雨声、车辆声和远处城市环境声"
+                        "text": "A single uninterrupted cinematic tracking shot follows a compact red robot courier through a crowded rain-soaked night market. It carefully carries a glass terrarium containing a glowing orchid while vendors cook over blue flames, cyclists cross behind it, transparent umbrellas pass in the foreground, steam curls through neon light, and reflections move naturally across puddles. Keep the robot design, terrarium geometry, orchid position, hands, faces, signage, shadows, and spatial continuity stable for the full shot. Include synchronized rain, footsteps, bicycle bells, market chatter, and cooking ambience, with no cuts or sudden camera jumps."
                       }
                     ],
-                    "ratio": "21:9",
+                    "ratio": "16:9",
                     "duration": 15,
-                    "resolution": "1080p",
+                    "resolution": "480p",
+                    "generate_audio": true,
+                    "watermark": false
+                  }
+                },
+                "seedance20FastObserved720p15sAudio": {
+                  "summary": "当前部署实测成功：seedance-2.0-fast 720p、15 秒、音频开启",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "A continuous low-angle camera move follows a young chef carrying a towering sugar sculpture through a busy palace kitchen before a banquet. Copper pans swing gently, assistants cross behind steaming counters, a cat slips under a table, flour drifts through warm window light, and polished tiles reflect moving people. The translucent sculpture must keep its exact shape while refracting light naturally. Preserve faces, hands, costumes, kitchen layout, food placement, shadows, and spatial continuity. Include synchronized footsteps, cookware, simmering food, quiet voices, and room ambience without cuts."
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 15,
+                    "resolution": "720p",
                     "generate_audio": true,
                     "watermark": false
                   }
                 },
                 "imageToVideo": {
-                  "summary": "使用单张首帧图片生成视频",
+                  "summary": "结构示例：使用单张首帧图片（不表示该图片组合已实测）",
                   "value": {
                     "model": "seedance-2.0-fast",
                     "content": [
@@ -104,7 +161,7 @@
                   }
                 },
                 "firstAndLastFrames": {
-                  "summary": "指定首帧和尾帧",
+                  "summary": "结构示例：指定首帧和尾帧（不表示该图片组合已实测）",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
@@ -128,13 +185,13 @@
                       }
                     ],
                     "ratio": "16:9",
-                    "duration": 10,
-                    "resolution": "1080p",
+                    "duration": 8,
+                    "resolution": "720p",
                     "generate_audio": false
                   }
                 },
                 "referenceImages": {
-                  "summary": "使用多张参考图保持主体一致",
+                  "summary": "结构示例：使用多张参考图（不表示该图片组合已实测）",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
@@ -203,6 +260,9 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
@@ -250,12 +310,12 @@
                     }
                   },
                   "succeeded": {
-                    "summary": "任务成功",
+                    "summary": "当前部署实测成功形态：seedance-2.0 1080p、8 秒",
                     "value": {
                       "id": "vidjob_example123",
                       "status": "succeeded",
                       "model": "seedance-2.0",
-                      "resolution": "720p",
+                      "resolution": "1080p",
                       "duration": 8,
                       "content": {
                         "video_url": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
@@ -263,11 +323,13 @@
                     }
                   },
                   "failed": {
-                    "summary": "任务失败",
+                    "summary": "当前部署实测失败形态：seedance-2.0 1080p、15 秒",
                     "value": {
                       "id": "vidjob_example123",
                       "status": "failed",
                       "model": "seedance-2.0",
+                      "resolution": "1080p",
+                      "duration": 15,
                       "error": {
                         "message": "Video generation failed"
                       }
@@ -305,6 +367,9 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       },
@@ -344,6 +409,9 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
@@ -354,7 +422,7 @@
           "Seedance 视频生成"
         ],
         "summary": "下载生成的视频",
-        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。支持 Range 请求，用于断点续传或媒体播放器分段读取。响应的媒体类型和长度等头部由上游视频响应透传。",
+        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。Range 请求头会转发给上游，但是否返回 206 部分内容取决于上游。2026-07-23 当前部署实测 bytes=0-1023 时，上游忽略该范围并返回 HTTP 200、完整文件和 Accept-Ranges: bytes，没有返回 Content-Range；因此客户端不能仅凭 Accept-Ranges 头假定断点续传可用。响应的媒体类型和长度等头部由上游视频响应透传。当前部署实测成功的 seedance-2.0 480p/720p 15 秒、1080p 8 秒结果均下载为有效 MP4；这不保证未来所有上游结果都使用同一媒体类型。",
         "operationId": "downloadSeedanceVideoTaskContent",
         "parameters": [
           {
@@ -394,7 +462,7 @@
             }
           },
           "206": {
-            "description": "Range 请求对应的部分视频内容。",
+            "description": "仅当当前上游接受 Range 请求时返回的部分视频内容。2026-07-23 当前部署实测未观察到 206；上游对 bytes=0-1023 返回了 200 和完整文件。",
             "headers": {
               "Accept-Ranges": {
                 "$ref": "#/components/headers/AcceptRanges"
@@ -437,7 +505,7 @@
             "$ref": "#/components/responses/TaskNotFound"
           },
           "416": {
-            "description": "请求的字节范围无效或不可满足。错误体使用标准 Seedance 错误格式。",
+            "description": "仅当当前上游处理 Range 请求且判定范围无效或不可满足时可能返回。错误体使用标准 Seedance 错误格式。",
             "content": {
               "application/json": {
                 "schema": {
@@ -461,6 +529,9 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
@@ -472,7 +543,19 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API Key",
-        "description": "本站 API Key。请求头格式：Authorization: Bearer YOUR_TKCREAZY_API_KEY。不要在查询参数中传 key 或 api_key；查询参数鉴权会返回 400。"
+        "description": "本站 API Key 的推荐鉴权方式。请求头格式：Authorization: Bearer YOUR_TKCREAZY_API_KEY。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一，不要同时配置，也不要在查询参数中传 key 或 api_key。"
+      },
+      "XApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "本站 API Key 的兼容鉴权方式。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一。"
+      },
+      "XGoogApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-goog-api-key",
+        "description": "为 Gemini CLI 兼容保留的本站 API Key 请求头。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一。"
       }
     },
     "parameters": {
@@ -483,7 +566,8 @@
         "description": "可选的幂等键，会原样转发给视频上游。对同一次业务创建重试时应复用同一个值，以降低重复创建任务和重复计费的风险。不同任务应使用不同的值。",
         "schema": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "example": "video-order-20260723-0001"
       },
@@ -504,17 +588,17 @@
         "name": "Range",
         "in": "header",
         "required": false,
-        "description": "HTTP 字节范围。省略时下载完整视频；例如 bytes=0-1048575 表示请求前 1 MiB。",
+        "description": "可选 HTTP 字节范围，例如 bytes=0-1048575 表示请求前 1 MiB。网关会把该请求头转发给上游，但上游可能忽略并返回 HTTP 200 和完整视频；客户端必须以实际 HTTP 状态码和 Content-Range 为准。2026-07-23 当前部署实测 bytes=0-1023 被上游忽略。",
         "schema": {
           "type": "string",
-          "pattern": "^bytes=[0-9]*-[0-9]*(,[0-9]*-[0-9]*)*$"
+          "pattern": "^bytes=([0-9]+-[0-9]*|-[0-9]+)(,([0-9]+-[0-9]*|-[0-9]+))*$"
         },
         "example": "bytes=0-1048575"
       }
     },
     "headers": {
       "AcceptRanges": {
-        "description": "服务端支持的范围单位，通常为 bytes。",
+        "description": "上游声明的范围单位，通常为 bytes。该响应头存在不代表本次请求一定返回 206；必须同时检查 HTTP 状态码和 Content-Range。",
         "schema": {
           "type": "string"
         },
@@ -556,19 +640,21 @@
           "model": {
             "type": "string",
             "minLength": 1,
-            "description": "本站 Seedance 分组中配置的入站模型名。该字段由管理员自行定义，不是代码写死的枚举；示例名称仅用于演示。分组存在非空模型价格矩阵时，矩阵也是模型白名单：模型未配置返回 400 model_not_supported；模型存在但当前分辨率没有价格返回 503 billing_not_configured。账号可再将此名称映射为上游模型名。",
+            "pattern": ".*\\S.*",
+            "description": "本站 Seedance 分组中配置的入站模型名，提交前后空白会被去除。该字段由管理员自行定义，不是代码写死的枚举。分组存在非空模型价格矩阵时，矩阵也是模型白名单：模型未配置返回 400 model_not_supported；模型存在但当前分辨率没有价格返回 503 billing_not_configured。矩阵为空时沿用分组级分辨率价格。账号可再将此名称映射为上游模型名。示例中的 seedance-2.0 与 seedance-2.0-fast 是 2026-07-23 当前部署实测名称，不保证其他部署存在。",
             "example": "seedance-2.0"
           },
           "content": {
             "type": "array",
             "minItems": 1,
-            "description": "提示词和可选图片的数组。必须至少包含一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片支持单首帧、首尾帧或最多 4 张参考图。",
+            "description": "提示词和可选图片的数组。数组至少包含 1 项，并且所有项中必须至少有一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片支持三种互斥模式：单张无 role 图片作为首帧；最多一个 first_frame 加可选的一个 last_frame，且 last_frame 不能单独出现；或最多 4 张 reference_image。参考图不能与首帧/尾帧混用。存在多张图片时，每张图片都应显式指定 role。",
             "items": {
               "$ref": "#/components/schemas/SeedanceContentItem"
             }
           },
           "ratio": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "adaptive",
               "16:9",
@@ -580,39 +666,58 @@
               "9:21"
             ],
             "default": "adaptive",
-            "description": "视频宽高比。省略或设置为 adaptive 时由上游自适应，并且不会向上游发送 aspect_ratio；其他值会映射为上游 aspect_ratio。",
+            "description": "视频宽高比。省略、传 null、传空字符串或设置为 adaptive 时由上游自适应，并且不会向上游发送 aspect_ratio；其他值会映射为上游 aspect_ratio。规范客户端应使用枚举值或 null，不应依赖空字符串兼容行为。",
             "example": "16:9"
           },
           "duration": {
             "type": "integer",
             "format": "int32",
-            "minimum": 4,
-            "maximum": 15,
+            "nullable": true,
+            "oneOf": [
+              {
+                "type": "integer",
+                "format": "int32",
+                "enum": [
+                  0
+                ],
+                "description": "兼容值 0；网关会把它归一化为默认的 8 秒。"
+              },
+              {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 4,
+                "maximum": 15,
+                "description": "显式目标时长，单位为秒。"
+              }
+            ],
             "default": 8,
-            "description": "目标视频时长，单位为秒，支持 4 至 15 秒。省略时默认为 8 秒。当前实现也会把显式的 0 兼容处理为 8 秒，但新客户端不应发送 0。计费使用归一化后的时长。",
+            "description": "目标视频时长，单位为秒。通用解析器接受整数 4 至 15；省略、传 null 或显式传 0 时均归一化为 8 秒，新客户端应优先省略而不是发送 0。计费使用归一化后的时长。通过此范围校验不代表每个模型、分辨率和音频组合都能完成生成；当前部署的实测能力见接口说明。",
             "example": 8
           },
           "resolution": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "480p",
               "720p",
               "1080p"
             ],
             "default": "720p",
-            "description": "输出分辨率档位。省略时默认为 720p。所选模型必须在 Seedance 分组中配置该分辨率的每秒价格，否则返回 503 billing_not_configured。",
+            "description": "输出分辨率档位，省略、传 null 或传空字符串时默认为 720p。通用解析器只接受 480p、720p、1080p 三个规范值；规范客户端不应依赖空字符串兼容行为。所选模型必须在 Seedance 分组中配置该分辨率的每秒价格，否则返回 503 billing_not_configured；有价格只表示允许创建，不保证任务最终成功。档位名称不承诺严格像素高度：2026-07-23 下载文件实测 480p 档为 864x496、720p 档为 1280x720、1080p 档为 1920x1080。当前部署中，seedance-2.0-fast 的 1080p 未配置价格；seedance-2.0 的 1080p/15 秒连续 3 次任务失败，不能视为已支持。",
             "example": "720p"
           },
           "generate_audio": {
             "type": "boolean",
+            "nullable": true,
             "default": false,
-            "description": "是否请求上游同时生成音频，映射为上游 audio。具体模型是否支持音频由上游决定。",
+            "description": "是否请求上游同时生成音频，映射为上游 audio，省略或传 null 时为 false。具体模型是否支持音频由上游决定。2026-07-23 当前部署中，seedance-2.0 与 seedance-2.0-fast 的 480p/720p、15 秒、true 已实测成功；这不是其他模型或部署的通用保证。",
             "example": false
           },
           "watermark": {
             "type": "boolean",
             "enum": [
-              false
+              false,
+              null
             ],
             "nullable": true,
             "default": false,
@@ -621,14 +726,20 @@
           "seed": {
             "type": "integer",
             "format": "int64",
+            "enum": [
+              null
+            ],
             "nullable": true,
             "deprecated": true,
-            "description": "当前上游适配不支持 seed。请省略或传 null；任何非 null 数值都会返回 400 invalid_request。"
+            "default": null,
+            "description": "当前上游适配不支持 seed。只允许省略或传 null；任何非 null 数值都会返回 400 invalid_request。",
+            "example": null
           },
           "camera_fixed": {
             "type": "boolean",
             "enum": [
-              false
+              false,
+              null
             ],
             "nullable": true,
             "default": false,
@@ -637,7 +748,14 @@
         }
       },
       "SeedanceContentItem": {
-        "description": "单个内容项。type 和角色名称在服务端匹配时不区分大小写，但建议使用文档中的小写规范值；strength 建议使用大写规范值。",
+        "description": "单个内容项。OpenAPI/Apifox 契约只列出规范的 type 值 text 和 image_url；通用服务端解析时不区分大小写，但客户端不应依赖非规范大小写。",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "text": "#/components/schemas/SeedanceTextContentItem",
+            "image_url": "#/components/schemas/SeedanceImageContentItem"
+          }
+        },
         "oneOf": [
           {
             "$ref": "#/components/schemas/SeedanceTextContentItem"
@@ -708,7 +826,7 @@
             "$ref": "#/components/schemas/SeedanceReferenceStrength"
           }
         },
-        "description": "图片内容项。无 role 的单张图片按首帧处理；存在多张图片时应明确每张图片的角色。最多一个首帧和一个尾帧，尾帧必须同时提供首帧；最多 4 张参考图，参考图不能与首帧或尾帧混用。"
+        "description": "图片内容项。无 role 的单张图片按首帧处理；存在多张图片时应明确每张图片的角色。首尾帧模式最多一个 first_frame 和一个 last_frame，last_frame 必须同时提供 first_frame；参考图模式最多 4 张 reference_image，且不能与首帧或尾帧混用。strength 只对 reference_image 有意义。"
       },
       "SeedanceImageInput": {
         "type": "object",
@@ -745,7 +863,7 @@
           "reference",
           "ref"
         ],
-        "description": "图片角色，不区分大小写。首帧规范值为 first_frame，兼容 start_frame 和 first；尾帧规范值为 last_frame，兼容 end_frame 和 last；参考图规范值为 reference_image，兼容 reference 和 ref。建议只使用三个规范值。",
+        "description": "图片角色。通用解析器匹配时不区分大小写；OpenAPI/Apifox 枚举只列服务端明确识别的规范值和兼容别名。首帧规范值为 first_frame，兼容 start_frame 和 first；尾帧规范值为 last_frame，兼容 end_frame 和 last；参考图规范值为 reference_image，兼容 reference 和 ref。新客户端应只使用 first_frame、last_frame、reference_image。无法识别的 role 会按无角色图片处理，客户端不应依赖该容错。",
         "example": "first_frame"
       },
       "SeedanceReferenceStrength": {
@@ -756,7 +874,7 @@
           "HIGH"
         ],
         "default": "MID",
-        "description": "参考图约束强度，仅对 reference_image 有意义。匹配不区分大小写；省略、空值或无法识别的值会被归一化为 MID。",
+        "description": "参考图约束强度，仅对 reference_image 有意义。省略时默认为 MID。通用解析器匹配时不区分大小写，并会把空值或无法识别的值归一化为 MID；OpenAPI/Apifox 契约仅允许规范值 LOW、MID、HIGH，客户端不应依赖容错。",
         "example": "HIGH"
       },
       "SeedanceCreateTaskResponse": {
@@ -846,14 +964,14 @@
           "video_url": {
             "type": "string",
             "format": "uri",
-            "description": "本站鉴权下载地址。请求该地址时仍必须携带创建任务时的同一个 Bearer API Key。",
+            "description": "本站鉴权下载地址。请求该地址时仍必须携带创建任务时的同一个 API Key，可使用本文档定义的任一请求头鉴权方式。",
             "example": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
           }
         }
       },
       "FlexibleTimestamp": {
         "description": "上游时间字段，可能是 ISO 8601 字符串或 Unix 时间戳，网关不改变其类型。",
-        "oneOf": [
+        "anyOf": [
           {
             "type": "string",
             "example": "2026-07-23T12:34:56Z"
@@ -881,14 +999,13 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "code",
               "message",
               "type"
             ],
             "properties": {
               "code": {
                 "type": "string",
-                "description": "机器可读错误码，例如 invalid_request、model_not_supported、task_not_found、billing_not_configured、upstream_error。",
+                "description": "可选机器错误码，例如 invalid_request、model_not_supported、task_not_found、billing_not_configured、upstream_error。Seedance 专用校验路径会返回该字段；公共并发或故障转移错误路径可能省略它。",
                 "example": "invalid_request"
               },
               "message": {
@@ -1092,15 +1209,15 @@
         }
       },
       "ServiceUnavailable": {
-        "description": "模型对应分辨率未配置价格、没有可用 Seedance 上游账号，或鉴权/计费服务暂时不可用。常见 code：billing_not_configured、no_available_account、billing_service_error、API_KEY_AUTH_OVERLOADED。",
+        "description": "模型对应分辨率未配置价格、没有可用 Seedance 上游账号，或鉴权/计费服务暂时不可用。常见 code：billing_not_configured、no_available_account、billing_service_error、API_KEY_AUTH_OVERLOADED。2026-07-23 当前部署中，seedance-2.0-fast 的 1080p 创建请求在产生任务前返回 503 billing_not_configured。",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/AnyGatewayErrorResponse"
             },
             "examples": {
-              "billingNotConfigured": {
-                "summary": "当前模型和分辨率未配置价格",
+              "fast1080pBillingNotConfiguredObserved": {
+                "summary": "当前部署实测：seedance-2.0-fast 1080p 未配置价格",
                 "value": {
                   "error": {
                     "code": "billing_not_configured",
@@ -1117,6 +1234,35 @@
                     "message": "No available Seedance upstream account in this API key group",
                     "type": "invalid_request_error"
                   }
+                }
+              }
+            }
+          }
+        }
+      },
+      "UpstreamOrUnexpectedError": {
+        "description": "未在当前操作中单独列出的上游或网关错误。Seedance 上游的 400 至 599 状态可能由网关保留，并包装为标准 Seedance 错误；入口中间件错误可能使用扁平 code/message 格式。客户端应同时读取 HTTP 状态和机器可读 code，不应只依赖示例中的状态集合。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
+            },
+            "examples": {
+              "upstreamError": {
+                "summary": "未显式枚举的上游错误",
+                "value": {
+                  "error": {
+                    "code": "upstream_error",
+                    "message": "Seedance upstream request failed",
+                    "type": "invalid_request_error"
+                  }
+                }
+              },
+              "middlewareError": {
+                "summary": "未显式枚举的入口中间件错误",
+                "value": {
+                  "code": "INTERNAL_ERROR",
+                  "message": "Request could not be processed"
                 }
               }
             }
