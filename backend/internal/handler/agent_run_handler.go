@@ -655,6 +655,70 @@ func (h *AgentRunHandler) GetArtifactDownloadURL(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *AgentRunHandler) GetArtifactPreviewURL(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	artifactID, ok := parseIDParam(c, "id", "Invalid artifact ID")
+	if !ok {
+		return
+	}
+	result, err := h.runService.GetArtifactPreviewURL(c.Request.Context(), artifactID, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	response.Success(c, result)
+}
+
+func (h *AgentRunHandler) StreamArtifactPreview(c *gin.Context) {
+	artifactID, ok := parseIDParam(c, "id", "Invalid artifact ID")
+	if !ok {
+		return
+	}
+	content, err := h.runService.OpenArtifactPreview(
+		c.Request.Context(),
+		artifactID,
+		strings.TrimSpace(c.Query("token")),
+		c.GetHeader("Range"),
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	defer func() { _ = content.Body.Close() }()
+	writeArtifactPreviewContent(c, content)
+}
+
+func writeArtifactPreviewContent(c *gin.Context, content *service.ArtifactPreviewContent) {
+	if content.ContentType != "" {
+		c.Header("Content-Type", content.ContentType)
+	}
+	c.Header("Content-Disposition", "inline")
+	c.Header("Accept-Ranges", content.AcceptRanges)
+	c.Header("Cache-Control", "private, no-store")
+	if content.ContentRange != "" {
+		c.Header("Content-Range", content.ContentRange)
+	}
+	if content.ETag != "" {
+		c.Header("ETag", content.ETag)
+	}
+	if content.LastModified != "" {
+		c.Header("Last-Modified", content.LastModified)
+	}
+	if content.StatusCode != http.StatusRequestedRangeNotSatisfiable && content.ContentLength >= 0 {
+		c.Header("Content-Length", strconv.FormatInt(content.ContentLength, 10))
+	}
+	c.Status(content.StatusCode)
+	c.Writer.WriteHeaderNow()
+	if content.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		_, _ = io.Copy(c.Writer, content.Body)
+	}
+}
+
 func (h *AgentRunHandler) UploadInputAsset(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok {

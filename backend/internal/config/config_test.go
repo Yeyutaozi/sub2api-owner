@@ -691,6 +691,9 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
 	}
+	if !strings.Contains(cfg.Security.CSP.Policy, "media-src 'self' data: blob: https:") {
+		t.Fatalf("CSP policy does not allow artifact media previews: %q", cfg.Security.CSP.Policy)
+	}
 }
 
 func TestLoadDefaultServerMode(t *testing.T) {

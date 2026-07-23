@@ -81,12 +81,15 @@ type AgentRunService struct {
 	cfg            *config.Config
 	redisClient    *redis.Client
 	httpClient     *http.Client
+	previewClient  *http.Client
 
-	mu             sync.Mutex
-	hostSemaphores map[int64]chan struct{}
-	runnerOnce     sync.Once
-	cleanupOnce    sync.Once
-	consumerID     string
+	mu                   sync.Mutex
+	hostSemaphores       map[int64]chan struct{}
+	previewMu            sync.Mutex
+	previewActiveStreams map[int64]int
+	runnerOnce           sync.Once
+	cleanupOnce          sync.Once
+	consumerID           string
 }
 
 func NewAgentRunService(
@@ -119,7 +122,9 @@ func NewAgentRunService(
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		hostSemaphores: make(map[int64]chan struct{}),
+		previewClient:        newArtifactPreviewHTTPClient(),
+		hostSemaphores:       make(map[int64]chan struct{}),
+		previewActiveStreams: make(map[int64]int),
 	}
 	if dynamic, ok := artifactStore.(*dynamicAgentArtifactStore); ok {
 		svc.artifactConfig = dynamic.configService

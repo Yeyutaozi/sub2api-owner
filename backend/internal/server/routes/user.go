@@ -16,6 +16,10 @@ func RegisterUserRoutes(
 	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 ) {
+	// Native media elements cannot attach the UI's bearer token. This route is
+	// authorized by the short-lived, artifact-bound token issued by preview-url.
+	v1.GET("/agent-artifacts/:id/content", h.AgentRun.StreamArtifactPreview)
+
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
@@ -98,6 +102,7 @@ func RegisterUserRoutes(
 		agentArtifacts := authenticated.Group("/agent-artifacts")
 		{
 			agentArtifacts.GET("/:id/download-url", h.AgentRun.GetArtifactDownloadURL)
+			agentArtifacts.GET("/:id/preview-url", h.AgentRun.GetArtifactPreviewURL)
 		}
 
 		groups := authenticated.Group("/groups")

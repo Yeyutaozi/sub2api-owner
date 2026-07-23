@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, buildApiUrl } from './client'
 import type {
   AgentAppCatalog,
   AgentArtifactDownloadURL,
@@ -83,6 +83,14 @@ export async function getArtifactDownloadURL(id: number): Promise<AgentArtifactD
   return data
 }
 
+export async function getArtifactPreviewURL(id: number): Promise<AgentArtifactDownloadURL> {
+  const { data } = await apiClient.get<AgentArtifactDownloadURL>(`/agent-artifacts/${id}/preview-url`)
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(data.url) && !data.url.startsWith('//')) {
+    data.url = buildApiUrl(data.url)
+  }
+  return data
+}
+
 export async function uploadInputAsset(
   file: File,
   options?: {
@@ -147,6 +155,7 @@ export const agentAppsAPI = {
   cancelRun,
   listRunEvents,
   getArtifactDownloadURL,
+  getArtifactPreviewURL,
   uploadInputAsset,
   listInputAssets,
   getInputAssetDownloadURL

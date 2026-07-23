@@ -206,7 +206,16 @@
                       <img :src="artifactPreviewURL(artifact)" :alt="artifact.name" class="max-h-96 w-full object-contain" />
                     </div>
                     <div v-else-if="isVideoArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-black">
-                      <video :src="artifactPreviewURL(artifact)" controls class="max-h-96 w-full" />
+                      <video
+                        :key="artifactPreviewURL(artifact)"
+                        :src="artifactPreviewURL(artifact)"
+                        controls
+                        playsinline
+                        preload="metadata"
+                        class="max-h-96 w-full"
+                        @error="handleArtifactPreviewError(artifact, $event)"
+                        @loadedmetadata="handleArtifactPreviewLoaded(artifact.id, $event)"
+                      />
                     </div>
                     <div class="flex items-center justify-between gap-3 px-3 py-3 text-sm">
                       <span class="min-w-0">
@@ -287,10 +296,27 @@
                       <img :src="artifactPreviewURL(artifact)" :alt="artifact.name" class="max-h-80 w-full object-contain" />
                     </div>
                     <div v-else-if="isVideoArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-black">
-                      <video :src="artifactPreviewURL(artifact)" controls class="max-h-80 w-full" />
+                      <video
+                        :key="artifactPreviewURL(artifact)"
+                        :src="artifactPreviewURL(artifact)"
+                        controls
+                        playsinline
+                        preload="metadata"
+                        class="max-h-80 w-full"
+                        @error="handleArtifactPreviewError(artifact, $event)"
+                        @loadedmetadata="handleArtifactPreviewLoaded(artifact.id, $event)"
+                      />
                     </div>
                     <div v-else-if="isAudioArtifact(artifact) && artifactPreviewURL(artifact)" class="bg-gray-50 p-4 dark:bg-dark-800">
-                      <audio :src="artifactPreviewURL(artifact)" controls class="w-full" />
+                      <audio
+                        :key="artifactPreviewURL(artifact)"
+                        :src="artifactPreviewURL(artifact)"
+                        controls
+                        preload="metadata"
+                        class="w-full"
+                        @error="handleArtifactPreviewError(artifact, $event)"
+                        @loadedmetadata="handleArtifactPreviewLoaded(artifact.id, $event)"
+                      />
                     </div>
                     <div class="flex items-center justify-between gap-3 px-3 py-3 text-sm">
                       <span class="flex min-w-0 items-center gap-3">
@@ -973,7 +999,7 @@ import keysAPI from '@/api/keys'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import type { AgentAppCatalog, AgentArtifact, AgentInputAsset, AgentRun, AgentRunEvent, ApiKey, GroupPlatform, PaginatedResponse, UsageLog } from '@/types'
+import type { AgentAppCatalog, AgentArtifact, AgentArtifactDownloadURL, AgentInputAsset, AgentRun, AgentRunEvent, ApiKey, GroupPlatform, PaginatedResponse, UsageLog } from '@/types'
 import { agentAppProviderLabel, inferAgentAppProvider, normalizeAgentAppProvider } from '@/utils/agentAppModelProvider'
 
 type ModelPolicyItem = {
@@ -988,6 +1014,8 @@ type ModelPolicyItem = {
 }
 
 type InputFieldKind = 'text' | 'textarea' | 'number' | 'image' | 'file' | 'audio' | 'video' | 'select' | 'boolean' | 'date'
+
+type ArtifactURLRequestKind = 'preview' | 'download'
 
 type InputFieldItem = {
   name: string
@@ -1067,6 +1095,10 @@ const inputFilePreviewURLs = ref<Record<string, string>>({})
 const uploadedInputAssetIDs = ref<Record<string, number>>({})
 const artifactPreviewURLs = ref<Record<number, string>>({})
 const artifactPreviewExpiresAt = ref<Record<number, number>>({})
+const artifactURLRequests = new Map<string, Promise<AgentArtifactDownloadURL>>()
+const artifactPreviewRefreshRequests = new Map<number, Promise<void>>()
+const artifactPreviewRetryCounts = new Map<number, number>()
+const artifactPreviewFailureNotified = new Set<number>()
 const inputAssetPreviewURLs = ref<Record<number, string>>({})
 const inputAssetPreviewExpiresAt = ref<Record<number, number>>({})
 const appIconURLs = ref<Record<number, string>>({})
@@ -1687,7 +1719,7 @@ async function submitRun() {
 
 async function downloadArtifact(artifactId: number) {
   try {
-    const result = await agentAppsAPI.getArtifactDownloadURL(artifactId)
+    const result = await requestArtifactURL(artifactId, 'download')
     const anchor = document.createElement('a')
     anchor.href = result.url
     anchor.target = '_blank'
@@ -1719,6 +1751,22 @@ async function ensureRunPreviewURLs(run: AgentRun | null) {
   await Promise.all([ensureArtifactPreviewURLs(run), ensureInputAssetPreviewURLs(run)])
 }
 
+async function requestArtifactURL(artifactId: number, kind: ArtifactURLRequestKind): Promise<AgentArtifactDownloadURL> {
+  const requestKey = `${kind}:${artifactId}`
+  const inFlight = artifactURLRequests.get(requestKey)
+  if (inFlight) return inFlight
+
+  const request = kind === 'preview'
+    ? agentAppsAPI.getArtifactPreviewURL(artifactId)
+    : agentAppsAPI.getArtifactDownloadURL(artifactId)
+  artifactURLRequests.set(requestKey, request)
+  try {
+    return await request
+  } finally {
+    if (artifactURLRequests.get(requestKey) === request) artifactURLRequests.delete(requestKey)
+  }
+}
+
 async function ensureArtifactPreviewURLs(run: AgentRun | null) {
   const now = Date.now()
   const artifacts = (run?.artifacts || []).filter((artifact) => isPreviewableArtifact(artifact) && (
@@ -1728,7 +1776,10 @@ async function ensureArtifactPreviewURLs(run: AgentRun | null) {
   const entries = await Promise.all(
     artifacts.map(async (artifact) => {
       try {
-        const result = await agentAppsAPI.getArtifactDownloadURL(artifact.id)
+        const result = await requestArtifactURL(
+          artifact.id,
+          isVideoArtifact(artifact) || isAudioArtifact(artifact) ? 'preview' : 'download'
+        )
         return [artifact.id, result.url, result.expires_at ? new Date(result.expires_at).getTime() : now + 5 * 60_000] as const
       } catch {
         return null
@@ -1745,6 +1796,66 @@ async function ensureArtifactPreviewURLs(run: AgentRun | null) {
   }
   artifactPreviewURLs.value = next
   artifactPreviewExpiresAt.value = nextExpires
+}
+
+function artifactPreviewEventIsCurrent(artifactId: number, event: Event): boolean {
+  const target = event.currentTarget
+  const source = target instanceof HTMLMediaElement ? (target.getAttribute('src') || target.currentSrc) : ''
+  return !source || source === artifactPreviewURLs.value[artifactId]
+}
+
+function notifyArtifactPreviewFailure(artifactId: number, message: string) {
+  if (artifactPreviewFailureNotified.has(artifactId)) return
+  artifactPreviewFailureNotified.add(artifactId)
+  appStore.showError(message)
+}
+
+async function handleArtifactPreviewError(artifact: AgentArtifact, event: Event) {
+  if (!artifactPreviewEventIsCurrent(artifact.id, event)) return
+
+  const activeRefresh = artifactPreviewRefreshRequests.get(artifact.id)
+  if (activeRefresh) {
+    await activeRefresh
+    return
+  }
+
+  const attempts = artifactPreviewRetryCounts.get(artifact.id) || 0
+  if (attempts >= 1) {
+    notifyArtifactPreviewFailure(artifact.id, '音视频预览加载失败，请刷新页面重试或下载后查看')
+    return
+  }
+  artifactPreviewRetryCounts.set(artifact.id, attempts + 1)
+
+  const refreshRequest = (async () => {
+    try {
+      const now = Date.now()
+      const result = await requestArtifactURL(artifact.id, 'preview')
+      artifactPreviewURLs.value = { ...artifactPreviewURLs.value, [artifact.id]: result.url }
+      artifactPreviewExpiresAt.value = {
+        ...artifactPreviewExpiresAt.value,
+        [artifact.id]: result.expires_at ? new Date(result.expires_at).getTime() : now + 5 * 60_000
+      }
+    } catch (err: unknown) {
+      notifyArtifactPreviewFailure(
+        artifact.id,
+        extractApiErrorMessage(err, '音视频预览链接刷新失败，请下载后查看')
+      )
+    }
+  })()
+  artifactPreviewRefreshRequests.set(artifact.id, refreshRequest)
+  try {
+    await refreshRequest
+  } finally {
+    if (artifactPreviewRefreshRequests.get(artifact.id) === refreshRequest) {
+      artifactPreviewRefreshRequests.delete(artifact.id)
+    }
+  }
+}
+
+function handleArtifactPreviewLoaded(artifactId: number, event: Event) {
+  if (!artifactPreviewEventIsCurrent(artifactId, event)) return
+  artifactPreviewRetryCounts.delete(artifactId)
+  artifactPreviewFailureNotified.delete(artifactId)
 }
 
 async function ensureInputAssetPreviewURLs(run: AgentRun | null) {
