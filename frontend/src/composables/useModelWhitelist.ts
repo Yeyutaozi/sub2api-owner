@@ -160,8 +160,6 @@ const xaiModels = [
 ]
 
 const seedanceModels = [
-  'doubao-seedance-2-0-pro',
-  'doubao-seedance-2-0-fast',
   'seedance-2.0',
   'seedance-2.0-fast'
 ]
@@ -325,8 +323,8 @@ const grokPresetMappings = [
 ]
 
 const seedancePresetMappings = [
-  { label: 'Seedance 2.0 Pro', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
-  { label: 'Seedance 2.0 Fast', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
+  { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Legacy Fast alias', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]
 
 // Antigravity 预设映射（支持通配符）

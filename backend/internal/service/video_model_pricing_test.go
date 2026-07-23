@@ -18,11 +18,11 @@ func TestNormalizeVideoModelPricesSeedance(t *testing.T) {
 	pro720P := 0.16
 	fast480P := 0.06
 	input := VideoModelPrices{
-		" Doubao-Seedance-2-0-Pro ": {
+		" Seedance-2.0 ": {
 			Price480P: &free,
 			Price720P: &pro720P,
 		},
-		"DOUBAO-SEEDANCE-2-0-FAST": {
+		"SEEDANCE-2.0-FAST": {
 			Price480P: &fast480P,
 		},
 	}
@@ -31,15 +31,15 @@ func TestNormalizeVideoModelPricesSeedance(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, normalized, 2)
-	require.Contains(t, normalized, "doubao-seedance-2-0-pro")
-	require.Contains(t, normalized, "doubao-seedance-2-0-fast")
-	require.Zero(t, *normalized["doubao-seedance-2-0-pro"].Price480P)
-	require.InDelta(t, 0.16, *normalized["doubao-seedance-2-0-pro"].Price720P, 1e-12)
-	require.Nil(t, normalized["doubao-seedance-2-0-pro"].Price1080P)
-	require.NotSame(t, input[" Doubao-Seedance-2-0-Pro "].Price480P, normalized["doubao-seedance-2-0-pro"].Price480P)
+	require.Contains(t, normalized, "seedance-2.0")
+	require.Contains(t, normalized, "seedance-2.0-fast")
+	require.Zero(t, *normalized["seedance-2.0"].Price480P)
+	require.InDelta(t, 0.16, *normalized["seedance-2.0"].Price720P, 1e-12)
+	require.Nil(t, normalized["seedance-2.0"].Price1080P)
+	require.NotSame(t, input[" Seedance-2.0 "].Price480P, normalized["seedance-2.0"].Price480P)
 
-	*normalized["doubao-seedance-2-0-pro"].Price480P = 1
-	require.Zero(t, *input[" Doubao-Seedance-2-0-Pro "].Price480P)
+	*normalized["seedance-2.0"].Price480P = 1
+	require.Zero(t, *input[" Seedance-2.0 "].Price480P)
 }
 
 func TestNormalizeVideoModelPricesRejectsInvalidSeedanceCards(t *testing.T) {
@@ -58,36 +58,36 @@ func TestNormalizeVideoModelPricesRejectsInvalidSeedanceCards(t *testing.T) {
 		{
 			name: "empty price card",
 			prices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {},
+				"seedance-2.0": {},
 			},
 			errSubstr: "must configure at least one resolution price",
 		},
 		{
 			name: "negative price",
 			prices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price480P: videoModelPriceTestPointer(-0.1)},
+				"seedance-2.0": {Price480P: videoModelPriceTestPointer(-0.1)},
 			},
 			errSubstr: "price must be a finite number >= 0",
 		},
 		{
 			name: "NaN price",
 			prices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price720P: videoModelPriceTestPointer(math.NaN())},
+				"seedance-2.0": {Price720P: videoModelPriceTestPointer(math.NaN())},
 			},
 			errSubstr: "price must be a finite number >= 0",
 		},
 		{
 			name: "infinite price",
 			prices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price1080P: videoModelPriceTestPointer(math.Inf(1))},
+				"seedance-2.0": {Price1080P: videoModelPriceTestPointer(math.Inf(1))},
 			},
 			errSubstr: "price must be a finite number >= 0",
 		},
 		{
 			name: "normalized duplicate model",
 			prices: VideoModelPrices{
-				"Doubao-Seedance-2-0-Pro":   {Price480P: videoModelPriceTestPointer(0.1)},
-				" doubao-seedance-2-0-pro ": {Price720P: videoModelPriceTestPointer(0.2)},
+				"Seedance-2.0":   {Price480P: videoModelPriceTestPointer(0.1)},
+				" seedance-2.0 ": {Price720P: videoModelPriceTestPointer(0.2)},
 			},
 			errSubstr: "duplicate video model pricing",
 		},
@@ -137,16 +137,16 @@ func TestGroupGetVideoPriceForModelUsesSeedanceMatrixAndLegacyFallback(t *testin
 	free := 0.0
 	pro720P := 0.16
 	group.VideoModelPrices = VideoModelPrices{
-		"doubao-seedance-2-0-pro": {
+		"seedance-2.0": {
 			Price480P: &free,
 			Price720P: &pro720P,
 		},
 	}
 
-	require.Zero(t, *group.GetVideoPriceForModel(" DOUBAO-SEEDANCE-2-0-PRO ", "480p"))
-	require.InDelta(t, 0.16, *group.GetVideoPriceForModel("doubao-seedance-2-0-pro", "720p"), 1e-12)
-	require.Nil(t, group.GetVideoPriceForModel("doubao-seedance-2-0-pro", "1080p"))
-	require.Nil(t, group.GetVideoPriceForModel("doubao-seedance-2-0-fast", "480p"))
+	require.Zero(t, *group.GetVideoPriceForModel(" SEEDANCE-2.0 ", "480p"))
+	require.InDelta(t, 0.16, *group.GetVideoPriceForModel("seedance-2.0", "720p"), 1e-12)
+	require.Nil(t, group.GetVideoPriceForModel("seedance-2.0", "1080p"))
+	require.Nil(t, group.GetVideoPriceForModel("seedance-2.0-fast", "480p"))
 }
 
 func TestGroupGetVideoPriceForModelKeepsGrokGroupWidePricing(t *testing.T) {
@@ -156,10 +156,10 @@ func TestGroupGetVideoPriceForModelKeepsGrokGroupWidePricing(t *testing.T) {
 		Platform:       PlatformGrok,
 		VideoPrice480P: &legacy480P,
 		VideoModelPrices: VideoModelPrices{
-			"doubao-seedance-2-0-pro": {Price480P: &dirtyMatrixPrice},
+			"seedance-2.0": {Price480P: &dirtyMatrixPrice},
 		},
 	}
 
-	require.Same(t, group.VideoPrice480P, group.GetVideoPriceForModel("doubao-seedance-2-0-pro", "480p"))
+	require.Same(t, group.VideoPrice480P, group.GetVideoPriceForModel("seedance-2.0", "480p"))
 	require.InDelta(t, 0.08, *group.GetVideoPriceForModel("any-grok-model", "480p"), 1e-12)
 }

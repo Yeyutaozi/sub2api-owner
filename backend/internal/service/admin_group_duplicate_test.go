@@ -235,7 +235,7 @@ func TestCloneGroupForDuplicateCopiesOnlySeedanceVideoModelPricesDeeply(t *testi
 	seedanceSource := &Group{
 		Platform: PlatformSeedance,
 		VideoModelPrices: VideoModelPrices{
-			"doubao-seedance-2-0-pro": {
+			"seedance-2.0": {
 				Price480P: &price480P,
 				Price720P: &price720P,
 			},
@@ -245,14 +245,14 @@ func TestCloneGroupForDuplicateCopiesOnlySeedanceVideoModelPricesDeeply(t *testi
 	duplicate := cloneGroupForDuplicate(seedanceSource, "operation")
 	require.Equal(t, seedanceSource.VideoModelPrices, duplicate.VideoModelPrices)
 	require.NotSame(t,
-		seedanceSource.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P,
-		duplicate.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P,
+		seedanceSource.VideoModelPrices["seedance-2.0"].Price480P,
+		duplicate.VideoModelPrices["seedance-2.0"].Price480P,
 	)
 
-	*duplicate.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P = 9
-	delete(duplicate.VideoModelPrices, "doubao-seedance-2-0-pro")
-	require.InDelta(t, 0.12, *seedanceSource.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P, 1e-12)
-	require.Contains(t, seedanceSource.VideoModelPrices, "doubao-seedance-2-0-pro")
+	*duplicate.VideoModelPrices["seedance-2.0"].Price480P = 9
+	delete(duplicate.VideoModelPrices, "seedance-2.0")
+	require.InDelta(t, 0.12, *seedanceSource.VideoModelPrices["seedance-2.0"].Price480P, 1e-12)
+	require.Contains(t, seedanceSource.VideoModelPrices, "seedance-2.0")
 
 	grokSource := &Group{
 		Platform: PlatformGrok,

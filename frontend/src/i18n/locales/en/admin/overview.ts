@@ -976,7 +976,7 @@ export default {
         videoMultiplier: 'Video multiplier',
         modelPrices: 'Model and resolution prices',
         model: 'Requested model',
-        modelPlaceholder: 'doubao-seedance-2-0-pro',
+        modelPlaceholder: 'seedance-2.0',
         addModel: 'Add model',
         removeModel: 'Remove model {model}',
         clearMatrix: 'Clear matrix',

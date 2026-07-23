@@ -25,7 +25,7 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSeedanceVideoModelPrices(t *te
 			Platform: PlatformSeedance,
 			Status:   StatusActive,
 			VideoModelPrices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price720P: &pro720P},
+				"seedance-2.0": {Price720P: &pro720P},
 			},
 		},
 	}
@@ -40,10 +40,10 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSeedanceVideoModelPrices(t *te
 	require.NotNil(t, roundTrip.Group)
 	require.Equal(t, apiKey.Group.VideoModelPrices, roundTrip.Group.VideoModelPrices)
 
-	snapshotCard := snapshot.Group.VideoModelPrices["doubao-seedance-2-0-pro"]
+	snapshotCard := snapshot.Group.VideoModelPrices["seedance-2.0"]
 	*snapshotCard.Price720P = 9.99
-	require.InDelta(t, 0.16, *apiKey.Group.VideoModelPrices["doubao-seedance-2-0-pro"].Price720P, 1e-12)
-	require.InDelta(t, 0.16, *roundTrip.Group.VideoModelPrices["doubao-seedance-2-0-pro"].Price720P, 1e-12)
+	require.InDelta(t, 0.16, *apiKey.Group.VideoModelPrices["seedance-2.0"].Price720P, 1e-12)
+	require.InDelta(t, 0.16, *roundTrip.Group.VideoModelPrices["seedance-2.0"].Price720P, 1e-12)
 }
 
 func TestAPIKeyService_SnapshotIgnoresVideoModelPricesForOtherPlatforms(t *testing.T) {

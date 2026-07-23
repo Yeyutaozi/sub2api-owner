@@ -12,8 +12,8 @@ import (
 
 func TestDefaultModelsListCandidateIDsSeedance(t *testing.T) {
 	require.Equal(t, []string{
-		"doubao-seedance-2-0-pro",
-		"doubao-seedance-2-0-fast",
+		"seedance-2.0",
+		"seedance-2.0-fast",
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 }
 
@@ -22,7 +22,7 @@ func TestAdminServiceCreateGroupNormalizesSeedanceVideoModelPrices(t *testing.T)
 	svc := &adminServiceImpl{groupRepo: repo}
 	price480P := 0.12
 	prices := VideoModelPrices{
-		" Doubao-Seedance-2-0-Pro ": {Price480P: &price480P},
+		" Seedance-2.0 ": {Price480P: &price480P},
 	}
 
 	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
@@ -34,10 +34,10 @@ func TestAdminServiceCreateGroupNormalizesSeedanceVideoModelPrices(t *testing.T)
 
 	require.NoError(t, err)
 	require.Same(t, group, repo.created)
-	require.NotContains(t, group.VideoModelPrices, " Doubao-Seedance-2-0-Pro ")
-	require.Contains(t, group.VideoModelPrices, "doubao-seedance-2-0-pro")
-	require.InDelta(t, 0.12, *group.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P, 1e-12)
-	require.NotSame(t, prices[" Doubao-Seedance-2-0-Pro "].Price480P, group.VideoModelPrices["doubao-seedance-2-0-pro"].Price480P)
+	require.NotContains(t, group.VideoModelPrices, " Seedance-2.0 ")
+	require.Contains(t, group.VideoModelPrices, "seedance-2.0")
+	require.InDelta(t, 0.12, *group.VideoModelPrices["seedance-2.0"].Price480P, 1e-12)
+	require.NotSame(t, prices[" Seedance-2.0 "].Price480P, group.VideoModelPrices["seedance-2.0"].Price480P)
 }
 
 func TestAdminServiceCreateGroupClearsVideoModelPricesForOtherPlatforms(t *testing.T) {
@@ -79,19 +79,19 @@ func TestAdminServiceCreateGroupRejectsInvalidSeedanceVideoModelPrices(t *testin
 	}{
 		{
 			name:   "empty card",
-			prices: VideoModelPrices{"doubao-seedance-2-0-pro": {}},
+			prices: VideoModelPrices{"seedance-2.0": {}},
 		},
 		{
 			name:   "negative",
-			prices: VideoModelPrices{"doubao-seedance-2-0-pro": {Price480P: videoModelPriceTestPointer(-1)}},
+			prices: VideoModelPrices{"seedance-2.0": {Price480P: videoModelPriceTestPointer(-1)}},
 		},
 		{
 			name:   "NaN",
-			prices: VideoModelPrices{"doubao-seedance-2-0-pro": {Price720P: videoModelPriceTestPointer(math.NaN())}},
+			prices: VideoModelPrices{"seedance-2.0": {Price720P: videoModelPriceTestPointer(math.NaN())}},
 		},
 		{
 			name:   "infinite",
-			prices: VideoModelPrices{"doubao-seedance-2-0-pro": {Price1080P: videoModelPriceTestPointer(math.Inf(-1))}},
+			prices: VideoModelPrices{"seedance-2.0": {Price1080P: videoModelPriceTestPointer(math.Inf(-1))}},
 		},
 	}
 
@@ -119,20 +119,20 @@ func TestAdminServiceUpdateGroupNormalizesAndClearsSeedanceVideoModelPrices(t *t
 		svc := &adminServiceImpl{groupRepo: repo}
 		price720P := 0.16
 		prices := VideoModelPrices{
-			" Doubao-Seedance-2-0-Pro ": {Price720P: &price720P},
+			" Seedance-2.0 ": {Price720P: &price720P},
 		}
 
 		group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{VideoModelPrices: &prices})
 
 		require.NoError(t, err)
-		require.Contains(t, group.VideoModelPrices, "doubao-seedance-2-0-pro")
-		require.NotContains(t, group.VideoModelPrices, " Doubao-Seedance-2-0-Pro ")
+		require.Contains(t, group.VideoModelPrices, "seedance-2.0")
+		require.NotContains(t, group.VideoModelPrices, " Seedance-2.0 ")
 	})
 
 	t.Run("omitted matrix is preserved", func(t *testing.T) {
 		price480P := 0.12
 		existingPrices := VideoModelPrices{
-			"doubao-seedance-2-0-pro": {Price480P: &price480P},
+			"seedance-2.0": {Price480P: &price480P},
 		}
 		repo := &groupRepoStubForAdmin{getByID: &Group{
 			ID:               1,
@@ -156,7 +156,7 @@ func TestAdminServiceUpdateGroupNormalizesAndClearsSeedanceVideoModelPrices(t *t
 			Platform: PlatformSeedance,
 			Status:   StatusActive,
 			VideoModelPrices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price480P: &existingPrice},
+				"seedance-2.0": {Price480P: &existingPrice},
 			},
 		}}
 		svc := &adminServiceImpl{groupRepo: repo}
@@ -177,7 +177,7 @@ func TestAdminServiceUpdateGroupNormalizesAndClearsSeedanceVideoModelPrices(t *t
 			Status:         StatusActive,
 			VideoPrice480P: &legacy480P,
 			VideoModelPrices: VideoModelPrices{
-				"doubao-seedance-2-0-pro": {Price480P: &existingPrice},
+				"seedance-2.0": {Price480P: &existingPrice},
 			},
 		}}
 		svc := &adminServiceImpl{groupRepo: repo}
@@ -195,7 +195,7 @@ func TestAdminServiceUpdateGroupRejectsInvalidSeedanceVideoModelPrices(t *testin
 	repo := &groupRepoStubForAdmin{getByID: &Group{ID: 1, Platform: PlatformSeedance, Status: StatusActive}}
 	svc := &adminServiceImpl{groupRepo: repo}
 	prices := VideoModelPrices{
-		"doubao-seedance-2-0-pro": {Price480P: videoModelPriceTestPointer(-1)},
+		"seedance-2.0": {Price480P: videoModelPriceTestPointer(-1)},
 	}
 
 	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{VideoModelPrices: &prices})

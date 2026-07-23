@@ -52,7 +52,7 @@
                 "textToVideo720p": {
                   "summary": "纯文本生成 720p 横屏视频",
                   "value": {
-                    "model": "doubao-seedance-2-0-pro",
+                    "model": "seedance-2.0",
                     "content": [
                       {
                         "type": "text",
@@ -69,7 +69,7 @@
                 "long1080pWithAudio": {
                   "summary": "15 秒 1080p 复杂任务并生成音频",
                   "value": {
-                    "model": "doubao-seedance-2-0-pro",
+                    "model": "seedance-2.0",
                     "content": [
                       {
                         "type": "text",
@@ -86,7 +86,7 @@
                 "imageToVideo": {
                   "summary": "使用单张首帧图片生成视频",
                   "value": {
-                    "model": "doubao-seedance-2-0-fast",
+                    "model": "seedance-2.0-fast",
                     "content": [
                       {
                         "type": "text",
@@ -106,7 +106,7 @@
                 "firstAndLastFrames": {
                   "summary": "指定首帧和尾帧",
                   "value": {
-                    "model": "doubao-seedance-2-0-pro",
+                    "model": "seedance-2.0",
                     "content": [
                       {
                         "type": "text",
@@ -136,7 +136,7 @@
                 "referenceImages": {
                   "summary": "使用多张参考图保持主体一致",
                   "value": {
-                    "model": "doubao-seedance-2-0-pro",
+                    "model": "seedance-2.0",
                     "content": [
                       {
                         "type": "text",
@@ -557,7 +557,7 @@
             "type": "string",
             "minLength": 1,
             "description": "本站 Seedance 分组中配置的入站模型名。该字段由管理员自行定义，不是代码写死的枚举；示例名称仅用于演示。分组存在非空模型价格矩阵时，矩阵也是模型白名单：模型未配置返回 400 model_not_supported；模型存在但当前分辨率没有价格返回 503 billing_not_configured。账号可再将此名称映射为上游模型名。",
-            "example": "doubao-seedance-2-0-pro"
+            "example": "seedance-2.0"
           },
           "content": {
             "type": "array",

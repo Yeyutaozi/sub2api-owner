@@ -10,7 +10,7 @@ import (
 func TestVideoModelPricesForPersistenceIsSeedanceOnly(t *testing.T) {
 	price := 0.12
 	prices := service.VideoModelPrices{
-		"doubao-seedance-2-0-pro": {Price480P: &price},
+		"seedance-2.0": {Price480P: &price},
 	}
 
 	seedance := &service.Group{Platform: service.PlatformSeedance, VideoModelPrices: prices}

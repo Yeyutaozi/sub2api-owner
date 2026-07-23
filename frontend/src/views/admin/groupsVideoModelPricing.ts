@@ -1,8 +1,8 @@
 import type { VideoModelPrice, VideoModelPrices } from "@/types";
 
 export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
-  "doubao-seedance-2-0-pro",
-  "doubao-seedance-2-0-fast",
+  "seedance-2.0",
+  "seedance-2.0-fast",
 ] as const;
 
 export type VideoModelPriceInput = number | string | null;

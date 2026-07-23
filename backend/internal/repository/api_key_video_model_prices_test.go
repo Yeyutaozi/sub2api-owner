@@ -11,7 +11,7 @@ import (
 func TestGroupEntityToService_VideoModelPricesAreSeedanceOnly(t *testing.T) {
 	price720P := 0.16
 	prices := service.VideoModelPrices{
-		"doubao-seedance-2-0-pro": {Price720P: &price720P},
+		"seedance-2.0": {Price720P: &price720P},
 	}
 
 	seedance := groupEntityToService(&dbent.Group{

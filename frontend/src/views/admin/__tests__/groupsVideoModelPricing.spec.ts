@@ -18,10 +18,10 @@ describe("Seedance video model pricing form conversion", () => {
     }
   });
 
-  it("starts new Seedance groups with the Pro and Fast model rows", () => {
+  it("starts new Seedance groups with the FYLink model IDs", () => {
     expect(createDefaultSeedanceVideoModelPriceRows()).toEqual([
-      createVideoModelPriceRow("doubao-seedance-2-0-pro"),
-      createVideoModelPriceRow("doubao-seedance-2-0-fast"),
+      createVideoModelPriceRow("seedance-2.0"),
+      createVideoModelPriceRow("seedance-2.0-fast"),
     ]);
   });
 
@@ -29,14 +29,14 @@ describe("Seedance video model pricing form conversion", () => {
     expect(
       videoModelPriceRowsToPrices([
         {
-          model: "  Doubao-Seedance-2-0-Pro ",
+          model: "  Seedance-2.0 ",
           price_480p: 0,
           price_720p: "0.16",
           price_1080p: null,
         },
       ]),
     ).toEqual({
-      "doubao-seedance-2-0-pro": {
+      "seedance-2.0": {
         "480p": 0,
         "720p": 0.16,
       },
@@ -45,24 +45,34 @@ describe("Seedance video model pricing form conversion", () => {
 
   it("round-trips an API matrix without inventing missing resolution prices", () => {
     const prices = {
-      "doubao-seedance-2-0-pro": { "480p": 0, "1080p": 0.2 },
-      "doubao-seedance-2-0-fast": { "720p": 0.08 },
+      "seedance-2.0": { "480p": 0, "1080p": 0.2 },
+      "seedance-2.0-fast": { "720p": 0.08 },
     };
 
     expect(videoModelPricesToRows(prices)).toEqual([
       {
-        model: "doubao-seedance-2-0-pro",
+        model: "seedance-2.0",
         price_480p: 0,
         price_720p: null,
         price_1080p: 0.2,
       },
       {
-        model: "doubao-seedance-2-0-fast",
+        model: "seedance-2.0-fast",
         price_480p: null,
         price_720p: 0.08,
         price_1080p: null,
       },
     ]);
+  });
+
+  it("preserves existing custom aliases when editing a group", () => {
+    const legacyPrices = {
+      "doubao-seedance-2-0-pro": { "720p": 0.16 },
+    };
+
+    expect(
+      videoModelPriceRowsToPrices(videoModelPricesToRows(legacyPrices)),
+    ).toEqual(legacyPrices);
   });
 
   it("uses an empty object when the matrix is cleared", () => {

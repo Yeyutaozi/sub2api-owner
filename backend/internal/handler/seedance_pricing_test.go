@@ -25,10 +25,10 @@ func TestSeedanceVideoPricingError(t *testing.T) {
 			group: &service.Group{
 				Platform: service.PlatformSeedance,
 				VideoModelPrices: service.VideoModelPrices{
-					"doubao-seedance-2-0-pro": {Price720P: &pro720P},
+					"seedance-2.0": {Price720P: &pro720P},
 				},
 			},
-			model:      " Doubao-Seedance-2-0-Pro ",
+			model:      " Seedance-2.0 ",
 			resolution: service.VideoBillingResolution720P,
 		},
 		{
@@ -36,10 +36,10 @@ func TestSeedanceVideoPricingError(t *testing.T) {
 			group: &service.Group{
 				Platform: service.PlatformSeedance,
 				VideoModelPrices: service.VideoModelPrices{
-					"doubao-seedance-2-0-pro": {Price720P: &pro720P},
+					"seedance-2.0": {Price720P: &pro720P},
 				},
 			},
-			model:      "doubao-seedance-2-0-fast",
+			model:      "seedance-2.0-fast",
 			resolution: service.VideoBillingResolution720P,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "model_not_supported",
@@ -49,10 +49,10 @@ func TestSeedanceVideoPricingError(t *testing.T) {
 			group: &service.Group{
 				Platform: service.PlatformSeedance,
 				VideoModelPrices: service.VideoModelPrices{
-					"doubao-seedance-2-0-pro": {Price720P: &pro720P},
+					"seedance-2.0": {Price720P: &pro720P},
 				},
 			},
-			model:      "doubao-seedance-2-0-pro",
+			model:      "seedance-2.0",
 			resolution: service.VideoBillingResolution1080P,
 			wantStatus: http.StatusServiceUnavailable,
 			wantCode:   "billing_not_configured",

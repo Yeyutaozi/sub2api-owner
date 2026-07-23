@@ -927,7 +927,7 @@ func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesStableTaskID(t *testing.T) 
 		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
 			Result: &OpenAIForwardResult{
 				RequestID:       "upstream-request-456",
-				Model:           "seedance-2.0-pro",
+				Model:           "seedance-2.0",
 				Duration:        time.Second,
 				VideoCount:      1,
 				VideoResolution: VideoBillingResolution720P,
@@ -935,14 +935,14 @@ func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesStableTaskID(t *testing.T) 
 			APIKey: &APIKey{ID: 10051, Group: &Group{
 				Platform: PlatformSeedance,
 				VideoModelPrices: VideoModelPrices{
-					"doubao-seedance-2-0-pro": {Price720P: &videoPrice},
+					"seedance-2.0": {Price720P: &videoPrice},
 				},
 			}},
 			User:    &User{ID: 20051},
 			Account: &Account{ID: 30051, Platform: PlatformSeedance},
 		},
 		TaskID:         "vidjob_123",
-		RequestedModel: "doubao-seedance-2-0-pro",
+		RequestedModel: "seedance-2.0",
 	})
 
 	require.NoError(t, err)

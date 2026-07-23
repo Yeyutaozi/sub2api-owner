@@ -116,8 +116,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return xai.DefaultModelIDs()
 	case PlatformSeedance:
 		return []string{
-			"doubao-seedance-2-0-pro",
-			"doubao-seedance-2-0-fast",
+			"seedance-2.0",
+			"seedance-2.0-fast",
 		}
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))

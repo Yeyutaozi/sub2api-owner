@@ -15,6 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSeedanceDefaultModelsUseFYLinkIDs(t *testing.T) {
+	require.Equal(t, []string{
+		"seedance-2.0",
+		"seedance-2.0-fast",
+	}, defaultModelsListCandidateIDs(PlatformSeedance))
+}
+
 type seedanceHTTPUpstreamStub struct {
 	request *http.Request
 	body    string

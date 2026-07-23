@@ -16,8 +16,8 @@ func TestRecordSeedanceUsage_UsesRequestedModelPriceMatrix(t *testing.T) {
 		model string
 		want  float64
 	}{
-		{model: "doubao-seedance-2-0-pro", want: 1.6},
-		{model: "doubao-seedance-2-0-fast", want: 0.8},
+		{model: "seedance-2.0", want: 1.6},
+		{model: "seedance-2.0-fast", want: 0.8},
 	} {
 		usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 		svc := newOpenAIRecordUsageServiceForTest(
@@ -36,8 +36,8 @@ func TestRecordSeedanceUsage_UsesRequestedModelPriceMatrix(t *testing.T) {
 				Platform:       PlatformSeedance,
 				RateMultiplier: 1,
 				VideoModelPrices: VideoModelPrices{
-					"doubao-seedance-2-0-pro":  {Price720P: &pro720P},
-					"doubao-seedance-2-0-fast": {Price720P: &fast720P},
+					"seedance-2.0":      {Price720P: &pro720P},
+					"seedance-2.0-fast": {Price720P: &fast720P},
 				},
 			},
 		}
@@ -92,9 +92,9 @@ func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesInboundRequestedModel(t *te
 		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
 			Result: &OpenAIForwardResult{
 				RequestID:            "seedance-requested-model-billing",
-				Model:                "seedance-2.0-pro",
-				BillingModel:         "seedance-2.0-pro",
-				UpstreamModel:        "seedance-2.0-pro",
+				Model:                "seedance-2.0",
+				BillingModel:         "seedance-2.0",
+				UpstreamModel:        "seedance-2.0",
 				VideoCount:           1,
 				VideoResolution:      VideoBillingResolution720P,
 				VideoDurationSeconds: 10,
@@ -107,7 +107,7 @@ func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesInboundRequestedModel(t *te
 			},
 			ChannelUsageFields: ChannelUsageFields{
 				OriginalModel:      "doubao-seedance-2-0-pro",
-				ChannelMappedModel: "seedance-2.0-pro",
+				ChannelMappedModel: "seedance-2.0",
 			},
 		},
 		TaskID:         "seedance-requested-model-billing",
@@ -159,7 +159,7 @@ func TestGroupMediaPricingLooksIncomplete_IgnoresSeedanceOnlyMatrix(t *testing.T
 	require.True(t, groupMediaPricingLooksIncomplete(&Group{
 		Platform: PlatformSeedance,
 		VideoModelPrices: VideoModelPrices{
-			"doubao-seedance-2-0-fast": {Price480P: &free},
+			"seedance-2.0-fast": {Price480P: &free},
 		},
 	}))
 }

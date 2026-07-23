@@ -973,7 +973,7 @@ export default {
         videoMultiplier: '视频独立倍率',
         modelPrices: '模型与分辨率价格',
         model: '请求模型',
-        modelPlaceholder: 'doubao-seedance-2-0-pro',
+        modelPlaceholder: 'seedance-2.0',
         addModel: '添加模型',
         removeModel: '删除模型 {model}',
         clearMatrix: '清空矩阵',

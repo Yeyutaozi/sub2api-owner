@@ -4,9 +4,27 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import {
+  buildModelMappingObject,
+  getModelsByPlatform,
+  getPresetMappingsByPlatform,
+  splitModelMappingObject
+} from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('uses FYLink model IDs for Seedance while keeping legacy alias mappings', () => {
+    expect(getModelsByPlatform('seedance')).toEqual([
+      'seedance-2.0',
+      'seedance-2.0-fast'
+    ])
+    expect(
+      getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
+    ).toEqual([
+      { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
+      { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
+    ])
+  })
+
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 
