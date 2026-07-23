@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy Seedance 视频生成 API",
-    "version": "1.1.0",
-    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档只包含 4 个 Seedance 操作：创建、查询、取消和下载，不包含 OpenAI、Grok、Claude 或 Gemini 接口。\n\n所有请求都使用本站 API Key 鉴权，支持 Authorization: Bearer、x-api-key 或 x-goog-api-key 三种请求头；不要把 key 或 api_key 放在查询参数中。创建任务后，必须使用创建任务时的同一个 API Key 查询、取消或下载视频；任务与用户、API Key、Seedance 分组及上游账号绑定。\n\n通用解析范围不等于模型能力承诺：model 是管理员在当前 Seedance 分组中配置的入站名称；resolution 接受 480p、720p、1080p；duration 省略或传 0 时归一化为 8 秒，其他值必须是 4 至 15 的整数；generate_audio 是布尔值。某个请求通过网关参数校验和价格校验，只表示可以提交给上游，不保证该模型最终能生成该分辨率、时长、音频或图片模式。\n\n当前部署实测快照（2026-07-23，仅描述当日配置和观测，不是跨部署的通用保证）：seedance-2.0 在 480p/720p、15 秒、generate_audio=true 下任务成功并下载到有效 MP4；在 1080p、8 秒、generate_audio=false 下任务成功并下载到有效 MP4；在 1080p、15 秒下，使用不同提示词且覆盖 generate_audio=true/false 的连续 3 个任务均进入 failed，因此本文档不把 seedance-2.0 的 1080p/15 秒列为已支持组合。seedance-2.0-fast 在 480p/720p、15 秒、generate_audio=true 下任务成功；其 1080p 请求在创建任务前返回 HTTP 503 billing_not_configured，不会产生任务。管理员调整模型映射、价格或上游账号后，此快照可能失效。\n\n计费金额 = 当前分组中对应入站模型与归一化分辨率的每秒价格 × 归一化时长 × 有效视频计费倍率。归一化时长规则与 duration 字段一致。价格矩阵非空时同时作为模型白名单；矩阵为空时沿用分组级分辨率价格。若分组启用了独立视频倍率，有效视频计费倍率取 video_rate_multiplier；否则取该用户与分组最终生效的基础倍率。创建任务被接受后记录预扣费用；成功取消，或查询到 failed/cancelled 终态时执行幂等退款。客户端应持续查询到终态，以便网关观察任务结果。价格单位、余额展示精度和舍入以站点当前计费配置及账单为准，本接口不返回报价。当前公式不为 ratio、generate_audio 或图片数量单独增加计费项。",
+    "version": "1.2.0",
+    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档只包含 4 个 Seedance 操作：创建、查询、取消和下载，不包含 OpenAI、Grok、Claude 或 Gemini 接口。\n\n所有请求都使用本站 API Key 鉴权，支持 Authorization: Bearer、x-api-key 或 x-goog-api-key 三种请求头；不要把 key 或 api_key 放在查询参数中。创建任务后，必须使用创建任务时的同一个 API Key 查询、取消或下载视频；任务与用户、API Key、Seedance 分组及上游账号绑定。\n\n通用解析范围不等于模型能力承诺：model 是管理员在当前 Seedance 分组中配置的入站名称；resolution 接受 480p、720p、1080p；duration 省略或传 0 时归一化为 8 秒，其他值必须是 4 至 15 的整数；generate_audio 是布尔值。某个请求通过网关参数校验和价格校验，只表示可以提交给上游，不保证该模型最终能生成该分辨率、时长、音频或图片模式。\n\n当前部署实测快照（2026-07-23，仅描述当日配置和观测，不是跨部署的通用保证）：seedance-2.0 在纯文本 480p/720p、15 秒、generate_audio=true 下任务成功并下载到有效 MP4；在纯文本 1080p、8 秒、generate_audio=false 下任务成功并下载到有效 MP4；此前对纯文本 1080p、15 秒使用不同提示词且覆盖 generate_audio=true/false 的连续 3 个任务均进入 failed，因此本文档不把 seedance-2.0 的 1080p/15 秒列为已支持组合。seedance-2.0-fast 在纯文本 480p/720p、15 秒、generate_audio=true 下任务成功；在单张无 role 首帧和两张 reference_image 两种 720p/15 秒图片模式下，generate_audio=true/false 四种组合均成功。四个图片任务均下载为 1280x720 的有效 MP4；两个 true 成品均包含可解码的非静音 AAC-LC、44.1 kHz、立体声音轨，两个 false 成品均无音频流；抽帧确认单图主体及多图人物与水果参考均进入生成画面。此前 seedance-2.0-fast 的 1080p 请求在创建前返回 HTTP 503 billing_not_configured；本轮图片与音频矩阵未提交任何 1080p/15 秒任务。管理员调整模型映射、价格或上游账号后，此快照可能失效。\n\n计费金额 = 当前分组中对应入站模型与归一化分辨率的每秒价格 × 归一化时长 × 有效视频计费倍率。归一化时长规则与 duration 字段一致。价格矩阵非空时同时作为模型白名单；矩阵为空时沿用分组级分辨率价格。若分组启用了独立视频倍率，有效视频计费倍率取 video_rate_multiplier；否则取该用户与分组最终生效的基础倍率。创建任务被接受后记录预扣费用；成功取消，或查询到 failed/cancelled 终态时执行幂等退款。客户端应持续查询到终态，以便网关观察任务结果。价格单位、余额展示精度和舍入以站点当前计费配置及账单为准，本接口不返回报价。当前公式不为 ratio、generate_audio 或图片数量单独增加计费项。",
     "license": {
       "name": "LGPL-3.0-or-later",
       "url": "https://www.gnu.org/licenses/lgpl-3.0.html"
@@ -39,7 +39,7 @@
           "Seedance 视频生成"
         ],
         "summary": "创建 Seedance 视频生成任务",
-        "description": "以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。HTTP 200 只表示任务已创建，最终结果必须通过查询接口确认。\n\n请求必须至少包含一个去除首尾空白后仍非空的文本内容项。图片可用于单首帧、首尾帧或最多 4 张参考图；尾帧必须与首帧同时出现，参考图模式不能与首尾帧模式混用。\n\n2026-07-23 当前部署实测：seedance-2.0 的 480p/720p、15 秒、音频开启成功，1080p、8 秒、音频关闭成功；1080p、15 秒连续 3 个任务失败，不能据此视为支持。seedance-2.0-fast 的 480p/720p、15 秒、音频开启成功；1080p 在创建前返回 503 billing_not_configured。该结果是部署快照，通用字段解析范围仍以请求 schema 为准。",
+        "description": "以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。HTTP 200 只表示任务已创建，最终结果必须通过查询接口确认。\n\n请求必须至少包含一个去除首尾空白后仍非空的文本内容项。图片可用于单张无 role 首帧、显式首尾帧或 1 至 4 张 reference_image；尾帧必须与首帧同时出现，参考图模式不能与首尾帧模式混用。多参考图不是单独的 reference_images 数组，而是在 content 中重复 image_url 项，并为每项在外层指定 role 和可选 strength。\n\n2026-07-23 当前部署实测：seedance-2.0 的纯文本 480p/720p、15 秒、音频开启成功，1080p、8 秒、音频关闭成功；此前 1080p、15 秒连续 3 个任务失败，不能据此视为支持。seedance-2.0-fast 的纯文本 480p/720p、15 秒、音频开启成功；其 720p/15 秒单首帧与双参考图在音频开启和关闭下均成功，并分别验证了有音轨和无音轨成品。本轮未提交 1080p/15 秒任务。该结果是部署快照，通用字段解析范围仍以请求 schema 为准。",
         "operationId": "createSeedanceVideoTask",
         "parameters": [
           {
@@ -56,7 +56,7 @@
               },
               "examples": {
                 "seedance20Observed480p15sAudio": {
-                  "summary": "当前部署实测成功：seedance-2.0 480p、15 秒、音频开启",
+                  "summary": "当前部署纯文本实测成功：seedance-2.0 480p、15 秒、音频开启",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
@@ -73,7 +73,7 @@
                   }
                 },
                 "seedance20Observed720p15sAudio": {
-                  "summary": "当前部署实测成功：seedance-2.0 720p、15 秒、音频开启",
+                  "summary": "当前部署纯文本实测成功：seedance-2.0 720p、15 秒、音频开启",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
@@ -90,7 +90,7 @@
                   }
                 },
                 "seedance20Observed1080p8s": {
-                  "summary": "当前部署实测成功：seedance-2.0 1080p、8 秒、音频关闭",
+                  "summary": "当前部署纯文本实测成功：seedance-2.0 1080p、8 秒、音频关闭",
                   "value": {
                     "model": "seedance-2.0",
                     "content": [
@@ -107,7 +107,7 @@
                   }
                 },
                 "seedance20FastObserved480p15sAudio": {
-                  "summary": "当前部署实测成功：seedance-2.0-fast 480p、15 秒、音频开启",
+                  "summary": "当前部署纯文本实测成功：seedance-2.0-fast 480p、15 秒、音频开启",
                   "value": {
                     "model": "seedance-2.0-fast",
                     "content": [
@@ -124,7 +124,7 @@
                   }
                 },
                 "seedance20FastObserved720p15sAudio": {
-                  "summary": "当前部署实测成功：seedance-2.0-fast 720p、15 秒、音频开启",
+                  "summary": "当前部署纯文本实测成功：seedance-2.0-fast 720p、15 秒、音频开启",
                   "value": {
                     "model": "seedance-2.0-fast",
                     "content": [
@@ -140,86 +140,116 @@
                     "watermark": false
                   }
                 },
-                "imageToVideo": {
-                  "summary": "结构示例：使用单张首帧图片（不表示该图片组合已实测）",
+                "singleFirstFrameObservedAudio": {
+                  "summary": "实测成功：单张无 role 首帧、720p、15 秒、带音频",
                   "value": {
                     "model": "seedance-2.0-fast",
                     "content": [
                       {
                         "type": "text",
-                        "text": "镜头缓慢向前推进，人物自然眨眼并轻微转头，背景树叶随风摆动，保持人物身份和服装细节一致"
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": "https://example.com/images/start-frame.png"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": false
-                  }
-                },
-                "firstAndLastFrames": {
-                  "summary": "结构示例：指定首帧和尾帧（不表示该图片组合已实测）",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "从白天自然过渡到日落，镜头沿街道稳定前进，建筑结构保持一致，最终准确衔接尾帧构图"
+                        "text": "Continue from the exact black dog reference image in one unbroken cinematic shot. The same dog blinks, wags its tail, then runs through moving grass while the camera tracks smoothly. Preserve identity, coat markings, proportions, daylight, landscape, and spatial continuity. Add synchronized wind, birds, paw steps, collar sounds, and one natural bark."
                       },
                       {
                         "type": "image_url",
                         "image_url": {
-                          "url": "https://example.com/images/day.png",
-                          "role": "first_frame"
-                        }
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://example.com/images/sunset.png",
-                          "role": "last_frame"
+                          "url": "https://picsum.photos/id/237/1280/720"
                         }
                       }
                     ],
                     "ratio": "16:9",
-                    "duration": 8,
+                    "duration": 15,
                     "resolution": "720p",
-                    "generate_audio": false
+                    "generate_audio": true,
+                    "watermark": false
                   }
                 },
-                "referenceImages": {
-                  "summary": "结构示例：使用多张参考图（不表示该图片组合已实测）",
+                "singleFirstFrameObservedNoAudio": {
+                  "summary": "实测成功：单张无 role 首帧、720p、15 秒、无音频",
                   "value": {
-                    "model": "seedance-2.0",
+                    "model": "seedance-2.0-fast",
                     "content": [
                       {
                         "type": "text",
-                        "text": "产品在现代厨房台面上缓慢旋转，保持包装、标志、材质和颜色准确一致，镜头平稳环绕，商业广告灯光"
+                        "text": "Continue from the exact black dog reference image in one unbroken cinematic shot. The same dog blinks, wags its tail, then runs through moving grass while the camera tracks smoothly. Preserve identity, coat markings, proportions, daylight, landscape, and spatial continuity."
                       },
                       {
                         "type": "image_url",
                         "image_url": {
-                          "url": "https://example.com/images/product-front.png",
-                          "role": "reference_image",
-                          "strength": "HIGH"
-                        }
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://example.com/images/product-side.png",
-                          "role": "reference_image",
-                          "strength": "MID"
+                          "url": "https://picsum.photos/id/237/1280/720"
                         }
                       }
                     ],
-                    "ratio": "9:16",
-                    "duration": 8,
+                    "ratio": "16:9",
+                    "duration": 15,
                     "resolution": "720p",
-                    "generate_audio": false
+                    "generate_audio": false,
+                    "watermark": false
+                  }
+                },
+                "multipleReferenceImagesObservedAudio": {
+                  "summary": "实测成功：两张 reference_image、720p、15 秒、带音频",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Create one continuous cinematic market scene using both references: preserve the woman's recognizable face, hairstyle, hat, and expression from the portrait, and preserve the fruit shapes, colors, and arrangement from the still-life. She stands at a wooden stall, gently selects an orange, then looks toward camera as fabric canopies move in a breeze. Keep hands, identity, produce, lighting, and spatial continuity stable. Add synchronized market ambience, soft voices, cloth movement, footsteps, and fruit handling sounds."
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg"
+                        },
+                        "role": "reference_image",
+                        "strength": "HIGH"
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/fruits.jpg"
+                        },
+                        "role": "reference_image",
+                        "strength": "MID"
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 15,
+                    "resolution": "720p",
+                    "generate_audio": true,
+                    "watermark": false
+                  }
+                },
+                "multipleReferenceImagesObservedNoAudio": {
+                  "summary": "实测成功：两张 reference_image、720p、15 秒、无音频",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Create one continuous cinematic market scene using both references: preserve the woman's recognizable face, hairstyle, hat, and expression from the portrait, and preserve the fruit shapes, colors, and arrangement from the still-life. She stands at a wooden stall, gently selects an orange, then looks toward camera as fabric canopies move in a breeze. Keep hands, identity, produce, lighting, and spatial continuity stable."
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg"
+                        },
+                        "role": "reference_image",
+                        "strength": "HIGH"
+                      },
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/fruits.jpg"
+                        },
+                        "role": "reference_image",
+                        "strength": "MID"
+                      }
+                    ],
+                    "ratio": "16:9",
+                    "duration": 15,
+                    "resolution": "720p",
+                    "generate_audio": false,
+                    "watermark": false
                   }
                 }
               }
@@ -422,7 +452,7 @@
           "Seedance 视频生成"
         ],
         "summary": "下载生成的视频",
-        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。Range 请求头会转发给上游，但是否返回 206 部分内容取决于上游。2026-07-23 当前部署实测 bytes=0-1023 时，上游忽略该范围并返回 HTTP 200、完整文件和 Accept-Ranges: bytes，没有返回 Content-Range；因此客户端不能仅凭 Accept-Ranges 头假定断点续传可用。响应的媒体类型和长度等头部由上游视频响应透传。当前部署实测成功的 seedance-2.0 480p/720p 15 秒、1080p 8 秒结果均下载为有效 MP4；这不保证未来所有上游结果都使用同一媒体类型。",
+        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。Range 请求头会转发给上游，但是否返回 206 部分内容取决于上游。2026-07-23 当前部署实测 bytes=0-1023 时，上游忽略该范围并返回 HTTP 200、完整文件和 Accept-Ranges: bytes，没有返回 Content-Range；因此客户端不能仅凭 Accept-Ranges 头假定断点续传可用。响应的媒体类型和长度等头部由上游视频响应透传。当前部署实测成功的 seedance-2.0 480p/720p 15 秒、1080p 8 秒结果，以及 seedance-2.0-fast 的 720p/15 秒单首帧与双参考图、音频开关四种结果，均下载为有效 MP4。四个图片任务的 true 成品均有可解码的非静音 AAC-LC 44.1 kHz 立体声音轨，false 成品均无音频流；这不保证未来所有上游结果都使用同一容器、编码或音频格式，也不代表已人工评价声音与画面的同步质量。",
         "operationId": "downloadSeedanceVideoTaskContent",
         "parameters": [
           {
@@ -647,7 +677,7 @@
           "content": {
             "type": "array",
             "minItems": 1,
-            "description": "提示词和可选图片的数组。数组至少包含 1 项，并且所有项中必须至少有一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片支持三种互斥模式：单张无 role 图片作为首帧；最多一个 first_frame 加可选的一个 last_frame，且 last_frame 不能单独出现；或最多 4 张 reference_image。参考图不能与首帧/尾帧混用。存在多张图片时，每张图片都应显式指定 role。",
+            "description": "提示词和可选图片的数组。数组至少包含 1 项，并且所有项中必须至少有一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片支持三种互斥模式：单张无 role 图片作为首帧并转发为上游 image_url；最多一个外层 role=first_frame 加可选的一个外层 role=last_frame，且 last_frame 不能单独出现；或 1 至 4 张外层 role=reference_image，转发为按 content 顺序排列的上游参考图数组。多参考图的规范写法是在 content 中重复 image_url 项，不存在 reference_images 顶层字段。参考图不能与首帧/尾帧混用；存在多张图片时，每张图片必须显式指定规范 role。",
             "items": {
               "$ref": "#/components/schemas/SeedanceContentItem"
             }
@@ -656,6 +686,7 @@
             "type": "string",
             "nullable": true,
             "enum": [
+              null,
               "adaptive",
               "16:9",
               "9:16",
@@ -673,31 +704,31 @@
             "type": "integer",
             "format": "int32",
             "nullable": true,
-            "oneOf": [
-              {
-                "type": "integer",
-                "format": "int32",
-                "enum": [
-                  0
-                ],
-                "description": "兼容值 0；网关会把它归一化为默认的 8 秒。"
-              },
-              {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 4,
-                "maximum": 15,
-                "description": "显式目标时长，单位为秒。"
-              }
+            "enum": [
+              null,
+              0,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
             ],
             "default": 8,
-            "description": "目标视频时长，单位为秒。通用解析器接受整数 4 至 15；省略、传 null 或显式传 0 时均归一化为 8 秒，新客户端应优先省略而不是发送 0。计费使用归一化后的时长。通过此范围校验不代表每个模型、分辨率和音频组合都能完成生成；当前部署的实测能力见接口说明。",
+            "description": "目标视频时长，单位为秒。通用解析器接受整数 4 至 15；省略、传 null 或显式传 0 时均归一化为 8 秒，新客户端应优先省略而不是发送 0。计费使用归一化后的请求时长。下载文件的容器时长可能有少量编码偏差；2026-07-23 四个 15 秒图片任务的媒体探测结果约为 15.04 至 15.09 秒，客户端不应要求精确等于 15.000 秒。通过此范围校验不代表每个模型、分辨率和音频组合都能完成生成；当前部署的实测能力见接口说明。",
             "example": 8
           },
           "resolution": {
             "type": "string",
             "nullable": true,
             "enum": [
+              null,
               "480p",
               "720p",
               "1080p"
@@ -710,7 +741,7 @@
             "type": "boolean",
             "nullable": true,
             "default": false,
-            "description": "是否请求上游同时生成音频，映射为上游 audio，省略或传 null 时为 false。具体模型是否支持音频由上游决定。2026-07-23 当前部署中，seedance-2.0 与 seedance-2.0-fast 的 480p/720p、15 秒、true 已实测成功；这不是其他模型或部署的通用保证。",
+            "description": "是否请求上游同时生成音频，映射为上游 audio，省略或传 null 时为 false。具体模型是否支持音频由上游决定。2026-07-23 当前部署中，seedance-2.0 与 seedance-2.0-fast 的纯文本 480p/720p、15 秒、true 成品均检测到音频流；seedance-2.0-fast 的 720p/15 秒单首帧和双参考图也分别完成 true/false 对照实测，两个 true 成品均检测到可解码的非静音 AAC-LC、44.1 kHz、立体声音轨，两个 false 成品的音频流数量均为 0。该检测不等于人工确认声音内容或音画同步质量，也不是其他模型、组合或部署的通用保证。",
             "example": false
           },
           "watermark": {
@@ -806,7 +837,7 @@
             "example": "image_url"
           },
           "image_url": {
-            "description": "图片地址，可以直接传绝对 HTTP(S) URL 字符串，也可以传包含 url、role、strength 的对象。对象内部的 role/strength 优先于内容项外层的同名字段。",
+            "description": "图片地址。方舟兼容的规范写法是包含 url 的对象，并把 role、strength 写在当前 content 项外层。本站也兼容直接传绝对 HTTP(S) URL 字符串，或把 role/strength 放入 image_url 对象；嵌套同名值会覆盖外层值，但新客户端不应依赖这些兼容写法，也不要同时在两处传同一字段。",
             "oneOf": [
               {
                 "type": "string",
@@ -826,7 +857,7 @@
             "$ref": "#/components/schemas/SeedanceReferenceStrength"
           }
         },
-        "description": "图片内容项。无 role 的单张图片按首帧处理；存在多张图片时应明确每张图片的角色。首尾帧模式最多一个 first_frame 和一个 last_frame，last_frame 必须同时提供 first_frame；参考图模式最多 4 张 reference_image，且不能与首帧或尾帧混用。strength 只对 reference_image 有意义。"
+        "description": "图片内容项。单张无 role 图片按首帧处理，不等同于单张 reference_image；单张参考图也必须显式写外层 role=reference_image。首尾帧模式最多一个 first_frame 和一个 last_frame，last_frame 必须同时提供 first_frame。参考图模式在 content 中重复 1 至 4 个图片项，每项都写外层 role=reference_image，且不能与首帧或尾帧混用；strength 只对 reference_image 有意义。2026-07-23 当前部署仅在 seedance-2.0-fast、720p、15 秒下实测单张无 role 首帧及两张 reference_image 两种写法。"
       },
       "SeedanceImageInput": {
         "type": "object",
@@ -838,7 +869,7 @@
             "type": "string",
             "format": "uri",
             "pattern": "^https?://",
-            "description": "可由网关和上游访问的绝对 HTTP 或 HTTPS 图片 URL。相对路径、data URL 和其他协议不被接受。",
+            "description": "上游必须能够访问的绝对 HTTP 或 HTTPS 图片 URL。网关只校验 URL 语法和协议，不会预先抓取图片，也不校验响应 MIME、字节大小、像素尺寸或真实可访问性；相对路径、data URL 和其他协议不被接受。",
             "example": "https://example.com/images/reference.png"
           },
           "role": {
@@ -848,7 +879,7 @@
             "$ref": "#/components/schemas/SeedanceReferenceStrength"
           }
         },
-        "description": "结构化图片输入。当前实现会忽略该嵌套对象中的未知字段，但客户端不应依赖这一行为。"
+        "description": "结构化图片输入，是方舟兼容请求推荐的 image_url 写法。role 和 strength 的规范位置是 content 项外层；这里保留嵌套属性只为描述本站已存在的兼容解析行为。当前实现还会忽略该嵌套对象中的未知字段，但客户端不应依赖这一行为。"
       },
       "SeedanceImageRole": {
         "type": "string",
@@ -863,7 +894,7 @@
           "reference",
           "ref"
         ],
-        "description": "图片角色。通用解析器匹配时不区分大小写；OpenAPI/Apifox 枚举只列服务端明确识别的规范值和兼容别名。首帧规范值为 first_frame，兼容 start_frame 和 first；尾帧规范值为 last_frame，兼容 end_frame 和 last；参考图规范值为 reference_image，兼容 reference 和 ref。新客户端应只使用 first_frame、last_frame、reference_image。无法识别的 role 会按无角色图片处理，客户端不应依赖该容错。",
+        "description": "图片角色，规范位置是 image_url content 项外层。首帧规范值为 first_frame，尾帧规范值为 last_frame，参考图规范值为 reference_image；新客户端只应使用这三个值。通用解析器匹配时不区分大小写，并兼容 start_frame/first、end_frame/last、reference/ref；无法识别的 role 会按无角色图片处理，客户端不应依赖这些容错行为。",
         "example": "first_frame"
       },
       "SeedanceReferenceStrength": {
@@ -874,7 +905,7 @@
           "HIGH"
         ],
         "default": "MID",
-        "description": "参考图约束强度，仅对 reference_image 有意义。省略时默认为 MID。通用解析器匹配时不区分大小写，并会把空值或无法识别的值归一化为 MID；OpenAPI/Apifox 契约仅允许规范值 LOW、MID、HIGH，客户端不应依赖容错。",
+        "description": "参考图约束强度，规范位置是 role=reference_image 的 content 项外层，仅对参考图有意义。省略时默认为 MID。通用解析器匹配时不区分大小写，并会把空值或无法识别的值归一化为 MID；OpenAPI/Apifox 契约仅允许规范值 LOW、MID、HIGH，客户端不应依赖容错。",
         "example": "HIGH"
       },
       "SeedanceCreateTaskResponse": {
