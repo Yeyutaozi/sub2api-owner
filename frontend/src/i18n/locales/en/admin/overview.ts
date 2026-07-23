@@ -972,6 +972,7 @@ export default {
           'Configure Grok video generation prices in USD per second of output video. Leave empty to use the default per-second rates (grok-imagine-video: $0.05/s 480p, $0.07/s 720p; video-1.5: $0.08/s 480p, $0.14/s 720p, $0.25/s 1080p).',
         seedanceDescription:
           'Configure Seedance prices in USD per generated second for each requested model and resolution.',
+        allowVideoGeneration: 'Allow Seedance video generation for this group',
         independentMultiplier: 'Use independent video multiplier',
         videoMultiplier: 'Video multiplier',
         modelPrices: 'Model and resolution prices',

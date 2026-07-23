@@ -969,6 +969,7 @@ export default {
           '配置 Grok 视频生成的每秒单价（USD/秒），留空则使用默认每秒价（grok-imagine-video：480p $0.05/s、720p $0.07/s；video-1.5：480p $0.08/s、720p $0.14/s、1080p $0.25/s）',
         seedanceDescription:
           '按请求模型和分辨率配置 Seedance 视频每生成一秒的价格（USD/秒）。',
+        allowVideoGeneration: '允许当前分组生成 Seedance 视频',
         independentMultiplier: '视频倍率独立',
         videoMultiplier: '视频独立倍率',
         modelPrices: '模型与分辨率价格',

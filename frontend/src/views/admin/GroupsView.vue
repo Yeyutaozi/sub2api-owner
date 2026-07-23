@@ -1016,6 +1016,20 @@
               )
             }}
           </p>
+          <div
+            v-if="createForm.platform === 'seedance'"
+            class="mb-4"
+          >
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="createForm.allow_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                data-testid="create-seedance-video-enabled"
+              />
+              {{ t(videoPricingI18nKey("allowVideoGeneration")) }}
+            </label>
+          </div>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -2657,6 +2671,20 @@
               )
             }}
           </p>
+          <div
+            v-if="editForm.platform === 'seedance'"
+            class="mb-4"
+          >
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editForm.allow_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                data-testid="edit-seedance-video-enabled"
+              />
+              {{ t(videoPricingI18nKey("allowVideoGeneration")) }}
+            </label>
+          </div>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
