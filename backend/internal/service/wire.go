@@ -789,6 +789,7 @@ var ProviderSet = wire.NewSet(
 	NewAgentWorkerHostService,
 	NewAgentArtifactStorageConfigService,
 	NewDynamicAgentArtifactStore,
+	ProvideSeedanceMediaService,
 	NewAgentAppService,
 	wire.Bind(new(AgentRunAPIKeyService), new(*APIKeyService)),
 	NewAgentModelProxyGatewayCaller,

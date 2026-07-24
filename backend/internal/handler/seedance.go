@@ -1,14 +1,20 @@
 package handler
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -64,23 +70,8 @@ func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
 	setOpsRequestContext(c, requestInfo.Model, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 
-	imageRelease, acquired := h.acquireImageGenerationSlot(c, streamStarted)
-	if !acquired {
-		return
-	}
-	if imageRelease != nil {
-		defer imageRelease()
-	}
-
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
-	userRelease, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
-	if !acquired {
-		return
-	}
-	if userRelease != nil {
-		defer userRelease()
-	}
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -89,6 +80,23 @@ func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
 		seedanceError(c, status, code, message)
 		return
 	}
+	if h.seedanceMediaService == nil {
+		seedanceError(c, http.StatusServiceUnavailable, "media_service_unavailable", "Seedance media service is unavailable")
+		return
+	}
+	mediaRelease, err := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), seedanceMediaOwner(apiKey, subject), subject.Concurrency)
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	defer mediaRelease()
+	var materialized *service.SeedanceMaterializedImages
+	materialized, err = h.seedanceMediaService.MaterializeImages(c.Request.Context(), seedanceMediaOwner(apiKey, subject), requestInfo)
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	defer materialized.Cleanup(context.WithoutCancel(c.Request.Context()))
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	failedAccountIDs := make(map[int64]struct{})
@@ -158,9 +166,146 @@ func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
 			return
 		}
 		recordSeedanceUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestInfo.Model, body)
+		if materialized != nil {
+			materialized.Retain()
+		}
 		c.JSON(http.StatusOK, gin.H{"id": result.ResponseID})
 		return
 	}
+}
+
+type seedanceBase64UploadRequest struct {
+	ImageBase64 string `json:"image_base64"`
+	ContentType string `json:"content_type,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+}
+
+func (h *OpenAIGatewayHandler) SeedanceUploadImage(c *gin.Context) {
+	apiKey, subject, ok := h.seedanceAuthContext(c)
+	if !ok {
+		return
+	}
+	if !h.ensureSeedanceGroup(c, apiKey) {
+		return
+	}
+	if h.seedanceMediaService == nil || !h.seedanceMediaService.SupportsManagedUploads() {
+		seedanceError(c, http.StatusServiceUnavailable, "media_storage_not_configured", "Seedance media storage is not configured")
+		return
+	}
+	owner := seedanceMediaOwner(apiKey, subject)
+	mediaRelease, err := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), owner, subject.Concurrency)
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	defer mediaRelease()
+	mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	var upload *service.SeedanceImageUpload
+	err = nil
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "multipart/form-data":
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.SeedanceMaxImageBytes+service.SeedanceUploadBodyOverhead)
+		file, formErr := c.FormFile("image")
+		if formErr != nil {
+			if maxErr, isMax := extractMaxBytesError(formErr); isMax {
+				seedanceError(c, http.StatusRequestEntityTooLarge, "image_too_large", buildBodyTooLargeMessage(maxErr.Limit))
+				return
+			}
+			seedanceError(c, http.StatusBadRequest, "image_required", "multipart field image is required")
+			return
+		}
+		if file.Size > service.SeedanceMaxImageBytes {
+			seedanceError(c, http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+			return
+		}
+		source, openErr := file.Open()
+		if openErr != nil {
+			seedanceError(c, http.StatusBadRequest, "invalid_image", "failed to open uploaded image")
+			return
+		}
+		defer func() { _ = source.Close() }()
+		upload, err = h.seedanceMediaService.UploadImage(c.Request.Context(), service.SeedanceImageUploadInput{
+			Owner:       owner,
+			Body:        source,
+			SizeBytes:   file.Size,
+			ContentType: file.Header.Get("Content-Type"),
+			Persistent:  true,
+		})
+	case "application/json":
+		limit := service.SeedanceMaxImageBytes*4/3 + service.SeedanceUploadBodyOverhead
+		body, readErr := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, limit))
+		if readErr != nil {
+			if maxErr, isMax := extractMaxBytesError(readErr); isMax {
+				seedanceError(c, http.StatusRequestEntityTooLarge, "image_too_large", buildBodyTooLargeMessage(maxErr.Limit))
+				return
+			}
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "failed to read Base64 upload request")
+			return
+		}
+		var request seedanceBase64UploadRequest
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if decodeErr := decoder.Decode(&request); decodeErr != nil {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "invalid Base64 upload JSON: "+decodeErr.Error())
+			return
+		}
+		if trailingErr := decoder.Decode(&struct{}{}); !errors.Is(trailingErr, io.EOF) {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "Base64 upload JSON must contain exactly one object")
+			return
+		}
+		value := strings.TrimSpace(request.ImageBase64)
+		if !strings.HasPrefix(strings.ToLower(value), "data:") {
+			contentType := strings.TrimSpace(request.ContentType)
+			if contentType == "" {
+				seedanceError(c, http.StatusBadRequest, "content_type_required", "content_type is required for bare Base64 uploads")
+				return
+			}
+			value = "data:" + contentType + ";base64," + value
+		}
+		upload, err = h.seedanceMediaService.UploadDataURI(c.Request.Context(), owner, value, true)
+	default:
+		seedanceError(c, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be multipart/form-data or application/json")
+		return
+	}
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"upload_id":    upload.UploadID,
+		"image_url":    seedanceUploadURL(c, upload.UploadID),
+		"content_type": upload.ContentType,
+		"size":         upload.SizeBytes,
+		"sha256":       upload.SHA256,
+		"expires_at":   upload.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+func (h *OpenAIGatewayHandler) SeedanceUploadedImageContent(c *gin.Context) {
+	apiKey, subject, ok := h.seedanceAuthContext(c)
+	if !ok {
+		return
+	}
+	if !h.ensureSeedanceGroup(c, apiKey) {
+		return
+	}
+	if h.seedanceMediaService == nil || !h.seedanceMediaService.SupportsManagedUploads() {
+		seedanceError(c, http.StatusServiceUnavailable, "media_storage_not_configured", "Seedance media storage is not configured")
+		return
+	}
+	owner := seedanceMediaOwner(apiKey, subject)
+	mediaRelease, err := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), owner, subject.Concurrency)
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	defer mediaRelease()
+	stream, err := h.seedanceMediaService.OpenManagedUpload(c.Request.Context(), owner, c.Param("upload_id"), c.GetHeader("Range"))
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	h.writeSeedanceMediaStream(c, stream)
 }
 
 func (h *OpenAIGatewayHandler) SeedanceGetTask(c *gin.Context) {
@@ -201,6 +346,28 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		seedanceError(c, http.StatusNotFound, "task_not_found", "Seedance task not found")
 		return
 	}
+	owner := seedanceMediaOwner(apiKey, subject)
+	if content && h.seedanceMediaService != nil && h.seedanceMediaService.IsConfigured() {
+		mediaRelease, mediaErr := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), owner, subject.Concurrency)
+		if mediaErr != nil {
+			if infraerrors.Code(mediaErr) == http.StatusTooManyRequests {
+				writeSeedanceMediaError(c, mediaErr)
+				return
+			}
+			reqLog.Warn("seedance.media_concurrency_unavailable", zap.String("task_id", taskID))
+		} else {
+			defer mediaRelease()
+		}
+	}
+	if content && h.seedanceMediaService != nil {
+		cached, hit, cacheErr := h.seedanceMediaService.OpenCachedOutput(c.Request.Context(), owner, taskID, c.GetHeader("Range"))
+		if cacheErr != nil {
+			reqLog.Warn("seedance.output_cache_read_failed", zap.Error(cacheErr), zap.String("task_id", taskID))
+		} else if hit {
+			h.writeSeedanceMediaStream(c, cached)
+			return
+		}
+	}
 
 	sessionHash := service.SeedanceTaskSessionHash(taskID, subject.UserID, apiKey.ID)
 	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -221,9 +388,32 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	if !acquired {
 		return
 	}
+	if content && accountRelease != nil {
+		defer accountRelease()
+	}
+	clientRange := strings.TrimSpace(c.GetHeader("Range"))
+	var archiveLease *service.SeedanceOutputArchiveLease
+	if content && h.seedanceMediaService != nil {
+		if lease, won := h.seedanceMediaService.BeginOutputArchive(c.Request.Context(), owner, taskID); won {
+			archiveLease = lease
+			defer lease.Close()
+		}
+	}
+	if archiveLease != nil {
+		cached, hit, cacheErr := h.seedanceMediaService.OpenCachedOutput(c.Request.Context(), owner, taskID, clientRange)
+		if cacheErr == nil && hit {
+			archiveLease.Close()
+			archiveLease = nil
+			h.writeSeedanceMediaStream(c, cached)
+			return
+		}
+	}
 	forwarded, err := func() (*service.SeedanceUpstreamResponse, error) {
-		if accountRelease != nil {
+		if !content && accountRelease != nil {
 			defer accountRelease()
+		}
+		if content && archiveLease != nil {
+			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, "")
 		}
 		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, taskID, nil)
 	}()
@@ -231,7 +421,84 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		h.writeSeedanceForwardError(c, err)
 		return
 	}
-	if content || forwarded.Streamed {
+	if content {
+		if forwarded.BodyStream == nil {
+			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream video body is empty")
+			return
+		}
+		defer func() {
+			if forwarded != nil && forwarded.BodyStream != nil {
+				_ = forwarded.BodyStream.Close()
+			}
+		}()
+		contentLength, _ := strconv.ParseInt(strings.TrimSpace(forwarded.Header.Get("Content-Length")), 10, 64)
+		canArchive := archiveLease != nil && forwarded.StatusCode == http.StatusOK && h.seedanceMediaService.CanArchiveOutput(c.Request.Context(), contentLength)
+		if archiveLease != nil && !canArchive && clientRange == "" {
+			archiveLease.Close()
+			archiveLease = nil
+		}
+		if archiveLease != nil && !canArchive && clientRange != "" {
+			_ = forwarded.BodyStream.Close()
+			archiveLease.Close()
+			archiveLease = nil
+			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, clientRange)
+			if err != nil {
+				h.writeSeedanceForwardError(c, err)
+				return
+			}
+			if forwarded.BodyStream == nil {
+				seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream video body is empty")
+				return
+			}
+		}
+		if canArchive {
+			captured, captureErr := h.seedanceMediaService.CaptureAndStoreOutputWithLease(c.Request.Context(), archiveLease, owner, taskID, forwarded.ContentType, contentLength, forwarded.BodyStream)
+			if captureErr != nil {
+				if reason := infraerrors.Reason(captureErr); reason == "invalid_upstream_response" || reason == "video_too_large" {
+					writeSeedanceMediaError(c, captureErr)
+					return
+				}
+				reqLog.Warn("seedance.output_archive_capture_failed", zap.String("task_id", taskID))
+				_ = forwarded.BodyStream.Close()
+				archiveLease.Close()
+				archiveLease = nil
+				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, clientRange)
+				if err != nil {
+					h.writeSeedanceForwardError(c, err)
+					return
+				}
+				if forwarded.BodyStream == nil {
+					seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream video body is empty")
+					return
+				}
+				h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, forwarded.BodyStream)
+				return
+			}
+			defer func() { _ = captured.Close() }()
+			if captured.StorageError != nil {
+				reqLog.Warn("seedance.output_archive_failed", zap.String("task_id", taskID))
+			}
+			if clientRange != "" {
+				if captured.StorageError == nil {
+					cached, hit, cacheErr := h.seedanceMediaService.OpenCachedOutput(c.Request.Context(), owner, taskID, clientRange)
+					if cacheErr == nil && hit {
+						h.writeSeedanceMediaStream(c, cached)
+						return
+					}
+				}
+				h.serveSeedanceCapturedVideo(c, captured)
+				return
+			}
+			header := forwarded.Header.Clone()
+			header.Set("Content-Type", captured.ContentType)
+			header.Set("Content-Length", strconv.FormatInt(captured.SizeBytes, 10))
+			h.writeSeedanceBody(c, forwarded.StatusCode, header, captured.File)
+			return
+		}
+		h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, forwarded.BodyStream)
+		return
+	}
+	if forwarded.Streamed {
 		return
 	}
 	if method == http.MethodDelete {
@@ -248,6 +515,60 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
 	}
 	c.JSON(http.StatusOK, official)
+}
+
+func (h *OpenAIGatewayHandler) serveSeedanceCapturedVideo(c *gin.Context, captured *service.SeedanceCapturedVideo) {
+	if captured == nil || captured.File == nil {
+		seedanceError(c, http.StatusBadGateway, "media_storage_error", "Seedance video is unavailable")
+		return
+	}
+	c.Header("Content-Type", "video/mp4")
+	c.Header("Content-Disposition", `inline; filename="seedance.mp4"`)
+	http.ServeContent(c.Writer, c.Request, "seedance.mp4", time.Time{}, captured.File)
+}
+
+func (h *OpenAIGatewayHandler) writeSeedanceMediaStream(c *gin.Context, stream *service.SeedanceMediaStream) {
+	if stream == nil || stream.Body == nil {
+		seedanceError(c, http.StatusBadGateway, "media_storage_error", "Seedance media stream is unavailable")
+		return
+	}
+	defer func() { _ = stream.Body.Close() }()
+	h.writeSeedanceBody(c, stream.StatusCode, stream.Header, stream.Body)
+}
+
+func (h *OpenAIGatewayHandler) writeSeedanceBody(c *gin.Context, status int, header http.Header, body io.Reader) {
+	if h.gatewayService != nil {
+		h.gatewayService.WriteSeedanceContentResponseHeaders(c.Writer.Header(), header)
+	} else {
+		for _, name := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Accept-Ranges", "Content-Range", "ETag", "Last-Modified"} {
+			if value := strings.TrimSpace(header.Get(name)); value != "" {
+				c.Header(name, value)
+			}
+		}
+	}
+	if contentType := strings.TrimSpace(header.Get("Content-Type")); contentType != "" {
+		c.Header("Content-Type", contentType)
+	}
+	c.Status(status)
+	if _, err := io.CopyBuffer(c.Writer, body, make([]byte, 32<<10)); err != nil {
+		_ = c.Error(fmt.Errorf("stream Seedance media response: %w", err))
+	}
+}
+
+func writeSeedanceMediaError(c *gin.Context, err error) {
+	status := infraerrors.Code(err)
+	code := strings.TrimSpace(infraerrors.Reason(err))
+	message := strings.TrimSpace(infraerrors.Message(err))
+	if status < 400 || status > 599 {
+		status = http.StatusInternalServerError
+	}
+	if code == "" {
+		code = "media_storage_error"
+	}
+	if message == "" || message == infraerrors.UnknownMessage {
+		message = "Seedance media request failed"
+	}
+	seedanceError(c, status, code, message)
 }
 
 func (h *OpenAIGatewayHandler) refundSeedanceTask(
@@ -346,6 +667,15 @@ func seedanceError(c *gin.Context, status int, code string, message string) {
 
 func seedanceTaskContentURL(c *gin.Context, taskID string) string {
 	path := service.SeedanceOfficialTasksEndpoint + "/" + url.PathEscape(taskID) + "/content"
+	return seedanceAbsoluteURL(c, path)
+}
+
+func seedanceUploadURL(c *gin.Context, uploadID string) string {
+	path := service.SeedanceOfficialUploadsEndpoint + "/" + url.PathEscape(uploadID)
+	return seedanceAbsoluteURL(c, path)
+}
+
+func seedanceAbsoluteURL(c *gin.Context, path string) string {
 	if c == nil || c.Request == nil {
 		return path
 	}
@@ -360,6 +690,18 @@ func seedanceTaskContentURL(c *gin.Context, taskID string) string {
 		return path
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, c.Request.Host, path)
+}
+
+func seedanceMediaOwner(apiKey *service.APIKey, subject middleware2.AuthSubject) service.SeedanceMediaOwner {
+	owner := service.SeedanceMediaOwner{UserID: subject.UserID}
+	if apiKey == nil {
+		return owner
+	}
+	owner.APIKeyID = apiKey.ID
+	if apiKey.GroupID != nil {
+		owner.GroupID = *apiKey.GroupID
+	}
+	return owner
 }
 
 func recordSeedanceUsage(

@@ -270,6 +270,8 @@ func RegisterGatewayRoutes(
 	seedance.Use(gin.HandlerFunc(apiKeyAuth))
 	seedance.Use(requireGroupArk)
 	{
+		seedance.POST("/contents/generations/uploads", h.OpenAIGateway.SeedanceUploadImage)
+		seedance.GET("/contents/generations/uploads/:upload_id", h.OpenAIGateway.SeedanceUploadedImageContent)
 		seedance.POST("/contents/generations/tasks", h.OpenAIGateway.SeedanceCreateTask)
 		seedance.GET("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceGetTask)
 		seedance.DELETE("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceCancelTask)

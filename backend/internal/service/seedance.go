@@ -20,14 +20,17 @@ import (
 )
 
 const (
-	SeedanceOfficialTasksEndpoint = "/api/v3/contents/generations/tasks"
-	DefaultSeedanceBaseURL        = "https://api.fflink.top"
-	seedanceUpstreamCreatePath    = "/v1/videos/generations"
-	seedanceUpstreamJobsPath      = "/v1/videos/jobs"
-	seedanceTaskBindingTTL        = 7 * 24 * time.Hour
+	SeedanceOfficialTasksEndpoint   = "/api/v3/contents/generations/tasks"
+	SeedanceOfficialUploadsEndpoint = "/api/v3/contents/generations/uploads"
+	DefaultSeedanceBaseURL          = "https://api.fflink.top"
+	seedanceUpstreamCreatePath      = "/v1/videos/generations"
+	seedanceUpstreamJobsPath        = "/v1/videos/jobs"
+	seedanceTaskBindingTTL          = 7 * 24 * time.Hour
 )
 
 var seedanceTaskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
+
+var seedanceSensitiveQueryParamPattern = regexp.MustCompile(`(?i)((?:[?&]|\\u0026)(?:key|client_secret|access_token|refresh_token|token|sig|signature|credential|policy|ossaccesskeyid|x-amz-[a-z0-9-]+|x-goog-[a-z0-9-]+|q-[a-z0-9-]+|x-oss-[a-z0-9-]+)=)[^&"'\s\\},]+`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
 	if platform != PlatformSeedance {
@@ -65,9 +68,11 @@ type SeedanceContentItem struct {
 }
 
 type seedanceImageInput struct {
-	URL      string `json:"url"`
-	Role     string `json:"role,omitempty"`
-	Strength string `json:"strength,omitempty"`
+	URL       string `json:"url"`
+	Base64    string `json:"base64,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Strength  string `json:"strength,omitempty"`
 }
 
 type SeedanceRequestInfo struct {
@@ -87,10 +92,26 @@ type SeedanceReferenceImage struct {
 	Strength string
 }
 
+func (i *SeedanceRequestInfo) HasInlineImages() bool {
+	if i == nil {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(i.StartFrameURL)), "data:") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(i.EndFrameURL)), "data:") {
+		return true
+	}
+	for _, reference := range i.References {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(reference.URL)), "data:") {
+			return true
+		}
+	}
+	return false
+}
+
 type SeedanceUpstreamResponse struct {
 	StatusCode  int
 	Header      http.Header
 	Body        []byte
+	BodyStream  io.ReadCloser
 	ContentType string
 	Streamed    bool
 	Result      *OpenAIForwardResult
@@ -117,6 +138,9 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		return nil, fmt.Errorf("invalid request JSON: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("request body must contain exactly one JSON object")
 	}
 	if strings.TrimSpace(request.Model) == "" {
 		return nil, errors.New("model is required")
@@ -224,18 +248,76 @@ func parseSeedanceImageInput(item SeedanceContentItem) (*seedanceImageInput, err
 	var directURL string
 	if err := json.Unmarshal(item.ImageURL, &directURL); err == nil {
 		input.URL = directURL
-	} else if err := json.Unmarshal(item.ImageURL, input); err != nil {
-		return nil, errors.New("image_url must be a URL string or an object containing url")
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(item.ImageURL))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(input); err != nil {
+			return nil, errors.New("image_url must be a URL/data URI string or an object containing url or base64")
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return nil, errors.New("image_url must contain exactly one object")
+		}
 	}
 	input.URL = strings.TrimSpace(input.URL)
+	input.Base64 = strings.TrimSpace(input.Base64)
+	if input.URL != "" && input.Base64 != "" {
+		return nil, errors.New("image_url.url and image_url.base64 are mutually exclusive")
+	}
+	if input.Base64 != "" {
+		mediaType := normalizeSeedanceInlineImageMediaType(input.MediaType)
+		if mediaType == "" {
+			return nil, errors.New("image_url.media_type must be image/png, image/jpeg, or image/webp when base64 is used")
+		}
+		input.URL = "data:" + mediaType + ";base64," + input.Base64
+	}
 	if input.URL == "" {
-		return nil, errors.New("image_url.url is required")
+		return nil, errors.New("image_url.url or image_url.base64 is required")
+	}
+	if strings.HasPrefix(strings.ToLower(input.URL), "data:") {
+		if _, _, err := splitSeedanceImageDataURI(input.URL); err != nil {
+			return nil, err
+		}
+		return input, nil
 	}
 	parsed, err := url.Parse(input.URL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, errors.New("image_url.url must be an absolute HTTP(S) URL")
 	}
 	return input, nil
+}
+
+func normalizeSeedanceInlineImageMediaType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/png":
+		return "image/png"
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg"
+	case "image/webp":
+		return "image/webp"
+	default:
+		return ""
+	}
+}
+
+func splitSeedanceImageDataURI(value string) (string, string, error) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(value), "data:") {
+		return "", "", errors.New("image data URI must start with data:")
+	}
+	comma := strings.IndexByte(value, ',')
+	if comma <= len("data:") || comma == len(value)-1 {
+		return "", "", errors.New("image data URI is invalid")
+	}
+	header := value[len("data:"):comma]
+	parts := strings.Split(header, ";")
+	if len(parts) != 2 || !strings.EqualFold(strings.TrimSpace(parts[1]), "base64") {
+		return "", "", errors.New("image data URI must use base64 encoding")
+	}
+	mediaType := normalizeSeedanceInlineImageMediaType(parts[0])
+	if mediaType == "" {
+		return "", "", errors.New("image data URI media type must be image/png, image/jpeg, or image/webp")
+	}
+	return mediaType, value[comma+1:], nil
 }
 
 func normalizeSeedanceImageRole(role string) string {
@@ -286,6 +368,9 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	if len(i.References) > 0 {
 		references := make([]map[string]any, 0, len(i.References))
 		for order, reference := range i.References {
+			if !isSeedanceHTTPImageURL(reference.URL) {
+				return nil, errors.New("inline/reference image must be uploaded before forwarding")
+			}
 			references = append(references, map[string]any{
 				"image":    map[string]any{"url": reference.URL, "type": "UPLOADED"},
 				"strength": reference.Strength,
@@ -294,12 +379,23 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 		}
 		body["guidances"] = map[string]any{"image_reference": references}
 	} else if i.EndFrameURL != "" {
+		if !isSeedanceHTTPImageURL(i.StartFrameURL) || !isSeedanceHTTPImageURL(i.EndFrameURL) {
+			return nil, errors.New("inline first/last frame must be uploaded before forwarding")
+		}
 		body["start_frame_url"] = i.StartFrameURL
 		body["end_frame_url"] = i.EndFrameURL
 	} else if i.StartFrameURL != "" {
+		if !isSeedanceHTTPImageURL(i.StartFrameURL) {
+			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
+		}
 		body["image_url"] = i.StartFrameURL
 	}
 	return json.Marshal(body)
+}
+
+func isSeedanceHTTPImageURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func SeedanceTaskSessionHash(taskID string, userID, apiKeyID int64) string {
@@ -347,6 +443,28 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	method string,
 	taskID string,
 	requestInfo *SeedanceRequestInfo,
+) (*SeedanceUpstreamResponse, error) {
+	return s.forwardSeedance(ctx, c, account, method, taskID, requestInfo, nil)
+}
+
+func (s *OpenAIGatewayService) ForwardSeedanceContent(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	taskID string,
+	rangeHeader string,
+) (*SeedanceUpstreamResponse, error) {
+	return s.forwardSeedance(ctx, c, account, http.MethodGet, taskID, nil, &rangeHeader)
+}
+
+func (s *OpenAIGatewayService) forwardSeedance(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	method string,
+	taskID string,
+	requestInfo *SeedanceRequestInfo,
+	contentRangeOverride *string,
 ) (*SeedanceUpstreamResponse, error) {
 	if account == nil || !account.IsSeedance() || account.Type != AccountTypeAPIKey {
 		return nil, errors.New("Seedance forwarding requires a Seedance API key account")
@@ -410,7 +528,11 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 		}
 	}
 	if c != nil && strings.HasSuffix(path, "/content") {
-		if rangeHeader := strings.TrimSpace(c.GetHeader("Range")); rangeHeader != "" {
+		rangeHeader := strings.TrimSpace(c.GetHeader("Range"))
+		if contentRangeOverride != nil {
+			rangeHeader = strings.TrimSpace(*contentRangeOverride)
+		}
+		if rangeHeader != "" {
 			upstreamReq.Header.Set("Range", rangeHeader)
 		}
 	}
@@ -427,11 +549,12 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	if err != nil {
 		return nil, fmt.Errorf("Seedance upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if resp.StatusCode >= http.StatusBadRequest {
-		responseBody := s.readUpstreamErrorBody(resp)
+	isContentResponse := strings.HasSuffix(path, "/content")
+	if resp.StatusCode >= http.StatusBadRequest && !(isContentResponse && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable) {
+		defer func() { _ = resp.Body.Close() }()
+		responseBody := sanitizeSeedanceUpstreamErrorBody(s.readUpstreamErrorBody(resp))
 		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
 		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, message, responseBody) {
 			return nil, &UpstreamFailoverError{
@@ -444,19 +567,11 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	}
 
 	response := &SeedanceUpstreamResponse{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), ContentType: contentType}
-	if strings.HasSuffix(path, "/content") {
-		writeSeedanceContentResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-		if contentType != "" {
-			c.Writer.Header().Set("Content-Type", contentType)
-		}
-		c.Status(resp.StatusCode)
-		_, copyErr := io.CopyBuffer(c.Writer, resp.Body, make([]byte, 32<<10))
-		response.Streamed = true
-		if copyErr != nil {
-			return response, copyErr
-		}
+	if isContentResponse {
+		response.BodyStream = resp.Body
 		return response, nil
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	responseBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -549,9 +664,23 @@ func SeedanceUpstreamErrorMessage(body []byte) string {
 	return sanitizeUpstreamErrorMessage(message)
 }
 
+func sanitizeSeedanceUpstreamErrorBody(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	return seedanceSensitiveQueryParamPattern.ReplaceAll(body, []byte("${1}***"))
+}
+
 func writeSeedanceContentResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {
 	writeOpenAIMediaResponseHeaders(dst, src, filter)
 	if mediaType, _, err := mime.ParseMediaType(src.Get("Content-Type")); err == nil && strings.HasPrefix(mediaType, "video/") {
 		dst.Set("Content-Type", mediaType)
 	}
+}
+
+func (s *OpenAIGatewayService) WriteSeedanceContentResponseHeaders(dst http.Header, src http.Header) {
+	if s == nil {
+		return
+	}
+	writeSeedanceContentResponseHeaders(dst, src, s.responseHeaderFilter)
 }

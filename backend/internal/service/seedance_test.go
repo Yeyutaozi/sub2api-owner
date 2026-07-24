@@ -23,8 +23,10 @@ func TestSeedanceDefaultModelsUseFYLinkIDs(t *testing.T) {
 }
 
 type seedanceHTTPUpstreamStub struct {
-	request *http.Request
-	body    string
+	request    *http.Request
+	body       string
+	statusCode int
+	header     http.Header
 }
 
 type seedanceUsageRefundRepoStub struct {
@@ -52,9 +54,17 @@ func (s *seedanceUsageRefundRepoStub) RefundSeedanceUsage(
 
 func (s *seedanceHTTPUpstreamStub) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 	s.request = request
+	statusCode := s.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusAccepted
+	}
+	header := s.header
+	if header == nil {
+		header = http.Header{"Content-Type": []string{"application/json"}}
+	}
 	return &http.Response{
-		StatusCode: http.StatusAccepted,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		StatusCode: statusCode,
+		Header:     header,
 		Body:       io.NopCloser(strings.NewReader(s.body)),
 	}, nil
 }
@@ -304,4 +314,37 @@ func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {
 	require.Equal(t, "seedance-2.0", forwarded["model"])
 	require.Equal(t, "A coastal sunrise", forwarded["prompt"])
 	require.Equal(t, float64(8), forwarded["duration"])
+}
+
+func TestForwardSeedanceContentUsesExplicitRangeOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &seedanceHTTPUpstreamStub{
+		body:       "\x00\x00\x00\x0cftypisom",
+		statusCode: http.StatusOK,
+		header: http.Header{
+			"Content-Type":   []string{"video/mp4"},
+			"Content-Length": []string{"12"},
+		},
+	}
+	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://api.fflink.top", "api_key": "upstream-secret"},
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, SeedanceOfficialTasksEndpoint+"/vidjob_123/content", nil)
+	ctx.Request.Header.Set("Range", "bytes=0-0")
+
+	response, err := service.ForwardSeedanceContent(context.Background(), ctx, account, "vidjob_123", "")
+	require.NoError(t, err)
+	require.NotNil(t, response.BodyStream)
+	require.NoError(t, response.BodyStream.Close())
+	require.Empty(t, upstream.request.Header.Get("Range"))
+
+	response, err = service.ForwardSeedanceContent(context.Background(), ctx, account, "vidjob_123", "bytes=2-4")
+	require.NoError(t, err)
+	require.NotNil(t, response.BodyStream)
+	require.NoError(t, response.BodyStream.Close())
+	require.Equal(t, "bytes=2-4", upstream.request.Header.Get("Range"))
 }
