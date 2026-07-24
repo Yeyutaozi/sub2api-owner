@@ -50,8 +50,10 @@ func ProvideAdminHandlers(
 	agentWorkerHostHandler *admin.AgentWorkerHostHandler,
 	agentAppHandler *admin.AgentAppHandler,
 	agentArtifactStorageHandler *admin.AgentArtifactStorageHandler,
+	ollamaCloudUsage *service.OllamaCloudUsageService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
+	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
