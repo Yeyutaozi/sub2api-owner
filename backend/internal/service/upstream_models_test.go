@@ -210,6 +210,18 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "https://openai.example.com/v1/models", openAIReq.URL.String())
 	require.Equal(t, "Bearer openai-key", openAIReq.Header.Get("Authorization"))
 
+	glmReq, err := svc.buildUpstreamModelsRequest(ctx, &Account{
+		Platform: PlatformGLM,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "glm-key",
+			"base_url": "https://open.bigmodel.cn/api/paas/v4",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://open.bigmodel.cn/api/paas/v4/models", glmReq.URL.String())
+	require.Equal(t, "Bearer glm-key", glmReq.Header.Get("Authorization"))
+
 	grokReq, err := svc.buildUpstreamModelsRequest(ctx, &Account{
 		Platform: PlatformGrok,
 		Type:     AccountTypeAPIKey,

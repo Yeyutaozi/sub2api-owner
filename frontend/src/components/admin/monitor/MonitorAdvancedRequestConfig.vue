@@ -109,7 +109,9 @@ import { useI18n } from 'vue-i18n'
 import type { APIMode, BodyOverrideMode, Provider } from '@/api/admin/channelMonitor'
 import {
   API_MODE_RESPONSES,
+  DEFAULT_GLM_MODEL,
   DEFAULT_GROK_MODEL,
+  PROVIDER_GLM,
   PROVIDER_GROK,
   PROVIDER_OPENAI,
 } from '@/constants/channelMonitor'
@@ -307,11 +309,19 @@ const bodyPlaceholder = computed(() => {
     }
     return '{\n  "model": "gpt-4o-mini",\n  "instructions": "You are a health check endpoint. Reply briefly.",\n  "input": "Reply with exactly: ok",\n  "max_output_tokens": 20,\n  "stream": false\n}'
   }
-  if (props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_GROK) {
+  if (
+    props.provider === PROVIDER_OPENAI ||
+    props.provider === PROVIDER_GROK ||
+    props.provider === PROVIDER_GLM
+  ) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_tokens": 20\n}'
     }
-    const model = props.provider === PROVIDER_GROK ? DEFAULT_GROK_MODEL : 'gpt-4o-mini'
+    const model = props.provider === PROVIDER_GROK
+      ? DEFAULT_GROK_MODEL
+      : props.provider === PROVIDER_GLM
+        ? DEFAULT_GLM_MODEL
+        : 'gpt-4o-mini'
     return `{\n  "model": "${model}",\n  "messages": [{"role":"user","content":"Reply with exactly: ok"}],\n  "max_tokens": 20,\n  "stream": false\n}`
   }
   if (props.bodyOverrideMode === 'merge') {

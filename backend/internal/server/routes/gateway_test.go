@@ -182,6 +182,30 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesGLMRejectsOpenAIExclusiveMedia(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGLM)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/v1/images/generations", `{"model":"gpt-image-2","prompt":"draw"}`},
+		{http.MethodPost, "/v1/audio/speech", `{"model":"gpt-4o-mini-tts","input":"hello"}`},
+		{http.MethodPost, "/v1/videos", `{"model":"sora-2","prompt":"waves"}`},
+		{http.MethodPost, "/v1/videos/generations", `{"model":"grok-imagine-video","prompt":"waves"}`},
+		{http.MethodPost, "/v1/images/batches", `{"model":"gpt-image-2","items":[]}`},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.Contains(t, w.Body.String(), "not supported", "method=%s path=%s", tc.method, tc.path)
+	}
+}
+
 func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
@@ -232,7 +256,7 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+func TestGatewayRoutesOpenAIRejectsGrokVideoMutationEndpoints(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
@@ -246,9 +270,6 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		{http.MethodPost, "/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
-		{http.MethodGet, "/videos/request-123", ""},
-		{http.MethodGet, "/v1/videos/request-123/content", ""},
-		{http.MethodGet, "/videos/request-123/content", ""},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")

@@ -12,6 +12,18 @@ import {
 } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('keeps GLM defaults limited to supported text and embedding models', () => {
+    const glmModels = getModelsByPlatform('glm')
+
+    expect(glmModels).toContain('glm-5.2')
+    expect(glmModels).toContain('embedding-3')
+    expect(glmModels).not.toContain('cogview-4')
+    expect(glmModels).not.toContain('glm-4v')
+    expect(glmModels).not.toContain('cogvideo')
+
+    expect(getModelsByPlatform('zhipu')).toContain('cogvideo')
+  })
+
   it('uses FYLink model IDs for Seedance while keeping legacy alias mappings', () => {
     expect(getModelsByPlatform('seedance')).toEqual([
       'seedance-2.0',

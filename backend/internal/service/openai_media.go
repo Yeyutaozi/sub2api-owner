@@ -62,11 +62,34 @@ type OpenAIMediaRequest struct {
 	ResourceID         string
 	VideoResolution    string
 	VideoDurationSecs  int
+	ModerationInput    string
 	RequiredCapability OpenAIEndpointCapability
 }
 
 func (r *OpenAIMediaRequest) IsVideoCreate() bool {
 	return r != nil && r.Method == http.MethodPost && r.Endpoint == openAIVideosEndpoint
+}
+
+func (r *OpenAIMediaRequest) ModerationProtocol() string {
+	if r != nil && r.Endpoint == openAIAudioSpeechEndpoint {
+		return ContentModerationProtocolOpenAIResponses
+	}
+	return ContentModerationProtocolOpenAIImages
+}
+
+func (r *OpenAIMediaRequest) ModerationBody() []byte {
+	if r == nil || strings.TrimSpace(r.ModerationInput) == "" {
+		return nil
+	}
+	field := "prompt"
+	if r.Endpoint == openAIAudioSpeechEndpoint {
+		field = "input"
+	}
+	body, err := sjson.SetBytes([]byte("{}"), field, r.ModerationInput)
+	if err != nil {
+		return nil
+	}
+	return body
 }
 
 func (s *OpenAIGatewayService) ParseOpenAIMediaRequest(c *gin.Context, body []byte) (*OpenAIMediaRequest, error) {
@@ -109,9 +132,10 @@ func (s *OpenAIGatewayService) ParseOpenAIMediaRequest(c *gin.Context, body []by
 
 	if mediaType == "multipart/form-data" {
 		parsed.Multipart = true
-		fields, fieldsErr := parseOpenAIMediaMultipartFields(body, parsed.ContentType, "model", "size", "resolution", "seconds", "duration")
+		fields, fieldsErr := parseOpenAIMediaMultipartFields(body, parsed.ContentType, "model", "input", "prompt", "size", "resolution", "seconds", "duration")
 		err = fieldsErr
 		parsed.Model = fields["model"]
+		parsed.ModerationInput = strings.TrimSpace(fields[openAIMediaModerationField(parsed.Endpoint)])
 		if parsed.IsVideoCreate() {
 			applyOpenAIVideoBillingMetadata(parsed, firstNonEmptyString(fields["size"], fields["resolution"]), firstNonEmptyString(fields["seconds"], fields["duration"]))
 		}
@@ -124,6 +148,7 @@ func (s *OpenAIGatewayService) ParseOpenAIMediaRequest(c *gin.Context, body []by
 			return nil, fmt.Errorf("model must be a string")
 		}
 		parsed.Model = strings.TrimSpace(model.String())
+		parsed.ModerationInput = strings.TrimSpace(gjson.GetBytes(body, openAIMediaModerationField(parsed.Endpoint)).String())
 		if parsed.IsVideoCreate() {
 			applyOpenAIVideoBillingMetadata(
 				parsed,
@@ -139,6 +164,13 @@ func (s *OpenAIGatewayService) ParseOpenAIMediaRequest(c *gin.Context, body []by
 		return nil, fmt.Errorf("model is required")
 	}
 	return parsed, nil
+}
+
+func openAIMediaModerationField(endpoint string) string {
+	if endpoint == openAIAudioSpeechEndpoint {
+		return "input"
+	}
+	return "prompt"
 }
 
 func classifyOpenAIMediaRequest(method string, requestPath string) (*OpenAIMediaRequest, error) {

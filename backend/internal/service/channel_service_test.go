@@ -767,13 +767,15 @@ func TestGetChannelModelPricing_PlatformFiltering(t *testing.T) {
 	ch := Channel{
 		ID:       1,
 		Status:   StatusActive,
-		GroupIDs: []int64{10, 20},
+		GroupIDs: []int64{10, 20, 30},
 		ModelPricing: []ChannelModelPricing{
 			{ID: 100, Platform: "openai", Models: []string{"gpt-5.1"}, InputPrice: testPtrFloat64(5e-6)},
+			{ID: 101, Platform: "openai", Models: []string{"shared-model"}, InputPrice: testPtrFloat64(9e-6)},
 			{ID: 200, Platform: "anthropic", Models: []string{"claude-opus-4"}, InputPrice: testPtrFloat64(15e-6)},
+			{ID: 300, Platform: "glm", Models: []string{"shared-model"}, InputPrice: testPtrFloat64(1e-6)},
 		},
 	}
-	repo := makeStandardRepo(ch, map[int64]string{10: "anthropic", 20: "openai"})
+	repo := makeStandardRepo(ch, map[int64]string{10: "anthropic", 20: "openai", 30: "glm"})
 	svc := newTestChannelService(repo)
 
 	// Group 10 (anthropic) should NOT see openai pricing
@@ -793,6 +795,17 @@ func TestGetChannelModelPricing_PlatformFiltering(t *testing.T) {
 	// Group 20 (openai) should NOT see anthropic pricing
 	result = svc.GetChannelModelPricing(context.Background(), 20, "claude-opus-4")
 	require.Nil(t, result)
+
+	// GLM pricing must be resolved from the GLM namespace even when OpenAI has
+	// a pricing entry for the exact same model ID.
+	result = svc.GetChannelModelPricing(context.Background(), 30, "shared-model")
+	require.NotNil(t, result)
+	require.Equal(t, int64(300), result.ID)
+	require.InDelta(t, 1e-6, *result.InputPrice, 1e-12)
+
+	result = svc.GetChannelModelPricing(context.Background(), 20, "shared-model")
+	require.NotNil(t, result)
+	require.Equal(t, int64(101), result.ID)
 }
 
 func TestGetChannelModelPricing_ReturnsCopy(t *testing.T) {
@@ -2016,7 +2029,7 @@ func TestMatchingPlatforms(t *testing.T) {
 		{"anthropic returns itself", PlatformAnthropic, []string{PlatformAnthropic}},
 		{"gemini returns itself", PlatformGemini, []string{PlatformGemini}},
 		{"openai returns itself", PlatformOpenAI, []string{PlatformOpenAI}},
-		{"composite returns concrete platforms", PlatformComposite, []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}},
+		{"composite returns concrete platforms", PlatformComposite, []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformGLM}},
 	}
 
 	for _, tt := range tests {

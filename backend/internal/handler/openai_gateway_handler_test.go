@@ -919,6 +919,40 @@ func TestOpenAIResponsesWebSocket_InvalidUpgradeDoesNotSetTransport(t *testing.T
 	require.Equal(t, service.OpenAIClientTransportUnknown, service.GetOpenAIClientTransport(c))
 }
 
+func TestOpenAIResponsesGLMRejectsCompactBeforeOpenAIDependencies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", strings.NewReader(`{"model":"glm-5"}`))
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{Platform: service.PlatformGLM},
+	})
+
+	(&OpenAIGatewayHandler{}).Responses(c)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "Responses Compact API is not supported for GLM groups")
+}
+
+func TestOpenAIResponsesWebSocketRejectsGLMBeforeUpgrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Request.Header.Set("Upgrade", "websocket")
+	c.Request.Header.Set("Connection", "Upgrade")
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{Platform: service.PlatformGLM},
+	})
+
+	(&OpenAIGatewayHandler{}).ResponsesWebSocket(c)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "Responses WebSocket API is not supported for GLM groups")
+}
+
 func TestOpenAIResponsesWebSocket_IngressCapacityRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cache := &concurrencyCacheMock{

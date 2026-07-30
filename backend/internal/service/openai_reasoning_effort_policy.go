@@ -41,7 +41,7 @@ func NormalizeMaxReasoningEffort(raw string) string {
 }
 
 func reasoningEffortValuesForPlatform(platform string) []string {
-	if platform != PlatformOpenAI {
+	if platform != PlatformOpenAI && platform != PlatformGLM {
 		return nil
 	}
 	return openAIReasoningEffortValues
@@ -54,7 +54,7 @@ func normalizeMaxReasoningEffortForPlatform(platform, raw string) (string, error
 
 	allowedValues := reasoningEffortValuesForPlatform(platform)
 	if len(allowedValues) == 0 {
-		return "", fmt.Errorf("reasoning effort policy is only supported for platform %q", PlatformOpenAI)
+		return "", fmt.Errorf("reasoning effort policy is only supported for platforms %q and %q", PlatformOpenAI, PlatformGLM)
 	}
 
 	value := NormalizeMaxReasoningEffort(raw)

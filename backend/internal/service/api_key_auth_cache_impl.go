@@ -14,10 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const (
-	apiKeyAuthSnapshotVersion               = 18 // v18: include Seedance video pricing, group reasoning effort mappings, and OpenAI Live gate
-	apiKeyAuthSnapshotVersionBeforeSeedance = 15
-)
+const apiKeyAuthSnapshotVersion = 18 // v18: include Seedance video pricing, group reasoning effort mappings, and OpenAI Live gate
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -335,16 +332,7 @@ func (s *APIKeyService) applyAuthCacheEntry(key string, entry *APIKeyAuthCacheEn
 }
 
 func isSupportedAPIKeyAuthSnapshot(snapshot *APIKeyAuthSnapshot) bool {
-	if snapshot == nil {
-		return false
-	}
-	if snapshot.Version == apiKeyAuthSnapshotVersion {
-		return true
-	}
-	// Seedance did not exist in v15. Existing platforms can keep using their
-	// cached snapshot, while Seedance must reload the model-level price matrix.
-	return snapshot.Version == apiKeyAuthSnapshotVersionBeforeSeedance &&
-		(snapshot.Group == nil || snapshot.Group.Platform != PlatformSeedance)
+	return snapshot != nil && snapshot.Version == apiKeyAuthSnapshotVersion
 }
 
 func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) *APIKeyAuthSnapshot {

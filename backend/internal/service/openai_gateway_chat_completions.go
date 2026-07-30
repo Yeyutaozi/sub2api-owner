@@ -58,6 +58,13 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// GLM is API-key-only and only exposes an OpenAI-compatible Chat Completions
+	// upstream. Route before every OpenAI OAuth/Codex compatibility transform,
+	// even if imported account metadata contains stale Responses probe fields.
+	if account != nil && account.IsGLM() {
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
+
 	restrictionResult := s.detectCodexClientRestriction(c, account, body)
 	logCodexCLIOnlyDetection(ctx, c, account, getAPIKeyIDFromContext(c), restrictionResult, body)
 	if restrictionResult.Enabled && !restrictionResult.Matched {

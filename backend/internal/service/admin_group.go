@@ -247,6 +247,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return ids
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
+	case PlatformGLM:
+		return DefaultGLMModelIDs()
 	case PlatformSeedance:
 		return []string{
 			"seedance-2.0",
@@ -272,7 +274,7 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
-	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok} {
+	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformGLM} {
 		for _, id := range defaultModelsListCandidateIDs(platform) {
 			if _, ok := seen[id]; ok {
 				continue
@@ -298,6 +300,31 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformGemini ||
 		platform == PlatformGrok ||
 		platform == PlatformComposite
+}
+
+// sanitizeGLMExclusiveGroupFields prevents OpenAI/Anthropic proprietary
+// controls from affecting GLM's API-key-only, text-compatible scheduling.
+func sanitizeGLMExclusiveGroupFields(group *Group) {
+	if group == nil || group.Platform != PlatformGLM {
+		return
+	}
+
+	group.AllowImageGeneration = false
+	group.AllowBatchImageGeneration = false
+	group.ImageRateIndependent = false
+	group.ImagePrice1K = nil
+	group.ImagePrice2K = nil
+	group.ImagePrice4K = nil
+	group.VideoRateIndependent = false
+	group.VideoPrice480P = nil
+	group.VideoPrice720P = nil
+	group.VideoPrice1080P = nil
+	group.VideoModelPrices = VideoModelPrices{}
+	group.WebSearchPricePerCall = nil
+	group.ClaudeCodeOnly = false
+	group.AllowLive = false
+	group.RequireOAuthOnly = false
+	group.RequirePrivacySet = false
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -491,6 +518,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ReasoningEffortMappings:         reasoningEffortMappings,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	sanitizeGLMExclusiveGroupFields(group)
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
 	}
@@ -837,6 +865,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.ReasoningEffortMappings = reasoningEffortMappings
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	sanitizeGLMExclusiveGroupFields(group)
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
 	}

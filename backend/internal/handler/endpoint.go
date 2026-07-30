@@ -185,6 +185,8 @@ func isBareOrSubpathOf(path, root string) bool {
 //     the raw URL); native endpoints such as embeddings and alpha search
 //     retain their paths. Grok raw Chat requests override this through the
 //     forwarding result consumed by resolveOpenAIUpstreamEndpoint.
+//   - GLM text compatibility routes forward to /v1/chat/completions, while
+//     embeddings retain /v1/embeddings.
 //   - Anthropic  → /v1/messages
 //   - Gemini     → /v1beta/models
 //   - Antigravity → /v1/messages (Claude) or gemini (Gemini)
@@ -232,6 +234,12 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 			return EndpointResponsesCompact
 		}
 		return EndpointResponses
+
+	case service.PlatformGLM:
+		if inbound == EndpointEmbeddings {
+			return EndpointEmbeddings
+		}
+		return EndpointChatCompletions
 
 	case service.PlatformAnthropic:
 		return EndpointMessages

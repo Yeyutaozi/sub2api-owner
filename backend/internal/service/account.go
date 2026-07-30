@@ -85,6 +85,8 @@ type OpenAIEndpointCapability string
 
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 
+const DefaultGLMBaseURL = "https://open.bigmodel.cn/api/paas/v4"
+
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
@@ -269,6 +271,14 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsGLM() bool {
+	return a != nil && a.Platform == PlatformGLM
+}
+
+func (a *Account) IsGLMAPIKey() bool {
+	return a.IsGLM() && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsSeedance() bool {
 	return a != nil && a.Platform == PlatformSeedance
 }
@@ -278,7 +288,7 @@ func (a *Account) IsGrokOAuth() bool {
 }
 
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsGLMAPIKey())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1280,6 +1290,9 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
+	if a.IsGLM() {
+		return a.GetGLMBaseURL()
+	}
 	if !a.IsOpenAI() {
 		return ""
 	}
@@ -1290,6 +1303,16 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 	}
 	return "https://api.openai.com"
+}
+
+func (a *Account) GetGLMBaseURL() string {
+	if !a.IsGLMAPIKey() {
+		return ""
+	}
+	if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+		return baseURL
+	}
+	return DefaultGLMBaseURL
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
@@ -1374,10 +1397,20 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
+	if a.IsGLM() {
+		return a.GetGLMAPIKey()
+	}
 	if !a.IsOpenAIApiKey() {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetGLMAPIKey() string {
+	if !a.IsGLMAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
 }
 
 func (a *Account) GetSeedanceBaseURL() string {
@@ -1398,7 +1431,7 @@ func (a *Account) GetSeedanceAPIKey() string {
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() && !a.IsGLM() {
 		return ""
 	}
 	return a.GetCredential("user_agent")
@@ -1477,6 +1510,14 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		default:
 			return false
 		}
+	}
+	if a.IsGLM() {
+		if a.Type != AccountTypeAPIKey ||
+			(capability != OpenAIEndpointCapabilityChatCompletions && capability != OpenAIEndpointCapabilityEmbeddings) {
+			return false
+		}
+		configured, found := a.openAIEndpointCapabilitySet()
+		return !found || configured[string(capability)]
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:

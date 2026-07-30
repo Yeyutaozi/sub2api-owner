@@ -17,6 +17,16 @@ import (
 // The route middleware already authenticates the API key and resolves the
 // group; this handler intentionally does not select an account or check billing.
 func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
+	h.localOpenAICompatibleCountTokens(c, "handler.openai_gateway.grok_count_tokens")
+}
+
+// OpenAICompatibleCountTokens handles local token estimates for API-key-only
+// OpenAI-compatible providers such as GLM.
+func (h *OpenAIGatewayHandler) OpenAICompatibleCountTokens(c *gin.Context) {
+	h.localOpenAICompatibleCountTokens(c, "handler.openai_gateway.compatible_count_tokens")
+}
+
+func (h *OpenAIGatewayHandler) localOpenAICompatibleCountTokens(c *gin.Context, logComponent string) {
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
@@ -34,7 +44,7 @@ func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
 	bodyRef := service.NewRequestBodyRef(body)
 	parsedReq, err := service.ParseGatewayRequest(bodyRef, domain.PlatformAnthropic)
 	if err != nil {
-		logRequestBodyParseFailure(requestLogger(c, "handler.openai_gateway.grok_count_tokens"), body, err)
+		logRequestBodyParseFailure(requestLogger(c, logComponent), body, err)
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
@@ -43,9 +53,9 @@ func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
 		return
 	}
 
-	estimated, err := service.EstimateGrokCountTokens(parsedReq.Body.Bytes())
+	estimated, err := service.EstimateOpenAICompatibleCountTokens(parsedReq.Body.Bytes())
 	if err != nil {
-		requestLogger(c, "handler.openai_gateway.grok_count_tokens").Warn("grok_count_tokens.local_estimate_failed", zap.Error(err))
+		requestLogger(c, logComponent).Warn("compatible_count_tokens.local_estimate_failed", zap.Error(err))
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}

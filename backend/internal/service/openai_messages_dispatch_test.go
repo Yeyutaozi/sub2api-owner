@@ -59,3 +59,25 @@ func TestSanitizeGroupMessagesDispatchFields_ClearsNonOpenAIPlatform(t *testing.
 	require.Empty(t, group.DefaultMappedModel)
 	require.Equal(t, OpenAIMessagesDispatchModelConfig{}, group.MessagesDispatchModelConfig)
 }
+
+func TestSanitizeGroupMessagesDispatchFields_PreservesGLM(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform:              PlatformGLM,
+		AllowMessagesDispatch: true,
+		DefaultMappedModel:    "glm-5.2",
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			SonnetMappedModel: "glm-5.2",
+			ExactModelMappings: map[string]string{
+				"claude-sonnet-4-6": "glm-5.2",
+			},
+		},
+	}
+
+	sanitizeGroupMessagesDispatchFields(group)
+
+	require.True(t, group.AllowMessagesDispatch)
+	require.Equal(t, "glm-5.2", group.DefaultMappedModel)
+	require.Equal(t, "glm-5.2", group.MessagesDispatchModelConfig.SonnetMappedModel)
+}

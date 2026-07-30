@@ -104,3 +104,40 @@ func TestForwardEmbeddings_APIKeyPassthroughRecordsUsageAndBatchInput(t *testing
 	require.Equal(t, "float", gjson.GetBytes(upstream.lastBody, "encoding_format").String())
 	require.Equal(t, int64(256), gjson.GetBytes(upstream.lastBody, "dimensions").Int())
 }
+
+func TestForwardEmbeddings_GLMUsesGLMEndpointAndCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reqBody := []byte(`{"model":"embedding-3","input":"hello"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1]}],"model":"embedding-3","usage":{"prompt_tokens":3,"total_tokens":3}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:       43,
+		Platform: PlatformGLM,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "glm-key",
+			"base_url": "https://open.bigmodel.cn/api/paas/v4",
+		},
+	}
+
+	result, err := svc.ForwardEmbeddings(context.Background(), c, account, reqBody, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, "https://open.bigmodel.cn/api/paas/v4/embeddings", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer glm-key", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, "embedding-3", gjson.GetBytes(upstream.lastBody, "model").String())
+}

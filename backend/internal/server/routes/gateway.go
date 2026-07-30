@@ -58,10 +58,25 @@ func RegisterGatewayRoutes(
 		}
 		h.OpenAIGateway.Media(c)
 	}
+	glmExclusiveCapabilityGate := func(capability string, next gin.HandlerFunc) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformGLM {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"type":    "not_found_error",
+						"message": capability + " API is not supported for GLM groups",
+					},
+				})
+				return
+			}
+			next(c)
+		}
+	}
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformGrok:
+		case service.PlatformOpenAI, service.PlatformGrok, service.PlatformGLM:
 			return true
 		default:
 			return false
@@ -76,6 +91,8 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.CountTokens(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokCountTokens(c)
+		case service.PlatformGLM:
+			h.OpenAIGateway.OpenAICompatibleCountTokens(c)
 		default:
 			h.Gateway.CountTokens(c)
 		}
@@ -87,8 +104,13 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.Models(c)
 	}
-	isOpenAIOnlyEndpointGatewayPlatform := func(c *gin.Context) bool {
-		return getGroupPlatform(c) == service.PlatformOpenAI
+	isEmbeddingsGatewayPlatform := func(c *gin.Context) bool {
+		switch getGroupPlatform(c) {
+		case service.PlatformOpenAI, service.PlatformGLM:
+			return true
+		default:
+			return false
+		}
 	}
 	imagesHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
@@ -231,7 +253,7 @@ func RegisterGatewayRoutes(
 			h.Gateway.ChatCompletions(c)
 		})
 		gateway.POST("/embeddings", textBodyLimit, func(c *gin.Context) {
-			if !isOpenAIOnlyEndpointGatewayPlatform(c) {
+			if !isEmbeddingsGatewayPlatform(c) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"error": gin.H{
@@ -248,16 +270,16 @@ func RegisterGatewayRoutes(
 		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
 		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
 		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
-		gateway.POST("/images/batches", h.BatchImage.Submit)
-		gateway.GET("/images/batches", h.BatchImage.List)
-		gateway.GET("/images/batches/models", h.BatchImage.Models)
-		gateway.GET("/images/batches/:id", h.BatchImage.Get)
-		gateway.GET("/images/batches/:id/items", h.BatchImage.Items)
-		gateway.GET("/images/batches/:id/items/:custom_id/content", h.BatchImage.ItemContent)
-		gateway.GET("/images/batches/:id/download", h.BatchImage.Download)
-		gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
-		gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
-		gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
+		gateway.POST("/images/batches", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Submit))
+		gateway.GET("/images/batches", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.List))
+		gateway.GET("/images/batches/models", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Models))
+		gateway.GET("/images/batches/:id", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Get))
+		gateway.GET("/images/batches/:id/items", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Items))
+		gateway.GET("/images/batches/:id/items/:custom_id/content", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.ItemContent))
+		gateway.GET("/images/batches/:id/download", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Download))
+		gateway.POST("/images/batches/:id/cancel", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Cancel))
+		gateway.DELETE("/images/batches/:id", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.DeleteRecord))
+		gateway.DELETE("/images/batches/:id/outputs", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.DeleteOutputs))
 		gateway.POST("/videos/generations", videoGenerationHandler)
 		gateway.POST("/videos/edits", videoEditHandler)
 		gateway.POST("/videos/extensions", videoExtensionHandler)
@@ -342,7 +364,7 @@ func RegisterGatewayRoutes(
 		h.Gateway.ChatCompletions(c)
 	})
 	r.POST("/embeddings", textBodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
-		if !isOpenAIOnlyEndpointGatewayPlatform(c) {
+		if !isEmbeddingsGatewayPlatform(c) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{

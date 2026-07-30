@@ -19,6 +19,12 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	// GLM does not implement the Responses API. Bridge Responses clients to its
+	// Chat Completions endpoint before any OpenAI OAuth/Codex/WS/media handling.
+	if account != nil && account.IsGLM() {
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+	}
+
 	clearGrokResponsesClientToolMapping(c)
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。

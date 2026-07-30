@@ -10,7 +10,7 @@ const source = readFileSync(
 describe('CreateAccountModal Seedance account type', () => {
   it('creates a dedicated API-key account with the FYLink default', () => {
     expect(source).toContain('@click="form.platform = \'seedance\'"')
-    expect(source).toContain("if (form.platform === 'seedance')")
+    expect(source).toContain("if (form.platform === 'seedance' || form.platform === 'glm')")
     expect(source).toContain("accountCategory.value = 'apikey'")
     expect(source).toContain("form.type = 'apikey'")
     expect(source).toContain("? 'https://api.fflink.top'")

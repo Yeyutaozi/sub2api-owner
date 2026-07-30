@@ -67,6 +67,17 @@ func TestParseOpenAIMediaRequest(t *testing.T) {
 		require.Equal(t, OpenAIEndpointCapabilityAudioSpeech, parsed.RequiredCapability)
 		require.Equal(t, "gpt-4o-mini-tts", parsed.Model)
 		require.True(t, parsed.Billable)
+		require.Equal(t, ContentModerationProtocolOpenAIResponses, parsed.ModerationProtocol())
+		require.Equal(t, "hello", gjson.GetBytes(parsed.ModerationBody(), "input").String())
+	})
+
+	t.Run("video prompt moderation", func(t *testing.T) {
+		body := []byte(`{"model":"sora-2","prompt":"waves at sunset"}`)
+		c, _ := newOpenAIMediaTestContext(http.MethodPost, openAIVideosEndpoint, body, "application/json")
+		parsed, err := (&OpenAIGatewayService{}).ParseOpenAIMediaRequest(c, body)
+		require.NoError(t, err)
+		require.Equal(t, ContentModerationProtocolOpenAIImages, parsed.ModerationProtocol())
+		require.Equal(t, "waves at sunset", gjson.GetBytes(parsed.ModerationBody(), "prompt").String())
 	})
 
 	t.Run("audio transcription multipart", func(t *testing.T) {

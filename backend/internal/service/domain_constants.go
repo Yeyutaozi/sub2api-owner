@@ -43,6 +43,7 @@ const (
 	PlatformGemini      = domain.PlatformGemini
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformGrok        = domain.PlatformGrok
+	PlatformGLM         = domain.PlatformGLM
 	PlatformSeedance    = domain.PlatformSeedance
 	PlatformComposite   = domain.PlatformComposite
 )
@@ -56,6 +57,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformGemini,
 	PlatformAntigravity,
 	PlatformGrok,
+	PlatformGLM,
 	PlatformSeedance,
 }
 

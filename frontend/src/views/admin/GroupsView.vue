@@ -610,7 +610,7 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
-          v-if="createForm.platform === 'openai'"
+          v-if="['openai', 'glm'].includes(createForm.platform)"
           ref="createReasoningEffortPolicyRef"
           id-prefix="create-group-reasoning"
           :platform="createForm.platform"
@@ -1568,9 +1568,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI-compatible Messages 调度配置 -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="['openai', 'glm'].includes(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2304,7 +2304,7 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
-          v-if="editForm.platform === 'openai'"
+          v-if="['openai', 'glm'].includes(editForm.platform)"
           ref="editReasoningEffortPolicyRef"
           id-prefix="edit-group-reasoning"
           :platform="editForm.platform"
@@ -3260,9 +3260,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI-compatible Messages 调度配置 -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="['openai', 'glm'].includes(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -4587,6 +4587,7 @@ const platformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
   { value: "composite", label: "Composite" },
 ]);
@@ -4598,6 +4599,7 @@ const platformFilterOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
   { value: "composite", label: "Composite" },
 ]);
@@ -4608,6 +4610,7 @@ const compositeRoutePlatformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "glm", label: "GLM" },
 ]);
 
 const compositeRouteEndpointOptions = computed(() => [
@@ -4941,7 +4944,7 @@ const createForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
-  // OpenAI Messages 调度配置（仅 openai 平台使用）
+  // OpenAI-compatible Messages 调度配置
   allow_messages_dispatch: false,
   allow_live: false,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
@@ -5291,7 +5294,7 @@ const editForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
-  // OpenAI Messages 调度配置（仅 openai 平台使用）
+  // OpenAI-compatible Messages 调度配置
   allow_messages_dispatch: false,
   allow_live: false,
   default_mapped_model: '',
@@ -5808,7 +5811,7 @@ const handleCreateGroup = async () => {
     return;
   }
   if (
-    createForm.platform === "openai" &&
+    ["openai", "glm"].includes(createForm.platform) &&
     createReasoningEffortPolicyRef.value &&
     !createReasoningEffortPolicyRef.value.validate()
   ) {
@@ -5837,7 +5840,7 @@ const handleCreateGroup = async () => {
         createForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        createForm.platform === "openai"
+        ["openai", "glm"].includes(createForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -6031,7 +6034,7 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (
-    editForm.platform === "openai" &&
+    ["openai", "glm"].includes(editForm.platform) &&
     editReasoningEffortPolicyRef.value &&
     !editReasoningEffortPolicyRef.value.validate()
   ) {
@@ -6067,7 +6070,7 @@ const handleUpdateGroup = async () => {
         editForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        editForm.platform === "openai"
+        ["openai", "glm"].includes(editForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -6428,8 +6431,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!["openai", "glm"].includes(newVal)) {
       resetMessagesDispatchFormState(createForm);
+    }
+    if (newVal !== "openai") {
       createForm.allow_live = false;
     }
     createForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
@@ -6471,8 +6476,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!["openai", "glm"].includes(newVal)) {
       resetMessagesDispatchFormState(editForm);
+    }
+    if (newVal !== "openai") {
       editForm.allow_live = false;
     }
     editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
@@ -6516,10 +6523,12 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!['openai', 'glm'].includes(newVal)) {
       editForm.allow_messages_dispatch = false
-      editForm.allow_live = false
       editForm.default_mapped_model = ''
+    }
+    if (newVal !== 'openai') {
+      editForm.allow_live = false
     }
   }
 )

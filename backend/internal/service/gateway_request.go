@@ -1353,7 +1353,7 @@ func normalizeGLMOpenAIReasoningEffort(raw string) string {
 	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
 
 	switch value {
-	case "low", "medium", "high":
+	case "minimal", "low", "medium", "high":
 		return "high"
 	case "xhigh", "extrahigh", "max", "ultracode":
 		return "max"

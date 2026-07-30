@@ -170,6 +170,7 @@ type providerAdapter struct {
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
 	MonitorProviderGrok:   providerGrokChatAdapter,
+	MonitorProviderGLM:    providerGLMChatAdapter,
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -211,6 +212,9 @@ var providerOpenAIChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPat
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerGrokChatAdapter = newOpenAICompatibleChatAdapter(providerGrokPath)
+
+//nolint:gochecknoglobals // read-only provider adapter.
+var providerGLMChatAdapter = newOpenAICompatibleChatAdapter(providerGLMPath)
 
 func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 	return providerAdapter{
@@ -445,6 +449,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
+	MonitorProviderGLM:       {"model": true, "messages": true, "stream": true},
 	MonitorProviderAnthropic: {"model": true, "messages": true},
 	MonitorProviderGemini:    {"contents": true},
 }
@@ -464,7 +469,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 }
 
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
-	if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok {
+	if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok && provider != MonitorProviderGLM {
 		return nil
 	}
 	switch defaultAPIMode(apiMode) {

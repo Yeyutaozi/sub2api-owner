@@ -205,9 +205,13 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := ValidateGLMAccountConfiguration(req.Platform, req.Type, req.Credentials); err != nil {
+		return nil, err
+	}
 	if err := ValidateSeedanceAccountConfiguration(req.Platform, req.Type, req.Credentials); err != nil {
 		return nil, err
 	}
+	req.Extra = normalizeGLMAccountExtra(req.Platform, req.Extra)
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -349,6 +353,10 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
+	if err := ValidateGLMAccountConfiguration(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+	account.Extra = normalizeGLMAccountExtra(account.Platform, account.Extra)
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
@@ -498,6 +506,8 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 	case PlatformGrok:
 		// Grok OAuth credentials are validated via token exchange/refresh and request-path probes.
 		return nil
+	case PlatformGLM:
+		return ValidateGLMAccountConfiguration(account.Platform, account.Type, account.Credentials)
 	case PlatformSeedance:
 		return ValidateSeedanceAccountConfiguration(account.Platform, account.Type, account.Credentials)
 	default:

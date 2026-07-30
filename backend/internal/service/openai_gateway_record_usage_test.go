@@ -69,6 +69,37 @@ func TestOpenAIGatewayServiceRecordUsage_RejectsNilInput(t *testing.T) {
 	require.Error(t, svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{}))
 }
 
+func TestOpenAIGatewayServiceRecordUsage_GLMSeparatesCachedTokensAndCost(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "chatcmpl_glm_cache",
+			Model:     "glm-5.2",
+			Usage: OpenAIUsage{
+				InputTokens:          20,
+				OutputTokens:         2,
+				CacheReadInputTokens: 12,
+			},
+			Duration: time.Second,
+		},
+		APIKey:  &APIKey{ID: 1001},
+		User:    &User{ID: 2001},
+		Account: &Account{ID: 3001, Platform: PlatformGLM, Type: AccountTypeAPIKey},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 8, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 12, usageRepo.lastLog.CacheReadTokens)
+	require.InDelta(t, 8e-6, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, 12*0.2e-6, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, (8e-6+2*3.2e-6+12*0.2e-6)*1.1, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
 func TestRecordCyberPolicyUsageLog_BillsRealUpstreamTokens(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

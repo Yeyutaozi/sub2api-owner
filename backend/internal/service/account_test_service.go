@@ -56,6 +56,7 @@ const (
 	defaultGeminiTextTestPrompt  = "hi"
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultGLMTestModel          = "glm-5.2"
 )
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
@@ -204,6 +205,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsOpenAI() {
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
+	if account.IsGLM() {
+		return s.testGLMAccountConnection(c, account, modelID, prompt)
+	}
 
 	if account.IsGemini() {
 		return s.testGeminiAccountConnection(c, account, modelID, prompt)
@@ -218,6 +222,28 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+func (s *AccountTestService) testGLMAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	if !account.IsGLMAPIKey() {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported GLM account type: %s", account.Type))
+	}
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = defaultGLMTestModel
+	}
+	if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
+		testModelID = mapped
+	}
+	authToken := strings.TrimSpace(account.GetOpenAIApiKey())
+	if authToken == "" {
+		return s.sendErrorAndEnd(c, "GLM API key is missing")
+	}
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(account.GetOpenAIBaseURL())
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid GLM base URL: %s", err.Error()))
+	}
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
@@ -690,7 +716,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			c.Request = c.Request.WithContext(markAgentIdentityTaskRecoveryTried(ctx))
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests && account.IsOpenAI() {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
@@ -874,7 +900,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests && account.IsOpenAI() {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {

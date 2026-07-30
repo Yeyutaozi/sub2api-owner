@@ -17,6 +17,13 @@ describe('agent app model provider', () => {
     expect(inferAgentAppProvider('grok-imagine-video-1.5')).toBe('grok')
   })
 
+  it('supports GLM providers and model inference', () => {
+    expect(normalizeAgentAppProvider('glm')).toBe('glm')
+    expect(inferAgentAppProvider('glm-5')).toBe('glm')
+    expect(inferAgentAppProvider('zhipuai/glm-4.5')).toBe('glm')
+    expect(agentAppProviderLabel('glm')).toBe('GLM')
+  })
+
   it('keeps existing provider inference behavior', () => {
     expect(inferAgentAppProvider('gpt-4.1-mini')).toBe('openai')
     expect(inferAgentAppProvider('claude-sonnet-4')).toBe('anthropic')

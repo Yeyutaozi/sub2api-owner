@@ -84,6 +84,9 @@ func TestLiveEnabledForAPIKey(t *testing.T) {
 	require.False(t, liveEnabledForAPIKey(&service.APIKey{
 		Group: &service.Group{Platform: service.PlatformAnthropic, AllowLive: true},
 	}))
+	require.False(t, liveEnabledForAPIKey(&service.APIKey{
+		Group: &service.Group{Platform: service.PlatformGLM, AllowLive: true},
+	}))
 	require.True(t, liveEnabledForAPIKey(&service.APIKey{
 		Group: &service.Group{Platform: service.PlatformOpenAI, AllowLive: true},
 	}))

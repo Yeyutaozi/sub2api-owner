@@ -16,6 +16,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -341,6 +342,34 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 	return concurrency
 }
 
+// ValidateGLMAccountConfiguration keeps GLM on the static API-key transport.
+// OAuth/Codex credential flows are OpenAI-specific and must never be reused.
+func ValidateGLMAccountConfiguration(platform, accountType string, credentials map[string]any) error {
+	if platform != PlatformGLM {
+		return nil
+	}
+	if accountType != AccountTypeAPIKey {
+		return infraerrors.BadRequest("GLM_ACCOUNT_TYPE_INVALID", "GLM accounts must use the apikey account type")
+	}
+	apiKey, _ := credentials["api_key"].(string)
+	if strings.TrimSpace(apiKey) == "" {
+		return infraerrors.BadRequest("GLM_API_KEY_REQUIRED", "GLM accounts require an upstream API key")
+	}
+	return nil
+}
+
+func normalizeGLMAccountExtra(platform string, extra map[string]any) map[string]any {
+	if platform != PlatformGLM {
+		return extra
+	}
+	if extra == nil {
+		extra = make(map[string]any)
+	}
+	extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceChatCompletions)
+	delete(extra, openai_compat.ExtraKeyResponsesSupported)
+	return extra
+}
+
 // ValidateOpenAILongContextBillingExtra validates the OpenAI account billing flag when present.
 func ValidateOpenAILongContextBillingExtra(platform string, extra map[string]any) error {
 	if platform != PlatformOpenAI {
@@ -453,9 +482,13 @@ func normalizeGrokMediaEligibilityUpdateExtra(account *Account, input *UpdateAcc
 }
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := ValidateGLMAccountConfiguration(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if err := ValidateSeedanceAccountConfiguration(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
+	accountExtra = normalizeGLMAccountExtra(input.Platform, accountExtra)
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingProbeExtraKey)
@@ -808,6 +841,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			}
 		}
 	}
+	if err := ValidateGLMAccountConfiguration(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+	account.Extra = normalizeGLMAccountExtra(account.Platform, account.Extra)
 	if err := ValidateSeedanceAccountConfiguration(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
 	}

@@ -78,6 +78,13 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Model is not available for this channel")
 		return
 	}
+	if moderationBody := parsed.ModerationBody(); len(moderationBody) > 0 {
+		decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, parsed.ModerationProtocol(), requestModel, moderationBody)
+		if decision != nil && !decision.AllowNextStage {
+			h.openAISecurityAuditError(c, decision)
+			return
+		}
+	}
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}

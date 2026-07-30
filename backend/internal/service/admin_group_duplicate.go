@@ -79,7 +79,7 @@ func cloneGroupMessagesDispatchModelConfig(value OpenAIMessagesDispatchModelConf
 }
 
 func cloneGroupForDuplicate(source *Group, operationID string) *Group {
-	return &Group{
+	cloned := &Group{
 		Name:                            duplicateGroupName(source.Name, 1),
 		Description:                     source.Description,
 		Platform:                        source.Platform,
@@ -134,6 +134,8 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		MaxReasoningEffort:      source.MaxReasoningEffort,
 		ReasoningEffortMappings: append([]ReasoningEffortMapping(nil), source.ReasoningEffortMappings...),
 	}
+	sanitizeGLMExclusiveGroupFields(cloned)
+	return cloned
 }
 
 func cloneGroupVideoModelPrices(platform string, prices VideoModelPrices) VideoModelPrices {

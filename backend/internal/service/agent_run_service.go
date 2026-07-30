@@ -2401,6 +2401,8 @@ func normalizeAgentModelProvider(value string) string {
 		return "gemini"
 	case "antigravity", "anti-gravity":
 		return "antigravity"
+	case "glm", "zhipu", "zhipuai", "bigmodel":
+		return PlatformGLM
 	default:
 		return value
 	}
@@ -2422,6 +2424,9 @@ func inferAgentModelProvider(model string) string {
 	}
 	if strings.Contains(model, "antigravity") {
 		return "antigravity"
+	}
+	if model == "glm" || strings.HasPrefix(model, "glm-") || strings.Contains(model, "zhipu") || strings.Contains(model, "bigmodel") {
+		return PlatformGLM
 	}
 	return ""
 }

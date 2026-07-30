@@ -25,6 +25,8 @@ func TestDetectModelPlatform(t *testing.T) {
 		{name: "learnlm", model: "learnlm-2.0-flash-experimental", platform: PlatformGemini, ok: true},
 		{name: "grok", model: "grok-4", platform: PlatformGrok, ok: true},
 		{name: "xai prefix", model: "xai/grok-4", platform: PlatformGrok, ok: true},
+		{name: "glm", model: "glm-5", platform: PlatformGLM, ok: true},
+		{name: "zhipu prefix", model: "zhipuai/glm-4.5", platform: PlatformGLM, ok: true},
 		{name: "unknown", model: "llama-4-maverick", ok: false},
 	}
 
@@ -59,7 +61,7 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 		platforms = append(platforms, platform)
 	}
 	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok},
+		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformGLM, PlatformSeedance},
 		platforms,
 	)
 }

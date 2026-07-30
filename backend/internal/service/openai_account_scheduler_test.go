@@ -599,6 +599,64 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Embeddi
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 }
 
+func TestOpenAIGatewayService_SelectAccountWithScheduler_GLMIsolatedAndCapabilityFiltered(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	ctx := context.Background()
+	groupID := int64(10111)
+	accounts := []Account{
+		{
+			ID: 36033, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+			Credentials: map[string]any{"openai_capabilities": []any{"chat_completions", "embeddings"}},
+		},
+		{
+			ID: 36034, Platform: PlatformGLM, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
+			Credentials: map[string]any{"api_key": "glm-chat", "openai_capabilities": []any{"chat_completions"}},
+		},
+		{
+			ID: 36035, Platform: PlatformGLM, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+			Credentials: map[string]any{"api_key": "glm-embeddings", "openai_capabilities": []any{"chat_completions", "embeddings"}},
+		},
+	}
+	newService := func() *OpenAIGatewayService {
+		cfg := &config.Config{}
+		cfg.Gateway.Scheduling.LoadBatchEnabled = false
+		return &OpenAIGatewayService{
+			accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+			cache:              &schedulerTestGatewayCache{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		}
+	}
+
+	t.Run("GLM embeddings skips OpenAI and chat-only GLM", func(t *testing.T) {
+		selection, _, err := newService().SelectAccountWithSchedulerForCapability(
+			ctx, &groupID, "", "", "embedding-3", nil,
+			OpenAIUpstreamTransportHTTPSSE, OpenAIEndpointCapabilityEmbeddings,
+			false, false, false, PlatformGLM,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, selection)
+		require.NotNil(t, selection.Account)
+		require.Equal(t, int64(36035), selection.Account.ID)
+	})
+
+	t.Run("OpenAI request cannot select GLM", func(t *testing.T) {
+		selection, _, err := newService().SelectAccountWithSchedulerForCapability(
+			ctx, &groupID, "", "", "gpt-5.4", nil,
+			OpenAIUpstreamTransportHTTPSSE, OpenAIEndpointCapabilityEmbeddings,
+			false, false, false, PlatformOpenAI,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, selection)
+		require.NotNil(t, selection.Account)
+		require.Equal(t, int64(36033), selection.Account.ID)
+	})
+}
+
 // 生图意图的 /v1/responses 请求要求 OpenAIEndpointCapabilityResponses：探测确认
 // 不支持 Responses API 的 APIKey 账号必须被排除，避免 forward 阶段降级为无法生图
 // 的 Chat Completions 直转（#4417）。

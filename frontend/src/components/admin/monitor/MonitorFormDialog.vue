@@ -13,7 +13,7 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
@@ -216,8 +216,11 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_GLM,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
+  DEFAULT_GLM_ENDPOINT,
+  DEFAULT_GLM_MODEL,
   DEFAULT_GROK_ENDPOINT,
   DEFAULT_GROK_MODEL,
   DEFAULT_INTERVAL_SECONDS,
@@ -402,23 +405,32 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
+  { value: PROVIDER_GLM, label: t('monitorCommon.providers.glm') },
 ])
+
+function providerDefaults(provider: Provider): { endpoint: string; model: string } | null {
+  if (provider === PROVIDER_GROK) {
+    return { endpoint: DEFAULT_GROK_ENDPOINT, model: DEFAULT_GROK_MODEL }
+  }
+  if (provider === PROVIDER_GLM) {
+    return { endpoint: DEFAULT_GLM_ENDPOINT, model: DEFAULT_GLM_MODEL }
+  }
+  return null
+}
 
 function selectProvider(provider: Provider) {
   if (form.provider === provider) return
-  const previousProvider = form.provider
-  const clearGrokEndpoint =
-    previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
-  const clearGrokModel =
-    previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
+  const previousDefaults = providerDefaults(form.provider)
+  const clearDefaultEndpoint = form.endpoint === previousDefaults?.endpoint
+  const clearDefaultModel = form.primary_model === previousDefaults?.model
   form.provider = provider
-  if (provider === PROVIDER_GROK) {
-    if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
-    if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
-    return
-  }
-  if (clearGrokEndpoint) form.endpoint = ''
-  if (clearGrokModel) form.primary_model = ''
+  if (clearDefaultEndpoint) form.endpoint = ''
+  if (clearDefaultModel) form.primary_model = ''
+
+  const defaults = providerDefaults(provider)
+  if (!defaults) return
+  if (!form.endpoint.trim()) form.endpoint = defaults.endpoint
+  if (!form.primary_model.trim()) form.primary_model = defaults.model
 }
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.

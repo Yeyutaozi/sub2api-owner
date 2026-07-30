@@ -526,6 +526,10 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 			WithMetadata(map[string]string{"param": "platform"}))
 		return
 	}
+	if platform == service.PlatformGLM {
+		response.Success(c, gin.H{"models": service.DefaultGLMModelIDs()})
+		return
+	}
 
 	provider, ok := platformToLiteLLMProvider[platform]
 	if !ok {

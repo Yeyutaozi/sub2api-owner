@@ -1,6 +1,6 @@
 import type { GroupPlatform } from '@/types'
 
-const providers = new Set<GroupPlatform>(['openai', 'anthropic', 'gemini', 'antigravity', 'grok'])
+const providers = new Set<GroupPlatform>(['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'glm'])
 
 export function normalizeAgentAppProvider(value: unknown): GroupPlatform | '' {
   return typeof value === 'string' && providers.has(value.trim().toLowerCase() as GroupPlatform)
@@ -16,6 +16,7 @@ export function inferAgentAppProvider(model: string): GroupPlatform | '' {
   if (normalized.startsWith('claude') || normalized.includes('anthropic')) return 'anthropic'
   if (normalized.startsWith('gemini') || normalized.includes('gemini')) return 'gemini'
   if (normalized.includes('antigravity')) return 'antigravity'
+  if (normalized === 'glm' || normalized.startsWith('glm-') || normalized.includes('zhipu') || normalized.includes('bigmodel')) return 'glm'
   return ''
 }
 
@@ -25,7 +26,8 @@ export function agentAppProviderLabel(platform: string): string {
     anthropic: 'Anthropic',
     gemini: 'Gemini',
     antigravity: 'Antigravity',
-    grok: 'Grok'
+    grok: 'Grok',
+    glm: 'GLM'
   }
   return labels[platform] || platform
 }

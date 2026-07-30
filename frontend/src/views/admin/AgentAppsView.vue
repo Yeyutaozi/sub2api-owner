@@ -1125,7 +1125,8 @@ const providerOptions: Array<{ label: string; value: GroupPlatform | '' }> = [
   { label: 'Anthropic', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
   { label: 'Antigravity', value: 'antigravity' },
-  { label: 'Grok', value: 'grok' }
+  { label: 'Grok', value: 'grok' },
+  { label: 'GLM', value: 'glm' }
 ]
 
 const artifactTypeOptions: Array<{ label: string; value: ArtifactTypeKey }> = [
@@ -2435,7 +2436,7 @@ function normalizeModelRoles(roles: ModelRoleForm[]): ModelRoleForm[] {
 }
 
 function normalizeProvider(value: unknown): GroupPlatform | '' {
-  return value === 'openai' || value === 'anthropic' || value === 'gemini' || value === 'antigravity' || value === 'grok'
+  return value === 'openai' || value === 'anthropic' || value === 'gemini' || value === 'antigravity' || value === 'grok' || value === 'glm'
     ? value
     : ''
 }
@@ -2466,7 +2467,8 @@ function providerLabel(provider: string): string {
     anthropic: 'Anthropic',
     gemini: 'Gemini',
     antigravity: 'Antigravity',
-    grok: 'Grok'
+    grok: 'Grok',
+    glm: 'GLM'
   }
   return labels[provider] || provider
 }

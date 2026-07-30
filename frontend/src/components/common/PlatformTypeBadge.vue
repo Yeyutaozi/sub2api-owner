@@ -90,6 +90,7 @@ const platformLabel = computed(() => {
   if (props.platform === 'openai') return 'OpenAI'
   if (props.platform === 'antigravity') return 'Antigravity'
   if (props.platform === 'grok') return 'Grok'
+  if (props.platform === 'glm') return 'GLM'
   if (props.platform === 'seedance') return 'Seedance'
   return 'Gemini'
 })
@@ -176,6 +177,9 @@ const platformClass = computed(() => {
   if (props.platform === 'grok') {
     return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
   }
+  if (props.platform === 'glm') {
+    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+  }
   if (props.platform === 'seedance') {
     return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
   }
@@ -194,6 +198,9 @@ const typeClass = computed(() => {
   }
   if (props.platform === 'grok') {
     return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+  }
+  if (props.platform === 'glm') {
+    return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300'
   }
   if (props.platform === 'seedance') {
     return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'

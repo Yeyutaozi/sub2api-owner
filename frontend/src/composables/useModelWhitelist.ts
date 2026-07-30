@@ -86,6 +86,16 @@ const antigravityModels = [
   'tab_flash_lite_preview'
 ]
 
+// GLM platform exposes only the text and embeddings capabilities implemented by
+// this gateway. Native CogView/CogVideo routes require separate adapters.
+const glmModels = [
+  'glm-5.2', 'glm-5.1',
+  'glm-5', 'glm-5-turbo',
+  'glm-4.7', 'glm-4.7-flashx', 'glm-4.7-flash',
+  'glm-4.6', 'glm-4.5', 'glm-4.5-x', 'glm-4.5-air', 'glm-4.5-airx', 'glm-4.5-flash',
+  'glm-4-32b-0414-128k', 'embedding-3'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -427,6 +437,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
+    case 'glm': return glmModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -452,6 +463,13 @@ export function getModelsByPlatform(platform: string): string[] {
 export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
+  if (platform === 'glm') return [
+    { label: 'GLM 5.2', from: 'glm-5.2', to: 'glm-5.2', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+    { label: 'GLM 5.1', from: 'glm-5.1', to: 'glm-5.1', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+    { label: 'GLM 4.7', from: 'glm-4.7', to: 'glm-4.7', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+    { label: 'GLM 4.5 Air', from: 'glm-4.5-air', to: 'glm-4.5-air', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+    { label: 'Embedding 3', from: 'embedding-3', to: 'embedding-3', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' }
+  ]
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'seedance') return seedancePresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings

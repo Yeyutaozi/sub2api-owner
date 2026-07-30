@@ -162,6 +162,20 @@
           </button>
           <button
             type="button"
+            data-testid="account-platform-glm"
+            @click="form.platform = 'glm'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'glm'
+                ? 'bg-white text-indigo-700 shadow-sm dark:bg-dark-600 dark:text-indigo-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="glm" size="sm" />
+            GLM
+          </button>
+          <button
+            type="button"
             @click="form.platform = 'seedance'"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
@@ -1126,6 +1140,8 @@
                   ? 'https://generativelanguage.googleapis.com'
                   : form.platform === 'grok'
                     ? 'https://api.x.ai/v1'
+                    : form.platform === 'glm'
+                      ? 'https://open.bigmodel.cn/api/paas/v4'
                     : form.platform === 'seedance'
                       ? 'https://api.fflink.top'
                     : 'https://api.anthropic.com'
@@ -1152,6 +1168,8 @@
                   ? 'AIza...'
                   : form.platform === 'grok'
                     ? 'xai-...'
+                    : form.platform === 'glm'
+                      ? 'sk-...'
                     : form.platform === 'seedance'
                       ? 'Sub2API Key'
                     : 'sk-ant-...'
@@ -3615,14 +3633,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok' || form.platform === 'seedance') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok' || form.platform === 'seedance') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4164,7 +4182,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'seedance') {
+    if (form.platform === 'seedance' || form.platform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
       return
@@ -4202,6 +4220,8 @@ watch(
           ? 'https://generativelanguage.googleapis.com'
           : newPlatform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newPlatform === 'glm'
+              ? 'https://open.bigmodel.cn/api/paas/v4'
             : newPlatform === 'seedance'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
@@ -4209,7 +4229,7 @@ watch(
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'seedance') {
+    if (newPlatform === 'seedance' || newPlatform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
     } else if (newPlatform === 'antigravity') {
@@ -4746,6 +4766,12 @@ const handleClose = () => {
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  if (form.platform === 'glm') {
+    const extra: Record<string, unknown> = { ...(base || {}) }
+    extra.openai_responses_mode = 'force_chat_completions'
+    delete extra.openai_responses_supported
+    return extra
+  }
   if (form.platform !== 'openai') {
     return base
   }
@@ -5084,6 +5110,8 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
+          : form.platform === 'glm'
+            ? 'https://open.bigmodel.cn/api/paas/v4'
           : form.platform === 'seedance'
             ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'

@@ -43,6 +43,8 @@
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'grok'
                       ? 'https://api.x.ai/v1'
+                      : account.platform === 'glm'
+                        ? 'https://open.bigmodel.cn/api/paas/v4'
                       : account.platform === 'seedance'
                         ? 'https://api.fflink.top'
                       : 'https://api.anthropic.com'
@@ -74,6 +76,8 @@
                     ? 'sk-...'
                     : account.platform === 'grok'
                       ? 'xai-...'
+                      : account.platform === 'glm'
+                        ? 'sk-...'
                       : account.platform === 'seedance'
                         ? 'Sub2API Key'
                       : 'sk-ant-...'
@@ -2690,7 +2694,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok' || props.account.platform === 'seedance') return ''
+  if (props.account.platform === 'grok' || props.account.platform === 'glm' || props.account.platform === 'seedance') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3139,6 +3143,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
+  if (props.account?.platform === 'glm') return 'https://open.bigmodel.cn/api/paas/v4'
   if (props.account?.platform === 'seedance') return 'https://api.fflink.top'
   return 'https://api.anthropic.com'
 })
@@ -3469,6 +3474,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'glm'
+              ? 'https://open.bigmodel.cn/api/paas/v4'
             : newAccount.platform === 'seedance'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
@@ -3542,6 +3549,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'glm'
+              ? 'https://open.bigmodel.cn/api/paas/v4'
             : newAccount.platform === 'seedance'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
@@ -4608,6 +4617,14 @@ const handleSubmit = async () => {
         }
       }
 
+      updatePayload.extra = newExtra
+    }
+
+    if (props.account.platform === 'glm' && props.account.type === 'apikey') {
+      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      newExtra.openai_responses_mode = 'force_chat_completions'
+      delete newExtra.openai_responses_supported
       updatePayload.extra = newExtra
     }
 

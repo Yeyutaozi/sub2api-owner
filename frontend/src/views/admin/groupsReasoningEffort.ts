@@ -12,7 +12,9 @@ const openAIReasoningEffortValues = [
 const reasoningEffortValuesForPlatform = (
   platform: GroupPlatform,
 ): readonly string[] =>
-  platform === "openai" ? openAIReasoningEffortValues : [];
+  platform === "openai" || platform === "glm"
+    ? openAIReasoningEffortValues
+    : [];
 
 export function reasoningEffortOptionsForPlatform(platform: GroupPlatform) {
   return reasoningEffortValuesForPlatform(platform).map((value) => ({

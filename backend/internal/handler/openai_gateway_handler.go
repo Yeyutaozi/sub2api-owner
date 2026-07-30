@@ -164,13 +164,17 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 
 func openAICompatibleRequestPlatform(ctx context.Context, apiKey *service.APIKey) string {
 	if platform, ok := service.ResolvedTargetPlatformFromContext(ctx); ok {
-		if platform == service.PlatformGrok {
-			return service.PlatformGrok
+		switch platform {
+		case service.PlatformGrok, service.PlatformGLM:
+			return platform
 		}
 		return service.PlatformOpenAI
 	}
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGrok {
-		return service.PlatformGrok
+	if apiKey != nil && apiKey.Group != nil {
+		switch apiKey.Group.Platform {
+		case service.PlatformGrok, service.PlatformGLM:
+			return apiKey.Group.Platform
+		}
 	}
 	return service.PlatformOpenAI
 }
@@ -193,7 +197,7 @@ func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
-	return compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI, service.PlatformGrok)
+	return compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI, service.PlatformGrok, service.PlatformGLM)
 }
 
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler
@@ -247,6 +251,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGLM && isOpenAIRemoteCompactPath(c) {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Responses Compact API is not supported for GLM groups")
 		return
 	}
 
@@ -309,11 +317,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 	reqModel := modelResult.String()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
-	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI, service.PlatformGrok) {
+	if isOpenAIRemoteCompactPath(c) && openAICompatibleRequestPlatform(c.Request.Context(), apiKey) == service.PlatformGLM {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Responses Compact API is not supported for GLM groups")
+		return
+	}
+	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI, service.PlatformGrok, service.PlatformGLM) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformOpenAI {
+	if apiKey.Group != nil && (apiKey.Group.Platform == service.PlatformOpenAI || apiKey.Group.Platform == service.PlatformGLM) {
 		if cappedBody, changed := service.ApplyOpenAIReasoningEffortPolicy(body, apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings); changed {
 			body = cappedBody
 		}
@@ -359,6 +371,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
+	if imageIntent && openAICompatibleRequestPlatform(c.Request.Context(), apiKey) == service.PlatformGLM {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Images API is not supported for GLM groups")
+		return
+	}
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -1451,6 +1467,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGLM {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Responses WebSocket API is not supported for GLM groups")
 		return
 	}
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)

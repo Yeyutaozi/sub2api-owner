@@ -39,10 +39,10 @@ type openAIInputTokensCountPrepared struct {
 	UpstreamModel   string
 }
 
-// EstimateGrokCountTokens estimates an Anthropic-compatible count_tokens request
-// locally. Grok does not expose a compatible token-counting endpoint, so this
-// path deliberately avoids account selection, credentials, and upstream calls.
-func EstimateGrokCountTokens(body []byte) (int, error) {
+// EstimateOpenAICompatibleCountTokens estimates an Anthropic-compatible
+// count_tokens request locally. It deliberately avoids account selection,
+// credentials, and upstream calls.
+func EstimateOpenAICompatibleCountTokens(body []byte) (int, error) {
 	var anthropicReq apicompat.AnthropicRequest
 	if err := json.Unmarshal(body, &anthropicReq); err != nil {
 		return 0, fmt.Errorf("parse anthropic count_tokens request: %w", err)
@@ -64,12 +64,18 @@ func EstimateGrokCountTokens(body []byte) (int, error) {
 		ToolChoice:   responsesReq.ToolChoice,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("estimate grok input tokens: %w", err)
+		return 0, fmt.Errorf("estimate OpenAI-compatible input tokens: %w", err)
 	}
 	if estimated < openAIInputTokensFallbackMinimum {
 		estimated = openAIInputTokensFallbackMinimum
 	}
 	return estimated, nil
+}
+
+// EstimateGrokCountTokens is retained for callers that use the Grok-specific
+// route name. The estimator itself is provider-neutral.
+func EstimateGrokCountTokens(body []byte) (int, error) {
+	return EstimateOpenAICompatibleCountTokens(body)
 }
 
 // ForwardCountTokensAsAnthropic bridges Anthropic /v1/messages/count_tokens to
