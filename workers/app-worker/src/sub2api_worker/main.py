@@ -18,16 +18,6 @@ import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from .literature_search import (
-    LiteratureDownloadError,
-    LiteratureRecord,
-    LiteratureSearchClient,
-    LiteratureSearchError,
-    LiteratureSearchOptions,
-    canonical_doi,
-    format_literature_citation,
-    normalize_title_key,
-)
 from .paper_evidence import (
     CitationOccurrence,
     EvidenceAssertion,
@@ -63,18 +53,6 @@ PAPER_EVIDENCE_MIN_QUOTE_CHARS = max(int(os.getenv("PAPER_EVIDENCE_MIN_QUOTE_CHA
 PAPER_EVIDENCE_AUDIT_BATCH_SIZE = max(int(os.getenv("PAPER_EVIDENCE_AUDIT_BATCH_SIZE", "24")), 1)
 PAPER_EVIDENCE_CHUNKS_PER_OCCURRENCE = max(int(os.getenv("PAPER_EVIDENCE_CHUNKS_PER_OCCURRENCE", "5")), 1)
 PAPER_EVIDENCE_MAX_PROMPT_CHARS = max(int(os.getenv("PAPER_EVIDENCE_MAX_PROMPT_CHARS", "80000")), 10000)
-PAPER_LITERATURE_TIMEOUT_SECONDS = max(float(os.getenv("PAPER_LITERATURE_TIMEOUT_SECONDS", "20")), 3.0)
-PAPER_LITERATURE_MAX_RESULTS = min(max(int(os.getenv("PAPER_LITERATURE_MAX_RESULTS", "12")), 1), 20)
-PAPER_LITERATURE_MAX_PDF_BYTES = max(
-    int(os.getenv("PAPER_LITERATURE_MAX_PDF_BYTES", str(PAPER_REFERENCE_MAX_FILE_BYTES))),
-    1024,
-)
-PAPER_LITERATURE_MAILTO = os.getenv("PAPER_LITERATURE_MAILTO", "").strip()
-PAPER_LITERATURE_USER_AGENT = os.getenv("PAPER_LITERATURE_USER_AGENT", "").strip()
-PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP = os.getenv(
-    "PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP",
-    "false",
-).lower() in {"1", "true", "yes"}
 PAPER_OUTLINE_MAX_NODES = 100
 PAPER_MODEL_PROXY_MAX_ATTEMPTS = max(int(os.getenv("PAPER_MODEL_PROXY_MAX_ATTEMPTS", "3")), 1)
 PAPER_MODEL_PROXY_RETRY_BASE_SECONDS = max(float(os.getenv("PAPER_MODEL_PROXY_RETRY_BASE_SECONDS", "0.5")), 0.0)
@@ -577,10 +555,10 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
     references_enabled = boolean_input(payload.input, "references_enabled", default=True)
     citation_evidence_enabled = boolean_input(payload.input, "citation_evidence_enabled", default=False)
     literature_search_enabled = boolean_input(payload.input, "literature_search_enabled", default=False)
-    if literature_search_enabled and not references_enabled:
+    if literature_search_enabled:
         raise WorkerFailure(
-            "PAPER_LITERATURE_SEARCH_REQUIRES_REFERENCES",
-            "启用联网文献检索时必须同时启用参考文献。",
+            "PAPER_LITERATURE_SEARCH_DISABLED",
+            "论文工作流已停用联网文献检索；请填写编号参考文献表，并上传对应的 PDF、DOCX 或文本全文。",
         )
     if citation_evidence_enabled and not references_enabled:
         raise WorkerFailure(
@@ -624,43 +602,6 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
     reference_registry_source = explicit_bibliography or reference_context
     reference_registry = parse_paper_reference_registry(reference_registry_source) if references_enabled else None
     expected_reference_count = exact_paper_reference_count(payload.input) if references_enabled else None
-    literature_search_report: dict[str, Any] = {
-        "enabled": False,
-        "query": "",
-        "providers": [],
-        "provider_errors": [],
-        "result_count": 0,
-        "included_reference_count": 0,
-        "full_text_reference_count": 0,
-        "results": [],
-    }
-    if literature_search_enabled:
-        ensure_run_active(payload, "before online literature search")
-        await callback(
-            payload,
-            "progress",
-            status="running",
-            node_id=plan_policy.node_id,
-            role=plan_policy.role,
-            progress=0.13,
-            message="正在检索并核验开放文献",
-            metadata={**model_call_metadata(plan_policy), "literature_search": True},
-        )
-        literature_bundle = await prepare_academic_paper_literature(
-            payload,
-            reference_registry=reference_registry,
-            evidence_corpus=evidence_corpus,
-            citation_evidence_enabled=citation_evidence_enabled,
-            expected_reference_count=expected_reference_count,
-        )
-        reference_registry = literature_bundle["reference_registry"]
-        evidence_corpus = literature_bundle["evidence_corpus"]
-        literature_search_report = literature_bundle["report"]
-        online_context = clean_string(literature_bundle.get("context"))
-        if online_context:
-            reference_context = "\n\n".join(
-                part for part in (reference_context, online_context) if part
-            )
     if references_enabled:
         if expected_reference_count is not None and (
             reference_registry is None
@@ -675,7 +616,7 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
         if reference_registry is None:
             raise WorkerFailure(
                 "PAPER_CITATION_EVIDENCE_SOURCE_REQUIRED",
-                "严格引用证据核验没有获得可绑定全文的编号文献；请上传全文或启用可取得开放全文的联网检索。",
+                "严格引用证据核验没有获得可绑定全文的编号文献；请填写编号参考文献表并上传对应全文。",
             )
         missing_evidence_sources = sorted(set(reference_registry.get("ids") or []) - set(evidence_corpus.reference_ids))
         if missing_evidence_sources:
@@ -1120,7 +1061,6 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
         "section_count": section_total,
         "reference_count": count_paper_references(paper.get("references")),
         "consistency_notes": consistency_notes,
-        "literature_search": literature_search_report,
         **citation_contract,
         **citation_evidence_report,
     }
@@ -1152,7 +1092,6 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
             "result": result_text,
             "document": public_document_artifact(artifact, document_name, document_mime, len(document_bytes)),
             "word_count": actual_word_count,
-            "literature_search": literature_search_report,
             "quality_report": quality_report,
         },
         metadata={
@@ -1163,11 +1102,6 @@ async def process_academic_paper_run(payload: WorkerRunRequest, worker_run_id: s
             "writer_usages": writer_usages,
             "review_usage": proxy_usage(review_result),
             "evidence_usages": evidence_usages,
-            "literature_search": {
-                "enabled": literature_search_report.get("enabled", False),
-                "result_count": literature_search_report.get("result_count", 0),
-                "included_reference_count": literature_search_report.get("included_reference_count", 0),
-            },
         },
     )
 
@@ -2921,274 +2855,6 @@ def select_academic_paper_policies(payload: WorkerRunRequest) -> tuple[SelectedP
         if normalize_policy_value(fallback.capability) not in capabilities:
             raise WorkerFailure("PAPER_MODEL_POLICY_REQUIRED", "论文工作流需要 text、vision 或 model 类型的模型策略。")
     return plan_policy or fallback, write_policy or fallback
-
-
-def create_literature_search_client() -> LiteratureSearchClient:
-    return LiteratureSearchClient(
-        timeout_seconds=PAPER_LITERATURE_TIMEOUT_SECONDS,
-        mailto=PAPER_LITERATURE_MAILTO,
-        user_agent=PAPER_LITERATURE_USER_AGENT,
-        allow_proxy_fake_ip=PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP,
-    )
-
-
-async def prepare_academic_paper_literature(
-    payload: WorkerRunRequest,
-    *,
-    reference_registry: dict[str, Any] | None,
-    evidence_corpus: EvidenceCorpus,
-    citation_evidence_enabled: bool,
-    expected_reference_count: int | None,
-) -> dict[str, Any]:
-    query = first_nonempty_input(payload.input, "literature_query", "paper_title", "topic")
-    provider = normalize_policy_value(string_input(payload.input, "literature_provider") or "auto")
-    max_results = positive_int(payload.input.get("literature_max_results")) or 8
-    max_results = min(max(max_results, 1), PAPER_LITERATURE_MAX_RESULTS)
-    try:
-        options = LiteratureSearchOptions(
-            query=query,
-            max_results=max_results,
-            provider=provider,  # type: ignore[arg-type]
-            from_year=optional_four_digit_year(payload.input.get("literature_from_year")),
-            to_year=optional_four_digit_year(payload.input.get("literature_to_year")),
-            language=string_input(payload.input, "literature_language"),
-            open_access_only=boolean_input(
-                payload.input,
-                "literature_open_access_only",
-                default=citation_evidence_enabled,
-            ),
-        )
-    except ValueError as exc:
-        raise WorkerFailure("PAPER_LITERATURE_CONFIG_INVALID", str(exc)) from exc
-
-    client = create_literature_search_client()
-    try:
-        search_report = await client.search(options)
-    except (LiteratureSearchError, httpx.HTTPError, ValueError) as exc:
-        raise WorkerFailure(
-            "PAPER_LITERATURE_SEARCH_FAILED",
-            f"联网文献检索失败：{truncate(str(exc), 500)}",
-        ) from exc
-    ensure_run_active(payload, "after online literature search")
-
-    download_full_text = citation_evidence_enabled or boolean_input(
-        payload.input,
-        "literature_download_open_access_full_text",
-        default=True,
-    )
-    entries = paper_reference_entries(reference_registry)
-    next_reference_id = len(entries) + 1
-    online_blocks: list[EvidenceBlock] = []
-    included: list[tuple[int, LiteratureRecord, str, EvidenceCorpus | None]] = []
-    public_results: list[dict[str, Any]] = []
-    full_text_count = 0
-
-    for record in search_report.records:
-        ensure_run_active(payload, "while preparing online literature")
-        existing_id = paper_registry_reference_id_for_literature(entries, record)
-        reference_id = existing_id or next_reference_id
-        citation = (
-            paper_reference_entry_citation(entries, reference_id)
-            if existing_id is not None
-            else format_literature_citation(record, string_input(payload.input, "citation_style"))
-        )
-        result_view = record.to_public_dict()
-        result_view.update(
-            {
-                "reference_id": existing_id,
-                "citation": citation,
-                "included": False,
-                "full_text_status": "not_requested",
-                "message": "",
-            }
-        )
-
-        existing_evidence = bool(existing_id and evidence_corpus.blocks_for_reference(existing_id))
-        source_corpus: EvidenceCorpus | None = None
-        if existing_evidence:
-            result_view["full_text_status"] = "uploaded_full_text"
-        elif download_full_text and record.is_open_access and record.pdf_url:
-            try:
-                raw = await client.download_open_access_pdf(record, max_bytes=PAPER_LITERATURE_MAX_PDF_BYTES)
-                source_corpus = await asyncio.to_thread(
-                    build_evidence_corpus,
-                    [
-                        EvidenceSource(
-                            artifact_name=literature_evidence_artifact_name(reference_id, record),
-                            data=raw,
-                            mime_type="application/pdf",
-                            reference_id=reference_id,
-                            artifact_id=f"literature:{record.identity_key}",
-                        )
-                    ],
-                )
-                await asyncio.to_thread(
-                    validate_evidence_source_identities,
-                    [{"id": reference_id, "citation": citation}],
-                    source_corpus,
-                )
-                result_view["full_text_status"] = "open_access_pdf_verified"
-                full_text_count += 1
-            except asyncio.CancelledError:
-                raise
-            except (LiteratureDownloadError, EvidenceSourceIdentityError, TypeError, ValueError) as exc:
-                result_view["full_text_status"] = "open_access_pdf_rejected"
-                result_view["message"] = truncate(str(exc), 300)
-                source_corpus = None
-        elif download_full_text:
-            result_view["full_text_status"] = "open_access_pdf_unavailable"
-
-        if citation_evidence_enabled and not existing_evidence and source_corpus is None:
-            public_results.append(result_view)
-            continue
-        if existing_id is None and expected_reference_count is not None and len(entries) >= expected_reference_count:
-            result_view["message"] = "已达到用户要求的参考文献数量"
-            public_results.append(result_view)
-            continue
-
-        if existing_id is None:
-            entries.append(
-                {"id": reference_id, "citation": citation, "formatted": f"[{reference_id}] {citation}"}
-            )
-            next_reference_id += 1
-        if source_corpus is not None:
-            online_blocks.extend(source_corpus.blocks)
-        result_view["reference_id"] = reference_id
-        result_view["included"] = True
-        included.append((reference_id, record, citation, source_corpus))
-        public_results.append(result_view)
-
-    merged_registry = paper_reference_registry_from_entries(entries) if entries else None
-    merged_corpus = EvidenceCorpus(tuple((*evidence_corpus.blocks, *online_blocks)))
-    if citation_evidence_enabled and merged_registry is None:
-        raise WorkerFailure(
-            "PAPER_LITERATURE_FULL_TEXT_REQUIRED",
-            "联网结果中没有可安全下载并绑定身份的开放全文，请调整检索条件或上传参考文献全文。",
-        )
-
-    report = search_report.to_public_dict()
-    report.update(
-        {
-            "included_reference_count": len(included),
-            "full_text_reference_count": full_text_count,
-            "strict_evidence_mode": citation_evidence_enabled,
-            "results": public_results,
-        }
-    )
-    return {
-        "reference_registry": merged_registry,
-        "evidence_corpus": merged_corpus,
-        "context": build_online_literature_context(included),
-        "report": report,
-    }
-
-
-def paper_reference_entries(reference_registry: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(reference_registry, dict) or not isinstance(reference_registry.get("entries"), list):
-        return []
-    entries: list[dict[str, Any]] = []
-    for raw in reference_registry["entries"]:
-        if not isinstance(raw, dict):
-            continue
-        reference_id = positive_int(raw.get("id"))
-        citation = clean_string(raw.get("citation"))
-        if reference_id is None or not citation:
-            continue
-        entries.append(
-            {"id": reference_id, "citation": citation, "formatted": f"[{reference_id}] {citation}"}
-        )
-    return sorted(entries, key=lambda entry: entry["id"])
-
-
-def paper_reference_registry_from_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    ordered = sorted(entries, key=lambda entry: int(entry["id"]))
-    expected = list(range(1, len(ordered) + 1))
-    actual = [int(entry["id"]) for entry in ordered]
-    if actual != expected:
-        raise WorkerFailure("PAPER_REFERENCE_REGISTRY_INVALID", "参考文献编号必须从 1 开始连续排列。")
-    return {
-        "ids": actual,
-        "entries": ordered,
-        "bibliography": [entry["citation"] for entry in ordered],
-        "numbered_bibliography": [entry["formatted"] for entry in ordered],
-    }
-
-
-def paper_registry_reference_id_for_literature(
-    entries: list[dict[str, Any]],
-    record: LiteratureRecord,
-) -> int | None:
-    record_doi = canonical_doi(record.doi)
-    title_key = normalize_title_key(record.title)
-    for entry in entries:
-        citation = clean_string(entry.get("citation"))
-        if record_doi and canonical_doi(citation) == record_doi:
-            return int(entry["id"])
-        if title_key and title_key in normalize_title_key(citation):
-            return int(entry["id"])
-    return None
-
-
-def paper_reference_entry_citation(entries: list[dict[str, Any]], reference_id: int) -> str:
-    return next(
-        (clean_string(entry.get("citation")) for entry in entries if int(entry["id"]) == reference_id),
-        "",
-    )
-
-
-def literature_evidence_artifact_name(reference_id: int, record: LiteratureRecord) -> str:
-    safe_title = re.sub(
-        r"[^a-zA-Z0-9\u3400-\u4dbf\u4e00-\u9fff._-]+",
-        "-",
-        record.title,
-    ).strip("-._")
-    return f"[{reference_id}] {safe_title[:100] or 'open-access-literature'}.pdf"
-
-
-def build_online_literature_context(
-    included: list[tuple[int, LiteratureRecord, str, EvidenceCorpus | None]],
-) -> str:
-    if not included:
-        return ""
-    parts = [
-        "以下文献元数据来自 OpenAlex/Crossref 实时检索。只有标记为开放全文并通过身份校验的内容，"
-        "才可在严格证据模式中作为正文引文依据。"
-    ]
-    used_chars = len(parts[0])
-    for reference_id, record, citation, source_corpus in included:
-        lines = [
-            f"=== 联网检索文献 [{reference_id}] ===",
-            f"参考文献：{citation}",
-            f"检索来源：{', '.join(record.providers)}",
-        ]
-        if record.abstract:
-            lines.append(f"摘要：{record.abstract}")
-        if source_corpus is not None:
-            excerpt = "\n".join(block.text for block in source_corpus.blocks[:8])
-            if excerpt:
-                lines.append(f"开放全文摘录：{excerpt}")
-        section = "\n".join(lines)
-        remaining = PAPER_REFERENCE_MAX_TOTAL_CHARS - used_chars
-        if remaining <= 0:
-            break
-        section = section[:remaining]
-        parts.append(section)
-        used_chars += len(section)
-    return "\n\n".join(parts)
-
-
-def optional_four_digit_year(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, bool):
-        raise WorkerFailure("PAPER_LITERATURE_CONFIG_INVALID", "文献年份必须是四位数字。")
-    try:
-        year = int(value)
-    except (TypeError, ValueError) as exc:
-        raise WorkerFailure("PAPER_LITERATURE_CONFIG_INVALID", "文献年份必须是四位数字。") from exc
-    if not 1000 <= year <= 9999:
-        raise WorkerFailure("PAPER_LITERATURE_CONFIG_INVALID", "文献年份必须是四位数字。")
-    return year
 
 
 async def extract_paper_reference_context(

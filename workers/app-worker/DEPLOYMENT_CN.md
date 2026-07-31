@@ -76,12 +76,6 @@ PAPER_EVIDENCE_MIN_QUOTE_CHARS=12
 PAPER_EVIDENCE_AUDIT_BATCH_SIZE=24
 PAPER_EVIDENCE_CHUNKS_PER_OCCURRENCE=5
 PAPER_EVIDENCE_MAX_PROMPT_CHARS=80000
-PAPER_LITERATURE_TIMEOUT_SECONDS=20
-PAPER_LITERATURE_MAX_RESULTS=12
-PAPER_LITERATURE_MAX_PDF_BYTES=12582912
-PAPER_LITERATURE_MAILTO=admin@example.com
-PAPER_LITERATURE_USER_AGENT=Sub2API-App-Worker/0.4
-PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP=false
 VIDEO_POLL_INTERVAL_SECONDS=5
 
 VERIFY_WORKER_SIGNATURE=true
@@ -195,7 +189,7 @@ Word 论文：/academic-paper/runs
 
 Git 只发布 Worker 和前端代码，不会同步数据库中的应用、应用版本、Worker Host 或对象存储配置。
 升级论文 Worker 后，管理员还必须在应用管理中基于“Word 论文模板”创建并发布新版本，确认版本绑定
-`/academic-paper/runs`，且输入结构包含联网文献检索和严格引用证据字段。发布新版本不需要重启
+`/academic-paper/runs`，且输入结构包含编号参考文献表、参考文献全文上传和严格引用证据字段。发布新版本不需要重启
 Sub2API 或 Worker；旧版本会继续保留用于历史运行回溯。
 
 ## 10. 修改配置后重启

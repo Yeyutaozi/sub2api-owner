@@ -6,7 +6,7 @@ import time
 import unittest
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from docx import Document
 
@@ -14,7 +14,6 @@ from docx import Document
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sub2api_worker import main as worker  # noqa: E402
-from sub2api_worker.literature_search import LiteratureSearchReport  # noqa: E402
 
 
 class AcademicPaperWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -669,6 +668,21 @@ class AcademicPaperWorkflowTests(unittest.IsolatedAsyncioTestCase):
         download.assert_not_awaited()
         parse.assert_not_called()
 
+    async def test_academic_paper_rejects_legacy_online_literature_switch(self) -> None:
+        payload = self.payload(
+            input_values={
+                "topic": "数字教育治理",
+                "word_count": 1000,
+                "literature_search_enabled": True,
+            }
+        )
+
+        with patch.object(worker, "callback", new=AsyncMock()):
+            with self.assertRaises(worker.WorkerFailure) as raised:
+                await worker.process_academic_paper_run(payload, "worker-literature-disabled", time.perf_counter())
+
+        self.assertEqual("PAPER_LITERATURE_SEARCH_DISABLED", raised.exception.code)
+
     def test_docx_reference_parser_reads_paragraphs_and_tables(self) -> None:
         document = Document()
         document.add_paragraph("文献题名：教育数字化研究")
@@ -936,135 +950,6 @@ class AcademicPaperWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([1, 2], registry["ids"])
         self.assertEqual((1, 2), result["evidence_corpus"].reference_ids)
         self.assertEqual(2, download.await_count)
-
-    async def test_online_literature_search_merges_metadata_into_reference_registry(self) -> None:
-        record = worker.LiteratureRecord(
-            title="Artificial Intelligence in Education",
-            authors=("Smith John",),
-            year=2025,
-            venue="Education Journal",
-            doi="10.1234/aiedu.2025",
-            url="https://doi.org/10.1234/aiedu.2025",
-            abstract="This study reviews artificial intelligence in education.",
-            providers=("openalex", "crossref"),
-        )
-        report = LiteratureSearchReport(
-            query="artificial intelligence education",
-            records=(record,),
-            providers=("openalex", "crossref"),
-            provider_errors=(),
-            duration_ms=25,
-        )
-        client = Mock()
-        client.search = AsyncMock(return_value=report)
-        client.download_open_access_pdf = AsyncMock()
-        payload = self.payload(
-            input_values={
-                "topic": "人工智能教育",
-                "word_count": 1000,
-                "literature_search_enabled": True,
-                "literature_query": "artificial intelligence education",
-                "literature_download_open_access_full_text": False,
-                "citation_evidence_enabled": False,
-            }
-        )
-
-        with patch.object(worker, "create_literature_search_client", return_value=client):
-            bundle = await worker.prepare_academic_paper_literature(
-                payload,
-                reference_registry=None,
-                evidence_corpus=worker.EvidenceCorpus(()),
-                citation_evidence_enabled=False,
-                expected_reference_count=None,
-            )
-
-        self.assertEqual([1], bundle["reference_registry"]["ids"])
-        self.assertIn("10.1234/aiedu.2025", bundle["reference_registry"]["bibliography"][0])
-        self.assertIn("Artificial Intelligence in Education", bundle["context"])
-        self.assertEqual(1, bundle["report"]["included_reference_count"])
-        client.download_open_access_pdf.assert_not_awaited()
-
-    async def test_online_literature_strict_mode_requires_verified_open_full_text(self) -> None:
-        source_text = (
-            "Open Evidence Research\nDOI: 10.1234/open.2025\n"
-            "The open full text contains a verifiable research conclusion."
-        )
-        source_corpus = worker.build_evidence_corpus(
-            [
-                worker.EvidenceSource(
-                    artifact_name="[1] open.txt",
-                    data=source_text.encode(),
-                    mime_type="text/plain",
-                    reference_id=1,
-                    artifact_id="online-open",
-                )
-            ]
-        )
-        record = worker.LiteratureRecord(
-            title="Open Evidence Research",
-            authors=("Author One",),
-            year=2025,
-            venue="Open Journal",
-            doi="10.1234/open.2025",
-            providers=("openalex",),
-            is_open_access=True,
-            pdf_url="https://papers.test/open.pdf",
-        )
-        report = LiteratureSearchReport(
-            query="open evidence",
-            records=(record,),
-            providers=("openalex",),
-            provider_errors=(),
-            duration_ms=10,
-        )
-        client = Mock()
-        client.search = AsyncMock(return_value=report)
-        client.download_open_access_pdf = AsyncMock(return_value=b"%PDF-1.7 fake")
-        payload = self.payload(
-            input_values={
-                "topic": "开放证据",
-                "word_count": 1000,
-                "literature_search_enabled": True,
-                "citation_evidence_enabled": True,
-            }
-        )
-
-        with (
-            patch.object(worker, "create_literature_search_client", return_value=client),
-            patch.object(worker, "build_evidence_corpus", return_value=source_corpus),
-        ):
-            bundle = await worker.prepare_academic_paper_literature(
-                payload,
-                reference_registry=None,
-                evidence_corpus=worker.EvidenceCorpus(()),
-                citation_evidence_enabled=True,
-                expected_reference_count=None,
-            )
-
-        self.assertEqual((1,), bundle["evidence_corpus"].reference_ids)
-        self.assertEqual("open_access_pdf_verified", bundle["report"]["results"][0]["full_text_status"])
-        self.assertEqual(1, bundle["report"]["full_text_reference_count"])
-
-    async def test_online_literature_search_failure_is_a_worker_error(self) -> None:
-        client = Mock()
-        client.search = AsyncMock(side_effect=worker.LiteratureSearchError("providers unavailable"))
-        payload = self.payload(
-            input_values={
-                "topic": "检索失败",
-                "word_count": 1000,
-                "literature_search_enabled": True,
-            }
-        )
-        with patch.object(worker, "create_literature_search_client", return_value=client):
-            with self.assertRaises(worker.WorkerFailure) as raised:
-                await worker.prepare_academic_paper_literature(
-                    payload,
-                    reference_registry=None,
-                    evidence_corpus=worker.EvidenceCorpus(()),
-                    citation_evidence_enabled=False,
-                    expected_reference_count=None,
-                )
-        self.assertEqual("PAPER_LITERATURE_SEARCH_FAILED", raised.exception.code)
 
     def test_evidence_occurrences_use_internal_markers_and_code_claim_context(self) -> None:
         sections = [

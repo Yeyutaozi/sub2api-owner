@@ -551,18 +551,13 @@
                         <div class="flex items-start gap-3">
                           <Icon name="infoCircle" size="sm" class="mt-0.5 flex-shrink-0 text-primary-600 dark:text-primary-300" />
                           <div class="min-w-0 flex-1">
-                            <div class="text-sm font-semibold text-gray-900 dark:text-white">
-                              {{ manualReferenceMode ? '当前只使用你提供的参考文献' : '可以同时使用你自己的参考文献' }}
-                            </div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">当前只使用你提供的参考文献</div>
                             <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-300">
                               <template v-if="manualReferenceMode && strictCitationEvidenceEnabled">
-                                联网检索已关闭，严格核验已开启。请填写编号参考文献表并上传每一篇对应的全文，否则无法运行。
-                              </template>
-                              <template v-else-if="manualReferenceMode">
-                                联网检索已关闭。填写参考文献表后，系统会按你的清单写作；上传全文可提供更完整的写作依据。
+                                严格核验已开启。请填写编号参考文献表并上传每一篇对应的全文，否则无法运行。
                               </template>
                               <template v-else>
-                                先填写并上传自己的文献，系统会优先保留，并对联网结果按 DOI 或题名去重后补充。
+                                填写参考文献表后，系统会按你的清单写作；上传全文可提供更完整的写作依据。
                               </template>
                             </p>
                           </div>
@@ -1158,7 +1153,7 @@ const modelPolicyItems = computed<ModelPolicyItem[]>(() => {
 })
 
 const inputFields = computed<InputFieldItem[]>(() => normalizeInputFields(selectedApp.value?.published_version?.input_schema_json)
-  .filter(field => !(isAcademicPaperApp.value && field.name === 'outline_spec')))
+  .filter(field => !(isAcademicPaperApp.value && (field.name === 'outline_spec' || field.name.startsWith('literature_')))))
 const outlineNumberLabels = computed(() => buildOutlineNumberLabels(outlineNodes.value))
 const outlineMaxLevel = computed(() => outlineNodes.value.length
   ? outlineNodes.value.reduce((maximum, node) => Math.max(maximum, node.level), 1)
@@ -1251,8 +1246,7 @@ const missingRequiredInputs = computed(() => inputFields.value.filter(field => {
   return String(inputValues.value[field.name] ?? '').trim() === ''
 }))
 const strictCitationEvidenceEnabled = computed(() => inputValues.value.citation_evidence_enabled === 'true')
-const literatureSearchEnabled = computed(() => inputValues.value.literature_search_enabled === 'true')
-const manualReferenceMode = computed(() => isAcademicPaperApp.value && !literatureSearchEnabled.value)
+const manualReferenceMode = computed(() => isAcademicPaperApp.value)
 const manualReferenceLines = computed(() => String(inputValues.value.reference_bibliography || '')
   .split(/\r?\n/)
   .map(line => line.trim())
@@ -1296,9 +1290,6 @@ const manualReferenceValidationMessage = computed(() => {
 })
 const citationEvidenceValidationMessage = computed(() => {
   if (!isAcademicPaperApp.value) return ''
-  if (literatureSearchEnabled.value && inputValues.value.references_enabled === 'false') {
-    return '联网文献检索需要同时开启“生成参考文献”。'
-  }
   if (!strictCitationEvidenceEnabled.value) return ''
   if (inputValues.value.references_enabled === 'false') {
     return '严格引用证据核验需要同时开启“生成参考文献”。'
@@ -2498,11 +2489,6 @@ function academicPaperInputDefault(field: InputFieldItem): string {
     keywords_count: '5',
     citation_style: 'gbt7714_numeric',
     citation_evidence_enabled: 'true',
-    literature_search_enabled: 'false',
-    literature_provider: 'auto',
-    literature_max_results: '8',
-    literature_open_access_only: 'true',
-    literature_download_open_access_full_text: 'true',
     page_format_preset: 'standard_cn_academic',
     page_size: 'A4',
     page_orientation: 'portrait',
@@ -2708,7 +2694,6 @@ function inputPlaceholder(field: InputFieldItem): string {
   if (field.name === 'reference_bibliography') {
     return '[1] 作者. 论文题目[J]. 期刊, 2024.\n[2] 作者. 书名[M]. 出版社, 2023.'
   }
-  if (field.name === 'literature_query') return '输入题名、研究主题或关键词；留空时使用论文主题'
   if (field.kind === 'textarea') return `输入${field.label}`
   if (field.kind === 'number') return '输入数字'
   return field.required ? `填写${field.label}` : '可选'

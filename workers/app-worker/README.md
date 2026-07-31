@@ -113,8 +113,7 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 - 目录以 `outline_spec.version = 1` 的稳定节点 ID、标题和层级提交；模型只填写节点正文，不能改动目录
 - `.docx`、`.pdf`、`.txt`、`.md`、`.csv`、`.json` 参考资料提取
 - 可选严格引用证据核验：逐个正文引用匹配同编号上传全文中的原文摘录与页码/段落定位
-- 可选联网文献检索：OpenAlex 与 Crossref 双源查询、DOI/题名去重、年份和开放获取筛选
-- 严格模式可下载 OpenAlex/Crossref 返回的开放获取 PDF，完成全文解析和题名/DOI 身份核验后再纳入正文引用
+- 严格模式只使用用户上传的编号参考文献全文，不联网下载第三方 PDF
 - 可选学校或期刊 `.docx` 模板
 - A3、A4、A5、B5、Letter、Legal 和自定义纸张
 - 中文与西文字体、标题 1–5 级字号/行距/段距/对齐、正文缩进
@@ -130,12 +129,6 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 - `PAPER_EVIDENCE_AUDIT_BATCH_SIZE`：单次模型证据审计的最大引用 occurrence 数
 - `PAPER_EVIDENCE_CHUNKS_PER_OCCURRENCE`：每个引用送审的候选全文块数量
 - `PAPER_EVIDENCE_MAX_PROMPT_CHARS`：单批证据块允许进入审计提示词的最大字符数
-- `PAPER_LITERATURE_TIMEOUT_SECONDS`：单次文献 API 或开放全文请求超时
-- `PAPER_LITERATURE_MAX_RESULTS`：一次运行最多检索并处理的文献数量，最大 20
-- `PAPER_LITERATURE_MAX_PDF_BYTES`：单个联网开放 PDF 的最大下载字节数
-- `PAPER_LITERATURE_MAILTO`：OpenAlex/Crossref 礼貌池联系邮箱，生产环境建议填写
-- `PAPER_LITERATURE_USER_AGENT`：文献服务请求标识；留空时使用带 Worker 版本号的默认标识
-- `PAPER_LITERATURE_ALLOW_PROXY_FAKE_IP`：仅在 Clash 等代理使用 `198.18.0.0/15` Fake-IP 时开启
 
 模型只允许使用上传资料中能够明确识别出处的引用。资料不足时不会承诺参考文献、实验数据、访谈或调查结果真实存在。
 
@@ -143,7 +136,7 @@ uvicorn sub2api_worker.main:app --host 0.0.0.0 --port 8091 --reload
 
 该报告表示引用已与用户上传来源逐字核对，不代表 Worker 已联网确认出版物真伪，也不代表对论证含义作出绝对事实保证。未提供 `citation_evidence_enabled` 的旧应用版本默认关闭严格模式，行为保持兼容。
 
-联网检索只使用公开文献元数据和合法开放获取全文，不绕过登录、付费墙或版权限制。普通模式可以使用检索元数据和摘要；严格模式只会纳入成功取得开放全文并通过 DOI/题名身份核验的在线文献。单个文献服务失败时会使用另一个服务降级，全部服务失败时本次运行明确失败，不静默伪造参考文献。
+论文工作流已停用联网文献检索。旧应用版本如果仍提交 `literature_search_enabled=true`，Worker 会拒绝本次运行并提示上传编号参考文献全文。
 
 结构化目录输入使用以下协议。`nodes` 必须按文档顺序扁平排列，首节点必须为一级标题，层级不能一次跳过一级：
 
