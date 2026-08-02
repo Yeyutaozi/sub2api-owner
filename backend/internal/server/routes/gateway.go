@@ -129,8 +129,12 @@ func RegisterGatewayRoutes(
 		}
 	}
 	videoGenerationHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok:
 			h.OpenAIGateway.GrokVideoGeneration(c)
+			return
+		case service.PlatformSeedance:
+			h.OpenAIGateway.SeedanceCreateJob(c)
 			return
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -140,6 +144,94 @@ func RegisterGatewayRoutes(
 				"message": "Videos API is not supported for this platform",
 			},
 		})
+	}
+	videoUploadHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformSeedance {
+			h.OpenAIGateway.SeedanceUploadMedia(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Seedance uploads are not supported for this platform",
+			},
+		})
+	}
+	videoUploadContentHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformSeedance {
+			h.OpenAIGateway.SeedanceUploadedImageContent(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Seedance uploads are not supported for this platform",
+			},
+		})
+	}
+	videoJobsListHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformSeedance {
+			h.OpenAIGateway.SeedanceListJobs(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Seedance jobs are not supported for this platform",
+			},
+		})
+	}
+	videoJobStatusHandler := func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformSeedance:
+			h.OpenAIGateway.SeedanceGetJob(c)
+		case service.PlatformGrok, service.PlatformComposite:
+			h.OpenAIGateway.GrokVideoStatus(c)
+		case service.PlatformOpenAI:
+			h.OpenAIGateway.Media(c)
+		default:
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+		}
+	}
+	videoJobDeleteHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformSeedance {
+			h.OpenAIGateway.SeedanceDeleteJob(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Seedance jobs are not supported for this platform",
+			},
+		})
+	}
+	videoJobContentHandler := func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformSeedance:
+			h.OpenAIGateway.SeedanceJobContent(c)
+		case service.PlatformGrok, service.PlatformComposite:
+			h.OpenAIGateway.GrokVideoContent(c)
+		case service.PlatformOpenAI:
+			h.OpenAIGateway.Media(c)
+		default:
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+		}
 	}
 	videoStatusHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
@@ -280,6 +372,12 @@ func RegisterGatewayRoutes(
 		gateway.POST("/images/batches/:id/cancel", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.Cancel))
 		gateway.DELETE("/images/batches/:id", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.DeleteRecord))
 		gateway.DELETE("/images/batches/:id/outputs", glmExclusiveCapabilityGate("Batch Images", h.BatchImage.DeleteOutputs))
+		gateway.POST("/videos/uploads", videoUploadHandler)
+		gateway.GET("/videos/uploads/:upload_id", videoUploadContentHandler)
+		gateway.GET("/videos/jobs", videoJobsListHandler)
+		gateway.GET("/videos/jobs/:job_id", videoJobStatusHandler)
+		gateway.DELETE("/videos/jobs/:job_id", videoJobDeleteHandler)
+		gateway.GET("/videos/jobs/:job_id/content", videoJobContentHandler)
 		gateway.POST("/videos/generations", videoGenerationHandler)
 		gateway.POST("/videos/edits", videoEditHandler)
 		gateway.POST("/videos/extensions", videoExtensionHandler)
@@ -309,7 +407,7 @@ func RegisterGatewayRoutes(
 	}
 
 	// Volcengine Ark-compatible Seedance API. Requests are authenticated with
-	// local API keys, then adapted to the FYLink asynchronous video contract.
+	// local API keys, then adapted to the configured asynchronous video upstream.
 	seedance := r.Group("/api/v3")
 	seedance.Use(bodyLimit)
 	seedance.Use(clientRequestID)

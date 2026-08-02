@@ -361,6 +361,20 @@ func TestSeedanceMaterializeImagesStoresEveryInlineImage(t *testing.T) {
 	require.Len(t, store.deleted, 2)
 }
 
+func TestSeedanceMaterializeImagesKeepsOwnPersistentUploadURL(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	owner := seedanceMediaTestOwner()
+	source := "https://seedance-test.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/101/202/sdupl_abc123.png?X-Amz-Signature=test"
+	info := &SeedanceRequestInfo{StartFrameURL: source}
+
+	materialized, err := service.MaterializeImages(context.Background(), owner, info)
+	require.NoError(t, err)
+	require.NotNil(t, materialized)
+	require.Equal(t, source, info.StartFrameURL)
+	require.Len(t, store.puts, 0)
+}
+
 func TestSeedanceCaptureOutputUsesDeterministicOwnerScopedObjectKey(t *testing.T) {
 	miniRedis := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})

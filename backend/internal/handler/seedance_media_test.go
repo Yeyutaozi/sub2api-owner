@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"strings"
 	"sync"
@@ -78,6 +79,45 @@ func TestSeedanceUploadImageRequiresMultipartFieldImage(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "image_required")
 	require.Equal(t, 0, store.putCount())
+}
+
+func TestSeedanceUploadMediaPublicAudioReturnsSignedMediaURL(t *testing.T) {
+	miniRedis := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+	store := &seedanceHandlerMediaStore{configured: true}
+	handler := &OpenAIGatewayHandler{
+		seedanceMediaService: service.NewSeedanceMediaService(store, nil, redisClient),
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="audio"; filename="reference.mp3"`)
+	header.Set("Content-Type", "audio/mpeg")
+	part, err := writer.CreatePart(header)
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake mp3 bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	c, recorder := newSeedanceMediaHandlerContext(t, http.MethodPost, service.SeedancePublicUploadsEndpoint, writer.FormDataContentType(), &body, service.PlatformSeedance)
+	handler.SeedanceUploadMedia(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		MediaURL    string `json:"media_url"`
+		MediaType   string `json:"media_type"`
+		ContentType string `json:"content_type"`
+		Size        int64  `json:"size"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "https://cos.example.com/object", response.MediaURL)
+	require.Equal(t, "audio", response.MediaType)
+	require.Equal(t, "audio/mpeg", response.ContentType)
+	require.Positive(t, response.Size)
+	require.Equal(t, 1, store.putCount())
+	require.True(t, strings.HasPrefix(store.lastKey(), "seedance/inputs/staged/"))
 }
 
 func TestSeedanceUploadRejectsOtherPlatformsBeforeStorageAccess(t *testing.T) {

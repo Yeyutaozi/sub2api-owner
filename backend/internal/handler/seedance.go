@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,8 +26,18 @@ import (
 )
 
 // SeedanceCreateTask accepts the Volcengine Ark task format and forwards it to
-// the FYLink asynchronous video API configured on the selected Seedance account.
+// the asynchronous video API configured on the selected Seedance account.
 func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
+	h.handleSeedanceCreate(c, false)
+}
+
+// SeedanceCreateJob accepts the public Seedance-compatible video generation
+// format and forwards it to the selected Seedance account.
+func (h *OpenAIGatewayHandler) SeedanceCreateJob(c *gin.Context) {
+	h.handleSeedanceCreate(c, true)
+}
+
+func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -56,7 +67,12 @@ func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
 		seedanceError(c, http.StatusBadRequest, "invalid_request", "Failed to read request body")
 		return
 	}
-	requestInfo, err := service.ParseSeedanceCreateRequest(body)
+	var requestInfo *service.SeedanceRequestInfo
+	if public {
+		requestInfo, err = service.ParseSeedanceVideoGenerationRequest(body)
+	} else {
+		requestInfo, err = service.ParseSeedanceCreateRequest(body)
+	}
 	if err != nil {
 		seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -169,6 +185,34 @@ func (h *OpenAIGatewayHandler) SeedanceCreateTask(c *gin.Context) {
 		if materialized != nil {
 			materialized.Retain()
 		}
+		if public {
+			statusURL := seedanceAbsoluteURL(c, service.SeedancePublicJobsEndpoint+"/"+url.PathEscape(result.ResponseID))
+			response := gin.H{
+				"job_id":     result.ResponseID,
+				"status":     "queued",
+				"status_url": statusURL,
+			}
+			if forwarded != nil && len(forwarded.Body) > 0 {
+				var upstream map[string]any
+				if err := json.Unmarshal(forwarded.Body, &upstream); err == nil {
+					if value, ok := upstream["status"].(string); ok && strings.TrimSpace(value) != "" {
+						response["status"] = value
+					}
+					for _, key := range []string{"model", "created_at", "updated_at", "completed_at", "seed", "resolution", "duration", "aspect_ratio"} {
+						if value, exists := upstream[key]; exists && value != nil {
+							response[key] = value
+						}
+					}
+					if value, exists := upstream["content"]; exists && value != nil {
+						response["content"] = value
+					}
+				}
+			}
+			c.Header("Preference-Applied", "respond-async")
+			c.Header("Location", statusURL)
+			c.JSON(http.StatusAccepted, response)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"id": result.ResponseID})
 		return
 	}
@@ -181,6 +225,16 @@ type seedanceBase64UploadRequest struct {
 }
 
 func (h *OpenAIGatewayHandler) SeedanceUploadImage(c *gin.Context) {
+	h.handleSeedanceUpload(c, false)
+}
+
+// SeedanceUploadMedia accepts the public Seedance-compatible media upload
+// contract.
+func (h *OpenAIGatewayHandler) SeedanceUploadMedia(c *gin.Context) {
+	h.handleSeedanceUpload(c, true)
+}
+
+func (h *OpenAIGatewayHandler) handleSeedanceUpload(c *gin.Context, public bool) {
 	apiKey, subject, ok := h.seedanceAuthContext(c)
 	if !ok {
 		return
@@ -204,33 +258,67 @@ func (h *OpenAIGatewayHandler) SeedanceUploadImage(c *gin.Context) {
 	err = nil
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
 	case "multipart/form-data":
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.SeedanceMaxImageBytes+service.SeedanceUploadBodyOverhead)
-		file, formErr := c.FormFile("image")
-		if formErr != nil {
-			if maxErr, isMax := extractMaxBytesError(formErr); isMax {
-				seedanceError(c, http.StatusRequestEntityTooLarge, "image_too_large", buildBodyTooLargeMessage(maxErr.Limit))
-				return
+		bodyLimit := service.SeedanceMaxImageBytes + service.SeedanceUploadBodyOverhead
+		if public {
+			bodyLimit = 512<<20 + service.SeedanceUploadBodyOverhead
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
+		fieldNames := []string{"image"}
+		if public {
+			fieldNames = []string{"image", "video", "audio"}
+		}
+		var file *multipart.FileHeader
+		var mediaKind string
+		for _, field := range fieldNames {
+			candidate, formErr := c.FormFile(field)
+			if formErr == nil && candidate != nil {
+				file = candidate
+				mediaKind = field
+				break
 			}
-			seedanceError(c, http.StatusBadRequest, "image_required", "multipart field image is required")
+		}
+		if file == nil {
+			if public {
+				seedanceError(c, http.StatusBadRequest, "media_required", "multipart field image, video, or audio is required")
+			} else {
+				seedanceError(c, http.StatusBadRequest, "image_required", "multipart field image is required")
+			}
 			return
 		}
-		if file.Size > service.SeedanceMaxImageBytes {
-			seedanceError(c, http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+		openLimit := bodyLimit
+		if public && strings.EqualFold(mediaKind, "image") {
+			openLimit = service.SeedanceMaxImageBytes + service.SeedanceUploadBodyOverhead
+		}
+		if file.Size > openLimit {
+			seedanceError(c, http.StatusRequestEntityTooLarge, "media_too_large", "uploaded media exceeds the configured size limit")
 			return
 		}
 		source, openErr := file.Open()
 		if openErr != nil {
-			seedanceError(c, http.StatusBadRequest, "invalid_image", "failed to open uploaded image")
+			seedanceError(c, http.StatusBadRequest, "invalid_media", "failed to open uploaded media")
 			return
 		}
 		defer func() { _ = source.Close() }()
-		upload, err = h.seedanceMediaService.UploadImage(c.Request.Context(), service.SeedanceImageUploadInput{
-			Owner:       owner,
-			Body:        source,
-			SizeBytes:   file.Size,
-			ContentType: file.Header.Get("Content-Type"),
-			Persistent:  true,
-		})
+		if public {
+			upload, err = h.seedanceMediaService.UploadMedia(c.Request.Context(), service.SeedanceImageUploadInput{
+				Owner:       owner,
+				Body:        source,
+				SizeBytes:   file.Size,
+				ContentType: file.Header.Get("Content-Type"),
+				Filename:    file.Filename,
+				MediaKind:   mediaKind,
+				Persistent:  true,
+			})
+		} else {
+			upload, err = h.seedanceMediaService.UploadImage(c.Request.Context(), service.SeedanceImageUploadInput{
+				Owner:       owner,
+				Body:        source,
+				SizeBytes:   file.Size,
+				ContentType: file.Header.Get("Content-Type"),
+				Filename:    file.Filename,
+				Persistent:  true,
+			})
+		}
 	case "application/json":
 		limit := service.SeedanceMaxImageBytes*4/3 + service.SeedanceUploadBodyOverhead
 		body, readErr := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, limit))
@@ -271,14 +359,35 @@ func (h *OpenAIGatewayHandler) SeedanceUploadImage(c *gin.Context) {
 		writeSeedanceMediaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	uploadURL := seedanceUploadURL(c, upload.UploadID)
+	if public {
+		uploadURL = strings.TrimSpace(upload.MediaURL)
+		if uploadURL == "" {
+			seedanceError(c, http.StatusServiceUnavailable, "media_storage_error", "failed to sign Seedance media URL")
+			return
+		}
+	}
+	mediaTypeValue := strings.TrimSpace(upload.MediaType)
+	if mediaTypeValue == "" {
+		mediaTypeValue = seedanceMediaKindFromContentType(upload.ContentType)
+	}
+	if mediaTypeValue == "" {
+		mediaTypeValue = "image"
+	}
+	response := gin.H{
 		"upload_id":    upload.UploadID,
-		"image_url":    seedanceUploadURL(c, upload.UploadID),
+		"image_url":    uploadURL,
+		"media_url":    uploadURL,
+		"media_type":   mediaTypeValue,
 		"content_type": upload.ContentType,
 		"size":         upload.SizeBytes,
 		"sha256":       upload.SHA256,
 		"expires_at":   upload.ExpiresAt.Format(time.RFC3339),
-	})
+	}
+	if public {
+		delete(response, "image_url")
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *OpenAIGatewayHandler) SeedanceUploadedImageContent(c *gin.Context) {
@@ -309,18 +418,85 @@ func (h *OpenAIGatewayHandler) SeedanceUploadedImageContent(c *gin.Context) {
 }
 
 func (h *OpenAIGatewayHandler) SeedanceGetTask(c *gin.Context) {
-	h.handleSeedanceTaskOperation(c, http.MethodGet, false)
+	h.handleSeedanceTaskOperation(c, http.MethodGet, false, false)
 }
 
 func (h *OpenAIGatewayHandler) SeedanceCancelTask(c *gin.Context) {
-	h.handleSeedanceTaskOperation(c, http.MethodDelete, false)
+	h.handleSeedanceTaskOperation(c, http.MethodDelete, false, false)
 }
 
 func (h *OpenAIGatewayHandler) SeedanceTaskContent(c *gin.Context) {
-	h.handleSeedanceTaskOperation(c, http.MethodGet, true)
+	h.handleSeedanceTaskOperation(c, http.MethodGet, true, false)
 }
 
-func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, method string, content bool) {
+func (h *OpenAIGatewayHandler) SeedanceGetJob(c *gin.Context) {
+	h.handleSeedanceTaskOperation(c, http.MethodGet, false, true)
+}
+
+func (h *OpenAIGatewayHandler) SeedanceDeleteJob(c *gin.Context) {
+	h.handleSeedanceTaskOperation(c, http.MethodDelete, false, true)
+}
+
+func (h *OpenAIGatewayHandler) SeedanceJobContent(c *gin.Context) {
+	h.handleSeedanceTaskOperation(c, http.MethodGet, true, true)
+}
+
+func (h *OpenAIGatewayHandler) SeedanceListJobs(c *gin.Context) {
+	streamStarted := false
+	defer h.recoverResponsesPanic(c, &streamStarted)
+
+	apiKey, subject, ok := h.seedanceAuthContext(c)
+	if !ok {
+		return
+	}
+	reqLog := requestLogger(c, "handler.seedance.jobs",
+		zap.Int64("user_id", subject.UserID),
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Any("group_id", apiKey.GroupID),
+	)
+	if !h.ensureResponsesDependencies(c, reqLog) || !h.ensureSeedanceGroup(c, apiKey) {
+		return
+	}
+
+	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, []byte(c.Request.URL.RawQuery))
+	selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		c.Request.Context(),
+		apiKey.GroupID,
+		"",
+		sessionHash,
+		"",
+		nil,
+		service.OpenAIUpstreamTransportHTTPSSE,
+		"",
+		false,
+		false,
+		false,
+		service.PlatformSeedance,
+	)
+	if selectErr != nil || selection == nil || selection.Account == nil {
+		markOpsRoutingCapacityLimited(c)
+		seedanceError(c, http.StatusServiceUnavailable, "no_available_account", "No available Seedance upstream account in this API key group")
+		return
+	}
+
+	account := selection.Account
+	setOpsSelectedAccount(c, account.ID, account.Platform)
+	accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+	if !accountAcquired {
+		return
+	}
+	if accountRelease != nil {
+		defer accountRelease()
+	}
+	forwarded, err := h.gatewayService.ForwardSeedanceJobsList(c.Request.Context(), c, account)
+	if err != nil {
+		h.writeSeedanceForwardError(c, err)
+		return
+	}
+	h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, bytes.NewReader(forwarded.Body))
+}
+
+func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, method string, content bool, public bool) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -336,9 +512,13 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	if !h.ensureResponsesDependencies(c, reqLog) || !h.ensureSeedanceGroup(c, apiKey) {
 		return
 	}
-	taskID := strings.TrimSpace(c.Param("task_id"))
+	taskID := strings.TrimSpace(seedanceTaskIDParam(c, public))
 	if taskID == "" {
-		seedanceError(c, http.StatusBadRequest, "invalid_request", "task_id is required")
+		if public {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "job_id is required")
+		} else {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "task_id is required")
+		}
 		return
 	}
 	boundAccountID, err := h.gatewayService.ResolveSeedanceTaskAccount(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
@@ -506,6 +686,17 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		c.Status(http.StatusNoContent)
 		return
 	}
+	if public && !content {
+		if len(forwarded.Body) == 0 {
+			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream job body is empty")
+			return
+		}
+		if status := seedanceStatusFromBody(forwarded.Body); status == "failed" || status == "cancelled" {
+			h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
+		}
+		h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, bytes.NewReader(forwarded.Body))
+		return
+	}
 	official, err := service.BuildSeedanceOfficialTaskResponse(taskID, forwarded.Body, seedanceTaskContentURL(c, taskID))
 	if err != nil {
 		seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", err.Error())
@@ -670,8 +861,39 @@ func seedanceTaskContentURL(c *gin.Context, taskID string) string {
 	return seedanceAbsoluteURL(c, path)
 }
 
+func seedanceTaskIDParam(c *gin.Context, public bool) string {
+	if c == nil {
+		return ""
+	}
+	if public {
+		if value := strings.TrimSpace(c.Param("job_id")); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(c.Param("task_id"))
+}
+
+func seedanceStatusFromBody(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	if status, ok := payload["status"].(string); ok {
+		return service.MapSeedanceTaskStatus(status)
+	}
+	return ""
+}
+
 func seedanceUploadURL(c *gin.Context, uploadID string) string {
 	path := service.SeedanceOfficialUploadsEndpoint + "/" + url.PathEscape(uploadID)
+	return seedanceAbsoluteURL(c, path)
+}
+
+func seedancePublicUploadURL(c *gin.Context, uploadID string) string {
+	path := service.SeedancePublicUploadsEndpoint + "/" + url.PathEscape(uploadID)
 	return seedanceAbsoluteURL(c, path)
 }
 
@@ -690,6 +912,19 @@ func seedanceAbsoluteURL(c *gin.Context, path string) string {
 		return path
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, c.Request.Host, path)
+}
+
+func seedanceMediaKindFromContentType(contentType string) string {
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "image/"):
+		return "image"
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "video/"):
+		return "video"
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "audio/"):
+		return "audio"
+	default:
+		return ""
+	}
 }
 
 func seedanceMediaOwner(apiKey *service.APIKey, subject middleware2.AuthSubject) service.SeedanceMediaOwner {

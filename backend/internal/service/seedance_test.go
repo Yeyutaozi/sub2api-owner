@@ -19,6 +19,11 @@ func TestSeedanceDefaultModelsUseFYLinkIDs(t *testing.T) {
 	require.Equal(t, []string{
 		"seedance-2.0",
 		"seedance-2.0-fast",
+		"seedance-2.0-mini",
+		"happy-horse-1.1",
+		"grok-imagine-1.5",
+		"ltx-2.3-pro",
+		"ltx-2.3-fast",
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 }
 
@@ -147,6 +152,47 @@ func TestParseSeedanceCreateRequestReferenceImages(t *testing.T) {
 	require.Equal(t, 0, upstream.Guidances.References[0].Order)
 	require.Equal(t, "MID", upstream.Guidances.References[1].Strength)
 	require.Equal(t, 1, upstream.Guidances.References[1].Order)
+}
+
+func TestParseSeedanceVideoGenerationRequestPublicGuidances(t *testing.T) {
+	request, err := ParseSeedanceVideoGenerationRequest([]byte(`{
+		"model":"seedance-2.0",
+		"prompt":"Animate the product",
+		"resolution":"720p",
+		"duration":6,
+		"aspect_ratio":"9:16",
+		"audio":true,
+		"prompt_enhance":true,
+		"image_url":"https://media.example/start.png",
+		"guidances":{
+			"video_reference_base":[{"video":{"url":"https://media.example/ref.mp4","type":"UPLOADED"},"order":2}],
+			"audio_reference":[{"audio":{"url":"https://media.example/ref.mp3","type":"UPLOADED"},"order":3}]
+		}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "seedance-2.0", request.Model)
+	require.Equal(t, "Animate the product", request.Prompt)
+	require.True(t, request.GenerateAudio)
+	require.True(t, request.PromptEnhance)
+	require.Equal(t, "https://media.example/start.png", request.StartFrameURL)
+	require.Len(t, request.References, 0)
+	require.Len(t, request.VideoReferences, 1)
+	require.Len(t, request.AudioReferences, 1)
+
+	body, err := request.UpstreamBody("seedance-2.0-fast")
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, json.Unmarshal(body, &upstream))
+	require.Equal(t, true, upstream["audio"])
+	require.Equal(t, true, upstream["prompt_enhance"])
+	require.Equal(t, "https://media.example/start.png", upstream["image_url"])
+	guidances := upstream["guidances"].(map[string]any)
+	require.Contains(t, guidances, "video_reference_base")
+	require.Contains(t, guidances, "audio_reference")
+	videoRefs := guidances["video_reference_base"].([]any)
+	audioRefs := guidances["audio_reference"].([]any)
+	require.NotContains(t, videoRefs[0].(map[string]any), "order")
+	require.NotContains(t, audioRefs[0].(map[string]any), "order")
 }
 
 func TestParseSeedanceCreateRequestRejectsMixedImageModes(t *testing.T) {
@@ -347,4 +393,29 @@ func TestForwardSeedanceContentUsesExplicitRangeOverride(t *testing.T) {
 	require.NotNil(t, response.BodyStream)
 	require.NoError(t, response.BodyStream.Close())
 	require.Equal(t, "bytes=2-4", upstream.request.Header.Get("Range"))
+}
+
+func TestForwardSeedanceJobsListPreservesQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &seedanceHTTPUpstreamStub{body: `{"data":[{"job_id":"vidjob_123"}]}`}
+	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:       42,
+		Platform: PlatformSeedance,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.fflink.top",
+			"api_key":  "upstream-secret",
+		},
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, SeedancePublicJobsEndpoint+"?limit=50&status=running", nil)
+
+	response, err := service.ForwardSeedanceJobsList(context.Background(), ctx, account)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Equal(t, "https://api.fflink.top/v1/videos/jobs?limit=50&status=running", upstream.request.URL.String())
+	require.Equal(t, "Bearer upstream-secret", upstream.request.Header.Get("Authorization"))
+	require.Equal(t, `{"data":[{"job_id":"vidjob_123"}]}`, string(response.Body))
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 const (
 	SeedanceOfficialTasksEndpoint   = "/api/v3/contents/generations/tasks"
 	SeedanceOfficialUploadsEndpoint = "/api/v3/contents/generations/uploads"
+	SeedancePublicJobsEndpoint      = "/v1/videos/jobs"
+	SeedancePublicUploadsEndpoint   = "/v1/videos/uploads"
 	DefaultSeedanceBaseURL          = "https://api.fflink.top"
 	seedanceUpstreamCreatePath      = "/v1/videos/generations"
 	seedanceUpstreamJobsPath        = "/v1/videos/jobs"
@@ -67,6 +70,47 @@ type SeedanceContentItem struct {
 	Strength string          `json:"strength,omitempty"`
 }
 
+type SeedancePublicCreateRequest struct {
+	Model         string                        `json:"model"`
+	Prompt        string                        `json:"prompt,omitempty"`
+	Resolution    string                        `json:"resolution,omitempty"`
+	Duration      int                           `json:"duration,omitempty"`
+	AspectRatio   string                        `json:"aspect_ratio,omitempty"`
+	Audio         bool                          `json:"audio,omitempty"`
+	PromptEnhance bool                          `json:"prompt_enhance,omitempty"`
+	ImageURL      string                        `json:"image_url,omitempty"`
+	StartFrameURL string                        `json:"start_frame_url,omitempty"`
+	EndFrameURL   string                        `json:"end_frame_url,omitempty"`
+	Guidances     SeedancePublicCreateGuidances `json:"guidances,omitempty"`
+}
+
+type SeedancePublicCreateGuidances struct {
+	ImageReference     []SeedancePublicImageReference `json:"image_reference,omitempty"`
+	VideoReferenceBase []SeedancePublicVideoReference `json:"video_reference_base,omitempty"`
+	AudioReference     []SeedancePublicAudioReference `json:"audio_reference,omitempty"`
+}
+
+type SeedancePublicImageReference struct {
+	Image    SeedancePublicMediaReference `json:"image"`
+	Strength string                       `json:"strength,omitempty"`
+	Order    int                          `json:"order,omitempty"`
+}
+
+type SeedancePublicVideoReference struct {
+	Video SeedancePublicMediaReference `json:"video"`
+	Order int                          `json:"order,omitempty"`
+}
+
+type SeedancePublicAudioReference struct {
+	Audio SeedancePublicMediaReference `json:"audio"`
+	Order int                          `json:"order,omitempty"`
+}
+
+type SeedancePublicMediaReference struct {
+	URL  string `json:"url"`
+	Type string `json:"type,omitempty"`
+}
+
 type seedanceImageInput struct {
 	URL       string `json:"url"`
 	Base64    string `json:"base64,omitempty"`
@@ -82,14 +126,25 @@ type SeedanceRequestInfo struct {
 	DurationSeconds int
 	AspectRatio     string
 	GenerateAudio   bool
+	PromptEnhance   bool
 	StartFrameURL   string
 	EndFrameURL     string
 	References      []SeedanceReferenceImage
+	VideoReferences []SeedanceReferenceVideo
+	AudioReferences []SeedanceReferenceAudio
 }
 
 type SeedanceReferenceImage struct {
 	URL      string
 	Strength string
+}
+
+type SeedanceReferenceVideo struct {
+	URL string
+}
+
+type SeedanceReferenceAudio struct {
+	URL string
 }
 
 func (i *SeedanceRequestInfo) HasInlineImages() bool {
@@ -240,6 +295,116 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	return info, nil
 }
 
+func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, error) {
+	if len(body) == 0 {
+		return nil, errors.New("request body is empty")
+	}
+	var request SeedancePublicCreateRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return nil, fmt.Errorf("invalid request JSON: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(request.Model) == "" {
+		return nil, errors.New("model is required")
+	}
+	if strings.TrimSpace(request.Prompt) == "" {
+		return nil, errors.New("prompt is required")
+	}
+	info := &SeedanceRequestInfo{
+		Model:           strings.TrimSpace(request.Model),
+		Prompt:          strings.TrimSpace(request.Prompt),
+		Resolution:      strings.ToLower(strings.TrimSpace(request.Resolution)),
+		DurationSeconds: request.Duration,
+		AspectRatio:     strings.TrimSpace(request.AspectRatio),
+		GenerateAudio:   request.Audio,
+		PromptEnhance:   request.PromptEnhance,
+		StartFrameURL:   strings.TrimSpace(request.StartFrameURL),
+		EndFrameURL:     strings.TrimSpace(request.EndFrameURL),
+	}
+	if info.Resolution == "" {
+		info.Resolution = VideoBillingResolution720P
+	}
+	switch info.Resolution {
+	case VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P:
+	default:
+		return nil, errors.New("resolution must be one of 480p, 720p, or 1080p")
+	}
+	if info.DurationSeconds == 0 {
+		info.DurationSeconds = VideoBillingDefaultDurationSeconds
+	}
+	if info.DurationSeconds < 4 || info.DurationSeconds > VideoBillingMaxDurationSeconds {
+		return nil, errors.New("duration must be between 4 and 15 seconds")
+	}
+	if err := validateSeedanceAspectRatio(info.AspectRatio); err != nil {
+		return nil, err
+	}
+
+	if imageURL := strings.TrimSpace(request.ImageURL); imageURL != "" {
+		if info.StartFrameURL != "" || info.EndFrameURL != "" || len(request.Guidances.ImageReference) > 0 {
+			return nil, errors.New("image_url cannot be combined with start_frame_url, end_frame_url, or image references")
+		}
+		info.StartFrameURL = imageURL
+	}
+
+	if len(request.Guidances.ImageReference) > 0 {
+		imageRefs := make([]SeedancePublicImageReference, len(request.Guidances.ImageReference))
+		copy(imageRefs, request.Guidances.ImageReference)
+		sort.SliceStable(imageRefs, func(i, j int) bool {
+			if imageRefs[i].Order == imageRefs[j].Order {
+				return i < j
+			}
+			return imageRefs[i].Order < imageRefs[j].Order
+		})
+		for _, item := range imageRefs {
+			url := strings.TrimSpace(item.Image.URL)
+			if url == "" {
+				return nil, errors.New("guidances.image_reference.image.url is required")
+			}
+			switch {
+			case info.StartFrameURL != "" || info.EndFrameURL != "":
+				return nil, errors.New("image references cannot be combined with start_frame_url or end_frame_url")
+			case len(info.References) >= 4:
+				return nil, errors.New("at most 4 reference images are allowed")
+			}
+			info.References = append(info.References, SeedanceReferenceImage{
+				URL:      url,
+				Strength: normalizeSeedanceStrength(item.Strength),
+			})
+		}
+	}
+	for _, item := range request.Guidances.VideoReferenceBase {
+		url := strings.TrimSpace(item.Video.URL)
+		if url == "" {
+			return nil, errors.New("guidances.video_reference_base.video.url is required")
+		}
+		if !isSeedanceHTTPImageURL(url) {
+			return nil, errors.New("video reference URL must be an absolute HTTP(S) URL")
+		}
+		info.VideoReferences = append(info.VideoReferences, SeedanceReferenceVideo{URL: url})
+	}
+	for _, item := range request.Guidances.AudioReference {
+		url := strings.TrimSpace(item.Audio.URL)
+		if url == "" {
+			return nil, errors.New("guidances.audio_reference.audio.url is required")
+		}
+		if !isSeedanceHTTPImageURL(url) {
+			return nil, errors.New("audio reference URL must be an absolute HTTP(S) URL")
+		}
+		info.AudioReferences = append(info.AudioReferences, SeedanceReferenceAudio{URL: url})
+	}
+	if info.EndFrameURL != "" && info.StartFrameURL == "" {
+		return nil, errors.New("a last-frame image requires a first-frame image")
+	}
+	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
+		return nil, errors.New("reference images cannot be combined with first/last frames")
+	}
+	return info, nil
+}
+
 func parseSeedanceImageInput(item SeedanceContentItem) (*seedanceImageInput, error) {
 	if len(item.ImageURL) == 0 || string(item.ImageURL) == "null" {
 		return nil, errors.New("image_url is required for image content")
@@ -355,15 +520,19 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	if i == nil {
 		return nil, errors.New("seedance request info is required")
 	}
+	audioEnabled := i.GenerateAudio || len(i.AudioReferences) > 0
 	body := map[string]any{
 		"model":      strings.TrimSpace(upstreamModel),
 		"prompt":     i.Prompt,
 		"resolution": i.Resolution,
 		"duration":   i.DurationSeconds,
-		"audio":      i.GenerateAudio,
+		"audio":      audioEnabled,
 	}
 	if ratio := strings.TrimSpace(i.AspectRatio); ratio != "" && !strings.EqualFold(ratio, "adaptive") {
 		body["aspect_ratio"] = ratio
+	}
+	if i.PromptEnhance {
+		body["prompt_enhance"] = true
 	}
 	if len(i.References) > 0 {
 		references := make([]map[string]any, 0, len(i.References))
@@ -389,6 +558,37 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
 		}
 		body["image_url"] = i.StartFrameURL
+	}
+	if len(i.VideoReferences) > 0 || len(i.AudioReferences) > 0 {
+		guidances, _ := body["guidances"].(map[string]any)
+		if guidances == nil {
+			guidances = map[string]any{}
+		}
+		if len(i.VideoReferences) > 0 {
+			references := make([]map[string]any, 0, len(i.VideoReferences))
+			for _, reference := range i.VideoReferences {
+				if !isSeedanceHTTPImageURL(reference.URL) {
+					return nil, errors.New("inline/reference video must be uploaded before forwarding")
+				}
+				references = append(references, map[string]any{
+					"video": map[string]any{"url": reference.URL, "type": "UPLOADED"},
+				})
+			}
+			guidances["video_reference_base"] = references
+		}
+		if len(i.AudioReferences) > 0 {
+			references := make([]map[string]any, 0, len(i.AudioReferences))
+			for _, reference := range i.AudioReferences {
+				if !isSeedanceHTTPImageURL(reference.URL) {
+					return nil, errors.New("inline/reference audio must be uploaded before forwarding")
+				}
+				references = append(references, map[string]any{
+					"audio": map[string]any{"url": reference.URL, "type": "UPLOADED"},
+				})
+			}
+			guidances["audio_reference"] = references
+		}
+		body["guidances"] = guidances
 	}
 	return json.Marshal(body)
 }
@@ -455,6 +655,71 @@ func (s *OpenAIGatewayService) ForwardSeedanceContent(
 	rangeHeader string,
 ) (*SeedanceUpstreamResponse, error) {
 	return s.forwardSeedance(ctx, c, account, http.MethodGet, taskID, nil, &rangeHeader)
+}
+
+func (s *OpenAIGatewayService) ForwardSeedanceJobsList(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+) (*SeedanceUpstreamResponse, error) {
+	if account == nil || !account.IsSeedance() || account.Type != AccountTypeAPIKey {
+		return nil, errors.New("Seedance forwarding requires a Seedance API key account")
+	}
+	apiKey := account.GetSeedanceAPIKey()
+	if apiKey == "" {
+		return nil, fmt.Errorf("account %d missing api_key", account.ID)
+	}
+
+	baseURL, err := s.validateUpstreamBaseURL(account.GetSeedanceBaseURL())
+	if err != nil {
+		return nil, fmt.Errorf("invalid base_url: %w", err)
+	}
+	targetURL := buildOpenAIEndpointURL(baseURL, seedanceUpstreamJobsPath)
+	if c != nil && c.Request != nil && strings.TrimSpace(c.Request.URL.RawQuery) != "" {
+		parsedTarget, err := url.Parse(targetURL)
+		if err != nil {
+			return nil, fmt.Errorf("build Seedance upstream request: %w", err)
+		}
+		parsedTarget.RawQuery = c.Request.URL.RawQuery
+		targetURL = parsedTarget.String()
+	}
+	SetActualOpenAIUpstreamEndpoint(c, seedanceUpstreamJobsPath)
+
+	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build Seedance upstream request: %w", err)
+	}
+	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
+	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
+	upstreamReq.Header.Set("Accept", "application/json")
+	if customUA := strings.TrimSpace(account.GetOpenAIUserAgent()); customUA != "" {
+		upstreamReq.Header.Set("User-Agent", customUA)
+	}
+
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, fmt.Errorf("Seedance upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		responseBody := sanitizeSeedanceUpstreamErrorBody(s.readUpstreamErrorBody(resp))
+		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
+		return nil, &SeedanceUpstreamError{StatusCode: resp.StatusCode, Body: []byte(message)}
+	}
+	responseBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return nil, err
+	}
+	return &SeedanceUpstreamResponse{
+		StatusCode:  resp.StatusCode,
+		Header:      resp.Header.Clone(),
+		Body:        responseBody,
+		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
+	}, nil
 }
 
 func (s *OpenAIGatewayService) forwardSeedance(

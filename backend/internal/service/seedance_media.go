@@ -13,6 +13,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -113,10 +114,14 @@ type SeedanceImageUploadInput struct {
 	SizeBytes   int64
 	ContentType string
 	Persistent  bool
+	Filename    string
+	MediaKind   string
 }
 
 type SeedanceImageUpload struct {
 	UploadID    string
+	MediaURL    string
+	MediaType   string
 	ContentType string
 	SizeBytes   int64
 	SHA256      string
@@ -375,6 +380,11 @@ func (s *SeedanceMediaService) CanArchiveOutput(ctx context.Context, contentLeng
 }
 
 func (s *SeedanceMediaService) UploadImage(ctx context.Context, input SeedanceImageUploadInput) (*SeedanceImageUpload, error) {
+	input.MediaKind = "image"
+	return s.UploadMedia(ctx, input)
+}
+
+func (s *SeedanceMediaService) UploadMedia(ctx context.Context, input SeedanceImageUploadInput) (*SeedanceImageUpload, error) {
 	if !validSeedanceMediaOwner(input.Owner) {
 		return nil, infraerrors.BadRequest("invalid_media_owner", "Seedance media owner is invalid")
 	}
@@ -385,10 +395,11 @@ func (s *SeedanceMediaService) UploadImage(ctx context.Context, input SeedanceIm
 		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance managed uploads require Redis")
 	}
 	if input.Body == nil {
-		return nil, infraerrors.BadRequest("image_required", "image file is required")
+		return nil, infraerrors.BadRequest("media_required", "media file is required")
 	}
-	if input.SizeBytes > SeedanceMaxImageBytes {
-		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+	maxBytes := seedanceMaxUploadBytesForKind(s, input.MediaKind)
+	if input.SizeBytes > 0 && input.SizeBytes > maxBytes {
+		return nil, seedanceUploadTooLargeError(input.MediaKind)
 	}
 
 	uploadID := "sdupl_" + strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -396,24 +407,61 @@ func (s *SeedanceMediaService) UploadImage(ctx context.Context, input SeedanceIm
 	if input.Persistent {
 		kind = "staged"
 	}
-	record, err := s.storeImage(ctx, input.Owner, uploadID, kind, input.Body, input.SizeBytes, input.ContentType)
+	record, err := s.storeSeedanceMedia(ctx, input.Owner, uploadID, kind, input.Body, input.SizeBytes, input.ContentType, input.Filename, input.MediaKind)
 	if err != nil {
 		return nil, err
 	}
 	if input.Persistent {
 		if err := s.saveRecord(ctx, seedanceUploadRecordPrefix+uploadID, record, seedanceUploadRecordTTL); err != nil {
 			s.deleteObjectBestEffort(ctx, record.location())
-			return nil, infraerrors.ServiceUnavailable("media_storage_error", "failed to register Seedance image upload").WithCause(err)
+			return nil, infraerrors.ServiceUnavailable("media_storage_error", "failed to register Seedance media upload").WithCause(err)
 		}
+	}
+	mediaType := strings.TrimSpace(input.MediaKind)
+	if mediaType == "" {
+		mediaType = mediaKindFromContentType(record.ContentType)
+	}
+	mediaURL := ""
+	if signed, signErr := s.presignRecord(ctx, record); signErr == nil {
+		mediaURL = signed
 	}
 	return &SeedanceImageUpload{
 		UploadID:    uploadID,
+		MediaURL:    mediaURL,
+		MediaType:   mediaType,
 		ContentType: record.ContentType,
 		SizeBytes:   record.SizeBytes,
 		SHA256:      record.SHA256,
 		ExpiresAt:   record.ExpiresAt,
 		record:      record,
 	}, nil
+}
+
+func mediaKindFromContentType(contentType string) string {
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "image/"):
+		return "image"
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "video/"):
+		return "video"
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "audio/"):
+		return "audio"
+	default:
+		return ""
+	}
+}
+
+func seedanceUploadTooLargeError(mediaKind string) error {
+	if strings.EqualFold(strings.TrimSpace(mediaKind), "image") || strings.TrimSpace(mediaKind) == "" {
+		return infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+	}
+	return infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", "media must not exceed the configured size limit")
+}
+
+func seedanceUploadSizeMismatchError(mediaKind string) error {
+	if strings.EqualFold(strings.TrimSpace(mediaKind), "image") || strings.TrimSpace(mediaKind) == "" {
+		return infraerrors.BadRequest("image_size_mismatch", "image size does not match Content-Length")
+	}
+	return infraerrors.BadRequest("media_size_mismatch", "media size does not match Content-Length")
 }
 
 func (s *SeedanceMediaService) UploadDataURI(ctx context.Context, owner SeedanceMediaOwner, value string, persistent bool) (*SeedanceImageUpload, error) {
@@ -500,6 +548,9 @@ func (s *SeedanceMediaService) materializeImage(ctx context.Context, owner Seeda
 	if err != nil {
 		return "", nil, infraerrors.BadRequest("invalid_image_url", err.Error())
 	}
+	if s.isOwnPersistentSeedanceUploadURL(owner, validated) {
+		return validated, nil, nil
+	}
 	if !s.IsConfigured() {
 		return validated, nil, nil
 	}
@@ -514,6 +565,28 @@ func (s *SeedanceMediaService) materializeImage(ctx context.Context, owner Seeda
 	}
 	location := upload.record.location()
 	return signed, &location, nil
+}
+
+func (s *SeedanceMediaService) isOwnPersistentSeedanceUploadURL(owner SeedanceMediaOwner, source string) bool {
+	if s == nil || s.store == nil || !validSeedanceMediaOwner(owner) {
+		return false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(source))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	bucket := strings.ToLower(strings.TrimSpace(s.store.Bucket()))
+	if bucket == "" || !strings.Contains(host, bucket) {
+		return false
+	}
+	path, err := url.PathUnescape(parsed.EscapedPath())
+	if err != nil {
+		return false
+	}
+	path = strings.TrimLeft(path, "/")
+	marker := fmt.Sprintf("seedance/inputs/staged/%d/%d/sdupl_", owner.UserID, owner.APIKeyID)
+	return strings.Contains(path, marker)
 }
 
 func (s *SeedanceMediaService) OpenManagedUpload(ctx context.Context, owner SeedanceMediaOwner, uploadID, rangeHeader string) (*SeedanceMediaStream, error) {
@@ -659,8 +732,18 @@ func (s *SeedanceMediaService) CaptureAndStoreOutputWithLease(ctx context.Contex
 	return result, nil
 }
 
-func (s *SeedanceMediaService) storeImage(ctx context.Context, owner SeedanceMediaOwner, uploadID, kind string, body io.Reader, sizeHint int64, declaredType string) (seedanceMediaRecord, error) {
-	tmp, err := os.CreateTemp(seedanceTempDirectory(), "image-*")
+func (s *SeedanceMediaService) storeSeedanceMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	uploadID,
+	kind string,
+	body io.Reader,
+	sizeHint int64,
+	declaredType string,
+	filename string,
+	mediaKind string,
+) (seedanceMediaRecord, error) {
+	tmp, err := os.CreateTemp(seedanceTempDirectory(), "media-*")
 	if err != nil {
 		return seedanceMediaRecord{}, err
 	}
@@ -671,19 +754,23 @@ func (s *SeedanceMediaService) storeImage(ctx context.Context, owner SeedanceMed
 	}()
 
 	hasher := sha256.New()
-	written, err := io.Copy(tmp, io.TeeReader(io.LimitReader(body, SeedanceMaxImageBytes+1), hasher))
+	maxBytes := seedanceMaxUploadBytesForKind(s, mediaKind)
+	written, err := io.Copy(tmp, io.TeeReader(io.LimitReader(body, maxBytes+1), hasher))
 	if err != nil {
-		return seedanceMediaRecord{}, fmt.Errorf("read Seedance image: %w", err)
+		return seedanceMediaRecord{}, fmt.Errorf("read Seedance media: %w", err)
 	}
-	if written > SeedanceMaxImageBytes {
-		return seedanceMediaRecord{}, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+	if written > maxBytes {
+		return seedanceMediaRecord{}, seedanceUploadTooLargeError(mediaKind)
 	}
 	if sizeHint > 0 && written != sizeHint {
-		return seedanceMediaRecord{}, infraerrors.BadRequest("image_size_mismatch", "image size does not match Content-Length")
+		return seedanceMediaRecord{}, seedanceUploadSizeMismatchError(mediaKind)
 	}
-	mediaType, extension, err := inspectSeedanceImage(tmp, declaredType)
+	mediaType, extension, err := inspectSeedanceMedia(tmp, declaredType, filename, mediaKind)
 	if err != nil {
 		return seedanceMediaRecord{}, err
+	}
+	if strings.TrimSpace(extension) == "" {
+		extension = "bin"
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return seedanceMediaRecord{}, err
@@ -701,10 +788,10 @@ func (s *SeedanceMediaService) storeImage(ctx context.Context, owner SeedanceMed
 		},
 	})
 	if err != nil {
-		return seedanceMediaRecord{}, infraerrors.ServiceUnavailable("media_storage_error", "failed to store Seedance image").WithCause(err)
+		return seedanceMediaRecord{}, infraerrors.ServiceUnavailable("media_storage_error", "failed to store Seedance media").WithCause(err)
 	}
 	if put == nil {
-		return seedanceMediaRecord{}, infraerrors.ServiceUnavailable("media_storage_error", "failed to store Seedance image")
+		return seedanceMediaRecord{}, infraerrors.ServiceUnavailable("media_storage_error", "failed to store Seedance media")
 	}
 	now := s.currentTime()
 	return seedanceMediaRecord{
@@ -720,6 +807,95 @@ func (s *SeedanceMediaService) storeImage(ctx context.Context, owner SeedanceMed
 		SHA256:          hex.EncodeToString(hasher.Sum(nil)),
 		ExpiresAt:       now.Add(seedanceUploadRecordTTL),
 	}, nil
+}
+
+func seedanceMaxUploadBytesForKind(s *SeedanceMediaService, mediaKind string) int64 {
+	switch strings.ToLower(strings.TrimSpace(mediaKind)) {
+	case "image", "":
+		return SeedanceMaxImageBytes
+	default:
+		if s != nil {
+			_, maxVideoBytes := s.runtimeStorageLimits(context.Background())
+			if maxVideoBytes > 0 {
+				return maxVideoBytes
+			}
+		}
+		return seedanceDefaultVideoBytes
+	}
+}
+
+func inspectSeedanceMedia(file *os.File, declaredType, filename, mediaKind string) (string, string, error) {
+	switch strings.ToLower(strings.TrimSpace(mediaKind)) {
+	case "", "image":
+		return inspectSeedanceImage(file, declaredType)
+	case "video":
+		return normalizeSeedanceGenericMedia(file, declaredType, filename, "video")
+	case "audio":
+		return normalizeSeedanceGenericMedia(file, declaredType, filename, "audio")
+	default:
+		return "", "", infraerrors.BadRequest("invalid_media_type", "media kind must be image, video, or audio")
+	}
+}
+
+func normalizeSeedanceGenericMedia(file *os.File, declaredType, filename, family string) (string, string, error) {
+	if file == nil {
+		return "", "", infraerrors.BadRequest("invalid_media", "media file is required")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", "", err
+	}
+	header := make([]byte, 512)
+	n, err := file.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", "", fmt.Errorf("inspect Seedance media: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", "", err
+	}
+	detected := strings.ToLower(strings.TrimSpace(http.DetectContentType(header[:n])))
+	declared := strings.ToLower(strings.TrimSpace(declaredType))
+	if declared == "" {
+		declared = detected
+	}
+	switch family {
+	case "video":
+		if strings.HasPrefix(declared, "video/") || declared == "application/octet-stream" || strings.HasPrefix(detected, "video/") {
+			mediaType := declared
+			if !strings.HasPrefix(mediaType, "video/") {
+				mediaType = detected
+			}
+			extension := mediaExtensionForContentType(mediaType, filename, "mp4")
+			return mediaType, extension, nil
+		}
+	case "audio":
+		if strings.HasPrefix(declared, "audio/") || declared == "application/octet-stream" || strings.HasPrefix(detected, "audio/") {
+			mediaType := declared
+			if !strings.HasPrefix(mediaType, "audio/") {
+				mediaType = detected
+			}
+			extension := mediaExtensionForContentType(mediaType, filename, "mp3")
+			return mediaType, extension, nil
+		}
+	}
+	return "", "", infraerrors.BadRequest("invalid_media_type", fmt.Sprintf("media content type must be a %s type", family))
+}
+
+func mediaExtensionForContentType(contentType, filename, fallback string) string {
+	if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(strings.TrimSpace(filename))), "."); ext != "" {
+		return ext
+	}
+	if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+		for _, ext := range exts {
+			trimmed := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(ext)), ".")
+			if trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	if ext := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fallback)), "."); ext != "" {
+		return ext
+	}
+	return "bin"
 }
 
 func (s *SeedanceMediaService) fetchAndStoreImage(ctx context.Context, owner SeedanceMediaOwner, source string) (*SeedanceImageUpload, error) {
@@ -1025,8 +1201,15 @@ func managedSeedanceUploadID(value string) string {
 	if err != nil || parsed.Host == "" {
 		return ""
 	}
-	prefix := SeedanceOfficialUploadsEndpoint + "/"
-	if !strings.HasPrefix(parsed.EscapedPath(), prefix) {
+	prefixes := []string{SeedanceOfficialUploadsEndpoint + "/", SeedancePublicUploadsEndpoint + "/"}
+	prefix := ""
+	for _, candidate := range prefixes {
+		if strings.HasPrefix(parsed.EscapedPath(), candidate) {
+			prefix = candidate
+			break
+		}
+	}
+	if prefix == "" {
 		return ""
 	}
 	id, err := url.PathUnescape(strings.TrimPrefix(parsed.EscapedPath(), prefix))
