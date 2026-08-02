@@ -3,7 +3,7 @@
   "info": {
     "title": "TKCreazy Seedance v1 视频接口补充（网关实测版）",
     "version": "2026-08-03-tested",
-    "description": "这是可直接导入 Apifox 的 Seedance v1 视频接口补充文档。本文档只写已经通过 TKCreazy 网关端到端测试过的能力：上传参考图片、上传参考音频、单图生成、多图生成、图片+音频引用生成、查询任务、下载 MP4。所有示例均以 https://tkcreazy.top/v1 为调用入口；不要把模型平台内部地址、内部账号、内部密钥或存储签名地址写入用户文档。\n\n实测口径：2026-08-02/2026-08-03 使用本站网关创建本地测试账号、绑定视频生成分组和 API Key 后完成 E2E 测试；不是绕过网关直连模型平台测试。实测请求使用 model=seedance-2.0-fast、resolution=480p、duration=5、aspect_ratio=1:1。单图、多图、图片+音频三类任务均完成，任务 content 均可下载为 video/mp4；音频引用结果包含真实音轨，且主频与参考音频一致。\n\n保守原则：本文档不包含未在本轮通过网关测过的 video_reference_base、任务列表、删除任务、JSON/Base64 素材上传、1080p 或其它模型组合。需要公开这些能力时，应先通过 TKCreazy 网关重新 E2E 测试，再另行补充文档。"
+    "description": "这是可直接导入 Apifox 的 Seedance v1 视频接口补充文档。本文档只写已经通过 TKCreazy 网关端到端测试过的能力：上传参考图片、上传参考音频、单图生成、多图生成、图片+音频引用生成、查询任务、下载 MP4。所有示例均以 https://tkcreazy.top/v1 为调用入口；不要把模型平台内部地址、内部账号、内部密钥或存储签名地址写入用户文档。\n\n实测口径：2026-08-02/2026-08-03 使用本站网关完成 E2E 测试；不是绕过网关直连模型平台测试。实测请求使用 model=seedance-2.0-fast、resolution=480p、duration=5、aspect_ratio=1:1。单图、多图、图片+音频三类任务均完成，任务 content 均可下载为 video/mp4；图片+音频任务的结果包含真实音轨。音频参考能力在真实网关测试中表现为可提交、可生成、有音轨，但声音与参考音频的相似度不稳定，因此本文档不承诺音频语义、频率或节奏一定严格跟随参考音频。\n\n保守原则：本文档不包含未在本轮通过网关测过的 video_reference_base、任务列表、删除任务、JSON/Base64 素材上传、1080p 或其它模型组合。需要公开这些能力时，应先通过 TKCreazy 网关重新 E2E 测试，再另行补充文档。"
   },
   "servers": [
     {
@@ -124,7 +124,7 @@
           "Seedance 视频生成（已测）"
         ],
         "summary": "创建 Seedance 视频生成任务（已测：单图、多图、图片+音频）",
-        "description": "创建异步视频生成任务，成功后返回 job_id。客户端应继续调用 GET /videos/jobs/{job_id} 查询状态；任务 completed 后调用 GET /videos/jobs/{job_id}/content 下载 MP4。\n\n本文档中的三个请求示例均已通过 TKCreazy 网关实测：\n1. 单图：使用 image_url。\n2. 多图：使用 guidances.image_reference，最多写入本轮已测的 2 张图片示例。\n3. 图片+音频：同时使用 guidances.image_reference 和 guidances.audio_reference。\n\n音频引用注意：audio_reference 必须和 image_reference 一起使用；audio_reference 项不要写 order 字段。本轮已测音频引用结果包含真实音轨，并保留参考音频的核心频率特征。\n\n已测组合：model=seedance-2.0-fast、resolution=480p、duration=5、aspect_ratio=1:1。其它模型、分辨率、时长、比例如果要写入公开文档，应先通过 TKCreazy 网关单独测试。",
+        "description": "创建异步视频生成任务，成功后返回 job_id。客户端应继续调用 GET /videos/jobs/{job_id} 查询状态；任务 completed 后调用 GET /videos/jobs/{job_id}/content 下载 MP4。\n\n本文档中的三个请求示例均已通过 TKCreazy 网关实测：\n1. 单图：使用 image_url。\n2. 多图：使用 guidances.image_reference，最多写入本轮已测的 2 张图片示例。\n3. 图片+音频：同时使用 guidances.image_reference 和 guidances.audio_reference。\n\n音频引用注意：audio_reference 必须和 image_reference 一起使用；audio_reference 项不要写 order 字段。本轮真实网关测试确认图片+音频请求可创建、可完成，下载结果含 AAC 音频轨；但声音与参考音频的相似度不稳定，不应在客户文档中承诺会严格复刻或跟随参考音频。\n\n已测组合：model=seedance-2.0-fast、resolution=480p、duration=5、aspect_ratio=1:1。其它模型、分辨率、时长、比例如果要写入公开文档，应先通过 TKCreazy 网关单独测试。",
         "operationId": "createSeedanceTestedVideoJob",
         "security": [
           {
