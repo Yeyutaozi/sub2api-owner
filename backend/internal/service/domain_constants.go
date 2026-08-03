@@ -45,6 +45,7 @@ const (
 	PlatformGrok        = domain.PlatformGrok
 	PlatformGLM         = domain.PlatformGLM
 	PlatformSeedance    = domain.PlatformSeedance
+	PlatformLTX         = domain.PlatformLTX
 	PlatformComposite   = domain.PlatformComposite
 )
 
@@ -59,6 +60,11 @@ var AllowedQuotaPlatforms = []string{
 	PlatformGrok,
 	PlatformGLM,
 	PlatformSeedance,
+	PlatformLTX,
+}
+
+func IsFFLinkVideoPlatform(platform string) bool {
+	return platform == PlatformSeedance || platform == PlatformLTX
 }
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。

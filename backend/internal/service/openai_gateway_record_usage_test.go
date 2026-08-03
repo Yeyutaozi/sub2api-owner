@@ -233,9 +233,20 @@ func (s *openAIRecordUsageAPIKeyQuotaStub) UpdateRateLimitUsage(ctx context.Cont
 type openAIUserGroupRateRepoStub struct {
 	UserGroupRateRepository
 
-	rate  *float64
-	err   error
-	calls int
+	rate            *float64
+	err             error
+	calls           int
+	videoPrices     VideoModelPrices
+	videoPricesErr  error
+	videoPriceCalls int
+}
+
+func (s *openAIUserGroupRateRepoStub) GetVideoModelPricesByUserAndGroup(ctx context.Context, userID, groupID int64) (VideoModelPrices, error) {
+	s.videoPriceCalls++
+	if s.videoPricesErr != nil {
+		return nil, s.videoPricesErr
+	}
+	return cloneVideoModelPrices(s.videoPrices), nil
 }
 
 func (s *openAIUserGroupRateRepoStub) GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {

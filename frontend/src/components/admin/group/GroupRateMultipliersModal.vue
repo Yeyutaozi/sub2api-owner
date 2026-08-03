@@ -1,5 +1,10 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.groups.rateMultipliersTitle')" width="wide" @close="handleClose">
+  <BaseDialog
+    :show="show"
+    :title="isVideoPricingGroup ? t('admin.groups.userPricingTitle') : t('admin.groups.rateMultipliersTitle')"
+    width="wide"
+    @close="handleClose"
+  >
     <div v-if="group" class="space-y-4">
       <!-- 分组信息 -->
       <div class="flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 px-4 py-2.5 text-sm dark:bg-dark-700">
@@ -15,11 +20,18 @@
         </span>
       </div>
 
+      <div
+        v-if="isVideoPricingGroup"
+        class="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-300"
+      >
+        {{ t('admin.groups.videoPriceOverrides.priorityHint') }}
+      </div>
+
       <!-- 操作区 -->
       <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
         <!-- 添加用户 -->
         <h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-          {{ t('admin.groups.addUserRate') }}
+          {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.addUser') : t('admin.groups.addUserRate') }}
         </h4>
         <div class="flex items-end gap-2">
           <div class="relative flex-1">
@@ -49,7 +61,10 @@
               </button>
             </div>
           </div>
-          <div class="w-24">
+          <div class="w-28">
+            <label v-if="isVideoPricingGroup" class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.groups.videoPriceOverrides.optionalRate') }}
+            </label>
             <input
               v-model.number="newRate"
               type="number"
@@ -63,7 +78,7 @@
           <button
             type="button"
             class="btn btn-primary shrink-0"
-            :disabled="!selectedUser || !newRate"
+            :disabled="!selectedUser || (!isVideoPricingGroup && !newRate)"
             @click="handleAddLocal"
           >
             {{ t('common.add') }}
@@ -116,11 +131,11 @@
       <!-- 已设置的用户列表 -->
       <div v-else>
         <h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-          {{ t('admin.groups.rateMultipliers') }} ({{ localEntries.length }})
+          {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.configuredUsers') : t('admin.groups.rateMultipliers') }} ({{ localEntries.length }})
         </h4>
 
         <div v-if="localEntries.length === 0" class="py-6 text-center text-sm text-gray-400 dark:text-gray-500">
-          {{ t('admin.groups.noRateMultipliers') }}
+          {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.empty') : t('admin.groups.noRateMultipliers') }}
         </div>
 
         <div v-else>
@@ -137,15 +152,15 @@
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userStatus') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.rateMultiplier') }}</th>
                     <th v-if="showFinalRate" class="px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.finalRate') }}</th>
+                    <th v-if="isVideoPricingGroup" class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {{ t('admin.groups.videoPriceOverrides.column') }}
+                    </th>
                     <th class="w-10 px-2 py-2"></th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-dark-600">
-                  <tr
-                    v-for="entry in paginatedLocalEntries"
-                    :key="entry.user_id"
-                    class="hover:bg-gray-50 dark:hover:bg-dark-700/50"
-                  >
+                  <template v-for="entry in paginatedLocalEntries" :key="entry.user_id">
+                  <tr class="hover:bg-gray-50 dark:hover:bg-dark-700/50">
                     <td class="px-3 py-2 text-gray-600 dark:text-gray-400">{{ entry.user_email }}</td>
                     <td class="whitespace-nowrap px-3 py-2 text-gray-400 dark:text-gray-500">{{ entry.user_id }}</td>
                     <td class="whitespace-nowrap px-3 py-2 text-gray-900 dark:text-white">{{ entry.user_name || '-' }}</td>
@@ -177,6 +192,18 @@
                     <td v-if="showFinalRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
                       {{ computeFinalRate(entry.rate_multiplier) }}
                     </td>
+                    <td v-if="isVideoPricingGroup" class="whitespace-nowrap px-3 py-2">
+                      <button
+                        type="button"
+                        class="rounded px-2 py-1 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20"
+                        @click="toggleVideoPrices(entry.user_id)"
+                      >
+                        {{ t('admin.groups.videoPriceOverrides.configure') }}
+                        <span v-if="countVideoPriceOverrides(entry) > 0" class="ml-1 text-gray-400">
+                          ({{ countVideoPriceOverrides(entry) }})
+                        </span>
+                      </button>
+                    </td>
                     <td class="px-2 py-2">
                       <button
                         type="button"
@@ -187,6 +214,62 @@
                       </button>
                     </td>
                   </tr>
+                  <tr v-if="isVideoPricingGroup && expandedVideoPriceUserID === entry.user_id">
+                    <td :colspan="showFinalRate ? 9 : 8" class="bg-gray-50 px-4 py-3 dark:bg-dark-800/70">
+                      <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {{ t('admin.groups.videoPriceOverrides.userTitle', { user: entry.user_email }) }}
+                          </div>
+                          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {{ t('admin.groups.videoPriceOverrides.inheritHint') }}
+                          </p>
+                        </div>
+                        <button
+                          v-if="countVideoPriceOverrides(entry) > 0"
+                          type="button"
+                          class="rounded px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                          @click="clearEntryVideoPrices(entry)"
+                        >
+                          {{ t('admin.groups.videoPriceOverrides.clearUser') }}
+                        </button>
+                      </div>
+                      <div class="divide-y divide-gray-200 border-y border-gray-200 dark:divide-dark-600 dark:border-dark-600">
+                        <div
+                          v-for="model in availableVideoModels"
+                          :key="model"
+                          class="grid gap-3 py-3 lg:grid-cols-[minmax(180px,0.8fr)_minmax(0,2fr)] lg:items-end"
+                        >
+                          <div class="font-mono text-xs font-medium text-gray-700 dark:text-gray-300">
+                            {{ model }}
+                          </div>
+                          <div class="grid gap-2" :style="videoPriceGridStyle(model)">
+                            <label
+                              v-for="resolution in supportedVideoResolutions(model)"
+                              :key="resolution"
+                              class="block"
+                            >
+                              <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+                                {{ resolution }} ($/s)
+                              </span>
+                              <input
+                                type="number"
+                                inputmode="decimal"
+                                step="0.0001"
+                                min="0"
+                                autocomplete="off"
+                                class="hide-spinner input w-full"
+                                :value="getEntryVideoPrice(entry, model, resolution)"
+                                :placeholder="groupVideoPricePlaceholder(model, resolution)"
+                                @change="setEntryVideoPrice(entry, model, resolution, ($event.target as HTMLInputElement).value)"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  </template>
                 </tbody>
               </table>
             </div>
@@ -244,11 +327,16 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { GroupRateMultiplierEntry } from '@/api/admin/groups'
-import type { AdminGroup, AdminUser } from '@/types'
+import type { AdminGroup, AdminUser, VideoModelPrices, VideoModelPrice } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import {
+  videoModelsForPricingPlatform,
+  supportedResolutionsForVideoModel,
+  type VideoModelPriceResolution,
+} from '@/views/admin/groupsVideoModelPricing'
 
 interface LocalEntry extends GroupRateMultiplierEntry {}
 
@@ -277,6 +365,7 @@ const newRate = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const batchFactor = ref<number | null>(null)
+const expandedVideoPriceUserID = ref<number | null>(null)
 
 let searchTimeout: ReturnType<typeof setTimeout>
 
@@ -288,6 +377,54 @@ const platformColorClass = computed(() => {
     default: return 'text-blue-700 dark:text-blue-400'
   }
 })
+
+const isVideoPricingGroup = computed(() =>
+  props.group?.platform === 'seedance' || props.group?.platform === 'ltx'
+)
+
+const availableVideoModels = computed(() => [
+  ...new Set([
+    ...videoModelsForPricingPlatform(props.group?.platform ?? 'seedance'),
+    ...Object.keys(props.group?.video_model_prices ?? {}),
+  ]),
+])
+
+const supportedVideoResolutions = (model: string): readonly VideoModelPriceResolution[] =>
+  supportedResolutionsForVideoModel(props.group?.platform ?? 'seedance', model)
+
+const videoPriceGridStyle = (model: string) => ({
+  gridTemplateColumns: `repeat(${supportedVideoResolutions(model).length}, minmax(0, 1fr))`,
+})
+
+const cloneVideoModelPrices = (prices: VideoModelPrices | undefined): VideoModelPrices => {
+  const copy: VideoModelPrices = {}
+  for (const [model, value] of Object.entries(prices ?? {})) {
+    copy[model] = { ...value }
+  }
+  return copy
+}
+
+const hasVideoPrices = (entry: GroupRateMultiplierEntry): boolean =>
+  Object.values(entry.video_model_prices ?? {}).some((price) =>
+    Object.values(price ?? {}).some((value) => value != null),
+  )
+
+const videoPricesFingerprint = (prices: VideoModelPrices | undefined): string =>
+  JSON.stringify(
+    Object.keys(prices ?? {})
+      .sort()
+      .reduce<Record<string, VideoModelPrice>>((result, model) => {
+        const price = prices?.[model] ?? {}
+        result[model] = Object.keys(price)
+          .sort()
+          .reduce<VideoModelPrice>((card, resolution) => {
+            const value = price[resolution as keyof VideoModelPrice]
+            if (value != null) card[resolution as keyof VideoModelPrice] = value
+            return card
+          }, {})
+        return result
+      }, {}),
+  )
 
 // 是否显示"最终倍率"预览列
 const showFinalRate = computed(() => {
@@ -304,8 +441,13 @@ const computeFinalRate = (rate: number | null | undefined) => {
 // 检测是否有未保存的修改
 const isDirty = computed(() => {
   if (localEntries.value.length !== serverEntries.value.length) return true
-  const serverMap = new Map(serverEntries.value.map(e => [e.user_id, e.rate_multiplier ?? null]))
-  return localEntries.value.some(e => serverMap.get(e.user_id) !== (e.rate_multiplier ?? null))
+  const serverMap = new Map(serverEntries.value.map(e => [e.user_id, e]))
+  return localEntries.value.some((entry) => {
+    const serverEntry = serverMap.get(entry.user_id)
+    return !serverEntry
+      || (serverEntry.rate_multiplier ?? null) !== (entry.rate_multiplier ?? null)
+      || videoPricesFingerprint(serverEntry.video_model_prices) !== videoPricesFingerprint(entry.video_model_prices)
+  })
 })
 
 const paginatedLocalEntries = computed(() => {
@@ -314,7 +456,10 @@ const paginatedLocalEntries = computed(() => {
 })
 
 const cloneEntries = (entries: GroupRateMultiplierEntry[]): LocalEntry[] => {
-  return entries.map(e => ({ ...e }))
+  return entries.map(e => ({
+    ...e,
+    video_model_prices: cloneVideoModelPrices(e.video_model_prices),
+  }))
 }
 
 const loadEntries = async () => {
@@ -322,8 +467,10 @@ const loadEntries = async () => {
   loading.value = true
   try {
     const raw = await adminAPI.groups.getGroupRateMultipliers(props.group.id)
-    // 仅显示已设置 rate_multiplier 的条目；rpm_override 在另一个弹窗管理，保留不动
-    serverEntries.value = raw.filter(e => e.rate_multiplier != null)
+    // RPM 在另一个弹窗管理；视频分组还要保留只设置了专属视频单价的用户。
+    serverEntries.value = raw.filter(e =>
+      e.rate_multiplier != null || (isVideoPricingGroup.value && hasVideoPrices(e)),
+    )
     localEntries.value = cloneEntries(serverEntries.value)
     adjustPage()
   } catch (error) {
@@ -349,6 +496,7 @@ watch(() => props.show, (val) => {
     searchResults.value = []
     selectedUser.value = null
     newRate.value = null
+    expandedVideoPriceUserID.value = null
     loadEntries()
   }
 })
@@ -386,17 +534,19 @@ const selectUser = (user: AdminUser) => {
 
 // 本地添加（或覆盖已有用户）
 const handleAddLocal = () => {
-  if (!selectedUser.value || !newRate.value) return
+  if (!selectedUser.value || (!isVideoPricingGroup.value && !newRate.value)) return
   const user = selectedUser.value
   const idx = localEntries.value.findIndex(e => e.user_id === user.id)
+  const existing = idx >= 0 ? localEntries.value[idx] : null
   const entry: LocalEntry = {
     user_id: user.id,
     user_name: user.username || '',
     user_email: user.email,
     user_notes: user.notes || '',
     user_status: user.status || 'active',
-    rate_multiplier: newRate.value,
-    rpm_override: null
+    rate_multiplier: newRate.value ?? existing?.rate_multiplier ?? null,
+    rpm_override: existing?.rpm_override ?? null,
+    video_model_prices: cloneVideoModelPrices(existing?.video_model_prices),
   }
   if (idx >= 0) {
     localEntries.value[idx] = entry
@@ -406,6 +556,7 @@ const handleAddLocal = () => {
   searchQuery.value = ''
   selectedUser.value = null
   newRate.value = null
+  if (isVideoPricingGroup.value) expandedVideoPriceUserID.value = user.id
   adjustPage()
 }
 
@@ -425,7 +576,62 @@ const updateLocalRate = (userId: number, value: string) => {
 // 本地删除
 const removeLocal = (userId: number) => {
   localEntries.value = localEntries.value.filter(e => e.user_id !== userId)
+  if (expandedVideoPriceUserID.value === userId) expandedVideoPriceUserID.value = null
   adjustPage()
+}
+
+const toggleVideoPrices = (userId: number) => {
+  expandedVideoPriceUserID.value = expandedVideoPriceUserID.value === userId ? null : userId
+}
+
+const countVideoPriceOverrides = (entry: GroupRateMultiplierEntry): number =>
+  Object.values(entry.video_model_prices ?? {}).reduce(
+    (count, price) => count + Object.values(price ?? {}).filter(value => value != null).length,
+    0,
+  )
+
+const getEntryVideoPrice = (
+  entry: GroupRateMultiplierEntry,
+  model: string,
+  resolution: VideoModelPriceResolution,
+): number | '' => entry.video_model_prices?.[model]?.[resolution] ?? ''
+
+const groupVideoPricePlaceholder = (
+  model: string,
+  resolution: VideoModelPriceResolution,
+): string => {
+  const groupPrice = props.group?.video_model_prices?.[model]?.[resolution]
+  return groupPrice == null
+    ? t('admin.groups.videoPriceOverrides.notConfigured')
+    : t('admin.groups.videoPriceOverrides.inheritPrice', { price: groupPrice })
+}
+
+const setEntryVideoPrice = (
+  entry: LocalEntry,
+  model: string,
+  resolution: VideoModelPriceResolution,
+  rawValue: string,
+) => {
+  const value = rawValue.trim()
+  entry.video_model_prices ??= {}
+  entry.video_model_prices[model] ??= {}
+  if (value === '') {
+    delete entry.video_model_prices[model][resolution]
+    if (Object.values(entry.video_model_prices[model]).every(item => item == null)) {
+      delete entry.video_model_prices[model]
+    }
+    return
+  }
+  const price = Number(value)
+  if (!Number.isFinite(price) || price < 0) {
+    appStore.showError(t('admin.groups.videoPriceOverrides.invalidPrice'))
+    return
+  }
+  entry.video_model_prices[model][resolution] = price
+}
+
+const clearEntryVideoPrices = (entry: LocalEntry) => {
+  entry.video_model_prices = {}
 }
 
 // 批量乘数应用到本地
@@ -448,10 +654,11 @@ const clearAllLocal = () => {
 const handleCancel = () => {
   localEntries.value = cloneEntries(serverEntries.value)
   batchFactor.value = null
+  expandedVideoPriceUserID.value = null
   adjustPage()
 }
 
-// 保存：一次性提交所有数据（只提交 rate_multiplier；rpm_override 由独立弹窗管理）
+// 保存倍率和专属视频单价；RPM override 由独立弹窗管理。
 const handleSave = async () => {
   if (!props.group) return
   saving.value = true
@@ -462,13 +669,25 @@ const handleSave = async () => {
         user_id: e.user_id,
         rate_multiplier: e.rate_multiplier as number
       }))
-    await adminAPI.groups.batchSetGroupRateMultipliers(props.group.id, entries)
-    appStore.showSuccess(t('admin.groups.rateSaved'))
+    const requests: Promise<unknown>[] = [
+      adminAPI.groups.batchSetGroupRateMultipliers(props.group.id, entries),
+    ]
+    if (isVideoPricingGroup.value) {
+      const videoEntries = localEntries.value
+        .filter(hasVideoPrices)
+        .map(e => ({
+          user_id: e.user_id,
+          video_model_prices: cloneVideoModelPrices(e.video_model_prices),
+        }))
+      requests.push(adminAPI.groups.batchSetGroupVideoModelPrices(props.group.id, videoEntries))
+    }
+    await Promise.all(requests)
+    appStore.showSuccess(t(isVideoPricingGroup.value ? 'admin.groups.userPricingSaved' : 'admin.groups.rateSaved'))
     emit('success')
     emit('close')
   } catch (error) {
     appStore.showError(t('admin.groups.failedToSave'))
-    console.error('Error saving rate multipliers:', error)
+    console.error('Error saving per-user billing:', error)
   } finally {
     saving.value = false
   }
@@ -479,6 +698,7 @@ const handleClose = () => {
   if (isDirty.value) {
     localEntries.value = cloneEntries(serverEntries.value)
   }
+  expandedVideoPriceUserID.value = null
   emit('close')
 }
 

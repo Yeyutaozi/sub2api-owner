@@ -36,15 +36,15 @@ var seedanceTaskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255
 var seedanceSensitiveQueryParamPattern = regexp.MustCompile(`(?i)((?:[?&]|\\u0026)(?:key|client_secret|access_token|refresh_token|token|sig|signature|credential|policy|ossaccesskeyid|x-amz-[a-z0-9-]+|x-goog-[a-z0-9-]+|q-[a-z0-9-]+|x-oss-[a-z0-9-]+)=)[^&"'\s\\},]+`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
-	if platform != PlatformSeedance {
+	if !IsFFLinkVideoPlatform(platform) {
 		return nil
 	}
 	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("SEEDANCE_ACCOUNT_TYPE_INVALID", "Seedance accounts must use the apikey account type")
+		return infraerrors.BadRequest("FFLINK_VIDEO_ACCOUNT_TYPE_INVALID", "FFLink video accounts must use the apikey account type")
 	}
 	apiKey, _ := credentials["api_key"].(string)
 	if strings.TrimSpace(apiKey) == "" {
-		return infraerrors.BadRequest("SEEDANCE_API_KEY_REQUIRED", "Seedance accounts require an upstream API key")
+		return infraerrors.BadRequest("FFLINK_VIDEO_API_KEY_REQUIRED", "FFLink video accounts require an upstream API key")
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ type SeedancePublicCreateRequest struct {
 	Duration      int                           `json:"duration,omitempty"`
 	AspectRatio   string                        `json:"aspect_ratio,omitempty"`
 	Audio         bool                          `json:"audio,omitempty"`
-	PromptEnhance bool                          `json:"prompt_enhance,omitempty"`
+	PromptEnhance json.RawMessage               `json:"prompt_enhance,omitempty"`
 	ImageURL      string                        `json:"image_url,omitempty"`
 	StartFrameURL string                        `json:"start_frame_url,omitempty"`
 	EndFrameURL   string                        `json:"end_frame_url,omitempty"`
@@ -126,7 +126,7 @@ type SeedanceRequestInfo struct {
 	DurationSeconds int
 	AspectRatio     string
 	GenerateAudio   bool
-	PromptEnhance   bool
+	PromptEnhance   any
 	StartFrameURL   string
 	EndFrameURL     string
 	References      []SeedanceReferenceImage
@@ -292,6 +292,9 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
+	if err := validateFFLinkVideoRequestInfo(info); err != nil {
+		return nil, err
+	}
 	return info, nil
 }
 
@@ -321,26 +324,19 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		DurationSeconds: request.Duration,
 		AspectRatio:     strings.TrimSpace(request.AspectRatio),
 		GenerateAudio:   request.Audio,
-		PromptEnhance:   request.PromptEnhance,
 		StartFrameURL:   strings.TrimSpace(request.StartFrameURL),
 		EndFrameURL:     strings.TrimSpace(request.EndFrameURL),
 	}
-	if info.Resolution == "" {
-		info.Resolution = VideoBillingResolution720P
-	}
-	switch info.Resolution {
-	case VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P:
-	default:
-		return nil, errors.New("resolution must be one of 480p, 720p, or 1080p")
-	}
-	if info.DurationSeconds == 0 {
-		info.DurationSeconds = VideoBillingDefaultDurationSeconds
-	}
-	if info.DurationSeconds < 4 || info.DurationSeconds > VideoBillingMaxDurationSeconds {
-		return nil, errors.New("duration must be between 4 and 15 seconds")
-	}
-	if err := validateSeedanceAspectRatio(info.AspectRatio); err != nil {
-		return nil, err
+	if len(request.PromptEnhance) > 0 && string(request.PromptEnhance) != "null" {
+		var promptEnhance any
+		if err := json.Unmarshal(request.PromptEnhance, &promptEnhance); err != nil {
+			return nil, errors.New("prompt_enhance must be a boolean or string")
+		}
+		normalized, err := normalizeFFLinkPromptEnhance(promptEnhance, info.Model)
+		if err != nil {
+			return nil, err
+		}
+		info.PromptEnhance = normalized
 	}
 
 	if imageURL := strings.TrimSpace(request.ImageURL); imageURL != "" {
@@ -401,6 +397,9 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 	}
 	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
+	}
+	if err := validateFFLinkVideoRequestInfo(info); err != nil {
+		return nil, err
 	}
 	return info, nil
 }
@@ -531,8 +530,8 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	if ratio := strings.TrimSpace(i.AspectRatio); ratio != "" && !strings.EqualFold(ratio, "adaptive") {
 		body["aspect_ratio"] = ratio
 	}
-	if i.PromptEnhance {
-		body["prompt_enhance"] = true
+	if i.PromptEnhance != nil {
+		body["prompt_enhance"] = i.PromptEnhance
 	}
 	if len(i.References) > 0 {
 		references := make([]map[string]any, 0, len(i.References))
@@ -557,7 +556,11 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 		if !isSeedanceHTTPImageURL(i.StartFrameURL) {
 			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
 		}
-		body["image_url"] = i.StartFrameURL
+		if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && profile.Platform == PlatformLTX {
+			body["start_frame_url"] = i.StartFrameURL
+		} else {
+			body["image_url"] = i.StartFrameURL
+		}
 	}
 	if len(i.VideoReferences) > 0 || len(i.AudioReferences) > 0 {
 		guidances, _ := body["guidances"].(map[string]any)
@@ -662,8 +665,8 @@ func (s *OpenAIGatewayService) ForwardSeedanceJobsList(
 	c *gin.Context,
 	account *Account,
 ) (*SeedanceUpstreamResponse, error) {
-	if account == nil || !account.IsSeedance() || account.Type != AccountTypeAPIKey {
-		return nil, errors.New("Seedance forwarding requires a Seedance API key account")
+	if account == nil || !account.IsFFLinkVideo() || account.Type != AccountTypeAPIKey {
+		return nil, errors.New("FFLink video forwarding requires a compatible API key account")
 	}
 	apiKey := account.GetSeedanceAPIKey()
 	if apiKey == "" {
@@ -731,8 +734,8 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	requestInfo *SeedanceRequestInfo,
 	contentRangeOverride *string,
 ) (*SeedanceUpstreamResponse, error) {
-	if account == nil || !account.IsSeedance() || account.Type != AccountTypeAPIKey {
-		return nil, errors.New("Seedance forwarding requires a Seedance API key account")
+	if account == nil || !account.IsFFLinkVideo() || account.Type != AccountTypeAPIKey {
+		return nil, errors.New("FFLink video forwarding requires a compatible API key account")
 	}
 	apiKey := account.GetSeedanceAPIKey()
 	if apiKey == "" {

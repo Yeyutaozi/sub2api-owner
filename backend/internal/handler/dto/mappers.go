@@ -170,7 +170,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 
 func groupFromServiceBase(g *service.Group) Group {
 	var videoModelPrices *service.VideoModelPrices
-	if g.Platform == service.PlatformSeedance {
+	if service.IsFFLinkVideoPlatform(g.Platform) {
 		prices := g.VideoModelPrices
 		if prices == nil {
 			prices = service.VideoModelPrices{}

@@ -1,81 +1,98 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "TKCreazy Seedance 视频生成 API",
-    "version": "1.4.2",
-    "description": "TKCreazy 对外提供的 Seedance 异步视频生成接口。本文档只包含 6 个 Seedance 操作：上传参考图片、读取已上传图片、创建任务、查询任务、取消任务和下载视频，不包含 OpenAI、Grok、Claude 或 Gemini 接口。所有新增媒体行为均限制在 Seedance 平台及 /api/v3/contents/generations 路径内。\n\n所有请求都使用本站 API Key 鉴权，支持 Authorization: Bearer、x-api-key 或 x-goog-api-key 三种请求头；不要把 key 或 api_key 放在查询参数中。已上传图片和任务均与用户、API Key、Seedance 分组绑定，后续读取、创建、查询、取消或下载必须继续使用同一个 API Key。\n\n最推荐且最容易调试的图片调用方式是两步：第一步调用 POST /api/v3/contents/generations/uploads 上传图片；第二步从上传响应复制完整 image_url，并把它放入 POST /api/v3/contents/generations/tasks 的 content[].image_url.url。不要只传 upload_id，也不要把 image_url 放在任务顶层。上传和创建任务必须使用同一个本站 API Key。\n图片有三种输入方式：直接提供绝对 HTTP(S) URL；先调用 uploads 接口上传 multipart 文件或 JSON Base64，再把响应 image_url 放入创建请求；或在创建请求的 image_url 中直接传 Data URI / {base64, media_type}。启用媒体存储时，网关会把图片写入与 Worker 共用的底层 COS/S3 兼容对象存储，但使用独立 seedance/inputs 对象前缀，再以临时签名 HTTP(S) URL 转发给视频上游；不会把 Base64 原文直接转发给上游。未配置媒体存储时，已有 HTTP(S) 图片 URL 仍可直接转发，uploads、Data URI 和裸 Base64 返回 503 media_storage_not_configured。上传只接受 PNG、JPEG、WebP，解码后最大 10 MiB；不接受 GIF、SVG、视频或音频文件。音频不是上传参数，只能在创建任务顶层通过 generate_audio=true 请求模型随视频生成；不要发送上游字段 audio，也不能上传自定义音频轨。\n\n通用解析范围不等于模型能力承诺：model 是管理员在当前 Seedance 分组中配置的入站名称；resolution 接受 480p、720p、1080p；duration 省略或传 0 时归一化为 8 秒，其他值必须是 4 至 15 的整数；generate_audio 是布尔值。seedance-2.0-fast 当前对外只支持 480p 和 720p，不支持 1080p；提交 fast+1080p 会在创建任务前因未配置该组合价格而返回 503 billing_not_configured。某个请求通过网关参数校验和价格校验，只表示可以提交给上游，不保证该模型最终能生成该分辨率、时长、音频或图片模式。\n\n当前部署实测快照（2026-07-23，仅描述当日配置和观测，不是跨部署的通用保证）：seedance-2.0 在纯文本 480p/720p、15 秒、generate_audio=true 下任务成功并下载到有效 MP4；在纯文本 1080p、8 秒、generate_audio=false 下任务成功并下载到有效 MP4；此前对纯文本 1080p、15 秒使用不同提示词且覆盖 generate_audio=true/false 的连续 3 个任务均进入 failed，因此本文档不把 seedance-2.0 的 1080p/15 秒列为已支持组合。seedance-2.0-fast 在纯文本 480p/720p、15 秒、generate_audio=true 下任务成功；在单张无 role 公网 URL 首帧和两张公网 URL reference_image 两种 720p/15 秒图片模式下，generate_audio=true/false 四种组合均成功。四个图片任务均下载为 1280x720 的有效 MP4；两个 true 成品均包含可解码的非静音 AAC-LC、44.1 kHz、立体声音轨，两个 false 成品均无音频流；抽帧确认单图主体及多图人物与水果参考均进入生成画面。此前 seedance-2.0-fast 的 1080p 请求在创建前返回 HTTP 503 billing_not_configured；本轮图片与音频矩阵未提交任何 1080p/15 秒任务。管理员调整模型映射、价格或上游账号后，此快照可能失效。2026-07-24 重新部署后的补充实测：同一张 72,396 字节 PNG 通过 multipart 上传、JSON 裸 Base64 + content_type 和 JSON 完整 Data URI 三种上传方式均返回 HTTP 200，三次响应的 size、content_type 和 SHA-256 均一致；托管图片完整读取返回 200 image/png，Range bytes=0-1023 返回 206、1024 字节和 Content-Range bytes 0-1023/72396。seedance-2.0-fast 的 720p/8 秒生产任务中，托管 image_url 单首帧（generate_audio=false）、托管 image_url 单 reference_image（generate_audio=false）、创建请求内 {base64, media_type} 单 reference_image（generate_audio=true）和创建请求内 Data URI 单首帧（generate_audio=false）均进入 succeeded，四个结果均下载为有效 MP4；带音频任务的 MP4 包含 soun/mp4a/esds 音频轨标记，三个无音频任务未发现音频轨标记。首次完整下载托管图片任务视频后，再以 Range bytes=0-1023 请求得到 206、1024 字节和 Content-Range bytes 0-1023/1736740，符合命中 COS 归档缓存后的范围读取行为。本轮只验证接口链路、终态和媒体结构，未人工判定提示词遵循度；未列出的角色、多图来源组合或模型组合仍不视为已验证。\n\n计费金额 = 当前分组中对应入站模型与归一化分辨率的每秒价格 × 归一化时长 × 有效视频计费倍率。归一化时长规则与 duration 字段一致。价格矩阵非空时同时作为模型白名单；矩阵为空时沿用分组级分辨率价格。若分组启用了独立视频倍率，有效视频计费倍率取 video_rate_multiplier；否则取该用户与分组最终生效的基础倍率。创建任务被接受后记录预扣费用；成功取消，或查询到 failed/cancelled 终态时执行幂等退款。客户端应持续查询到终态，以便网关观察任务结果。价格单位、余额展示精度和舍入以站点当前计费配置及账单为准，本接口不返回报价。上传图片本身不触发视频按秒计费；当前公式不为 ratio、generate_audio、图片来源或图片数量单独增加计费项。",
-    "license": {
-      "name": "LGPL-3.0-or-later",
-      "url": "https://www.gnu.org/licenses/lgpl-3.0.html"
-    }
+    "title": "TKCreazy Seedance v1 视频生成 API（最终实测版）",
+    "version": "2026-08-03-final",
+    "description": "这是唯一对外使用的 TKCreazy Seedance v1 视频生成文档，可直接导入 Apifox。所有请求只访问 https://tkcreazy.top/v1，不需要也不得接触任何内部模型平台地址。\n\n最简单的纯文本流程：直接调用 POST /videos/generations，保存返回的 job_id，轮询 GET /videos/jobs/{job_id}，状态变为 completed 后调用 GET /videos/jobs/{job_id}/content 下载 MP4。\n\n使用参考素材的标准流程：\n1. 调用 POST /videos/uploads。图片使用 form-data 字段 image，音频使用 audio，视频使用 video；每次只上传一个字段。\n2. 保存响应中的完整 media_url。upload_id 只用于 GET /videos/uploads/{upload_id} 读取原文件，生成视频时不要使用 upload_id。\n3. 调用 POST /videos/generations，在请求示例中选择单图、首尾帧、多图、视频参考或图片+音频，并把 {{image_media_url}}、{{audio_media_url}}、{{video_media_url}} 替换为上传响应中的实际完整值。\n4. 保存 job_id，每 3 至 5 秒查询一次任务。queued/running 表示继续等待，completed 表示可以下载，failed 表示读取 error。\n5. 调用 GET /videos/jobs/{job_id}/content 下载 MP4。\n\n已通过 TKCreazy 公开网关端到端验证：multipart 图片/音频/视频上传、JSON 裸 Base64 图片、完整 Data URI 图片、上传素材完整读取和 Range 读取、纯文本生成、单图生成、首尾帧生成、多图生成、视频参考生成、图片+音频参考生成、任务列表、任务状态查询、结果完整下载和 Range 下载。实测生成组合为 seedance-2.0-fast、480p、5 秒、1:1。\n\n音频参考不是原音轨直通。若希望保留特定声音，prompt 必须明确写出保留什么声音、出现时段、音高/节奏/速度/强弱特征以及禁止替换成什么声音。实测明确要求全程保留 660Hz 持续电子提示音后，生成音频主频为 659.96Hz，580 至 740Hz 频段能量占比为 43.94%，音量包络相关性为 0.8362；但生成模型仍不保证完整保留或逐波形复制。要求原音频 100% 不变时，应在生成完成后自行合成或替换音轨。\n\nDELETE /videos/jobs/{job_id} 未列入本文档：公开网关实测时上游返回 HTTP 409 Video job cannot be canceled，因此不能作为当前可用能力对外承诺。"
   },
   "servers": [
     {
-      "url": "https://tkcreazy.top",
-      "description": "TKCreazy 生产环境"
+      "url": "https://tkcreazy.top/v1",
+      "description": "TKCreazy 公开网关"
     }
   ],
   "tags": [
     {
-      "name": "Seedance 视频生成",
-      "description": "上传 Seedance 参考图片，创建、查询、取消视频任务，并从上游或 COS 归档下载生成结果。"
-    }
-  ],
-  "security": [
-    {
-      "BearerAuth": []
-    },
-    {
-      "XApiKeyAuth": []
-    },
-    {
-      "XGoogApiKeyAuth": []
+      "name": "Seedance v1 视频生成",
+      "description": "TKCreazy 公开网关已完成端到端验证的 Seedance v1 上传、生成、查询与下载接口。"
     }
   ],
   "paths": {
-    "/api/v3/contents/generations/uploads": {
+    "/videos/uploads": {
       "post": {
         "tags": [
-          "Seedance 视频生成"
+          "Seedance v1 视频生成"
         ],
-        "summary": "上传 Seedance 参考图片",
-        "description": "### 推荐流程：先上传，再创建视频\n\n此接口只保存图片，不会创建视频。调用顺序如下：\n\n1. 使用准备创建视频的同一个 API Key 调用本接口。multipart 文件字段必须叫 image；也可以使用 JSON 的 image_base64。\n2. 成功响应同时返回 upload_id 和 image_url。下一步必须复制完整 image_url；upload_id 只用于标识记录，不能单独作为生成参数。\n3. 调用 POST /api/v3/contents/generations/tasks，在 content 数组中增加 image_url 项：image_url.url 填上一步返回的完整 URL。\n4. 如果图片是首帧，省略 role 或写 role=first_frame；如果图片只是视觉参考，写 role=reference_image；多张参考图需要分别上传，然后在 content 中重复多个 image_url 项。\n\nmultipart 文件上传示例：\n\n~~~bash\ncurl -X POST \"https://tkcreazy.top/api/v3/contents/generations/uploads\" \\\n  -H \"Authorization: Bearer <YOUR_API_KEY>\" \\\n  -F \"image=@reference.png;type=image/png\"\n~~~\n\n如果原始图片已经是 Base64，也可以把步骤 1 改为 JSON 上传：\n\n~~~json\n{\n  \"image_base64\": \"<完整 Base64，不带 data: 前缀>\",\n  \"content_type\": \"image/png\",\n  \"filename\": \"reference.png\"\n}\n~~~\n\n两种上传方式的响应结构相同。后续都只使用响应中的完整 image_url。\n\n步骤 1 的典型响应：\n\n~~~json\n{\n  \"upload_id\": \"sdupl_example_uploaded_image\",\n  \"image_url\": \"https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image\",\n  \"content_type\": \"image/png\",\n  \"size\": 72396,\n  \"sha256\": \"d42c2780ffcedeb699ac245f42118b4ed082e61d1ba7146549b9df08607f2731\",\n  \"expires_at\": \"2026-07-25T02:52:36Z\"\n}\n~~~\n\n上面的值是格式示例。真实请求必须使用自己当次响应里的 image_url。\n\n把参考图片保存到本站为 Seedance 单独使用的对象存储命名空间，并返回可在创建任务中引用的 image_url。请求可二选一：multipart/form-data 的文件字段必须命名为 image；application/json 使用 image_base64，可传裸 Base64（此时 content_type 必填）或完整 Data URI（MIME 已写在 URI 中，content_type 可省略）。只接受真实内容可解码的 PNG、JPEG、WebP，文件或 Base64 解码后最大 10 MiB，宽高各不超过 8192 像素且总像素不超过 4000 万；声明 MIME 与实际内容不一致会被拒绝。filename 仅作为可选客户端文件名元数据，不决定 COS 对象名或上游行为。\n\n响应 image_url 是本站受鉴权保护的托管图片地址，有效期见 expires_at；只能由上传时同一用户、同一 API Key、同一 Seedance 分组读取或用于创建任务。创建任务时网关识别该地址，从 COS 生成短期签名 URL 后转发给上游，所以上游不需要持有本站 API Key。上传图片不产生视频按秒费用。媒体存储未配置时返回 503 media_storage_not_configured；同一用户的全部 Seedance API Key 共用独立媒体 I/O 并发上限，达到限制时返回 429 media_concurrency_exceeded。expires_at 表示托管记录的可访问期限，不代表 Redis 到期会自动删除 COS 对象；管理员应为实际存储前缀下的 seedance/inputs/ 配置至少 2 天的 Bucket lifecycle，并清理 noncurrent versions。\n\n2026-07-24 生产实测：同一张 72,396 字节 PNG 分别以 multipart/form-data、JSON 裸 Base64 + content_type、JSON 完整 Data URI 提交，三次均返回 HTTP 200、image/png、size=72396 和相同 SHA-256。下面的 upload_id、URL 和时间仍是可导入 Apifox 的格式示例，实际调用必须使用当次响应值。",
-        "operationId": "uploadSeedanceImage",
+        "summary": "上传图片、音频或视频参考文件",
+        "description": "Apifox 使用 form-data 上传：\n1. 上传图片：字段名 image，类型 File，选择 PNG/JPEG。\n2. 上传音频：字段名 audio，类型 File，选择 WAV。\n3. 上传视频：字段名 video，类型 File，选择 MP4。\n4. image、audio、video 每次只能选择一个；需要多个素材时分别调用多次。\n5. 成功后复制完整 media_url。生成视频只使用 media_url，不要把 upload_id 填进生成请求。\n\n图片还支持 application/json：裸 Base64 填 image_base64，并同时填写 content_type；完整 Data URI 直接填 image_base64，不需要另写 content_type。Base64 只用于图片，不用于音频和视频。\n\nURL 对应关系：image_url/start_frame_url/end_frame_url 使用图片 media_url；guidances.image_reference[].image.url 使用图片 media_url；guidances.audio_reference[].audio.url 使用音频 media_url；guidances.video_reference_base[].video.url 使用视频 media_url。",
+        "operationId": "uploadSeedanceMedia",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
-          "description": "这是两步流程的步骤 1。选择 multipart/form-data 或 application/json 其中一种上传方式；不要两种同时传。此接口不能上传音频或视频，也不会直接创建 Seedance 任务。",
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/SeedanceMultipartImageUploadRequest"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SeedanceImageUploadMultipartRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceAudioUploadMultipartRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceVideoUploadMultipartRequest"
+                  }
+                ]
               },
               "encoding": {
                 "image": {
-                  "contentType": "image/png, image/jpeg, image/webp"
+                  "contentType": "image/png, image/jpeg"
+                },
+                "audio": {
+                  "contentType": "audio/wav"
+                },
+                "video": {
+                  "contentType": "video/mp4"
+                }
+              },
+              "examples": {
+                "uploadImage": {
+                  "summary": "上传参考图片",
+                  "description": "Apifox 中选择 form-data，字段名填 image，类型选择 File，选择 PNG/JPEG 图片。"
+                },
+                "uploadAudio": {
+                  "summary": "上传参考音频",
+                  "description": "Apifox 中选择 form-data，字段名填 audio，类型选择 File，选择 WAV 音频。"
+                },
+                "uploadVideo": {
+                  "summary": "上传参考视频",
+                  "description": "Apifox 中选择 form-data，字段名填 video，类型选择 File，选择 MP4 视频。"
                 }
               }
             },
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SeedanceBase64ImageUploadRequest"
+                "$ref": "#/components/schemas/SeedanceImageBase64UploadRequest"
               },
               "examples": {
                 "bareBase64": {
-                  "summary": "2026-07-24 生产实测成功：裸 Base64，content_type 必填",
+                  "summary": "已测：裸 Base64 图片",
                   "value": {
-                    "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII=",
+                    "image_base64": "<BASE64_DATA>",
                     "content_type": "image/png",
-                    "filename": "first-frame.png"
-                  },
-                  "description": "实测使用 72,396 字节 PNG，返回 HTTP 200，响应 size、MIME 与 SHA-256 均与原图一致。value 中的短 Base64 仅用于展示字段格式。"
-                },
-                "dataURI": {
-                  "summary": "2026-07-24 生产实测成功：完整 Data URI，content_type 可省略",
-                  "value": {
-                    "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII=",
                     "filename": "reference.png"
-                  },
-                  "description": "实测使用 data:image/png;base64,...，返回 HTTP 200，响应 size、MIME 与 SHA-256 均与原图一致。value 中的短 Data URI 仅用于展示字段格式。"
+                  }
+                },
+                "dataUri": {
+                  "summary": "已测：完整 Data URI 图片",
+                  "value": {
+                    "image_base64": "data:image/png;base64,<BASE64_DATA>",
+                    "filename": "reference.png"
+                  }
                 }
               }
             }
@@ -83,19 +100,49 @@
         },
         "responses": {
           "200": {
-            "description": "步骤 1 成功：图片已写入 Seedance 媒体存储。下一步复制响应中的完整 image_url 到创建任务请求的 content[].image_url.url；不要只复制 upload_id。upload_id 和 image_url 只属于当前用户、API Key 与 Seedance 分组。",
+            "description": "上传成功。复制 media_url 到生成接口中使用。",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SeedanceImageUploadResponse"
+                  "$ref": "#/components/schemas/SeedanceMediaUploadResponse"
                 },
-                "example": {
-                  "upload_id": "sdupl_example_uploaded_image",
-                  "image_url": "https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image",
-                  "content_type": "image/png",
-                  "size": 72396,
-                  "sha256": "d42c2780ffcedeb699ac245f42118b4ed082e61d1ba7146549b9df08607f2731",
-                  "expires_at": "2026-07-25T02:52:36Z"
+                "examples": {
+                  "image": {
+                    "summary": "图片上传响应",
+                    "value": {
+                      "upload_id": "sdupl_example_image",
+                      "media_url": "{{image_media_url}}",
+                      "media_type": "image",
+                      "content_type": "image/png",
+                      "size": 72396,
+                      "sha256": "d42c2780ffcedeb699ac245f42118b4ed082e61d1ba7146549b9df08607f2731",
+                      "expires_at": "2026-08-03T12:00:00Z"
+                    }
+                  },
+                  "audio": {
+                    "summary": "音频上传响应",
+                    "value": {
+                      "upload_id": "sdupl_example_audio",
+                      "media_url": "{{audio_media_url}}",
+                      "media_type": "audio",
+                      "content_type": "audio/wav",
+                      "size": 441044,
+                      "sha256": "0f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff",
+                      "expires_at": "2026-08-03T12:00:00Z"
+                    }
+                  },
+                  "video": {
+                    "summary": "视频上传响应",
+                    "value": {
+                      "upload_id": "sdupl_example_video",
+                      "media_url": "{{video_media_url}}",
+                      "media_type": "video",
+                      "content_type": "video/mp4",
+                      "size": 657828,
+                      "sha256": "b7bd44535fd1c396dea7c09f754462fdfcea55e8ab3594f413261cded25ab498",
+                      "expires_at": "2026-08-03T12:00:00Z"
+                    }
+                  }
                 }
               }
             }
@@ -106,57 +153,46 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
           "413": {
-            "$ref": "#/components/responses/ImageTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedUploadMediaType"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
+            "$ref": "#/components/responses/PayloadTooLarge"
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
     },
-    "/api/v3/contents/generations/uploads/{upload_id}": {
+    "/videos/uploads/{upload_id}": {
       "get": {
         "tags": [
-          "Seedance 视频生成"
+          "Seedance v1 视频生成"
         ],
-        "summary": "读取已上传的 Seedance 图片",
-        "description": "从 Seedance 独立 COS/S3 对象前缀读取已上传图片。必须使用上传该图片时的同一用户、同一 API Key 和同一 Seedance 分组；地址不是公开图片链接。Redis 记录默认保留 24 小时，以 POST 上传响应中的 expires_at 为准；过期、已删除或所有权不匹配都返回 404 upload_not_found。Redis 记录到期不等于 COS 对象已删除，长期清理由管理员为 seedance/inputs/ 配置的 Bucket lifecycle 负责。支持单范围 Range 请求，实际 200/206/416 及响应头取决于对象存储；媒体 I/O 并发达到限制时返回 429。\n\n普通客户端通常无需主动调用本接口：把 POST 上传返回的完整 image_url 原样放入创建任务即可，网关会在服务端解析并签名 COS 对象。2026-07-24 生产实测：完整读取返回 HTTP 200、image/png、72,396 字节，SHA-256 与上传原图一致；Range bytes=0-1023 返回 HTTP 206、1024 字节、Accept-Ranges: bytes 和 Content-Range: bytes 0-1023/72396。",
-        "operationId": "getSeedanceUploadedImage",
+        "summary": "读取已上传的参考文件",
+        "description": "使用上传接口返回的 upload_id 读取原始素材。这个接口用于预览、校验或断点读取上传文件；生成视频时仍应使用上传响应中的 media_url。已通过公开网关验证完整读取和 Range bytes=0-1023，返回文件 SHA-256 与上传源文件一致。",
+        "operationId": "getSeedanceUploadedMedia",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/UploadId"
+            "$ref": "#/components/parameters/UploadID"
           },
           {
-            "$ref": "#/components/parameters/MediaRange"
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "description": "可选范围读取，例如 bytes=0-1023。",
+            "schema": {
+              "type": "string",
+              "example": "bytes=0-1023"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "完整图片。Content-Type 是实际检测到的 image/png、image/jpeg 或 image/webp。",
-            "headers": {
-              "Accept-Ranges": {
-                "$ref": "#/components/headers/AcceptRanges"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
-              "Content-Disposition": {
-                "$ref": "#/components/headers/ContentDisposition"
-              }
-            },
+            "description": "完整素材文件。",
             "content": {
               "image/png": {
                 "schema": {
@@ -164,13 +200,13 @@
                   "format": "binary"
                 }
               },
-              "image/jpeg": {
+              "audio/wav": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
                 }
               },
-              "image/webp": {
+              "video/mp4": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -179,429 +215,182 @@
             }
           },
           "206": {
-            "description": "对象存储接受 Range 后返回的部分图片内容。",
+            "description": "范围读取成功。",
             "headers": {
-              "Accept-Ranges": {
-                "$ref": "#/components/headers/AcceptRanges"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "Content-Range": {
-                "$ref": "#/components/headers/ContentRange"
-              }
-            },
-            "content": {
-              "application/octet-stream": {
                 "schema": {
                   "type": "string",
-                  "format": "binary"
+                  "example": "bytes 0-1023/72396"
                 }
               }
             }
           },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
           "404": {
-            "$ref": "#/components/responses/UploadNotFound"
-          },
-          "416": {
-            "description": "请求范围不可满足。Content-Range 可能包含完整对象大小；错误体由对象存储决定，客户端应以 HTTP 状态为准。",
-            "headers": {
-              "Content-Range": {
-                "$ref": "#/components/headers/ContentRange"
-              }
-            }
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
-    "/api/v3/contents/generations/tasks": {
+    "/videos/generations": {
       "post": {
         "tags": [
-          "Seedance 视频生成"
+          "Seedance v1 视频生成"
         ],
-        "summary": "创建 Seedance 视频生成任务",
-        "description": "### 图片参数到底怎么用\n\n以下三种方式任选一种。推荐使用方式 A。\n\n#### 方式 A：先上传，再用返回的 image_url 创建任务（推荐）\n\n先调用 POST /api/v3/contents/generations/uploads。假设响应中的 image_url 是：\n\n~~~text\nhttps://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image\n~~~\n\n将这个完整 URL 原样放入 content[].image_url.url。不要只传 sdupl_...，不要写成任务顶层 image_url，也不存在顶层 reference_images 参数。\n\n作为首帧时，单图可以省略 role：\n\n~~~json\n{\n  \"type\": \"image_url\",\n  \"image_url\": {\n    \"url\": \"https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image\"\n  }\n}\n~~~\n\n作为视觉参考图时，必须在当前 content 项外层增加 role：\n\n~~~json\n{\n  \"type\": \"image_url\",\n  \"image_url\": {\n    \"url\": \"https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image\"\n  },\n  \"role\": \"reference_image\",\n  \"strength\": \"HIGH\"\n}\n~~~\n\n完整的步骤 2 请求体如下。这里把上传结果作为 reference_image；如果想把它作为首帧，删除 role 和 strength 即可：\n\n~~~json\n{\n  \"model\": \"seedance-2.0-fast\",\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"Create a cinematic scene while preserving the uploaded reference design.\"\n    },\n    {\n      \"type\": \"image_url\",\n      \"image_url\": {\n        \"url\": \"https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image\"\n      },\n      \"role\": \"reference_image\",\n      \"strength\": \"HIGH\"\n    }\n  ],\n  \"ratio\": \"16:9\",\n  \"duration\": 8,\n  \"resolution\": \"720p\",\n  \"generate_audio\": false,\n  \"watermark\": false\n}\n~~~\n\n在 Apifox 的请求示例中选择“推荐流程步骤 2：使用步骤 1 返回的 image_url 作为 reference_image”，即可看到同一份完整请求。\n\n多张参考图时，每张图先各上传一次，再在同一个 content 数组中重复上述 image_url 项；每项都写 role=reference_image。\n\n#### 方式 B：在创建请求中直接传 Base64，不先调用 uploads\n\n将裸 Base64 写入 image_url.base64，同时写 media_type。此时同样通过外层 role 决定首帧或参考图。网关会在服务端写入 COS，再向上游发送临时签名 URL。\n\n~~~json\n{\n  \"type\": \"image_url\",\n  \"image_url\": {\n    \"base64\": \"<完整 Base64，不带 data: 前缀>\",\n    \"media_type\": \"image/png\"\n  },\n  \"role\": \"reference_image\",\n  \"strength\": \"HIGH\"\n}\n~~~\n\n#### 方式 C：在创建请求中直接传完整 Data URI，不先调用 uploads\n\n~~~json\n{\n  \"type\": \"image_url\",\n  \"image_url\": \"data:image/png;base64,<完整 Base64>\"\n}\n~~~\n\n无论使用哪种图片方式，content 中仍必须至少有一个非空 text 项。\n\n以火山方舟兼容格式创建异步视频任务。请求会根据 Seedance 账号中的模型映射转换为上游模型，并转发为异步视频生成任务。创建成功实际返回 HTTP 200 和任务 ID；不是 202。HTTP 200 只表示任务已创建，最终结果必须通过查询接口确认。\n\n请求必须至少包含一个去除首尾空白后仍非空的文本内容项。每个 image_url 可使用绝对 HTTP(S) URL、POST uploads 返回的托管 image_url、完整 Data URI 字符串，或包含 base64 与 media_type 的对象。图片可用于单张无 role 首帧、显式首尾帧或 1 至 4 张 reference_image；尾帧必须与首帧同时出现，参考图模式不能与首尾帧模式混用。多参考图不是单独的 reference_images 数组，而是在 content 中重复 image_url 项，并为每项在外层指定 role 和可选 strength。启用媒体存储时，公网 URL 图片也会由网关安全下载、校验并镜像到 Seedance 独立 COS 对象前缀；托管 URL 和 Base64/Data URI 会在服务端转换为临时签名 HTTP(S) URL，上游不会收到 Base64 或本站 API Key。未配置媒体存储时只有原始公网 HTTP(S) URL 可继续使用。\n\n音频开关必须写在请求顶层：generate_audio=true 表示请求模型随视频生成音频，false 或省略表示不请求音轨。不能在 content 中上传音频文件，也不要发送仅属于上游的 audio 字段；未知顶层字段会返回 400。图片来源、图片数量和 generate_audio 开关不产生额外独立收费项，视频仍按模型 × 分辨率每秒价格 × 归一化时长 × 有效倍率计费。\n\n2026-07-23 当前部署实测：seedance-2.0 的纯文本 480p/720p、15 秒、音频开启成功，1080p、8 秒、音频关闭成功；此前 1080p、15 秒连续 3 个任务失败，不能据此视为支持。seedance-2.0-fast 的纯文本 480p/720p、15 秒、音频开启成功；其使用公网 URL 的 720p/15 秒单首帧与双参考图在音频开启和关闭下均成功，并分别验证了有音轨和无音轨成品。seedance-2.0-fast 不支持 1080p。本轮未提交 1080p/15 秒任务。该结果是部署快照，通用字段解析范围仍以请求 schema 为准。2026-07-24 生产补测中，seedance-2.0-fast 的 720p/8 秒三类图片输入、四种用法均成功到达 succeeded 并下载有效 MP4：托管 upload image_url 单首帧且 generate_audio=false；托管 upload image_url 单 reference_image 且 generate_audio=false；创建请求内 {base64, media_type} 单 reference_image 且 generate_audio=true；创建请求内完整 Data URI 单首帧且 generate_audio=false。四个文件分别为 1,736,740、1,768,007、2,054,524、1,630,062 字节；带音频文件含 soun/mp4a/esds 标记，三个无音频文件未发现音频轨标记。示例中的 upload_id 和短 Base64/Data URI 是格式占位值，实际请求必须使用真实上传响应或真实图片数据。本轮未人工判定画面是否完全遵循提示词。",
-        "operationId": "createSeedanceVideoTask",
-        "parameters": [
+        "summary": "创建视频生成任务（纯文本、图片、视频和音频参考）",
+        "description": "创建异步任务并返回 job_id。请先在 Apifox 的“请求示例”中选择正确模式，再替换提示词和 media_url 变量。\n\n纯文本：不上传文件，不填写 image_url、start_frame_url、end_frame_url 或 guidances。\n\n单图：先上传图片，把 media_url 填入 image_url；不要再填写其它图片字段。\n\n首尾帧：分别上传两张图片，填写 start_frame_url 和 end_frame_url；只使用尾帧不允许；不能与 image_url 或 image_reference 混用。\n\n多图参考：每张图片分别上传，填写 guidances.image_reference；order 从 0 开始；当前代码最多接受 4 张，本轮公开网关实测 2 张。\n\n视频参考：先用 video 字段上传 MP4，把 media_url 填入 guidances.video_reference_base[].video.url。\n\n图片+音频：图片和音频分别上传；audio=true；同时填写 image_reference 和 audio_reference。audio_reference 项不要写 order。\n\n音频提示词必须明确注入保留要求，例如：“请保留参考音频中的持续电子提示音，让它在视频全程出现，尽量保持相同音高、节奏和强弱，不要替换成环境音乐、对白或低频音效；允许为画面混音，但不要删除该电子提示音。”只写“参考音频”可能只生成相似风格声音，且明确约束后仍不保证逐波形复制。\n\n所有 URL 都必须使用上传接口刚返回的完整 media_url。创建接口不会直接返回视频文件；必须继续查询 job_id 并下载 content。已测生成组合：seedance-2.0-fast、480p、5 秒、1:1。",
+        "operationId": "createSeedanceVideoJob",
+        "security": [
           {
-            "$ref": "#/components/parameters/IdempotencyKey"
+            "BearerAuth": []
           }
         ],
         "requestBody": {
           "required": true,
-          "description": "创建视频请求。使用上传图片时，这是两步流程的步骤 2：把步骤 1 响应中的完整 image_url 放进 content[].image_url.url。首帧省略 role 或写 first_frame；参考图写 reference_image；不要只传 upload_id。未知顶层字段或未知 content 项字段会返回 400。",
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SeedanceCreateTaskRequest"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SeedanceTextGenerationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceSingleImageGenerationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceStartEndFrameGenerationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceMultiImageGenerationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceVideoReferenceGenerationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceImageAudioGenerationRequest"
+                  }
+                ]
               },
               "examples": {
-                "managedUploadReferenceImage": {
-                  "summary": "推荐流程步骤 2：使用步骤 1 返回的 image_url 作为 reference_image（生产实测成功）",
-                  "description": "必须先调用 uploads，然后复制响应中的完整 image_url 到 image_url.url。不要只传 upload_id。2026-07-24 实测任务 succeeded，下载得到 1,768,007 字节有效 MP4。",
+                "textToVideo": {
+                  "summary": "已测：纯文本生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Create a polished cinematic brand scene using the uploaded image as the visual reference while preserving its recognizable design."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image"
-                        },
-                        "role": "reference_image",
-                        "strength": "HIGH"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": false,
-                    "watermark": false
-                  }
-                },
-                "managedUploadFirstFrame": {
-                  "summary": "推荐流程步骤 2：使用步骤 1 返回的 image_url 作为首帧（生产实测成功）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Animate the uploaded first frame in one continuous shot while preserving the subject identity and scene layout."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_example_uploaded_image"
-                        }
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": false,
-                    "watermark": false
-                  },
-                  "description": "必须先调用 uploads，然后复制响应中的完整 image_url 到 image_url.url。单图作为首帧时可以省略 role。不要只传 upload_id。实测任务 succeeded，下载得到 1,736,740 字节有效 MP4。"
-                },
-                "inlineBase64ReferenceImage": {
-                  "summary": "单请求方式：不调用 uploads，直接使用 {base64, media_type} 参考图（生产实测成功）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Create a new cinematic scene while preserving the visual identity of the reference subject."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII=",
-                          "media_type": "image/png"
-                        },
-                        "role": "reference_image",
-                        "strength": "HIGH"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": true,
-                    "watermark": false
-                  },
-                  "description": "实测任务进入 succeeded，下载得到 2,054,524 字节有效 MP4，并发现 soun/mp4a/esds 音频轨标记。value 中的短 Base64 仅用于展示格式。"
-                },
-                "directDataURIFirstFrame": {
-                  "summary": "单请求方式：不调用 uploads，直接使用 Data URI 首帧（生产实测成功）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Animate this first frame with subtle natural movement and a slow forward camera move."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII="
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": false,
-                    "watermark": false
-                  },
-                  "description": "实测任务进入 succeeded，下载得到 1,630,062 字节有效 MP4，未发现音频轨标记。value 中的短 Data URI 仅用于展示格式。"
-                },
-                "seedance20Observed480p15sAudio": {
-                  "summary": "当前部署纯文本实测成功：seedance-2.0 480p、15 秒、音频开启",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "A single unbroken dolly shot moves through a busy glassblowing studio at dusk. An artisan rotates a glowing vessel while an assistant adds cobalt glass, sparks rise, furnaces flicker, tools remain physically consistent, and reflections travel correctly across the forming surface. In the background another worker opens a kiln and walks behind the main bench. Preserve coherent hands, faces, object geometry, realistic heat shimmer, stable camera motion, and synchronized furnace, tool, and workshop sounds for the entire shot without cuts."
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
+                    "prompt": "一只红色纸质购物袋放在明亮简洁的白色展示台上，镜头缓慢环绕并轻微推进，柔和商业灯光，画面干净，无字幕，无水印。",
+                    "duration": 5,
                     "resolution": "480p",
-                    "generate_audio": true,
-                    "watermark": false
+                    "aspect_ratio": "1:1",
+                    "audio": false
                   }
                 },
-                "seedance20Observed720p15sAudio": {
-                  "summary": "当前部署纯文本实测成功：seedance-2.0 720p、15 秒、音频开启",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "A continuous cinematic crane shot begins above a snow-covered mountain railway station, descends beside a green steam locomotive, then tracks a conductor walking along the platform as passengers board. Snow falls at changing depths, warm carriage windows reflect on icy ground, steam interacts naturally with people, luggage remains consistent, and the train slowly starts moving. Maintain readable faces, accurate wheel motion, coherent architecture, realistic lighting, and synchronized whistle, footsteps, steam, and crowd ambience with no cuts."
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": true,
-                    "watermark": false
-                  }
-                },
-                "seedance20Observed1080p8s": {
-                  "summary": "当前部署纯文本实测成功：seedance-2.0 1080p、8 秒、音频关闭",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "A slow aerial shot over a coastal city at sunrise, with smooth camera movement, natural ocean waves, stable buildings, realistic morning light, and no cuts."
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "1080p",
-                    "generate_audio": false,
-                    "watermark": false
-                  }
-                },
-                "seedance20FastObserved480p15sAudio": {
-                  "summary": "当前部署纯文本实测成功：seedance-2.0-fast 480p、15 秒、音频开启",
+                "singleImage": {
+                  "summary": "已测：单图生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "A single uninterrupted cinematic tracking shot follows a compact red robot courier through a crowded rain-soaked night market. It carefully carries a glass terrarium containing a glowing orchid while vendors cook over blue flames, cyclists cross behind it, transparent umbrellas pass in the foreground, steam curls through neon light, and reflections move naturally across puddles. Keep the robot design, terrarium geometry, orchid position, hands, faces, signage, shadows, and spatial continuity stable for the full shot. Include synchronized rain, footsteps, bicycle bells, market chatter, and cooking ambience, with no cuts or sudden camera jumps."
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
+                    "prompt": "以参考图片中的红色购物袋营销 logo 为主体，生成一个干净的商品展示短视频，镜头轻微推进，主体保持清晰可识别。",
+                    "duration": 5,
                     "resolution": "480p",
-                    "generate_audio": true,
-                    "watermark": false
+                    "aspect_ratio": "1:1",
+                    "audio": false,
+                    "image_url": "{{image_media_url}}"
                   }
                 },
-                "seedance20FastObserved720p15sAudio": {
-                  "summary": "当前部署纯文本实测成功：seedance-2.0-fast 720p、15 秒、音频开启",
+                "startEndFrames": {
+                  "summary": "已测：首尾帧生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "A continuous low-angle camera move follows a young chef carrying a towering sugar sculpture through a busy palace kitchen before a banquet. Copper pans swing gently, assistants cross behind steaming counters, a cat slips under a table, flour drifts through warm window light, and polished tiles reflect moving people. The translucent sculpture must keep its exact shape while refracting light naturally. Preserve faces, hands, costumes, kitchen layout, food placement, shadows, and spatial continuity. Include synchronized footsteps, cookware, simmering food, quiet voices, and room ambience without cuts."
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": true,
-                    "watermark": false
+                    "prompt": "从首帧中的红色购物袋品牌画面自然过渡到尾帧中的商品展示场景，镜头平稳连续移动，主体变化连贯，无字幕，无水印。",
+                    "duration": 5,
+                    "resolution": "480p",
+                    "aspect_ratio": "1:1",
+                    "audio": false,
+                    "start_frame_url": "{{image_media_url}}",
+                    "end_frame_url": "{{image_media_url_2}}"
                   }
                 },
-                "singleFirstFrameObservedAudio": {
-                  "summary": "实测成功：单张无 role 首帧、720p、15 秒、带音频",
+                "multiImage": {
+                  "summary": "已测：多图生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Continue from the exact black dog reference image in one unbroken cinematic shot. The same dog blinks, wags its tail, then runs through moving grass while the camera tracks smoothly. Preserve identity, coat markings, proportions, daylight, landscape, and spatial continuity. Add synchronized wind, birds, paw steps, collar sounds, and one natural bark."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://picsum.photos/id/237/1280/720"
+                    "prompt": "参考两张图片生成一个商品展示视频：一个机器人拿着购物袋，购物袋上同时体现红色营销 logo 和蓝紫色品牌标识，画面干净明亮。",
+                    "duration": 5,
+                    "resolution": "480p",
+                    "aspect_ratio": "1:1",
+                    "audio": false,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "{{image_media_url}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        },
+                        {
+                          "image": {
+                            "url": "{{image_media_url_2}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 1
                         }
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": true,
-                    "watermark": false
+                      ]
+                    }
                   }
                 },
-                "singleFirstFrameObservedNoAudio": {
-                  "summary": "实测成功：单张无 role 首帧、720p、15 秒、无音频",
+                "videoReference": {
+                  "summary": "已测：视频参考生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Continue from the exact black dog reference image in one unbroken cinematic shot. The same dog blinks, wags its tail, then runs through moving grass while the camera tracks smoothly. Preserve identity, coat markings, proportions, daylight, landscape, and spatial continuity."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://picsum.photos/id/237/1280/720"
+                    "prompt": "参考上传视频的镜头移动节奏和商品展示方式，生成一个新的红色购物袋商业展示短片，镜头平稳连续，画面干净，无字幕，无水印。",
+                    "duration": 5,
+                    "resolution": "480p",
+                    "aspect_ratio": "1:1",
+                    "audio": false,
+                    "guidances": {
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "{{video_media_url}}",
+                            "type": "UPLOADED"
+                          }
                         }
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": false,
-                    "watermark": false
+                      ]
+                    }
                   }
                 },
-                "multipleReferenceImagesObservedAudio": {
-                  "summary": "实测成功：两张 reference_image、720p、15 秒、带音频",
+                "imageWithAudio": {
+                  "summary": "已测：图片 + 音频引用生成",
                   "value": {
                     "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Create one continuous cinematic market scene using both references: preserve the woman's recognizable face, hairstyle, hat, and expression from the portrait, and preserve the fruit shapes, colors, and arrangement from the still-life. She stands at a wooden stall, gently selects an orange, then looks toward camera as fabric canopies move in a breeze. Keep hands, identity, produce, lighting, and spatial continuity stable. Add synchronized market ambience, soft voices, cloth movement, footsteps, and fruit handling sounds."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg"
-                        },
-                        "role": "reference_image",
-                        "strength": "HIGH"
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/fruits.jpg"
-                        },
-                        "role": "reference_image",
-                        "strength": "MID"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": true,
-                    "watermark": false
-                  }
-                },
-                "multipleReferenceImagesObservedNoAudio": {
-                  "summary": "实测成功：两张 reference_image、720p、15 秒、无音频",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Create one continuous cinematic market scene using both references: preserve the woman's recognizable face, hairstyle, hat, and expression from the portrait, and preserve the fruit shapes, colors, and arrangement from the still-life. She stands at a wooden stall, gently selects an orange, then looks toward camera as fabric canopies move in a breeze. Keep hands, identity, produce, lighting, and spatial continuity stable."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg"
-                        },
-                        "role": "reference_image",
-                        "strength": "HIGH"
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/fruits.jpg"
-                        },
-                        "role": "reference_image",
-                        "strength": "MID"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 15,
-                    "resolution": "720p",
-                    "generate_audio": false,
-                    "watermark": false
-                  }
-                },
-                "firstAndLastFrames": {
-                  "summary": "显式首帧与尾帧（格式示例，未对该组合做生产实测）",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Create a smooth continuous transition from the first frame to the last frame with physically coherent movement."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://example.com/images/first-frame.jpg"
-                        },
-                        "role": "first_frame"
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://example.com/images/last-frame.jpg"
-                        },
-                        "role": "last_frame"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": true
-                  }
-                },
-                "singleReferenceImage": {
-                  "summary": "单张公网 URL reference_image（格式示例，未对单参考图组合做生产实测）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "Use the reference only for character identity, then place the same character in a sunlit railway station."
-                      },
-                      {
-                        "type": "image_url",
-                        "image_url": {
-                          "url": "https://example.com/images/character.webp"
-                        },
-                        "role": "reference_image",
-                        "strength": "MID"
-                      }
-                    ],
-                    "ratio": "16:9",
-                    "duration": 8,
-                    "resolution": "720p",
-                    "generate_audio": false
+                    "prompt": "以参考图片中的红色购物袋营销 logo 为主体，生成一个 5 秒展示视频，镜头从近景缓慢后移，主体稳定可识别。请明确保留参考音频中的 660Hz 持续电子提示音，让该提示音从视频开始到结束全程出现，尽量保持相同音高、稳定节奏和强弱，不要替换成环境音乐、对白、低频音效或其他声音；允许为画面混音，但不要删除该电子提示音。",
+                    "duration": 5,
+                    "resolution": "480p",
+                    "aspect_ratio": "1:1",
+                    "audio": true,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "{{image_media_url}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "{{audio_media_url}}",
+                            "type": "UPLOADED"
+                          }
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -609,15 +398,33 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "任务创建成功。返回本站任务 ID。",
+          "202": {
+            "description": "任务已创建。继续查询任务状态。",
+            "headers": {
+              "Location": {
+                "description": "任务状态查询地址。",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "Preference-Applied": {
+                "description": "异步任务响应标记。",
+                "schema": {
+                  "type": "string",
+                  "example": "respond-async"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SeedanceCreateTaskResponse"
+                  "$ref": "#/components/schemas/SeedanceVideoJobCreateResponse"
                 },
                 "example": {
-                  "id": "vidjob_example123"
+                  "job_id": "vidjob_example_123",
+                  "status": "queued",
+                  "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123"
                 }
               }
             }
@@ -631,35 +438,74 @@
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
-          "413": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "502": {
-            "$ref": "#/components/responses/BadGateway"
-          },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
     },
-    "/api/v3/contents/generations/tasks/{task_id}": {
+    "/videos/jobs": {
       "get": {
         "tags": [
-          "Seedance 视频生成"
+          "Seedance v1 视频生成"
         ],
-        "summary": "查询 Seedance 视频任务",
-        "description": "查询异步任务状态。必须使用创建任务时的同一个本站 API Key。建议轮询直到 status 为 succeeded、failed 或 cancelled；只有 succeeded 响应包含 content.video_url。任务与本地 Key 的绑定当前保留 7 天。",
-        "operationId": "getSeedanceVideoTask",
+        "summary": "查询视频任务列表",
+        "description": "返回当前 API Key 可见的 Seedance 任务。已通过公开网关验证 limit=5。任务列表可用于恢复客户端状态，但创建任务后仍建议保存 job_id。",
+        "operationId": "listSeedanceVideoJobs",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TaskId"
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "返回数量上限。本轮实测填写 5。",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务列表。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceVideoJobListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/videos/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "Seedance v1 视频生成"
+        ],
+        "summary": "查询 Seedance 视频任务状态",
+        "description": "使用创建任务返回的 job_id 查询状态。已通过网关测试 running 和 completed 状态。状态为 completed 后可下载 content。",
+        "operationId": "getSeedanceVideoJob",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
           }
         ],
         "responses": {
@@ -668,174 +514,74 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SeedanceTask"
+                  "$ref": "#/components/schemas/SeedanceVideoJob"
                 },
                 "examples": {
-                  "queued": {
-                    "summary": "任务排队中",
-                    "value": {
-                      "id": "vidjob_example123",
-                      "status": "queued",
-                      "model": "seedance-2.0",
-                      "resolution": "720p",
-                      "duration": 8
-                    }
-                  },
                   "running": {
-                    "summary": "任务生成中",
+                    "summary": "运行中",
                     "value": {
-                      "id": "vidjob_example123",
-                      "status": "running",
-                      "model": "seedance-2.0",
-                      "resolution": "720p",
-                      "duration": 8
+                      "id": "vidjob_example_123",
+                      "job_id": "vidjob_example_123",
+                      "status": "running"
                     }
                   },
-                  "succeeded": {
-                    "summary": "当前部署实测成功形态：seedance-2.0 1080p、8 秒",
+                  "completed": {
+                    "summary": "已完成",
                     "value": {
-                      "id": "vidjob_example123",
-                      "status": "succeeded",
-                      "model": "seedance-2.0",
-                      "resolution": "1080p",
-                      "duration": 8,
-                      "content": {
-                        "video_url": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
-                      }
-                    }
-                  },
-                  "failed": {
-                    "summary": "当前部署实测失败形态：seedance-2.0 1080p、15 秒",
-                    "value": {
-                      "id": "vidjob_example123",
-                      "status": "failed",
-                      "model": "seedance-2.0",
-                      "resolution": "1080p",
-                      "duration": 15,
-                      "error": {
-                        "message": "Video generation failed"
-                      }
-                    }
-                  },
-                  "cancelled": {
-                    "summary": "任务已取消",
-                    "value": {
-                      "id": "vidjob_example123",
-                      "status": "cancelled",
-                      "model": "seedance-2.0"
+                      "id": "vidjob_example_123",
+                      "job_id": "vidjob_example_123",
+                      "status": "completed"
                     }
                   }
                 }
               }
             }
           },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
           "404": {
-            "$ref": "#/components/responses/TaskNotFound"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "502": {
-            "$ref": "#/components/responses/BadGateway"
+            "$ref": "#/components/responses/NotFound"
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Seedance 视频生成"
-        ],
-        "summary": "取消 Seedance 视频任务",
-        "description": "请求取消指定任务。必须使用创建任务时的同一个本站 API Key。上游接受取消后返回 204，不包含响应体。已经完成或无法取消的任务可能返回上游错误。",
-        "operationId": "cancelSeedanceVideoTask",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TaskId"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "任务取消成功，无响应体。"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/TaskNotFound"
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "502": {
-            "$ref": "#/components/responses/BadGateway"
-          },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
     },
-    "/api/v3/contents/generations/tasks/{task_id}/content": {
+    "/videos/jobs/{job_id}/content": {
       "get": {
         "tags": [
-          "Seedance 视频生成"
+          "Seedance v1 视频生成"
         ],
-        "summary": "下载生成的视频",
-        "description": "以二进制流下载成功任务的视频。必须使用创建任务时的同一个本站 API Key；不能直接把 video_url 当作无需鉴权的公开链接。媒体存储可用且缓存尚未建立时，同一任务只有一个归档赢家会去掉 Range、完整读取上游视频、校验 MP4 并写入与 Worker 共用的底层 COS/S3 兼容存储；对象使用独立 seedance/outputs/ 前缀。其他并发请求保留自己的 Range 并直接回源，不会重复写临时文件或 PUT COS。归档赢家完成后，如果客户端原请求带 Range，则优先从新建 COS 归档按原 Range 返回；COS 登记失败时从已校验的本地临时文件按原 Range 返回。后续请求优先读取 COS，缓存不存在、读取失败、媒体存储/Redis 不可用或归档并发槽已满时回退上游。归档赢家路径会验证 MP4，验证失败返回 502；未启用媒体存储、上游未提供可归档 Content-Length 或请求未获得归档租约时为兼容旧行为直接代理上游内容，不承诺本地容器校验。\n\n视频归档 Redis 索引默认保留 7 天；该 TTL 只控制本站缓存索引，不会自动删除 COS 对象。管理员应为实际存储前缀下的 seedance/outputs/ 配置至少 8 天的 Bucket lifecycle，并清理 noncurrent versions。已知的写入或索引失败会立即尝试回滚对象，Bucket lifecycle 是进程退出、网络故障等情况下的长期兜底。Seedance 媒体 I/O 使用独立的用户级并发门，同一用户的全部 Seedance API Key 共用该上限；达到限制返回 429，不占用 OpenAI、Grok、Claude 或 Worker 的业务并发计数。2026-07-24 生产实测：首次完整下载托管图片任务视频返回 HTTP 200、video/mp4、1,736,740 字节；随后对同一地址请求 Range bytes=0-1023 返回 HTTP 206、1024 字节、Accept-Ranges: bytes 和 Content-Range: bytes 0-1023/1736740，符合命中 COS 归档缓存后的范围读取行为。\n\nRange 命中 COS 归档时由对象存储处理；未命中且未成为归档赢家时转发给视频上游，实际状态可能是 200、206 或 416，客户端必须以状态码和 Content-Range 为准。2026-07-23 的旧上游直连实测中，bytes=0-1023 被忽略并返回 HTTP 200、完整文件和 Accept-Ranges: bytes，没有 Content-Range。当前部署实测成功的 seedance-2.0 480p/720p 15 秒、1080p 8 秒结果，以及 seedance-2.0-fast 的 720p/15 秒公网 URL 单首帧与双参考图、音频开关四种结果，均下载为有效 MP4。四个图片任务的 true 成品均有可解码的非静音 AAC-LC 44.1 kHz 立体声音轨，false 成品均无音频流；这不保证未来所有上游结果都使用同一容器、编码或音频格式，也不代表已人工评价声音与画面的同步质量。",
-        "operationId": "downloadSeedanceVideoTaskContent",
+        "summary": "下载 Seedance 视频结果 MP4",
+        "description": "任务 completed 后调用。已通过网关测试返回 video/mp4，并能下载单图、多图、图片+音频三类生成结果。音频引用任务下载的 MP4 包含视频轨和音频轨；单图/多图示例因为 audio=false，仅包含视频轨。",
+        "operationId": "downloadSeedanceVideoJobContent",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TaskId"
+            "$ref": "#/components/parameters/JobID"
           },
           {
-            "$ref": "#/components/parameters/Range"
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "description": "可选范围下载，例如 bytes=0-1023。客户端应以实际 HTTP 状态码和 Content-Range 为准。",
+            "schema": {
+              "type": "string",
+              "example": "bytes=0-1023"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "完整视频内容。",
-            "headers": {
-              "Accept-Ranges": {
-                "$ref": "#/components/headers/AcceptRanges"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
-              "Content-Disposition": {
-                "$ref": "#/components/headers/ContentDisposition"
-              }
-            },
+            "description": "完整 MP4 文件。",
             "content": {
               "video/mp4": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "application/octet-stream": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -844,19 +590,13 @@
             }
           },
           "206": {
-            "description": "COS 归档、本地已校验临时文件或视频上游接受 Range 请求时返回的部分视频内容。首次缓存未命中的归档赢家也会在完整归档后按客户端原 Range 返回。2026-07-23 的旧上游直连实测未观察到 206；2026-07-24 对已完整下载并归档的生产任务请求 bytes=0-1023，实测返回 HTTP 206、1024 字节和 Content-Range: bytes 0-1023/1736740。",
+            "description": "范围下载 MP4 片段。",
             "headers": {
-              "Accept-Ranges": {
-                "$ref": "#/components/headers/AcceptRanges"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "Content-Range": {
-                "$ref": "#/components/headers/ContentRange"
-              },
-              "Content-Disposition": {
-                "$ref": "#/components/headers/ContentDisposition"
+                "schema": {
+                  "type": "string",
+                  "example": "bytes 0-1023/740415"
+                }
               }
             },
             "content": {
@@ -865,46 +605,17 @@
                   "type": "string",
                   "format": "binary"
                 }
-              },
-              "application/octet-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
               }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
           "404": {
-            "$ref": "#/components/responses/TaskNotFound"
-          },
-          "416": {
-            "description": "COS 归档、本地已校验临时文件或视频上游判定 Range 不可满足时返回。错误体取决于实际来源，可能为空、为对象存储格式或为上游格式；客户端应以 HTTP 状态和 Content-Range 为准。",
-            "headers": {
-              "Content-Range": {
-                "$ref": "#/components/headers/ContentRange"
-              }
-            }
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
-          },
-          "502": {
-            "$ref": "#/components/responses/BadGateway"
+            "$ref": "#/components/responses/NotFound"
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "default": {
-            "$ref": "#/components/responses/UpstreamOrUnexpectedError"
           }
         }
       }
@@ -916,118 +627,34 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API Key",
-        "description": "本站 API Key 的推荐鉴权方式。请求头格式：Authorization: Bearer YOUR_TKCREAZY_API_KEY。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一，不要同时配置，也不要在查询参数中传 key 或 api_key。"
-      },
-      "XApiKeyAuth": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "x-api-key",
-        "description": "本站 API Key 的兼容鉴权方式。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一。"
-      },
-      "XGoogApiKeyAuth": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "x-goog-api-key",
-        "description": "为 Gemini CLI 兼容保留的本站 API Key 请求头。BearerAuth、XApiKeyAuth、XGoogApiKeyAuth 三者任选其一。"
+        "description": "填写本站 API Key：Authorization: Bearer <YOUR_API_KEY>"
       }
     },
     "parameters": {
-      "IdempotencyKey": {
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": false,
-        "description": "可选的幂等键，会原样转发给视频上游。对同一次业务创建重试时应复用同一个值，以降低重复创建任务和重复计费的风险。不同任务应使用不同的值。",
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": ".*\\S.*"
-        },
-        "example": "video-order-20260723-0001"
-      },
-      "TaskId": {
-        "name": "task_id",
-        "in": "path",
-        "required": true,
-        "description": "创建任务返回的 id。长度为 1 至 256 个字符；首字符必须是字母或数字，其余字符只能是字母、数字、点、下划线或连字符。任务只能由创建它的同一个本站 API Key 查询、取消和下载。",
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
-        },
-        "example": "vidjob_example123"
-      },
-      "UploadId": {
+      "UploadID": {
         "name": "upload_id",
         "in": "path",
         "required": true,
-        "description": "上传图片响应中的 upload_id，以 sdupl_ 开头。图片记录只允许上传时的同一用户、同一 API Key 和同一 Seedance 分组访问；不存在、过期或所有权不匹配统一返回 404。",
+        "description": "上传接口返回的 upload_id，仅用于读取已上传文件。",
         "schema": {
           "type": "string",
-          "minLength": 7,
-          "pattern": "^sdupl_[A-Za-z0-9_-]+$"
-        },
-        "example": "sdupl_42f2e9bd1f1e4caf9aa6d83bc339b953"
+          "example": "sdupl_example_image"
+        }
       },
-      "MediaRange": {
-        "name": "Range",
-        "in": "header",
-        "required": false,
-        "description": "读取托管图片时的可选 HTTP 字节范围，例如 bytes=0-1023。响应可能是 200、206 或 416，必须以实际状态码和 Content-Range 为准。2026-07-24 对生产托管 PNG 请求 bytes=0-1023，实测返回 206、1024 字节和 Content-Range: bytes 0-1023/72396。",
+      "JobID": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "创建任务返回的 job_id。",
         "schema": {
           "type": "string",
-          "pattern": "^bytes=([0-9]+-[0-9]*|-[0-9]+)$"
-        },
-        "example": "bytes=0-1023"
-      },
-      "Range": {
-        "name": "Range",
-        "in": "header",
-        "required": false,
-        "description": "下载视频时的可选 HTTP 字节范围，例如 bytes=0-1048575 表示请求前 1 MiB。命中 COS 归档时由对象存储处理；缓存未命中的归档赢家会先完整校验并归档，再从 COS 或本地临时文件按原 Range 返回；未获得归档租约的并发请求保留 Range 转发给视频上游。实际响应可能是 200、206 或 416，客户端必须以状态码和 Content-Range 为准。2026-07-23 的旧上游直连实测中 bytes=0-1023 被忽略；2026-07-24 对已完整下载并归档的生产任务请求 bytes=0-1023，实测返回 206 和准确的 Content-Range。",
-        "schema": {
-          "type": "string",
-          "pattern": "^bytes=([0-9]+-[0-9]*|-[0-9]+)(,([0-9]+-[0-9]*|-[0-9]+))*$"
-        },
-        "example": "bytes=0-1048575"
-      }
-    },
-    "headers": {
-      "AcceptRanges": {
-        "description": "当前媒体来源声明的范围单位，通常为 bytes。该响应头存在不代表本次请求一定返回 206；必须同时检查 HTTP 状态码和 Content-Range。",
-        "schema": {
-          "type": "string"
-        },
-        "example": "bytes"
-      },
-      "ContentLength": {
-        "description": "当前响应体的字节数。",
-        "schema": {
-          "type": "integer",
-          "format": "int64",
-          "minimum": 0
-        },
-        "example": 1048576
-      },
-      "ContentRange": {
-        "description": "部分响应覆盖的字节范围以及完整文件大小。",
-        "schema": {
-          "type": "string"
-        },
-        "example": "bytes 0-1048575/8388608"
-      },
-      "ContentDisposition": {
-        "description": "媒体文件名或展示方式；是否返回取决于对象存储或视频上游响应。",
-        "schema": {
-          "type": "string"
-        },
-        "example": "attachment; filename=seedance-video.mp4"
+          "example": "vidjob_example_123"
+        }
       }
     },
     "schemas": {
-      "SeedanceMultipartImageUploadRequest": {
+      "SeedanceImageUploadMultipartRequest": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "image"
         ],
@@ -1035,71 +662,68 @@
           "image": {
             "type": "string",
             "format": "binary",
-            "description": "必须使用字段名 image 上传一个 PNG、JPEG 或 WebP 文件。文件最大 10 MiB；宽高各不超过 8192 像素且总像素不超过 4000 万。服务端按文件内容检测格式，不只信任扩展名或 Content-Type。音频、视频、GIF 和 SVG 不被接受。"
+            "description": "参考图片文件。已测 image/png 和 image/jpeg。"
           }
         },
-        "description": "multipart 图片上传请求。2026-07-24 已在生产以 72,396 字节 PNG 实测成功；字段名必须为 image。"
+        "additionalProperties": false
       },
-      "SeedanceBase64ImageUploadRequest": {
+      "SeedanceAudioUploadMultipartRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "required": [
+          "audio"
+        ],
+        "properties": {
+          "audio": {
+            "type": "string",
+            "format": "binary",
+            "description": "参考音频文件。已测 audio/wav。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SeedanceVideoUploadMultipartRequest": {
+        "type": "object",
+        "required": [
+          "video"
+        ],
+        "properties": {
+          "video": {
+            "type": "string",
+            "format": "binary",
+            "description": "参考视频文件。已通过公开网关实测 video/mp4。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SeedanceImageBase64UploadRequest": {
+        "type": "object",
         "required": [
           "image_base64"
         ],
         "properties": {
           "image_base64": {
             "type": "string",
-            "minLength": 1,
-            "description": "图片数据，二选一：只传 RFC 4648 标准 Base64 字符串；或传 data:image/png;base64,...、data:image/jpeg;base64,...、data:image/webp;base64,... 完整 Data URI。裸 Base64 必须同时提供 content_type；Data URI 已包含 MIME，content_type 可省略。必须是标准 Base64，不接受 URL-safe Base64。解码后最大 10 MiB。",
-            "example": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII="
+            "description": "裸 Base64 或完整 data:image/...;base64,...。裸 Base64 必须同时填写 content_type。"
           },
           "content_type": {
             "type": "string",
-            "enum": [
-              "image/png",
-              "image/jpeg",
-              "image/webp"
-            ],
-            "description": "裸 Base64 时必填并用于构造 Data URI；完整 Data URI 时应省略，以 URI 自带 MIME 为准。声明 MIME 必须与解码后的真实图片格式一致。",
+            "description": "裸 Base64 必填，例如 image/png；完整 Data URI 可以省略。",
             "example": "image/png"
           },
           "filename": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 255,
-            "description": "可选原始文件名，便于客户端标识。当前服务接受但不使用该值决定 COS 对象键、扩展名、响应文件名或上游参数；真实格式始终按图片内容检测。",
+            "description": "可选文件名。",
             "example": "reference.png"
           }
         },
-        "oneOf": [
-          {
-            "title": "裸 Base64",
-            "required": [
-              "content_type"
-            ],
-            "properties": {
-              "image_base64": {
-                "pattern": "^(?![dD][aA][tT][aA]:)[A-Za-z0-9+/]+={0,2}$"
-              }
-            }
-          },
-          {
-            "title": "完整 Data URI",
-            "properties": {
-              "image_base64": {
-                "pattern": "^data:image/(png|jpeg|webp);base64,.+$"
-              }
-            }
-          }
-        ],
-        "description": "JSON 图片上传请求。未知字段会返回 400。服务端严格解码 Base64 并验证图片内容、MIME、大小和尺寸。2026-07-24 已在生产分别实测裸 Base64 + content_type 和完整 Data URI 两种写法，均返回 HTTP 200。"
+        "additionalProperties": false
       },
-      "SeedanceImageUploadResponse": {
+      "SeedanceMediaUploadResponse": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "upload_id",
-          "image_url",
+          "media_url",
+          "media_type",
           "content_type",
           "size",
           "sha256",
@@ -1108,77 +732,88 @@
         "properties": {
           "upload_id": {
             "type": "string",
-            "pattern": "^sdupl_[A-Za-z0-9_-]+$",
-            "description": "本站 Seedance 托管图片 ID，仅用于标识记录。创建任务时不要只传这个值，应使用同一响应中的完整 image_url。",
-            "example": "sdupl_42f2e9bd1f1e4caf9aa6d83bc339b953"
+            "description": "上传记录 ID，仅用于标识。生成接口请使用 media_url。",
+            "example": "sdupl_example_image"
           },
-          "image_url": {
+          "media_url": {
             "type": "string",
             "format": "uri",
-            "description": "步骤 2 必须使用的完整托管图片 URL。将此值原样放入创建任务请求的 content[].image_url.url；网关会解析 upload_id 并生成上游可访问的临时 COS 签名 URL。不要自行替换域名、路径或 upload_id。",
-            "example": "https://tkcreazy.top/api/v3/contents/generations/uploads/sdupl_42f2e9bd1f1e4caf9aa6d83bc339b953"
+            "description": "可在生成接口中引用的素材 URL。复制响应中的完整实际值，不要改写、截断或使用 upload_id 代替。",
+            "example": "{{image_media_url}}"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "audio",
+              "video"
+            ],
+            "description": "公开网关已实测的素材类型。"
           },
           "content_type": {
             "type": "string",
-            "enum": [
-              "image/png",
-              "image/jpeg",
-              "image/webp"
-            ],
-            "description": "根据文件真实内容检测并归一化后的 MIME。",
             "example": "image/png"
           },
           "size": {
             "type": "integer",
             "format": "int64",
-            "minimum": 1,
-            "maximum": 10485760,
-            "description": "解码后并写入对象存储的图片字节数。",
-            "example": 68
+            "example": 72396
           },
           "sha256": {
             "type": "string",
-            "pattern": "^[a-f0-9]{64}$",
-            "description": "图片原始字节的 SHA-256 十六进制摘要。",
-            "example": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            "example": "d42c2780ffcedeb699ac245f42118b4ed082e61d1ba7146549b9df08607f2731"
           },
           "expires_at": {
             "type": "string",
             "format": "date-time",
-            "description": "托管上传记录的失效时间，当前默认约为上传后 24 小时。必须在此时间前创建任务；该时间描述 API 记录可用性，对象本身的最终删除还受存储生命周期策略控制。",
-            "example": "2026-07-24T12:34:56Z"
+            "example": "2026-08-03T12:00:00Z"
           }
-        },
-        "description": "步骤 1 的上传响应。创建视频时应复制 image_url 的完整值；upload_id 不能单独作为图片生成参数。"
+        }
       },
-      "SeedanceCreateTaskRequest": {
+      "SeedanceBaseGenerationFields": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "model",
-          "content"
+          "prompt",
+          "duration",
+          "resolution",
+          "aspect_ratio",
+          "audio"
         ],
         "properties": {
           "model": {
             "type": "string",
-            "minLength": 1,
-            "pattern": ".*\\S.*",
-            "description": "本站 Seedance 分组中配置的入站模型名，提交前后空白会被去除。该字段由管理员自行定义，不是代码写死的枚举。分组存在非空模型价格矩阵时，矩阵也是模型白名单：模型未配置返回 400 model_not_supported；模型存在但当前分辨率没有价格返回 503 billing_not_configured。矩阵为空时沿用分组级分辨率价格。账号可再将此名称映射为上游模型名。示例中的 seedance-2.0 与 seedance-2.0-fast 是 2026-07-23 当前部署实测名称，不保证其他部署存在。",
-            "example": "seedance-2.0"
-          },
-          "content": {
-            "type": "array",
-            "minItems": 1,
-            "description": "提示词和可选图片的数组。数组至少包含 1 项，并且所有项中必须至少有一个去除首尾空白后仍非空的 text 项；多个非空文本会按原顺序用换行符拼接为上游 prompt。图片来源可为公网 HTTP(S) URL、uploads 返回的托管 URL、Data URI 或 {base64, media_type}。使用 uploads 时必须复制响应中的完整 image_url，并放在当前 content 项的 image_url.url；不要只传 upload_id。图片支持三种互斥模式：单张无 role 图片作为首帧并转发为上游 image_url；最多一个外层 role=first_frame 加可选的一个外层 role=last_frame，且 last_frame 不能单独出现；或 1 至 4 张外层 role=reference_image，转发为按 content 顺序排列的上游参考图数组。多参考图的规范写法是在 content 中重复 image_url 项，不存在 reference_images 顶层字段。参考图不能与首帧/尾帧混用；存在多张图片时，每张图片必须显式指定规范 role。content 只接受 text 和 image_url，不接受 input_audio、audio_url、video_url 或文件上传项。",
-            "items": {
-              "$ref": "#/components/schemas/SeedanceContentItem"
-            }
-          },
-          "ratio": {
-            "type": "string",
-            "nullable": true,
             "enum": [
-              null,
+              "seedance-2.0-fast"
+            ],
+            "description": "当前最终示例全部通过该模型完成。其它模型名是否可用取决于 API Key 所属分组配置。"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "视频提示词。使用 audio_reference 时必须明确写出需要保留的具体声音、出现时段、音高/节奏/速度/强弱特征以及禁止替换成的声音。只写“参考音频”或“跟随节奏”可能只生成相同风格音频，不保证保留原声音。即使明确约束，也不保证完整保留或逐波形复制。"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 15,
+            "default": 8,
+            "example": 5,
+            "description": "网关接受 4 至 15 秒；省略或填 0 时按 8 秒归一化。最终示例实测 5 秒。"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "example": "480p",
+            "description": "网关参数范围。具体模型、价格和账号是否允许该分辨率取决于当前分组配置；最终示例实测 480p。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
               "adaptive",
               "16:9",
               "9:16",
@@ -1188,736 +823,522 @@
               "21:9",
               "9:21"
             ],
-            "default": "adaptive",
-            "description": "视频宽高比。省略、传 null、传空字符串或设置为 adaptive 时由上游自适应，并且不会向上游发送 aspect_ratio；其他值会映射为上游 aspect_ratio。规范客户端应使用枚举值或 null，不应依赖空字符串兼容行为。",
-            "example": "16:9"
+            "example": "1:1",
+            "description": "网关接受的画幅比例；最终示例实测 1:1。"
           },
-          "duration": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true,
-            "enum": [
-              null,
-              0,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10,
-              11,
-              12,
-              13,
-              14,
-              15
-            ],
-            "default": 8,
-            "description": "目标视频时长，单位为秒。通用解析器接受整数 4 至 15；省略、传 null 或显式传 0 时均归一化为 8 秒，新客户端应优先省略而不是发送 0。计费使用归一化后的请求时长。下载文件的容器时长可能有少量编码偏差；2026-07-23 四个 15 秒图片任务的媒体探测结果约为 15.04 至 15.09 秒，客户端不应要求精确等于 15.000 秒。通过此范围校验不代表每个模型、分辨率和音频组合都能完成生成；当前部署的实测能力见接口说明。",
-            "example": 8
-          },
-          "resolution": {
-            "type": "string",
-            "nullable": true,
-            "enum": [
-              null,
-              "480p",
-              "720p",
-              "1080p"
-            ],
-            "default": "720p",
-            "description": "输出分辨率档位，省略、传 null 或传空字符串时默认为 720p。通用解析器只接受 480p、720p、1080p 三个规范值；规范客户端不应依赖空字符串兼容行为。所选模型必须在 Seedance 分组中配置该分辨率的每秒价格，否则返回 503 billing_not_configured；有价格只表示允许创建，不保证任务最终成功。档位名称不承诺严格像素高度：2026-07-23 下载文件实测 480p 档为 864x496、720p 档为 1280x720、1080p 档为 1920x1080。seedance-2.0-fast 当前只支持 480p 和 720p，不支持 1080p，不要提交 fast+1080p；当前站点会在创建前返回 503 billing_not_configured。seedance-2.0 的 1080p/15 秒连续 3 次任务失败，不能视为已支持。",
-            "example": "720p"
-          },
-          "generate_audio": {
+          "audio": {
             "type": "boolean",
-            "nullable": true,
-            "default": false,
-            "description": "唯一的音频请求参数，必须放在创建请求顶层。true 会在转发时映射为上游 audio=true，请求模型随视频生成音频；false、省略或 null 映射为 false。客户端不得直接发送未知顶层字段 audio，也不能上传音频文件、自定义配乐或现有音轨。具体模型是否支持生成音频由上游决定；开关本身不新增独立计费项。2026-07-23 当前部署中，seedance-2.0 与 seedance-2.0-fast 的纯文本 480p/720p、15 秒、true 成品均检测到音频流；seedance-2.0-fast 的 720p/15 秒公网 URL 单首帧和双参考图也分别完成 true/false 对照实测，两个 true 成品均检测到可解码的非静音 AAC-LC、44.1 kHz、立体声音轨，两个 false 成品的音频流数量均为 0。该检测不等于人工确认声音内容或音画同步质量，也不是其他模型、组合或部署的通用保证。2026-07-24 的内联 {base64, media_type} 单参考图任务在 generate_audio=true 下也成功，下载 MP4 含 soun/mp4a/esds 音频轨标记；这仍不是人工音画质量评价。",
-            "example": false
-          },
-          "watermark": {
-            "type": "boolean",
-            "enum": [
-              false,
-              null
-            ],
-            "nullable": true,
-            "default": false,
-            "description": "当前只允许省略、null 或 false，且不会转发给上游。传 true 返回 400 invalid_request。"
-          },
-          "seed": {
-            "type": "integer",
-            "format": "int64",
-            "enum": [
-              null
-            ],
-            "nullable": true,
-            "deprecated": true,
-            "default": null,
-            "description": "当前上游适配不支持 seed。只允许省略或传 null；任何非 null 数值都会返回 400 invalid_request。",
-            "example": null
-          },
-          "camera_fixed": {
-            "type": "boolean",
-            "enum": [
-              false,
-              null
-            ],
-            "nullable": true,
-            "default": false,
-            "description": "当前只允许省略、null 或 false，且不会转发给上游。传 true 返回 400 invalid_request。"
+            "description": "是否生成音频轨。图片+音频引用必须填 true，并同时提供 guidances.audio_reference；只填 true 不代表使用了参考音频。单图、多图无音频示例填 false。"
           }
         }
       },
-      "SeedanceContentItem": {
-        "description": "单个内容项。OpenAPI/Apifox 契约只列出规范的 type 值 text 和 image_url；通用服务端解析时不区分大小写，但客户端不应依赖非规范大小写。",
-        "discriminator": {
-          "propertyName": "type",
-          "mapping": {
-            "text": "#/components/schemas/SeedanceTextContentItem",
-            "image_url": "#/components/schemas/SeedanceImageContentItem"
-          }
-        },
-        "oneOf": [
+      "SeedanceTextGenerationRequest": {
+        "allOf": [
           {
-            "$ref": "#/components/schemas/SeedanceTextContentItem"
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
           },
           {
-            "$ref": "#/components/schemas/SeedanceImageContentItem"
+            "type": "object",
+            "description": "纯文本生成不要填写任何素材字段。",
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "image_url"
+                  ]
+                },
+                {
+                  "required": [
+                    "start_frame_url"
+                  ]
+                },
+                {
+                  "required": [
+                    "end_frame_url"
+                  ]
+                },
+                {
+                  "required": [
+                    "guidances"
+                  ]
+                }
+              ]
+            }
           }
         ]
       },
-      "SeedanceTextContentItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "type",
-          "text"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "text"
-            ],
-            "description": "固定为 text。",
-            "example": "text"
+      "SeedanceSingleImageGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
           },
-          "text": {
-            "type": "string",
-            "minLength": 1,
-            "description": "视频提示词。仅空白字符会被视为空；整个 content 至少需要一个非空文本项。多个非空文本项会用换行符拼接。",
-            "example": "电影级航拍镜头从海面缓慢升起，展示日出时的海岸城市"
-          }
-        }
-      },
-      "SeedanceImageContentItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "type",
-          "image_url"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
+          {
+            "type": "object",
+            "required": [
               "image_url"
             ],
-            "description": "固定为 image_url。",
-            "example": "image_url"
-          },
-          "image_url": {
-            "description": "图片来源。先上传再生成时，使用 uploads 响应中的完整 image_url，规范写法为 {\"url\":\"<完整 image_url>\"}；不要只传 upload_id。也可以直接传公网绝对 HTTP(S) URL、完整 Base64 Data URI 字符串，或传 SeedanceImageInput 对象。Base64 规范写法是 {base64: ..., media_type: ...}。role、strength 写在当前 content 项外层。",
-            "oneOf": [
-              {
+            "properties": {
+              "audio": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "image_url": {
                 "type": "string",
                 "format": "uri",
-                "pattern": "^https?://",
-                "example": "https://example.com/images/start-frame.png"
-              },
-              {
-                "type": "string",
-                "pattern": "^data:image/(png|jpeg|webp);base64,",
-                "description": "完整图片 Data URI。MIME 只允许 image/png、image/jpeg、image/webp；Base64 解码后最大 10 MiB。网关先写入 Seedance COS 对象，再把临时签名 URL 转发给上游。2026-07-24 已在生产以 seedance-2.0-fast、720p、8 秒、单首帧、generate_audio=false 实测任务 succeeded 并下载有效 MP4。",
-                "example": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII="
-              },
-              {
-                "$ref": "#/components/schemas/SeedanceImageInput"
+                "description": "图片上传返回的完整 media_url。"
               }
-            ]
+            }
+          }
+        ]
+      },
+      "SeedanceStartEndFrameGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
           },
-          "role": {
-            "$ref": "#/components/schemas/SeedanceImageRole"
+          {
+            "type": "object",
+            "required": [
+              "start_frame_url",
+              "end_frame_url"
+            ],
+            "properties": {
+              "audio": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "start_frame_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "首帧图片上传返回的完整 media_url。"
+              },
+              "end_frame_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "尾帧图片上传返回的完整 media_url。不能单独使用尾帧。"
+              }
+            }
+          }
+        ]
+      },
+      "SeedanceMultiImageGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "guidances"
+            ],
+            "properties": {
+              "audio": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "guidances": {
+                "type": "object",
+                "required": [
+                  "image_reference"
+                ],
+                "properties": {
+                  "image_reference": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 4,
+                    "description": "网关最多接受 4 张参考图片；公开网关 E2E 实测 2 张。",
+                    "items": {
+                      "$ref": "#/components/schemas/SeedanceImageReference"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        ]
+      },
+      "SeedanceVideoReferenceGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "guidances"
+            ],
+            "properties": {
+              "audio": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "guidances": {
+                "type": "object",
+                "required": [
+                  "video_reference_base"
+                ],
+                "properties": {
+                  "video_reference_base": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "description": "公开网关已实测 1 个 MP4 视频参考。",
+                    "items": {
+                      "$ref": "#/components/schemas/SeedanceVideoReference"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        ]
+      },
+      "SeedanceImageAudioGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SeedanceBaseGenerationFields"
+          },
+          {
+            "type": "object",
+            "required": [
+              "guidances"
+            ],
+            "properties": {
+              "audio": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "guidances": {
+                "type": "object",
+                "required": [
+                  "image_reference",
+                  "audio_reference"
+                ],
+                "properties": {
+                  "image_reference": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "items": {
+                      "$ref": "#/components/schemas/SeedanceImageReference"
+                    }
+                  },
+                  "audio_reference": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "description": "只放 1 个音频引用。audio_reference 项不要填写 order 字段；音频 url 使用上传音频返回的完整 media_url。audio_reference 是生成参考，不是原音轨直通；prompt 还必须明确写出要保留的具体声音和音频特征。",
+                    "items": {
+                      "$ref": "#/components/schemas/SeedanceAudioReference"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        ]
+      },
+      "SeedanceImageReference": {
+        "type": "object",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "$ref": "#/components/schemas/SeedanceImageMediaRef"
           },
           "strength": {
-            "$ref": "#/components/schemas/SeedanceReferenceStrength"
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MID",
+              "HIGH"
+            ],
+            "description": "网关接受 LOW、MID、HIGH；未填写或填写其它值时归一化为 MID。最终示例实测 HIGH。"
+          },
+          "order": {
+            "type": "integer",
+            "description": "图片顺序。本轮多图实测使用 0 和 1。"
           }
         },
-        "description": "图片内容项。单张无 role 图片按首帧处理，不等同于单张 reference_image；单张参考图也必须显式写外层 role=reference_image。首尾帧模式最多一个 first_frame 和一个 last_frame，last_frame 必须同时提供 first_frame。参考图模式在 content 中重复 1 至 4 个图片项，每项都写外层 role=reference_image，且不能与首帧或尾帧混用；strength 只对 reference_image 有意义。每张图片可以独立选择 HTTP(S)/托管 URL、Data URI 或 Base64 对象，多图时可混合来源。上传、Base64 和启用媒体存储后的公网 URL 镜像必须通过格式、大小及尺寸校验；未配置媒体存储时，公网 URL 只做 URL 安全校验后直传上游，本站无法验证远端文件内容。2026-07-23 已实测公网 URL 单张无 role 首帧及两张 reference_image；2026-07-24 又以 seedance-2.0-fast、720p、8 秒实测托管 image_url 单首帧、托管 image_url 单 reference_image、内联 Data URI 单首帧和内联 {base64, media_type} 单 reference_image，四项均 succeeded 并下载有效 MP4。未列出的多图混合来源和首尾帧组合仍未生产实测。"
+        "additionalProperties": false
       },
-      "SeedanceImageInput": {
+      "SeedanceVideoReference": {
         "type": "object",
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "url"
-            ],
-            "properties": {
-              "url": {},
-              "role": {},
-              "strength": {}
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "base64",
-              "media_type"
-            ],
-            "properties": {
-              "base64": {},
-              "media_type": {},
-              "role": {},
-              "strength": {}
-            }
+        "required": [
+          "video"
+        ],
+        "properties": {
+          "video": {
+            "$ref": "#/components/schemas/SeedanceVideoMediaRef"
           }
+        },
+        "additionalProperties": false
+      },
+      "SeedanceAudioReference": {
+        "type": "object",
+        "required": [
+          "audio"
+        ],
+        "properties": {
+          "audio": {
+            "$ref": "#/components/schemas/SeedanceAudioMediaRef"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SeedanceImageMediaRef": {
+        "type": "object",
+        "required": [
+          "url",
+          "type"
         ],
         "properties": {
           "url": {
-            "description": "与 base64 互斥。可传公网绝对 HTTP(S) URL、uploads 响应中的完整 image_url，或完整图片 Data URI。使用托管上传时必须复制完整 image_url，不要只传 upload_id。媒体存储可用时，公网 URL 会由网关下载并校验后镜像到 Seedance COS 前缀；为防止 SSRF，不允许 localhost、内网/链路本地/保留 IP、URL 凭据、fragment 或 80/443 之外端口，HTTPS 也不能重定向到 HTTP。未配置媒体存储时，仅公网 HTTP(S) URL 原样转发，托管 URL/Data URI 不可用。",
-            "oneOf": [
-              {
-                "type": "string",
-                "format": "uri",
-                "pattern": "^https?://",
-                "example": "https://example.com/images/reference.png"
-              },
-              {
-                "type": "string",
-                "pattern": "^data:image/(png|jpeg|webp);base64,",
-                "example": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII="
-              }
-            ]
-          },
-          "base64": {
             "type": "string",
-            "minLength": 1,
-            "description": "与 url 互斥的裸 RFC 4648 标准 Base64 图片内容，不带 data: 前缀。必须同时提供 media_type；解码后最大 10 MiB。网关会写入 Seedance COS 对象并只向上游转发临时签名 URL，不会把 Base64 原文写入使用记录或转发给上游。",
-            "example": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII="
+            "format": "uri",
+            "description": "图片上传接口返回的完整 media_url。不要填 upload_id，不要使用文档示例值。"
           },
-          "media_type": {
+          "type": {
             "type": "string",
             "enum": [
-              "image/png",
-              "image/jpeg",
-              "image/webp"
-            ],
-            "description": "使用 base64 时必填，且必须与解码后的图片真实格式一致。使用 url 时应省略。",
-            "example": "image/png"
-          },
-          "role": {
-            "$ref": "#/components/schemas/SeedanceImageRole"
-          },
-          "strength": {
-            "$ref": "#/components/schemas/SeedanceReferenceStrength"
+              "UPLOADED"
+            ]
           }
         },
-        "description": "结构化图片输入。必须且只能选择 url 或 base64 两者之一；base64 还必须带 media_type。role 和 strength 的规范位置是 content 项外层；这里保留嵌套属性只为描述本站兼容解析行为。未知字段、url 与 base64 同时出现、url 搭配 media_type 或 base64 缺少 media_type 都返回 400。上传、Base64 以及启用媒体存储后的公网 URL 镜像会校验 PNG/JPEG/WebP、解码后 10 MiB、宽高 8192 和 4000 万总像素限制；未配置媒体存储时公网 HTTP(S) URL 只做 URL 安全策略校验并直接转发，不会由本站下载，因此无法在本地验证其图片格式、大小或尺寸。2026-07-24 已在生产实测托管 upload image_url、内联 {base64, media_type} 和内联 Data URI 三条 COS 转存链路，均成功生成并下载有效 MP4；未列出的混合来源和多图组合仍需单独验证。"
+        "additionalProperties": false
       },
-      "SeedanceImageRole": {
-        "type": "string",
-        "enum": [
-          "first_frame",
-          "start_frame",
-          "first",
-          "last_frame",
-          "end_frame",
-          "last",
-          "reference_image",
-          "reference",
-          "ref"
-        ],
-        "description": "图片角色，写在 image_url content 项外层。单张图片作为视频首帧时可省略 role，或显式写 first_frame；尾帧写 last_frame，且必须同时提供 first_frame；图片只作为视觉参考时写 reference_image。多张参考图需要在 content 中重复多个 image_url 项，每项都写 reference_image；不存在任务顶层 reference_images 字段。通用解析器兼容部分别名，但规范客户端只应使用 first_frame、last_frame、reference_image。",
-        "example": "first_frame"
-      },
-      "SeedanceReferenceStrength": {
-        "type": "string",
-        "enum": [
-          "LOW",
-          "MID",
-          "HIGH"
-        ],
-        "default": "MID",
-        "description": "参考图约束强度，规范位置是 role=reference_image 的 content 项外层，仅对参考图有意义。省略时默认为 MID。通用解析器匹配时不区分大小写，并会把空值或无法识别的值归一化为 MID；OpenAPI/Apifox 契约仅允许规范值 LOW、MID、HIGH，客户端不应依赖容错。",
-        "example": "HIGH"
-      },
-      "SeedanceCreateTaskResponse": {
+      "SeedanceAudioMediaRef": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
-          "id"
+          "url",
+          "type"
         ],
         "properties": {
-          "id": {
+          "url": {
             "type": "string",
-            "description": "本站视频任务 ID。后续查询、取消和下载都使用此值。",
-            "example": "vidjob_example123"
+            "format": "uri",
+            "description": "音频上传接口返回的完整 media_url。不要填 upload_id，不要截断签名参数，不要给音频引用增加 order。"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "UPLOADED"
+            ]
           }
-        }
+        },
+        "additionalProperties": false
       },
-      "SeedanceTask": {
+      "SeedanceVideoMediaRef": {
         "type": "object",
         "required": [
-          "id",
-          "status"
+          "url",
+          "type"
         ],
         "properties": {
-          "id": {
+          "url": {
             "type": "string",
-            "description": "本站视频任务 ID。",
-            "example": "vidjob_example123"
+            "format": "uri",
+            "description": "视频上传接口返回的完整 media_url。不要填 upload_id。"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "UPLOADED"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SeedanceVideoJobCreateResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "status_url"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "example": "vidjob_example_123"
           },
           "status": {
             "type": "string",
-            "description": "归一化状态通常为 queued、running、succeeded、failed 或 cancelled。上游返回未知状态时，网关会将其转为小写后原样返回，因此这里不使用封闭枚举。",
-            "example": "succeeded"
+            "example": "queued"
+          },
+          "status_url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123"
+          }
+        }
+      },
+      "SeedanceVideoJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "vidjob_example_123"
+          },
+          "job_id": {
+            "type": "string",
+            "example": "vidjob_example_123"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "继续轮询 queued、pending、running；completed 后下载；failed 时读取 error。"
           },
           "model": {
             "type": "string",
-            "description": "上游任务响应中的模型名，可能是账号模型映射后的上游模型名，不保证与创建请求中的入站模型名相同。",
-            "example": "seedance-2.0"
+            "example": "seedance-2.0-fast"
+          },
+          "prompt": {
+            "type": "string"
           },
           "created_at": {
-            "$ref": "#/components/schemas/FlexibleTimestamp"
+            "type": "string",
+            "format": "date-time"
           },
           "updated_at": {
-            "$ref": "#/components/schemas/FlexibleTimestamp"
+            "type": "string",
+            "format": "date-time"
           },
           "completed_at": {
-            "$ref": "#/components/schemas/FlexibleTimestamp"
-          },
-          "seed": {
-            "description": "上游任务响应中的 seed，存在时原样返回；创建接口当前不支持指定 seed。"
-          },
-          "resolution": {
             "type": "string",
-            "description": "上游返回的任务分辨率。",
-            "example": "720p"
-          },
-          "duration": {
-            "type": "integer",
-            "description": "上游返回的视频时长，单位为秒。",
-            "example": 8
-          },
-          "ratio": {
-            "type": "string",
-            "description": "上游返回的宽高比。",
-            "example": "16:9"
+            "format": "date-time"
           },
           "content": {
-            "$ref": "#/components/schemas/SeedanceTaskContent"
+            "type": "object",
+            "additionalProperties": true
+          },
+          "result": {
+            "type": "object",
+            "description": "完成任务的结果元数据，其中视频 URL 会指向本站 /content 地址。",
+            "additionalProperties": true
           },
           "error": {
             "type": "object",
-            "additionalProperties": true,
-            "description": "任务失败时的上游错误详情。具体字段由上游决定；若上游只返回 error_message，网关会包装为包含 message 的对象。",
-            "example": {
-              "message": "Video generation failed"
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "SeedanceVideoJobListResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeedanceVideoJob"
             }
           }
         },
-        "description": "任务查询结果。可选字段仅在上游实际返回时出现；content 只在 status=succeeded 时出现，error 通常只在 status=failed 时出现。"
+        "additionalProperties": true
       },
-      "SeedanceTaskContent": {
+      "ErrorResponse": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "video_url"
-        ],
-        "properties": {
-          "video_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "本站鉴权下载地址。请求该地址时仍必须携带创建任务时的同一个 API Key，可使用本文档定义的任一请求头鉴权方式。",
-            "example": "https://tkcreazy.top/api/v3/contents/generations/tasks/vidjob_example123/content"
-          }
-        }
-      },
-      "FlexibleTimestamp": {
-        "description": "上游时间字段，可能是 ISO 8601 字符串或 Unix 时间戳，网关不改变其类型。",
-        "anyOf": [
-          {
-            "type": "string",
-            "example": "2026-07-23T12:34:56Z"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "example": 1784800496
-          },
-          {
-            "type": "number",
-            "format": "double",
-            "example": 1784800496.123
-          }
-        ]
-      },
-      "SeedanceErrorResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "message",
-              "type"
-            ],
-            "properties": {
-              "code": {
-                "type": "string",
-                "description": "可选机器错误码，例如 invalid_request、model_not_supported、task_not_found、billing_not_configured、upstream_error。Seedance 专用校验路径会返回该字段；公共并发或故障转移错误路径可能省略它。",
-                "example": "invalid_request"
-              },
-              "message": {
-                "type": "string",
-                "description": "可读错误信息。",
-                "example": "duration must be between 4 and 15 seconds"
-              },
-              "type": {
-                "type": "string",
-                "description": "Seedance Handler 错误类型，当前为 invalid_request_error。",
-                "example": "invalid_request_error"
-              }
-            }
-          }
-        }
-      },
-      "MiddlewareErrorResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "code",
-          "message"
-        ],
         "properties": {
           "code": {
-            "type": "string",
-            "description": "鉴权或入口中间件错误码，例如 API_KEY_REQUIRED、INVALID_API_KEY、API_KEY_DISABLED、ACCESS_DENIED。",
-            "example": "INVALID_API_KEY"
+            "type": "integer",
+            "example": 400
           },
           "message": {
             "type": "string",
-            "description": "错误信息。",
-            "example": "Invalid API key"
-          }
-        }
-      },
-      "AnyGatewayErrorResponse": {
-        "description": "错误可能由 Seedance Handler 或 API Key 中间件产生，因此存在两种兼容格式。",
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/SeedanceErrorResponse"
+            "example": "invalid request"
           },
-          {
-            "$ref": "#/components/schemas/MiddlewareErrorResponse"
+          "reason": {
+            "type": "string",
+            "example": "invalid_request"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": true
           }
-        ]
+        },
+        "additionalProperties": true
       }
     },
     "responses": {
       "BadRequest": {
-        "description": "请求参数、JSON 或图片无效。任务常见 code：invalid_request、model_not_supported；图片常见 code：image_required、content_type_required、invalid_image_base64、unsupported_image_type、image_type_mismatch、invalid_image、image_dimensions_invalid、invalid_image_url。若在查询参数中传 API Key，可能返回 api_key_in_query_deprecated。",
+        "description": "请求参数错误。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "examples": {
-              "invalidRequest": {
-                "summary": "参数校验失败",
-                "value": {
-                  "error": {
-                    "code": "invalid_request",
-                    "message": "duration must be between 4 and 15 seconds",
-                    "type": "invalid_request_error"
-                  }
-                }
-              },
-              "modelNotSupported": {
-                "summary": "模型不在 Seedance 分组白名单中",
-                "value": {
-                  "error": {
-                    "code": "model_not_supported",
-                    "message": "The requested model is not configured for this Seedance group",
-                    "type": "invalid_request_error"
-                  }
-                }
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       },
       "Unauthorized": {
-        "description": "本站 API Key 缺失、无效、已禁用或无法鉴权。入口中间件通常返回扁平的 code/message 格式。",
+        "description": "未提供或未通过 API Key 鉴权。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "examples": {
-              "missingKey": {
-                "summary": "缺少 API Key",
-                "value": {
-                  "code": "API_KEY_REQUIRED",
-                  "message": "API key is required in Authorization header (Bearer scheme), x-api-key header, or x-goog-api-key header"
-                }
-              },
-              "invalidKey": {
-                "summary": "API Key 无效",
-                "value": {
-                  "code": "INVALID_API_KEY",
-                  "message": "Invalid API key"
-                }
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       },
       "Forbidden": {
-        "description": "API Key 无权调用 Seedance、未分配到 Seedance 分组、分组未启用视频生成、IP 被拒绝或计费资格不足。常见 code：permission_denied、ACCESS_DENIED、billing_error。",
+        "description": "当前 API Key 无权调用该分组或该模型。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "permission_denied",
-                "message": "API key group does not support Seedance",
-                "type": "invalid_request_error"
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       },
-      "TaskNotFound": {
-        "description": "任务不存在、任务绑定已过期，或当前 API Key 不是创建该任务的 Key。",
+      "NotFound": {
+        "description": "任务或素材不存在、过期，或不属于当前 API Key。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "task_not_found",
-                "message": "Seedance task not found",
-                "type": "invalid_request_error"
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       },
-      "UploadNotFound": {
-        "description": "托管图片不存在、记录已过期或删除，或者当前用户/API Key/Seedance 分组不是上传所有者。为避免泄露对象存在性，所有权不匹配同样返回 404。",
+      "PayloadTooLarge": {
+        "description": "上传文件过大。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "upload_not_found",
-                "message": "Seedance image upload not found",
-                "type": "invalid_request_error"
-              }
-            }
-          }
-        }
-      },
-      "RequestTooLarge": {
-        "description": "创建请求体超过网关最大大小时返回 request_too_large；内联 Base64 或启用媒体存储后下载的公网参考图片解码超过 10 MiB 时返回 image_too_large。",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "examples": {
-              "requestBodyTooLarge": {
-                "value": {
-                  "error": {
-                    "code": "request_too_large",
-                    "message": "Request body is too large",
-                    "type": "invalid_request_error"
-                  }
-                }
-              },
-              "inlineImageTooLarge": {
-                "value": {
-                  "error": {
-                    "code": "image_too_large",
-                    "message": "decoded image must not exceed 10 MiB",
-                    "type": "invalid_request_error"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "ImageTooLarge": {
-        "description": "multipart 图片文件或 Base64 解码后的图片超过 10 MiB。JSON 请求体还会预留 Base64 编码与结构开销，但最终限制始终以解码后的图片字节数为准。",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "image_too_large",
-                "message": "image must not exceed 10 MiB",
-                "type": "invalid_request_error"
-              }
-            }
-          }
-        }
-      },
-      "UnsupportedUploadMediaType": {
-        "description": "上传接口的 HTTP Content-Type 不是 multipart/form-data 或 application/json。图片文件本身不是 PNG/JPEG/WebP 时通常返回 400 unsupported_image_type，而不是 415。",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "unsupported_media_type",
-                "message": "Content-Type must be multipart/form-data or application/json",
-                "type": "invalid_request_error"
-              }
-            }
-          }
-        }
-      },
-      "TooManyRequests": {
-        "description": "超过用户、账号或媒体生成并发限制，或触发速率限制。部分响应会携带 Retry-After。",
-        "headers": {
-          "Retry-After": {
-            "description": "建议等待的秒数；仅在网关能确定重试时间时返回。",
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "example": 10
-          }
-        },
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "rate_limit_exceeded",
-                "message": "Too many concurrent requests",
-                "type": "invalid_request_error"
-              }
-            }
-          }
-        }
-      },
-      "BadGateway": {
-        "description": "视频上游请求失败、远程参考图片抓取失败、上游响应格式无效，或已接受的任务无法在本地绑定。常见 code：upstream_error、image_fetch_failed、invalid_upstream_response、task_binding_failed、video_too_large。",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/SeedanceErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "upstream_error",
-                "message": "Seedance upstream request failed",
-                "type": "invalid_request_error"
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       },
       "ServiceUnavailable": {
-        "description": "模型对应分辨率未配置价格、没有可用 Seedance 上游账号、Seedance 媒体存储/Redis 未配置或不可用，或鉴权/计费服务暂时不可用。常见 code：billing_not_configured、no_available_account、media_storage_not_configured、media_storage_error、billing_service_error、API_KEY_AUTH_OVERLOADED。uploads 和 Base64/Data URI 必须配置与 Worker 共用的底层 COS/S3 兼容媒体存储，托管上传还需要 Redis；未配置时公网 HTTP(S) 图片 URL 仍可直接转发。2026-07-23 当前部署中，seedance-2.0-fast 的 1080p 创建请求在产生任务前返回 503 billing_not_configured。",
+        "description": "服务暂时不可用、分组配置不足或当前无可用账号。",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "examples": {
-              "fast1080pBillingNotConfiguredObserved": {
-                "summary": "当前部署实测：seedance-2.0-fast 1080p 未配置价格",
-                "value": {
-                  "error": {
-                    "code": "billing_not_configured",
-                    "message": "Video price per second is not configured for the requested model and resolution",
-                    "type": "invalid_request_error"
-                  }
-                }
-              },
-              "noAvailableAccount": {
-                "summary": "没有可用的 Seedance 上游账号",
-                "value": {
-                  "error": {
-                    "code": "no_available_account",
-                    "message": "No available Seedance upstream account in this API key group",
-                    "type": "invalid_request_error"
-                  }
-                }
-              },
-              "mediaStorageNotConfigured": {
-                "summary": "Seedance Base64/托管上传所需媒体存储未配置",
-                "value": {
-                  "error": {
-                    "code": "media_storage_not_configured",
-                    "message": "Seedance media storage is not configured",
-                    "type": "invalid_request_error"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "UpstreamOrUnexpectedError": {
-        "description": "未在当前操作中单独列出的上游或网关错误。Seedance 上游的 400 至 599 状态可能由网关保留，并包装为标准 Seedance 错误；入口中间件错误可能使用扁平 code/message 格式。客户端应同时读取 HTTP 状态和机器可读 code，不应只依赖示例中的状态集合。",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/AnyGatewayErrorResponse"
-            },
-            "examples": {
-              "upstreamError": {
-                "summary": "未显式枚举的上游错误",
-                "value": {
-                  "error": {
-                    "code": "upstream_error",
-                    "message": "Seedance upstream request failed",
-                    "type": "invalid_request_error"
-                  }
-                }
-              },
-              "middlewareError": {
-                "summary": "未显式枚举的入口中间件错误",
-                "value": {
-                  "code": "INTERNAL_ERROR",
-                  "message": "Request could not be processed"
-                }
-              }
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }

@@ -25,6 +25,7 @@ const (
 	PlatformGrok        = "grok"
 	PlatformGLM         = "glm"
 	PlatformSeedance    = "seedance"
+	PlatformLTX         = "ltx"
 	PlatformComposite   = "composite"
 )
 

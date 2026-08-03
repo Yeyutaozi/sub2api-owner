@@ -283,6 +283,14 @@ func (a *Account) IsSeedance() bool {
 	return a != nil && a.Platform == PlatformSeedance
 }
 
+func (a *Account) IsLTX() bool {
+	return a != nil && a.Platform == PlatformLTX
+}
+
+func (a *Account) IsFFLinkVideo() bool {
+	return a != nil && IsFFLinkVideoPlatform(a.Platform)
+}
+
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
@@ -1414,7 +1422,7 @@ func (a *Account) GetGLMAPIKey() string {
 }
 
 func (a *Account) GetSeedanceBaseURL() string {
-	if !a.IsSeedance() || a.Type != AccountTypeAPIKey {
+	if !a.IsFFLinkVideo() || a.Type != AccountTypeAPIKey {
 		return ""
 	}
 	if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
@@ -1424,7 +1432,7 @@ func (a *Account) GetSeedanceBaseURL() string {
 }
 
 func (a *Account) GetSeedanceAPIKey() string {
-	if !a.IsSeedance() || a.Type != AccountTypeAPIKey {
+	if !a.IsFFLinkVideo() || a.Type != AccountTypeAPIKey {
 		return ""
 	}
 	return strings.TrimSpace(a.GetCredential("api_key"))

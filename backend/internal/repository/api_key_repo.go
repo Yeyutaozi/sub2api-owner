@@ -937,7 +937,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		return nil
 	}
 	videoModelPrices := service.VideoModelPrices{}
-	if g.Platform == service.PlatformSeedance {
+	if service.IsFFLinkVideoPlatform(g.Platform) {
 		videoModelPrices = g.VideoModelPrices
 	}
 	return &service.Group{

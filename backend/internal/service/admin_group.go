@@ -250,15 +250,9 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	case PlatformGLM:
 		return DefaultGLMModelIDs()
 	case PlatformSeedance:
-		return []string{
-			"seedance-2.0",
-			"seedance-2.0-fast",
-			"seedance-2.0-mini",
-			"happy-horse-1.1",
-			"grok-imagine-1.5",
-			"ltx-2.3-pro",
-			"ltx-2.3-fast",
-		}
+		return FFLinkVideoModelIDsForPlatform(PlatformSeedance)
+	case PlatformLTX:
+		return FFLinkVideoModelIDsForPlatform(PlatformLTX)
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
@@ -776,7 +770,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		}
 		group.VideoModelPrices = videoModelPrices
 	}
-	if group.Platform != PlatformSeedance {
+	if !IsFFLinkVideoPlatform(group.Platform) {
 		group.VideoModelPrices = VideoModelPrices{}
 	}
 	if input.WebSearchPricePerCall != nil {
@@ -1012,7 +1006,47 @@ func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, groupI
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
-	return s.userGroupRateRepo.DeleteByGroupID(ctx, groupID)
+	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, nil)
+}
+
+func (s *adminServiceImpl) ClearGroupVideoModelPrices(ctx context.Context, groupID int64) error {
+	if s.userGroupRateRepo == nil {
+		return nil
+	}
+	return s.userGroupRateRepo.ClearGroupVideoModelPrices(ctx, groupID)
+}
+
+func (s *adminServiceImpl) BatchSetGroupVideoModelPrices(ctx context.Context, groupID int64, entries []GroupVideoModelPricesInput) error {
+	if s.userGroupRateRepo == nil {
+		return nil
+	}
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
+		return infraerrors.BadRequest("VIDEO_PRICE_OVERRIDES_UNSUPPORTED", "per-user video prices require a Seedance or LTX group")
+	}
+	normalized := make([]GroupVideoModelPricesInput, 0, len(entries))
+	seenUserIDs := make(map[int64]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.UserID <= 0 {
+			return infraerrors.BadRequest("INVALID_USER_ID", "user_id must be positive")
+		}
+		if _, exists := seenUserIDs[entry.UserID]; exists {
+			return infraerrors.BadRequest("DUPLICATE_USER_ID", fmt.Sprintf("duplicate video price override for user_id=%d", entry.UserID))
+		}
+		seenUserIDs[entry.UserID] = struct{}{}
+		prices, err := normalizeVideoModelPrices(group.Platform, entry.VideoModelPrices)
+		if err != nil {
+			return err
+		}
+		if len(prices) == 0 {
+			continue
+		}
+		normalized = append(normalized, GroupVideoModelPricesInput{UserID: entry.UserID, VideoModelPrices: prices})
+	}
+	return s.userGroupRateRepo.SyncGroupVideoModelPrices(ctx, groupID, normalized)
 }
 
 func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error {

@@ -42,6 +42,55 @@ func TestNormalizeVideoModelPricesSeedance(t *testing.T) {
 	require.Zero(t, *input[" Seedance-2.0 "].Price480P)
 }
 
+func TestNormalizeVideoModelPricesSupportsSeedanceMiniAndLTX(t *testing.T) {
+	mini720P := 0.04
+	mini, err := normalizeVideoModelPrices(PlatformSeedance, VideoModelPrices{
+		"seedance-2.0-mini": {Price720P: &mini720P},
+	})
+	require.NoError(t, err)
+	require.InDelta(t, mini720P, *mini["seedance-2.0-mini"].Price720P, 1e-12)
+
+	ltx1440P := 0.2
+	ltx2160P := 0.3
+	ltx, err := normalizeVideoModelPrices(PlatformLTX, VideoModelPrices{
+		"ltx-2.3-pro": {Price1440P: &ltx1440P, Price2160P: &ltx2160P},
+	})
+	require.NoError(t, err)
+	require.InDelta(t, ltx1440P, *ltx["ltx-2.3-pro"].Price1440P, 1e-12)
+	require.InDelta(t, ltx2160P, *ltx["ltx-2.3-pro"].Price2160P, 1e-12)
+}
+
+func TestNormalizeVideoModelPricesRejectsUnsupportedResolutionForModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		prices   VideoModelPrices
+	}{
+		{
+			name:     "seedance mini 1080p",
+			platform: PlatformSeedance,
+			prices: VideoModelPrices{
+				"seedance-2.0-mini": {Price1080P: videoModelPriceTestPointer(0.1)},
+			},
+		},
+		{
+			name:     "ltx 720p",
+			platform: PlatformLTX,
+			prices: VideoModelPrices{
+				"ltx-2.3-fast": {Price720P: videoModelPriceTestPointer(0.1)},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			normalized, err := normalizeVideoModelPrices(test.platform, test.prices)
+			require.ErrorContains(t, err, "does not support")
+			require.Nil(t, normalized)
+		})
+	}
+}
+
 func TestNormalizeVideoModelPricesRejectsInvalidSeedanceCards(t *testing.T) {
 	tests := []struct {
 		name      string

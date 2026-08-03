@@ -382,7 +382,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	}
 	if apiKey.Group != nil {
 		videoModelPrices := VideoModelPrices{}
-		if apiKey.Group.Platform == PlatformSeedance {
+		if IsFFLinkVideoPlatform(apiKey.Group.Platform) {
 			videoModelPrices = cloneVideoModelPrices(apiKey.Group.VideoModelPrices)
 		}
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
@@ -473,7 +473,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 	}
 	if snapshot.Group != nil {
 		videoModelPrices := VideoModelPrices{}
-		if snapshot.Group.Platform == PlatformSeedance {
+		if IsFFLinkVideoPlatform(snapshot.Group.Platform) {
 			videoModelPrices = cloneVideoModelPrices(snapshot.Group.VideoModelPrices)
 		}
 		apiKey.Group = &Group{

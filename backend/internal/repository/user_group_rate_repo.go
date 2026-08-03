@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -11,6 +12,10 @@ import (
 
 type userGroupRateRepository struct {
 	sql sqlExecutor
+}
+
+type sqlTransactionBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
 // NewUserGroupRateRepository 创建用户专属分组倍率/RPM 仓储
@@ -94,10 +99,10 @@ func (r *userGroupRateRepository) GetByUserIDs(ctx context.Context, userIDs []in
 	return result, nil
 }
 
-// GetByGroupID 获取指定分组下所有用户的专属配置（rate 与 rpm_override 任一非 NULL 即返回）
+// GetByGroupID 获取指定分组下所有用户的专属倍率、RPM 和视频单价配置。
 func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int64) ([]service.UserGroupRateEntry, error) {
 	query := `
-		SELECT ugr.user_id, u.username, u.email, COALESCE(u.notes, ''), u.status, ugr.rate_multiplier, ugr.rpm_override
+		SELECT ugr.user_id, u.username, u.email, COALESCE(u.notes, ''), u.status, ugr.rate_multiplier, ugr.rpm_override, ugr.video_model_prices
 		FROM user_group_rate_multipliers ugr
 		JOIN users u ON u.id = ugr.user_id AND u.deleted_at IS NULL
 		WHERE ugr.group_id = $1
@@ -114,7 +119,8 @@ func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int6
 		var entry service.UserGroupRateEntry
 		var rate sql.NullFloat64
 		var rpm sql.NullInt32
-		if err := rows.Scan(&entry.UserID, &entry.UserName, &entry.UserEmail, &entry.UserNotes, &entry.UserStatus, &rate, &rpm); err != nil {
+		var videoModelPricesJSON []byte
+		if err := rows.Scan(&entry.UserID, &entry.UserName, &entry.UserEmail, &entry.UserNotes, &entry.UserStatus, &rate, &rpm, &videoModelPricesJSON); err != nil {
 			return nil, err
 		}
 		if rate.Valid {
@@ -124,6 +130,11 @@ func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int6
 		if rpm.Valid {
 			v := int(rpm.Int32)
 			entry.RPMOverride = &v
+		}
+		if len(videoModelPricesJSON) > 0 {
+			if err := json.Unmarshal(videoModelPricesJSON, &entry.VideoModelPrices); err != nil {
+				return nil, err
+			}
 		}
 		result = append(result, entry)
 	}
@@ -169,10 +180,29 @@ func (r *userGroupRateRepository) GetRPMOverrideByUserAndGroup(ctx context.Conte
 	return &v, nil
 }
 
+func (r *userGroupRateRepository) GetVideoModelPricesByUserAndGroup(ctx context.Context, userID, groupID int64) (service.VideoModelPrices, error) {
+	query := `SELECT video_model_prices FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = $2`
+	var raw []byte
+	err := scanSingleRow(ctx, r.sql, query, []any{userID, groupID}, &raw)
+	if err == sql.ErrNoRows {
+		return service.VideoModelPrices{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	prices := service.VideoModelPrices{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &prices); err != nil {
+			return nil, err
+		}
+	}
+	return prices, nil
+}
+
 // SyncUserGroupRates 同步用户的分组专属 rate_multiplier。
-//   - 传入空 map：清空该用户所有行的 rate_multiplier；若 rpm_override 也为 NULL 则整行删除。
-//   - 值为 nil：清空对应行的 rate_multiplier（保留 rpm_override）。
-//   - 值非 nil：upsert rate_multiplier（保留已有 rpm_override）。
+//   - 传入空 map：清空该用户所有行的 rate_multiplier；无其他配置时删除整行。
+//   - 值为 nil：清空对应行的 rate_multiplier（保留其他配置）。
+//   - 值非 nil：upsert rate_multiplier（保留其他配置）。
 func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID int64, rates map[int64]*float64) error {
 	if len(rates) == 0 {
 		if _, err := r.sql.ExecContext(ctx, `
@@ -183,7 +213,7 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 			return err
 		}
 		_, err := r.sql.ExecContext(ctx,
-			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL`,
+			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb`,
 			userID)
 		return err
 	}
@@ -209,7 +239,7 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 			return err
 		}
 		if _, err := r.sql.ExecContext(ctx,
-			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = ANY($2) AND rate_multiplier IS NULL AND rpm_override IS NULL`,
+			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = ANY($2) AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb`,
 			userID, pq.Array(clearGroupIDs)); err != nil {
 			return err
 		}
@@ -239,9 +269,9 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 	return nil
 }
 
-// SyncGroupRateMultipliers 同步分组的 rate_multiplier 部分（不触动 rpm_override）。
+// SyncGroupRateMultipliers 同步分组的 rate_multiplier 部分（不触动 RPM 和视频单价）。
 // 语义：
-//   - 未出现在 entries 中的用户行：rate_multiplier 归 NULL；若 rpm_override 也为 NULL 则整行删除。
+//   - 未出现在 entries 中的用户行：rate_multiplier 归 NULL；无其他配置时删除整行。
 //   - 出现的用户行：upsert rate_multiplier。
 func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, groupID int64, entries []service.GroupRateMultiplierInput) error {
 	keepUserIDs := make([]int64, 0, len(entries))
@@ -271,7 +301,7 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb
 	`, groupID); err != nil {
 		return err
 	}
@@ -297,9 +327,9 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 	return err
 }
 
-// SyncGroupRPMOverrides 同步分组的 rpm_override 部分（不触动 rate_multiplier）。
+// SyncGroupRPMOverrides 同步分组的 rpm_override 部分（不触动倍率和视频单价）。
 // 语义：
-//   - 未出现的用户行：rpm_override 归 NULL；若 rate_multiplier 也为 NULL 则整行删除。
+//   - 未出现的用户行：rpm_override 归 NULL；无其他配置时删除整行。
 //   - 出现的用户行：若 RPMOverride 为 nil 则清空；非 nil 则 upsert。
 func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, groupID int64, entries []service.GroupRPMOverrideInput) error {
 	keepUserIDs := make([]int64, 0, len(entries))
@@ -349,7 +379,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb
 	`, groupID); err != nil {
 		return err
 	}
@@ -382,9 +412,70 @@ func (r *userGroupRateRepository) ClearGroupRPMOverrides(ctx context.Context, gr
 	}
 	_, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb
 	`, groupID)
 	return err
+}
+
+func (r *userGroupRateRepository) SyncGroupVideoModelPrices(ctx context.Context, groupID int64, entries []service.GroupVideoModelPricesInput) error {
+	beginner, ok := r.sql.(sqlTransactionBeginner)
+	if !ok {
+		return r.syncGroupVideoModelPrices(ctx, r.sql, groupID, entries)
+	}
+
+	tx, err := beginner.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := r.syncGroupVideoModelPrices(ctx, tx, groupID, entries); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *userGroupRateRepository) syncGroupVideoModelPrices(ctx context.Context, executor sqlExecutor, groupID int64, entries []service.GroupVideoModelPricesInput) error {
+	keepUserIDs := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		keepUserIDs = append(keepUserIDs, entry.UserID)
+	}
+	if len(keepUserIDs) == 0 {
+		if _, err := executor.ExecContext(ctx, `UPDATE user_group_rate_multipliers SET video_model_prices = '{}'::jsonb, updated_at = NOW() WHERE group_id = $1`, groupID); err != nil {
+			return err
+		}
+	} else if _, err := executor.ExecContext(ctx, `UPDATE user_group_rate_multipliers SET video_model_prices = '{}'::jsonb, updated_at = NOW() WHERE group_id = $1 AND user_id <> ALL($2)`, groupID, pq.Array(keepUserIDs)); err != nil {
+		return err
+	}
+	if _, err := executor.ExecContext(ctx, `DELETE FROM user_group_rate_multipliers WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND video_model_prices = '{}'::jsonb`, groupID); err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	userIDs := make([]int64, len(entries))
+	prices := make([]string, len(entries))
+	for i, entry := range entries {
+		userIDs[i] = entry.UserID
+		raw, err := json.Marshal(entry.VideoModelPrices)
+		if err != nil {
+			return err
+		}
+		prices[i] = string(raw)
+	}
+	now := time.Now()
+	_, err := executor.ExecContext(ctx, `
+		INSERT INTO user_group_rate_multipliers (user_id, group_id, video_model_prices, created_at, updated_at)
+		SELECT data.user_id, $1::bigint, data.video_model_prices::jsonb, $2::timestamptz, $2::timestamptz
+		FROM unnest($3::bigint[], $4::text[]) AS data(user_id, video_model_prices)
+		ON CONFLICT (user_id, group_id)
+		DO UPDATE SET video_model_prices = EXCLUDED.video_model_prices, updated_at = EXCLUDED.updated_at
+	`, groupID, now, pq.Array(userIDs), pq.Array(prices))
+	return err
+}
+
+func (r *userGroupRateRepository) ClearGroupVideoModelPrices(ctx context.Context, groupID int64) error {
+	return r.SyncGroupVideoModelPrices(ctx, groupID, nil)
 }
 
 // DeleteByGroupID 删除指定分组的所有用户专属条目

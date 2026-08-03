@@ -39,6 +39,10 @@
   <svg v-else-if="platform === 'seedance'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13Zm6 2.62v7.76a1 1 0 0 0 1.53.85l6.21-3.88a1 1 0 0 0 0-1.7l-6.21-3.88A1 1 0 0 0 10 8.12Z" />
   </svg>
+  <!-- LTX video mark -->
+  <svg v-else-if="platform === 'ltx'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v14H4zM8 9l4 3-4 3V9Zm7-1v8" />
+  </svg>
   <!-- Composite group icon -->
   <svg v-else-if="platform === 'composite'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
     <circle cx="6" cy="12" r="3" />

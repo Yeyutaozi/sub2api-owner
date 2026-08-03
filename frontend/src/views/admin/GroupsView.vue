@@ -402,7 +402,9 @@
               >
                 <Icon name="dollar" size="sm" />
                 <span class="text-xs">{{
-                  t("admin.groups.rateMultipliers")
+                  ["seedance", "ltx"].includes(row.platform)
+                    ? t("admin.groups.userPricing")
+                    : t("admin.groups.rateMultipliers")
                 }}</span>
               </button>
               <button
@@ -1027,7 +1029,7 @@
             {{
               t(
                 videoPricingI18nKey(
-                  createForm.platform === "seedance"
+                  ["seedance", "ltx"].includes(createForm.platform)
                     ? "seedanceDescription"
                     : "description",
                 ),
@@ -1035,7 +1037,7 @@
             }}
           </p>
           <div
-            v-if="createForm.platform === 'seedance'"
+            v-if="supportsSeedanceVideoModelPricingPlatform(createForm.platform)"
             class="mb-4"
           >
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -1074,7 +1076,7 @@
               placeholder="1"
             />
           </div>
-          <template v-if="createForm.platform === 'seedance'">
+          <template v-if="supportsSeedanceVideoModelPricingPlatform(createForm.platform)">
             <div
               class="space-y-3"
               data-testid="create-seedance-video-model-pricing"
@@ -1146,8 +1148,8 @@
                     <Icon name="trash" size="sm" />
                   </button>
                 </div>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+                  <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '480p')">
                     <label class="input-label">480p ($/s)</label>
                     <input
                       v-model.number="row.price_480p"
@@ -1159,7 +1161,7 @@
                       data-testid="create-seedance-price-480p"
                     />
                   </div>
-                  <div>
+                  <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '720p')">
                     <label class="input-label">720p ($/s)</label>
                     <input
                       v-model.number="row.price_720p"
@@ -1171,7 +1173,7 @@
                       data-testid="create-seedance-price-720p"
                     />
                   </div>
-                  <div>
+                  <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1080p')">
                     <label class="input-label">1080p ($/s)</label>
                     <input
                       v-model.number="row.price_1080p"
@@ -1181,6 +1183,30 @@
                       min="0"
                       class="input"
                       data-testid="create-seedance-price-1080p"
+                    />
+                  </div>
+                  <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1440p')">
+                    <label class="input-label">1440p ($/s)</label>
+                    <input
+                      v-model.number="row.price_1440p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="create-seedance-price-1440p"
+                    />
+                  </div>
+                  <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '2160p')">
+                    <label class="input-label">2160p ($/s)</label>
+                    <input
+                      v-model.number="row.price_2160p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="create-seedance-price-2160p"
                     />
                   </div>
                 </div>
@@ -2723,7 +2749,7 @@
             {{
               t(
                 videoPricingI18nKey(
-                  editForm.platform === "seedance"
+                  ["seedance", "ltx"].includes(editForm.platform)
                     ? "seedanceDescription"
                     : "description",
                 ),
@@ -2731,7 +2757,7 @@
             }}
           </p>
           <div
-            v-if="editForm.platform === 'seedance'"
+            v-if="supportsSeedanceVideoModelPricingPlatform(editForm.platform)"
             class="mb-4"
           >
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -2770,7 +2796,7 @@
               placeholder="1"
             />
           </div>
-          <template v-if="editForm.platform === 'seedance'">
+          <template v-if="supportsSeedanceVideoModelPricingPlatform(editForm.platform)">
             <div
               class="space-y-3"
               data-testid="edit-seedance-video-model-pricing"
@@ -2842,8 +2868,8 @@
                     <Icon name="trash" size="sm" />
                   </button>
                 </div>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+                  <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '480p')">
                     <label class="input-label">480p ($/s)</label>
                     <input
                       v-model.number="row.price_480p"
@@ -2855,7 +2881,7 @@
                       data-testid="edit-seedance-price-480p"
                     />
                   </div>
-                  <div>
+                  <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '720p')">
                     <label class="input-label">720p ($/s)</label>
                     <input
                       v-model.number="row.price_720p"
@@ -2867,7 +2893,7 @@
                       data-testid="edit-seedance-price-720p"
                     />
                   </div>
-                  <div>
+                  <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1080p')">
                     <label class="input-label">1080p ($/s)</label>
                     <input
                       v-model.number="row.price_1080p"
@@ -2877,6 +2903,30 @@
                       min="0"
                       class="input"
                       data-testid="edit-seedance-price-1080p"
+                    />
+                  </div>
+                  <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1440p')">
+                    <label class="input-label">1440p ($/s)</label>
+                    <input
+                      v-model.number="row.price_1440p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="edit-seedance-price-1440p"
+                    />
+                  </div>
+                  <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '2160p')">
+                    <label class="input-label">2160p ($/s)</label>
+                    <input
+                      v-model.number="row.price_2160p"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.0001"
+                      min="0"
+                      class="input"
+                      data-testid="edit-seedance-price-2160p"
                     />
                   </div>
                 </div>
@@ -4381,6 +4431,7 @@ import {
   createDefaultSeedanceVideoModelPriceRows,
   createVideoModelPriceRow,
   supportsSeedanceVideoModelPricingPlatform,
+  videoModelSupportsResolution,
   validateVideoModelPriceRows,
   videoModelPricesPayloadForPlatform,
   videoModelPricesToRows,
@@ -4589,6 +4640,7 @@ const platformOptions = computed(() => [
   { value: "grok", label: "Grok" },
   { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
+  { value: "ltx", label: "LTX" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -4601,6 +4653,7 @@ const platformFilterOptions = computed(() => [
   { value: "grok", label: "Grok" },
   { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
+  { value: "ltx", label: "LTX" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -5729,7 +5782,7 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
-  createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows();
+  createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows("seedance");
   createForm.web_search_price_per_call = null;
   createForm.peak_rate_enabled = false;
   createForm.peak_start = "";
@@ -5784,8 +5837,9 @@ const normalizeRateMultiplier = (
 
 const ensureValidSeedanceVideoModelPrices = (
   rows: VideoModelPriceRow[],
+  platform: string,
 ): boolean => {
-  const error = validateVideoModelPriceRows(rows);
+  const error = validateVideoModelPriceRows(rows, platform);
   if (!error) {
     return true;
   }
@@ -5805,8 +5859,8 @@ const handleCreateGroup = async () => {
     return;
   }
   if (
-    createForm.platform === "seedance" &&
-    !ensureValidSeedanceVideoModelPrices(createVideoModelPriceRows.value)
+    supportsSeedanceVideoModelPricingPlatform(createForm.platform) &&
+    !ensureValidSeedanceVideoModelPrices(createVideoModelPriceRows.value, createForm.platform)
   ) {
     return;
   }
@@ -5941,7 +5995,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
   editVideoModelPriceRows.value =
-    group.platform === "seedance"
+    supportsSeedanceVideoModelPricingPlatform(group.platform)
       ? videoModelPricesToRows(group.video_model_prices)
       : [];
   editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
@@ -6028,8 +6082,8 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (
-    editForm.platform === "seedance" &&
-    !ensureValidSeedanceVideoModelPrices(editVideoModelPriceRows.value)
+    supportsSeedanceVideoModelPricingPlatform(editForm.platform) &&
+    !ensureValidSeedanceVideoModelPrices(editVideoModelPriceRows.value, editForm.platform)
   ) {
     return;
   }
@@ -6428,6 +6482,9 @@ watch(
 watch(
   () => createForm.platform,
   (newVal) => {
+    if (supportsSeedanceVideoModelPricingPlatform(newVal)) {
+      createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows(newVal);
+    }
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }

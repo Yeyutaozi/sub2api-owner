@@ -27,6 +27,10 @@ type userGroupRateRepoStubForGroupRate struct {
 	rpmSyncedGroupID int64
 	rpmSyncedEntries []GroupRPMOverrideInput
 	rpmSyncErr       error
+
+	videoSyncedGroupID int64
+	videoSyncedEntries []GroupVideoModelPricesInput
+	videoSyncErr       error
 }
 
 func (s *userGroupRateRepoStubForGroupRate) GetByUserID(_ context.Context, _ int64) (map[int64]float64, error) {
@@ -39,6 +43,10 @@ func (s *userGroupRateRepoStubForGroupRate) GetByUserAndGroup(_ context.Context,
 
 func (s *userGroupRateRepoStubForGroupRate) GetRPMOverrideByUserAndGroup(_ context.Context, _, _ int64) (*int, error) {
 	panic("unexpected GetRPMOverrideByUserAndGroup call")
+}
+
+func (s *userGroupRateRepoStubForGroupRate) GetVideoModelPricesByUserAndGroup(_ context.Context, _, _ int64) (VideoModelPrices, error) {
+	panic("unexpected GetVideoModelPricesByUserAndGroup call")
 }
 
 func (s *userGroupRateRepoStubForGroupRate) GetByGroupID(_ context.Context, groupID int64) ([]UserGroupRateEntry, error) {
@@ -64,8 +72,20 @@ func (s *userGroupRateRepoStubForGroupRate) SyncGroupRPMOverrides(_ context.Cont
 	return s.rpmSyncErr
 }
 
+func (s *userGroupRateRepoStubForGroupRate) SyncGroupVideoModelPrices(_ context.Context, groupID int64, entries []GroupVideoModelPricesInput) error {
+	s.videoSyncedGroupID = groupID
+	s.videoSyncedEntries = entries
+	return s.videoSyncErr
+}
+
 func (s *userGroupRateRepoStubForGroupRate) ClearGroupRPMOverrides(_ context.Context, _ int64) error {
 	panic("unexpected ClearGroupRPMOverrides call")
+}
+
+func (s *userGroupRateRepoStubForGroupRate) ClearGroupVideoModelPrices(_ context.Context, groupID int64) error {
+	s.videoSyncedGroupID = groupID
+	s.videoSyncedEntries = nil
+	return s.videoSyncErr
 }
 
 func (s *userGroupRateRepoStubForGroupRate) DeleteByGroupID(_ context.Context, groupID int64) error {
@@ -133,13 +153,15 @@ func TestAdminService_GetGroupRateMultipliers(t *testing.T) {
 }
 
 func TestAdminService_ClearGroupRateMultipliers(t *testing.T) {
-	t.Run("deletes by group ID", func(t *testing.T) {
+	t.Run("clears only rate multiplier fields", func(t *testing.T) {
 		repo := &userGroupRateRepoStubForGroupRate{}
 		svc := &adminServiceImpl{userGroupRateRepo: repo}
 
 		err := svc.ClearGroupRateMultipliers(context.Background(), 42)
 		require.NoError(t, err)
-		require.Equal(t, []int64{42}, repo.deletedGroupIDs)
+		require.Equal(t, int64(42), repo.syncedGroupID)
+		require.Empty(t, repo.syncedEntries)
+		require.Empty(t, repo.deletedGroupIDs)
 	})
 
 	t.Run("returns nil when repo is nil", func(t *testing.T) {
@@ -151,14 +173,88 @@ func TestAdminService_ClearGroupRateMultipliers(t *testing.T) {
 
 	t.Run("propagates repo error", func(t *testing.T) {
 		repo := &userGroupRateRepoStubForGroupRate{
-			deleteByGroupErr: errors.New("delete failed"),
+			syncGroupErr: errors.New("sync failed"),
 		}
 		svc := &adminServiceImpl{userGroupRateRepo: repo}
 
 		err := svc.ClearGroupRateMultipliers(context.Background(), 42)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "delete failed")
+		require.Contains(t, err.Error(), "sync failed")
 	})
+}
+
+func TestAdminService_BatchSetGroupVideoModelPrices(t *testing.T) {
+	t.Run("normalizes seedance mini prices", func(t *testing.T) {
+		repo := &userGroupRateRepoStubForGroupRate{}
+		groupRepo := &groupRepoStubForAdmin{getByID: &Group{ID: 10, Platform: PlatformSeedance}}
+		svc := &adminServiceImpl{userGroupRateRepo: repo, groupRepo: groupRepo}
+		price := 0.04
+
+		err := svc.BatchSetGroupVideoModelPrices(context.Background(), 10, []GroupVideoModelPricesInput{
+			{UserID: 7, VideoModelPrices: VideoModelPrices{
+				" SEEDANCE-2.0-MINI ": {Price720P: &price},
+			}},
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(10), repo.videoSyncedGroupID)
+		require.Len(t, repo.videoSyncedEntries, 1)
+		card := repo.videoSyncedEntries[0].VideoModelPrices["seedance-2.0-mini"]
+		require.InDelta(t, price, *card.Price720P, 1e-12)
+	})
+
+	t.Run("accepts ltx resolution prices", func(t *testing.T) {
+		repo := &userGroupRateRepoStubForGroupRate{}
+		groupRepo := &groupRepoStubForAdmin{getByID: &Group{ID: 11, Platform: PlatformLTX}}
+		svc := &adminServiceImpl{userGroupRateRepo: repo, groupRepo: groupRepo}
+		price := 0.2
+
+		err := svc.BatchSetGroupVideoModelPrices(context.Background(), 11, []GroupVideoModelPricesInput{
+			{UserID: 8, VideoModelPrices: VideoModelPrices{
+				"ltx-2.3-pro": {Price1440P: &price},
+			}},
+		})
+
+		require.NoError(t, err)
+		require.InDelta(t, price, *repo.videoSyncedEntries[0].VideoModelPrices["ltx-2.3-pro"].Price1440P, 1e-12)
+	})
+
+	for _, test := range []struct {
+		name     string
+		platform string
+		entries  []GroupVideoModelPricesInput
+	}{
+		{
+			name: "rejects unsupported platform", platform: PlatformOpenAI,
+			entries: []GroupVideoModelPricesInput{{UserID: 7, VideoModelPrices: VideoModelPrices{
+				"seedance-2.0-mini": {Price720P: videoModelPriceTestPointer(0.04)},
+			}}},
+		},
+		{
+			name: "rejects mini 1080p", platform: PlatformSeedance,
+			entries: []GroupVideoModelPricesInput{{UserID: 7, VideoModelPrices: VideoModelPrices{
+				"seedance-2.0-mini": {Price1080P: videoModelPriceTestPointer(0.1)},
+			}}},
+		},
+		{
+			name: "rejects duplicate user", platform: PlatformSeedance,
+			entries: []GroupVideoModelPricesInput{
+				{UserID: 7, VideoModelPrices: VideoModelPrices{"seedance-2.0-mini": {Price720P: videoModelPriceTestPointer(0.04)}}},
+				{UserID: 7, VideoModelPrices: VideoModelPrices{"seedance-2.0-fast": {Price720P: videoModelPriceTestPointer(0.05)}}},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &userGroupRateRepoStubForGroupRate{}
+			groupRepo := &groupRepoStubForAdmin{getByID: &Group{ID: 10, Platform: test.platform}}
+			svc := &adminServiceImpl{userGroupRateRepo: repo, groupRepo: groupRepo}
+
+			err := svc.BatchSetGroupVideoModelPrices(context.Background(), 10, test.entries)
+			require.Error(t, err)
+			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+			require.Zero(t, repo.videoSyncedGroupID)
+		})
+	}
 }
 
 func TestAdminService_BatchSetGroupRateMultipliers(t *testing.T) {

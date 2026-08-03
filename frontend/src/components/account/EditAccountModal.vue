@@ -45,7 +45,7 @@
                       ? 'https://api.x.ai/v1'
                       : account.platform === 'glm'
                         ? 'https://open.bigmodel.cn/api/paas/v4'
-                      : account.platform === 'seedance'
+                      : account.platform === 'seedance' || account.platform === 'ltx'
                         ? 'https://api.fflink.top'
                       : 'https://api.anthropic.com'
             "
@@ -78,7 +78,7 @@
                       ? 'xai-...'
                       : account.platform === 'glm'
                         ? 'sk-...'
-                      : account.platform === 'seedance'
+                      : account.platform === 'seedance' || account.platform === 'ltx'
                         ? 'Sub2API Key'
                       : 'sk-ant-...'
             "
@@ -2694,7 +2694,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok' || props.account.platform === 'glm' || props.account.platform === 'seedance') return ''
+  if (props.account.platform === 'grok' || props.account.platform === 'glm' || props.account.platform === 'seedance' || props.account.platform === 'ltx') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3144,7 +3144,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'glm') return 'https://open.bigmodel.cn/api/paas/v4'
-  if (props.account?.platform === 'seedance') return 'https://api.fflink.top'
+  if (props.account?.platform === 'seedance' || props.account?.platform === 'ltx') return 'https://api.fflink.top'
   return 'https://api.anthropic.com'
 })
 
@@ -3476,7 +3476,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance'
+            : newAccount.platform === 'seedance' || newAccount.platform === 'ltx'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
@@ -3551,7 +3551,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance'
+            : newAccount.platform === 'seedance' || newAccount.platform === 'ltx'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl

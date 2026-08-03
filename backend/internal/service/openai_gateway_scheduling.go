@@ -200,6 +200,8 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 		return PlatformGLM
 	case PlatformSeedance:
 		return PlatformSeedance
+	case PlatformLTX:
+		return PlatformLTX
 	default:
 		return PlatformOpenAI
 	}
@@ -213,8 +215,8 @@ func accountMatchesOpenAICompatiblePlatform(account *Account, platform string) b
 	if account.Platform != platform {
 		return false
 	}
-	if platform == PlatformSeedance {
-		return account.IsSeedance()
+	if IsFFLinkVideoPlatform(platform) {
+		return account.IsFFLinkVideo()
 	}
 	return account.IsOpenAICompatible()
 }

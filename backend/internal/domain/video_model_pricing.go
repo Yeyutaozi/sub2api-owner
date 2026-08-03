@@ -7,6 +7,8 @@ type VideoModelPrice struct {
 	Price480P  *float64 `json:"480p,omitempty"`
 	Price720P  *float64 `json:"720p,omitempty"`
 	Price1080P *float64 `json:"1080p,omitempty"`
+	Price1440P *float64 `json:"1440p,omitempty"`
+	Price2160P *float64 `json:"2160p,omitempty"`
 }
 
 // VideoModelPrices maps requested model IDs to their resolution price cards.

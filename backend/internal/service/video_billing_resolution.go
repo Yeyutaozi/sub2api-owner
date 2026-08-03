@@ -6,6 +6,8 @@ const (
 	VideoBillingResolution480P  = "480p"
 	VideoBillingResolution720P  = "720p"
 	VideoBillingResolution1080P = "1080p"
+	VideoBillingResolution1440P = "1440p"
+	VideoBillingResolution2160P = "2160p"
 )
 
 // xAI 视频生成按秒计费，duration 请求参数允许 1-15 秒；未指定时上游默认生成 8 秒。
@@ -39,7 +41,34 @@ func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 		return VideoBillingResolution720P
 	case "1080", "1080p", "full_hd", "full-hd", "fhd":
 		return VideoBillingResolution1080P
+	case "1440", "1440p", "2k", "qhd":
+		return VideoBillingResolution1440P
+	case "2160", "2160p", "4k", "uhd":
+		return VideoBillingResolution2160P
 	default:
 		return VideoBillingResolution480P
 	}
+}
+
+func NormalizeVideoBillingDurationSecondsForModelOrDefault(model string, durationSeconds int) int {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if strings.HasPrefix(model, "ltx-2.3-fast") {
+		if durationSeconds <= 0 {
+			return 6
+		}
+		if durationSeconds > 20 {
+			return 20
+		}
+		return durationSeconds
+	}
+	if strings.HasPrefix(model, "ltx-2.3-pro") {
+		if durationSeconds <= 0 {
+			return 6
+		}
+		if durationSeconds > 10 {
+			return 10
+		}
+		return durationSeconds
+	}
+	return NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
 }

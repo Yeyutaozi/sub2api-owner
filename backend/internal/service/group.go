@@ -170,7 +170,7 @@ func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
 	if g == nil {
 		return nil
 	}
-	if g.Platform != PlatformSeedance || len(g.VideoModelPrices) == 0 {
+	if !IsFFLinkVideoPlatform(g.Platform) || len(g.VideoModelPrices) == 0 {
 		return g.GetVideoPrice(resolution)
 	}
 	model = strings.ToLower(strings.TrimSpace(model))
@@ -185,6 +185,10 @@ func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
 		return price.Price720P
 	case VideoBillingResolution1080P:
 		return price.Price1080P
+	case VideoBillingResolution1440P:
+		return price.Price1440P
+	case VideoBillingResolution2160P:
+		return price.Price2160P
 	default:
 		return price.Price480P
 	}

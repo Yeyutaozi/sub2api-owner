@@ -758,7 +758,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'glm' | 'seedance' | 'composite'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'glm' | 'seedance' | 'ltx' | 'composite'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -773,6 +773,8 @@ export interface VideoModelPrice {
   '480p'?: number | null
   '720p'?: number | null
   '1080p'?: number | null
+  '1440p'?: number | null
+  '2160p'?: number | null
 }
 
 export type VideoModelPrices = Record<string, VideoModelPrice>
@@ -1087,7 +1089,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'glm' | 'seedance'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'glm' | 'seedance' | 'ltx'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'

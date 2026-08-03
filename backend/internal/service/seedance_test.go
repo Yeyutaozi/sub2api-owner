@@ -15,15 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSeedanceDefaultModelsUseFYLinkIDs(t *testing.T) {
+func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 	require.Equal(t, []string{
 		"seedance-2.0",
 		"seedance-2.0-fast",
 		"seedance-2.0-mini",
-		"happy-horse-1.1",
-		"grok-imagine-1.5",
-		"ltx-2.3-pro",
-		"ltx-2.3-fast",
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 }
 
@@ -173,7 +169,7 @@ func TestParseSeedanceVideoGenerationRequestPublicGuidances(t *testing.T) {
 	require.Equal(t, "seedance-2.0", request.Model)
 	require.Equal(t, "Animate the product", request.Prompt)
 	require.True(t, request.GenerateAudio)
-	require.True(t, request.PromptEnhance)
+	require.Equal(t, true, request.PromptEnhance)
 	require.Equal(t, "https://media.example/start.png", request.StartFrameURL)
 	require.Len(t, request.References, 0)
 	require.Len(t, request.VideoReferences, 1)
@@ -305,7 +301,7 @@ func TestForwardSeedanceRejectsOpenAIAccount(t *testing.T) {
 		Credentials: map[string]any{"api_key": "openai-secret"},
 	}
 	_, err := service.ForwardSeedance(context.Background(), nil, account, http.MethodGet, "vidjob_123", nil)
-	require.EqualError(t, err, "Seedance forwarding requires a Seedance API key account")
+	require.EqualError(t, err, "FFLink video forwarding requires a compatible API key account")
 }
 
 func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {

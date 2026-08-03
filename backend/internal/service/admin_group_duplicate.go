@@ -139,7 +139,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 }
 
 func cloneGroupVideoModelPrices(platform string, prices VideoModelPrices) VideoModelPrices {
-	if platform != PlatformSeedance {
+	if !IsFFLinkVideoPlatform(platform) {
 		return VideoModelPrices{}
 	}
 	return cloneVideoModelPrices(prices)

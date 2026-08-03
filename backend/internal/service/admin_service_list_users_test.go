@@ -93,6 +93,10 @@ func (s *userGroupRateRepoStubForListUsers) GetRPMOverrideByUserAndGroup(_ conte
 	panic("unexpected GetRPMOverrideByUserAndGroup call")
 }
 
+func (s *userGroupRateRepoStubForListUsers) GetVideoModelPricesByUserAndGroup(_ context.Context, _, _ int64) (VideoModelPrices, error) {
+	panic("unexpected GetVideoModelPricesByUserAndGroup call")
+}
+
 func (s *userGroupRateRepoStubForListUsers) SyncUserGroupRates(_ context.Context, userID int64, rates map[int64]*float64) error {
 	panic("unexpected SyncUserGroupRates call")
 }
@@ -109,8 +113,16 @@ func (s *userGroupRateRepoStubForListUsers) SyncGroupRPMOverrides(_ context.Cont
 	panic("unexpected SyncGroupRPMOverrides call")
 }
 
+func (s *userGroupRateRepoStubForListUsers) SyncGroupVideoModelPrices(_ context.Context, _ int64, _ []GroupVideoModelPricesInput) error {
+	panic("unexpected SyncGroupVideoModelPrices call")
+}
+
 func (s *userGroupRateRepoStubForListUsers) ClearGroupRPMOverrides(_ context.Context, _ int64) error {
 	panic("unexpected ClearGroupRPMOverrides call")
+}
+
+func (s *userGroupRateRepoStubForListUsers) ClearGroupVideoModelPrices(_ context.Context, _ int64) error {
+	panic("unexpected ClearGroupVideoModelPrices call")
 }
 
 func (s *userGroupRateRepoStubForListUsers) DeleteByGroupID(_ context.Context, _ int64) error {

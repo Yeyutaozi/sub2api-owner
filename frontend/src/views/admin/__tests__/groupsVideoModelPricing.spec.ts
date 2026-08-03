@@ -11,17 +11,23 @@ import {
 } from "../groupsVideoModelPricing";
 
 describe("Seedance video model pricing form conversion", () => {
-  it("uses a Seedance-only platform gate", () => {
+  it("uses an FFLink video platform gate", () => {
     expect(supportsSeedanceVideoModelPricingPlatform("seedance")).toBe(true);
+    expect(supportsSeedanceVideoModelPricingPlatform("ltx")).toBe(true);
     for (const platform of ["grok", "openai", "gemini", "antigravity", "anthropic"]) {
       expect(supportsSeedanceVideoModelPricingPlatform(platform)).toBe(false);
     }
   });
 
-  it("starts new Seedance groups with the FYLink model IDs", () => {
+  it("starts new groups with platform-specific model IDs", () => {
     expect(createDefaultSeedanceVideoModelPriceRows()).toEqual([
       createVideoModelPriceRow("seedance-2.0"),
       createVideoModelPriceRow("seedance-2.0-fast"),
+      createVideoModelPriceRow("seedance-2.0-mini"),
+    ]);
+    expect(createDefaultSeedanceVideoModelPriceRows("ltx")).toEqual([
+      createVideoModelPriceRow("ltx-2.3-pro"),
+      createVideoModelPriceRow("ltx-2.3-fast"),
     ]);
   });
 
@@ -33,6 +39,8 @@ describe("Seedance video model pricing form conversion", () => {
           price_480p: 0,
           price_720p: "0.16",
           price_1080p: null,
+          price_1440p: null,
+          price_2160p: null,
         },
       ]),
     ).toEqual({
@@ -55,12 +63,16 @@ describe("Seedance video model pricing form conversion", () => {
         price_480p: 0,
         price_720p: null,
         price_1080p: 0.2,
+        price_1440p: null,
+        price_2160p: null,
       },
       {
         model: "seedance-2.0-fast",
         price_480p: null,
         price_720p: 0.08,
         price_1080p: null,
+        price_1440p: null,
+        price_2160p: null,
       },
     ]);
   });
@@ -79,7 +91,32 @@ describe("Seedance video model pricing form conversion", () => {
     expect(videoModelPriceRowsToPrices([])).toEqual({});
   });
 
-  it("omits the Seedance-only matrix for every other group platform", () => {
+  it("drops prices for resolutions unsupported by the selected model", () => {
+    expect(
+      videoModelPriceRowsToPrices([
+        createVideoModelPriceRow("seedance-2.0-mini", {
+          "720p": 0.04,
+          "1080p": 0.1,
+        }),
+      ], "seedance"),
+    ).toEqual({
+      "seedance-2.0-mini": { "720p": 0.04 },
+    });
+
+    expect(
+      videoModelPriceRowsToPrices([
+        createVideoModelPriceRow("ltx-2.3-pro", {
+          "720p": 0.1,
+          "1440p": 0.2,
+          "2160p": 0.3,
+        }),
+      ], "ltx"),
+    ).toEqual({
+      "ltx-2.3-pro": { "1440p": 0.2, "2160p": 0.3 },
+    });
+  });
+
+  it("omits the video matrix for every non-FFLink group platform", () => {
     const rows = [createVideoModelPriceRow("pro", { "480p": 0.1 })];
 
     expect(videoModelPricesPayloadForPlatform("seedance", rows)).toEqual({

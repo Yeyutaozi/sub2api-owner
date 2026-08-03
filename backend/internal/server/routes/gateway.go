@@ -133,7 +133,7 @@ func RegisterGatewayRoutes(
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
-		case service.PlatformSeedance:
+		case service.PlatformSeedance, service.PlatformLTX:
 			h.OpenAIGateway.SeedanceCreateJob(c)
 			return
 		}
@@ -146,7 +146,7 @@ func RegisterGatewayRoutes(
 		})
 	}
 	videoUploadHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformSeedance {
+		if service.IsFFLinkVideoPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.SeedanceUploadMedia(c)
 			return
 		}
@@ -159,7 +159,7 @@ func RegisterGatewayRoutes(
 		})
 	}
 	videoUploadContentHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformSeedance {
+		if service.IsFFLinkVideoPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.SeedanceUploadedImageContent(c)
 			return
 		}
@@ -172,7 +172,7 @@ func RegisterGatewayRoutes(
 		})
 	}
 	videoJobsListHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformSeedance {
+		if service.IsFFLinkVideoPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.SeedanceListJobs(c)
 			return
 		}
@@ -186,7 +186,7 @@ func RegisterGatewayRoutes(
 	}
 	videoJobStatusHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformSeedance:
+		case service.PlatformSeedance, service.PlatformLTX:
 			h.OpenAIGateway.SeedanceGetJob(c)
 		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoStatus(c)
@@ -203,7 +203,7 @@ func RegisterGatewayRoutes(
 		}
 	}
 	videoJobDeleteHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformSeedance {
+		if service.IsFFLinkVideoPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.SeedanceDeleteJob(c)
 			return
 		}
@@ -217,7 +217,7 @@ func RegisterGatewayRoutes(
 	}
 	videoJobContentHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformSeedance:
+		case service.PlatformSeedance, service.PlatformLTX:
 			h.OpenAIGateway.SeedanceJobContent(c)
 		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoContent(c)

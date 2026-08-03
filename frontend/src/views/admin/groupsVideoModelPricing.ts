@@ -3,7 +3,61 @@ import type { VideoModelPrice, VideoModelPrices } from "@/types";
 export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "seedance-2.0",
   "seedance-2.0-fast",
+  "seedance-2.0-mini",
 ] as const;
+
+export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const;
+
+export const VIDEO_MODEL_PRICE_RESOLUTIONS = [
+  "480p",
+  "720p",
+  "1080p",
+  "1440p",
+  "2160p",
+] as const;
+
+export type VideoModelPriceResolution =
+  (typeof VIDEO_MODEL_PRICE_RESOLUTIONS)[number];
+
+const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
+  string,
+  readonly VideoModelPriceResolution[]
+> = {
+  "seedance-2.0": ["480p", "720p", "1080p"],
+  "seedance-2.0-fast": ["480p", "720p"],
+  "seedance-2.0-mini": ["480p", "720p"],
+  "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
+  "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
+};
+
+export const videoModelsForPricingPlatform = (
+  platform: string,
+): readonly string[] =>
+  platform === "ltx"
+    ? DEFAULT_LTX_VIDEO_MODELS
+    : platform === "seedance"
+      ? DEFAULT_SEEDANCE_VIDEO_MODELS
+      : [];
+
+export const supportedResolutionsForVideoModel = (
+  platform: string,
+  model: string,
+): readonly VideoModelPriceResolution[] => {
+  const normalizedModel = model.trim().toLowerCase();
+  const configured = VIDEO_MODEL_SUPPORTED_RESOLUTIONS[normalizedModel];
+  if (configured) {
+    return configured;
+  }
+  return platform === "ltx"
+    ? ["1080p", "1440p", "2160p"]
+    : ["480p", "720p", "1080p"];
+};
+
+export const videoModelSupportsResolution = (
+  platform: string,
+  model: string,
+  resolution: VideoModelPriceResolution,
+): boolean => supportedResolutionsForVideoModel(platform, model).includes(resolution);
 
 export type VideoModelPriceInput = number | string | null;
 
@@ -12,6 +66,8 @@ export interface VideoModelPriceRow {
   price_480p: VideoModelPriceInput;
   price_720p: VideoModelPriceInput;
   price_1080p: VideoModelPriceInput;
+  price_1440p: VideoModelPriceInput;
+  price_2160p: VideoModelPriceInput;
 }
 
 export type VideoModelPriceRowValidationError =
@@ -22,12 +78,14 @@ export type VideoModelPriceRowValidationError =
 
 export const supportsSeedanceVideoModelPricingPlatform = (
   platform: string,
-): boolean => platform === "seedance";
+): boolean => platform === "seedance" || platform === "ltx";
 
 const resolutionFields = [
   ["price_480p", "480p"],
   ["price_720p", "720p"],
   ["price_1080p", "1080p"],
+  ["price_1440p", "1440p"],
+  ["price_2160p", "2160p"],
 ] as const;
 
 const emptyPrice = (value: VideoModelPriceInput): boolean =>
@@ -49,10 +107,16 @@ export const createVideoModelPriceRow = (
   price_480p: price["480p"] ?? null,
   price_720p: price["720p"] ?? null,
   price_1080p: price["1080p"] ?? null,
+  price_1440p: price["1440p"] ?? null,
+  price_2160p: price["2160p"] ?? null,
 });
 
-export const createDefaultSeedanceVideoModelPriceRows = (): VideoModelPriceRow[] =>
-  DEFAULT_SEEDANCE_VIDEO_MODELS.map((model) => createVideoModelPriceRow(model));
+export const createDefaultSeedanceVideoModelPriceRows = (
+  platform = "seedance",
+): VideoModelPriceRow[] =>
+  videoModelsForPricingPlatform(platform).map((model) =>
+    createVideoModelPriceRow(model),
+  );
 
 export const videoModelPricesToRows = (
   prices: VideoModelPrices | null | undefined,
@@ -63,6 +127,7 @@ export const videoModelPricesToRows = (
 
 export const validateVideoModelPriceRows = (
   rows: VideoModelPriceRow[],
+  platform = "seedance",
 ): VideoModelPriceRowValidationError | null => {
   const models = new Set<string>();
 
@@ -83,7 +148,10 @@ export const validateVideoModelPriceRows = (
     models.add(normalizedModel);
 
     let configuredPrices = 0;
-    for (const [field] of resolutionFields) {
+    for (const [field, resolution] of resolutionFields) {
+      if (!videoModelSupportsResolution(platform, normalizedModel, resolution)) {
+        continue;
+      }
       const value = row[field];
       if (emptyPrice(value)) {
         continue;
@@ -113,6 +181,7 @@ export const validateVideoModelPriceRows = (
 
 export const videoModelPriceRowsToPrices = (
   rows: VideoModelPriceRow[],
+  platform = "seedance",
 ): VideoModelPrices => {
   const prices: VideoModelPrices = {};
 
@@ -124,6 +193,9 @@ export const videoModelPriceRowsToPrices = (
 
     const card: VideoModelPrice = {};
     for (const [field, resolution] of resolutionFields) {
+      if (!videoModelSupportsResolution(platform, model, resolution)) {
+        continue;
+      }
       const price = parsePrice(row[field]);
       if (price !== null) {
         card[resolution] = price;
@@ -141,4 +213,6 @@ export const videoModelPricesPayloadForPlatform = (
   platform: string,
   rows: VideoModelPriceRow[],
 ): VideoModelPrices | undefined =>
-  platform === "seedance" ? videoModelPriceRowsToPrices(rows) : undefined;
+  supportsSeedanceVideoModelPricingPlatform(platform)
+    ? videoModelPriceRowsToPrices(rows, platform)
+    : undefined;

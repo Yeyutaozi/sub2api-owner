@@ -7,6 +7,7 @@ import { apiClient } from '../client'
 import type {
   AdminGroup,
   GroupPlatform,
+  VideoModelPrices,
   CompositeModelRoute,
   CompositeModelRouteInput,
   CompositeRoutePreviewRequest,
@@ -338,6 +339,7 @@ export interface GroupRateMultiplierEntry {
   user_status: string
   rate_multiplier?: number | null
   rpm_override?: number | null
+  video_model_prices?: VideoModelPrices
 }
 
 /**
@@ -387,6 +389,29 @@ export async function batchSetGroupRateMultipliers(
   const { data } = await apiClient.put<{ message: string }>(
     `/admin/groups/${id}/rate-multipliers`,
     { entries }
+  )
+  return data
+}
+
+/**
+ * Replace all per-user video price overrides for a Seedance or LTX group.
+ * Prices are absolute USD-per-second values keyed by model and resolution.
+ */
+export async function batchSetGroupVideoModelPrices(
+  id: number,
+  entries: Array<{ user_id: number; video_model_prices: VideoModelPrices }>
+): Promise<{ message: string }> {
+  const { data } = await apiClient.put<{ message: string }>(
+    `/admin/groups/${id}/video-price-overrides`,
+    { entries }
+  )
+  return data
+}
+
+/** Clear all per-user video price overrides while preserving rate and RPM overrides. */
+export async function clearGroupVideoModelPrices(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    `/admin/groups/${id}/video-price-overrides`
   )
   return data
 }
@@ -496,6 +521,8 @@ export const groupsAPI = {
   getGroupRateMultipliers,
   clearGroupRateMultipliers,
   batchSetGroupRateMultipliers,
+  batchSetGroupVideoModelPrices,
+  clearGroupVideoModelPrices,
   getGroupRPMOverrides,
   clearGroupRPMOverrides,
   batchSetGroupRPMOverrides,

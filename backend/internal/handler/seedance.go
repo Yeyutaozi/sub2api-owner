@@ -77,6 +77,10 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if err := service.ValidateFFLinkVideoModelPlatform(apiKey.Group.Platform, requestInfo.Model); err != nil {
+		seedanceError(c, http.StatusBadRequest, "model_not_supported", err.Error())
+		return
+	}
 	if status, code, message := seedanceVideoPricingError(apiKey.Group, requestInfo.Model, requestInfo.Resolution); status != 0 {
 		seedanceError(c, status, code, message)
 		return
@@ -127,7 +131,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(), apiKey.GroupID, "", sessionHash, requestInfo.Model,
 			failedAccountIDs, service.OpenAIUpstreamTransportHTTPSSE,
-			"", false, false, false, service.PlatformSeedance,
+			"", false, false, false, apiKey.Group.Platform,
 		)
 		if selectErr != nil || selection == nil || selection.Account == nil {
 			if lastFailover != nil {
@@ -471,7 +475,7 @@ func (h *OpenAIGatewayHandler) SeedanceListJobs(c *gin.Context) {
 		false,
 		false,
 		false,
-		service.PlatformSeedance,
+		apiKey.Group.Platform,
 	)
 	if selectErr != nil || selection == nil || selection.Account == nil {
 		markOpsRoutingCapacityLimited(c)
@@ -553,7 +557,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 		c.Request.Context(), apiKey.GroupID, "", sessionHash, "", nil,
 		service.OpenAIUpstreamTransportHTTPSSE, "",
-		false, false, false, service.PlatformSeedance,
+		false, false, false, apiKey.Group.Platform,
 	)
 	if err != nil || selection == nil || selection.Account == nil || selection.Account.ID != boundAccountID {
 		if selection != nil && selection.ReleaseFunc != nil {
@@ -808,8 +812,8 @@ func (h *OpenAIGatewayHandler) ensureSeedanceGroup(c *gin.Context, apiKey *servi
 		seedanceError(c, http.StatusForbidden, "permission_denied", "API key must be assigned to a Seedance-enabled group")
 		return false
 	}
-	if apiKey.Group.Platform != service.PlatformSeedance {
-		seedanceError(c, http.StatusForbidden, "permission_denied", "API key group does not support Seedance")
+	if !service.IsFFLinkVideoPlatform(apiKey.Group.Platform) {
+		seedanceError(c, http.StatusForbidden, "permission_denied", "API key group does not support FFLink video generation")
 		return false
 	}
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
@@ -823,10 +827,10 @@ func seedanceVideoPricingError(group *service.Group, requestedModel, resolution 
 	if group == nil {
 		return http.StatusServiceUnavailable, "billing_not_configured", "Video pricing is not configured"
 	}
-	if group.Platform == service.PlatformSeedance && len(group.VideoModelPrices) > 0 {
+	if service.IsFFLinkVideoPlatform(group.Platform) && len(group.VideoModelPrices) > 0 {
 		model := strings.ToLower(strings.TrimSpace(requestedModel))
 		if _, ok := group.VideoModelPrices[model]; !ok {
-			return http.StatusBadRequest, "model_not_supported", "The requested model is not configured for this Seedance group"
+			return http.StatusBadRequest, "model_not_supported", "The requested model is not configured for this video group"
 		}
 	}
 	if group.GetVideoPriceForModel(requestedModel, resolution) == nil {

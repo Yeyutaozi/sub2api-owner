@@ -63,6 +63,63 @@ func TestRecordSeedanceUsage_UsesRequestedModelPriceMatrix(t *testing.T) {
 	}
 }
 
+func TestRecordSeedanceUsage_UserVideoPriceOverridesGroupPricePerResolution(t *testing.T) {
+	group720P := 0.16
+	group1080P := 0.24
+	user720P := 0.05
+	groupID := int64(704)
+	rateRepo := &openAIUserGroupRateRepoStub{
+		videoPrices: VideoModelPrices{
+			"seedance-2.0": {Price720P: &user720P},
+		},
+	}
+	apiKey := &APIKey{
+		ID: 1704, UserID: 2704, GroupID: &groupID, User: &User{ID: 2704},
+		Group: &Group{
+			ID: groupID, Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoModelPrices: VideoModelPrices{
+				"seedance-2.0": {Price720P: &group720P, Price1080P: &group1080P},
+			},
+		},
+	}
+
+	for _, test := range []struct {
+		name       string
+		resolution string
+		want       float64
+	}{
+		{name: "overrides 720p", resolution: VideoBillingResolution720P, want: user720P * 10},
+		{name: "inherits 1080p", resolution: VideoBillingResolution1080P, want: group1080P * 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(
+				usageRepo,
+				&openAIRecordUsageUserRepoStub{},
+				&openAIRecordUsageSubRepoStub{},
+				rateRepo,
+			)
+			err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+				OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+					Result: &OpenAIForwardResult{
+						Model: "seedance-2.0", VideoCount: 1,
+						VideoResolution: test.resolution, VideoDurationSeconds: 10,
+					},
+					APIKey: apiKey, User: apiKey.User,
+					Account: &Account{ID: 3704, Platform: PlatformSeedance},
+				},
+				TaskID: "user-price-" + test.resolution, RequestedModel: "seedance-2.0",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.InDelta(t, test.want, usageRepo.lastLog.TotalCost, 1e-12)
+		})
+	}
+
+	require.GreaterOrEqual(t, rateRepo.videoPriceCalls, 2)
+	require.InDelta(t, group720P, *apiKey.Group.VideoModelPrices["seedance-2.0"].Price720P, 1e-12)
+}
+
 func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesInboundRequestedModel(t *testing.T) {
 	pro720P := 0.16
 	groupID := int64(703)

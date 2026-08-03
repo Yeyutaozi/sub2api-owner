@@ -43,7 +43,7 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func videoModelPricesForPersistence(groupIn *service.Group) service.VideoModelPrices {
-	if groupIn == nil || groupIn.Platform != service.PlatformSeedance || len(groupIn.VideoModelPrices) == 0 {
+	if groupIn == nil || !service.IsFFLinkVideoPlatform(groupIn.Platform) || len(groupIn.VideoModelPrices) == 0 {
 		return service.VideoModelPrices{}
 	}
 	return groupIn.VideoModelPrices
