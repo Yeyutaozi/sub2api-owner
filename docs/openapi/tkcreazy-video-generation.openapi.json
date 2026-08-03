@@ -2,8 +2,12 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
-    "version": "2026-08-03-final",
-    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 只能调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：六个模型都可用 audio=true 请求模型生成同步音轨，省略时均为 false。只有 Seedance 支持 guidances.audio_reference 参考音频；HappyHorse 和 LTX 不支持参考音频。参考音频不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律或声音事件。\n\n素材组合：Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧，audio_reference 必须搭配 image_reference 或 video_reference_base。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：请求示例标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；“配置示例”表示参数已按当前后端校验规则核对，但该具体组合未在本轮端到端覆盖。"
+    "version": "2026-08-03.1",
+    "license": {
+      "name": "LGPL-3.0-only",
+      "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
+    },
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 只能调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：六个模型都可用 audio=true 请求模型生成同步音轨，省略时均为 false。只有 Seedance 支持 guidances.audio_reference 参考音频；HappyHorse 和 LTX 不支持参考音频。参考音频不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律或声音事件。\n\n素材组合：Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧，audio_reference 必须搭配 image_reference 或 video_reference_base。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；Seedance Mini 的“已验证提交”表示服务已接受任务并成功执行取消流程，但本轮未等待其生成完成。"
   },
   "servers": [
     {
@@ -363,7 +367,7 @@
           "视频生成"
         ],
         "summary": "创建异步视频生成任务",
-        "description": "model 必须属于当前 API Key 的独立视频分组。请求成功返回 HTTP 202；务必保存 job_id。参考素材 URL 必须使用上传接口刚返回的完整 media_url；把示例中的 {{image_media_url}}、{{image_media_url_2}}、{{audio_media_url}} 整体替换为对应返回值，不要填写 upload_id，也不要删除 URL 查询参数。下方示例标题已明确区分“已验证”和“配置示例”。",
+        "description": "### 真实调用地址\n`POST https://tkcreazy.top/v1/videos/generations`。Seedance、HappyHorse、LTX 都使用这个地址，只通过请求体中的 `model` 区分；不要在路径后添加模型名。\n\n### 模型和 API Key 分组必须一致\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：4-15 秒；1080p：4-12 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：4-15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：4-15 秒 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n### 参考素材怎么填\n1. 先调用 `POST /videos/uploads`。每次只上传一个文件；多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括全部签名查询参数。\n3. 在当前接口选择对应示例，并把 `https://replace.invalid/...` 的整个占位 URL 替换成相应上传响应中的完整 `media_url`。不要填写 `upload_id`。\n4. Seedance 可用最多 4 图、3 视频、1 音频；HappyHorse 可用最多 9 图；LTX 只使用首帧或首尾帧。\n5. 参考音频只有 Seedance 支持，且必须同时提供参考图片或参考视频。`prompt` 必须明确写出要保留的音高、节奏、音色或声音事件。\n\n### 在 Apifox 中选择示例\n请求示例按 `Seedance 01...`、`HappyHorse 01...`、`LTX 01...` 分组编号。先选请求示例，再在 `202` 返回响应中选择同名示例；Apifox 的请求和响应示例下拉框彼此独立。请求代码由 Apifox 根据当前请求示例生成，不再使用固定的其他模型代码。\n\n### 成功后怎么做\n成功固定返回 HTTP 202。保存 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`；当 `status=completed` 时，再调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。",
         "operationId": "createVideoGenerationJob",
         "security": [
           {
@@ -399,22 +403,110 @@
                   {
                     "$ref": "#/components/schemas/LTXFastRequest"
                   }
-                ]
+                ],
+                "discriminator": {
+                  "propertyName": "model",
+                  "mapping": {
+                    "seedance-2.0": "#/components/schemas/Seedance20Request",
+                    "seedance-2.0-fast": "#/components/schemas/SeedanceFastRequest",
+                    "seedance-2.0-mini": "#/components/schemas/SeedanceMiniRequest",
+                    "happy-horse-1.1": "#/components/schemas/HappyHorseRequest",
+                    "ltx-2.3-pro": "#/components/schemas/LTXProRequest",
+                    "ltx-2.3-fast": "#/components/schemas/LTXFastRequest"
+                  }
+                }
               },
               "examples": {
-                "seedanceMiniText": {
-                  "summary": "配置示例：Seedance Mini 纯文本（本轮未覆盖 Mini）",
+                "seedance20Text": {
+                  "summary": "Seedance 01｜已验证：2.0 纯文本",
                   "value": {
-                    "model": "seedance-2.0-mini",
-                    "prompt": "明亮摄影棚内，一只红色购物袋缓慢旋转，镜头平稳推进，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 4,
+                    "model": "seedance-2.0",
+                    "prompt": "清晨的海边城市逐渐亮起灯光，镜头从海面平稳推进到城市天际线，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 8,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "prompt_enhance": "AUTO"
+                  }
+                },
+                "seedanceSingleImage": {
+                  "summary": "Seedance 02｜已验证：Fast 单图参考",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "prompt": "保持参考图中的商品外观和标志一致，让商品在摄影棚转台上缓慢旋转，镜头平稳推进，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 5,
                     "aspect_ratio": "1:1",
-                    "audio": false
+                    "audio": false,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-media-url-1-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        }
+                      ]
+                    }
+                  }
+                },
+                "seedanceMultiImage": {
+                  "summary": "Seedance 03｜已验证：Fast 两张图片参考",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "prompt": "第一张图决定人物和商品，第二张图决定品牌标志；人物拿起带有该标志的商品袋，转向镜头并向前走两步，保持人物、商品和标志一致。",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-media-url-1-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-media-url-2-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "seedanceVideoReference": {
+                  "summary": "Seedance 04｜已验证：Fast 视频动作参考",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "prompt": "参考上传视频中的主体动作和镜头节奏，生成连续、自然的商品展示视频；保持动作完整可见，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "guidances": {
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/video-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 0
+                        }
+                      ]
+                    }
                   }
                 },
                 "seedanceImageAudio": {
-                  "summary": "已验证：Seedance 单图 + 参考音频",
+                  "summary": "Seedance 05｜已验证：Fast 单图 + 参考音频",
                   "value": {
                     "model": "seedance-2.0-fast",
                     "prompt": "以参考图片中的商品为主体生成 5 秒展示视频。明确保留参考音频中的 660Hz 持续电子提示音，使相同音高、稳定节奏和强弱从开头持续到结尾；不要替换成环境音乐、对白或其他音效。",
@@ -426,7 +518,7 @@
                       "image_reference": [
                         {
                           "image": {
-                            "url": "{{image_media_url}}",
+                            "url": "https://replace.invalid/image-media-url-1-from-upload",
                             "type": "UPLOADED"
                           },
                           "strength": "HIGH",
@@ -436,7 +528,7 @@
                       "audio_reference": [
                         {
                           "audio": {
-                            "url": "{{audio_media_url}}",
+                            "url": "https://replace.invalid/audio-media-url-from-upload",
                             "type": "UPLOADED"
                           },
                           "order": 0
@@ -445,8 +537,19 @@
                     }
                   }
                 },
+                "seedanceMiniText": {
+                  "summary": "Seedance 06｜已验证提交：Mini 纯文本",
+                  "value": {
+                    "model": "seedance-2.0-mini",
+                    "prompt": "明亮摄影棚内，一只红色购物袋缓慢旋转，镜头平稳推进，无字幕，无水印。",
+                    "resolution": "480p",
+                    "duration": 4,
+                    "aspect_ratio": "1:1",
+                    "audio": false
+                  }
+                },
                 "happyHorseText": {
-                  "summary": "已验证：HappyHorse 纯文本",
+                  "summary": "HappyHorse 01｜已验证：纯文本",
                   "value": {
                     "model": "happy-horse-1.1",
                     "prompt": "A horse runs through a sunlit meadow, cinematic tracking shot.",
@@ -458,7 +561,7 @@
                   }
                 },
                 "happyHorseFirstFrame": {
-                  "summary": "已验证：HappyHorse 首帧图生视频",
+                  "summary": "HappyHorse 02｜已验证：首帧图生视频",
                   "value": {
                     "model": "happy-horse-1.1",
                     "prompt": "Animate the subject in the uploaded first frame with a slow cinematic camera push.",
@@ -467,11 +570,11 @@
                     "aspect_ratio": "9:16",
                     "audio": false,
                     "prompt_enhance": "OFF",
-                    "start_frame_url": "{{image_media_url}}"
+                    "start_frame_url": "https://replace.invalid/image-media-url-1-from-upload"
                   }
                 },
                 "happyHorseMultiAudio": {
-                  "summary": "配置示例：HappyHorse 两张参考图 + 生成音轨（本轮未覆盖此组合）",
+                  "summary": "HappyHorse 03｜已验证：两张参考图 + 生成音轨",
                   "value": {
                     "model": "happy-horse-1.1",
                     "prompt": "A person holds a shopping bag carrying the product mark from the first image and the brand mark from the second image, turns it toward the camera, then takes two steps forward. Keep both marks recognizable and add synchronized studio ambience.",
@@ -484,7 +587,7 @@
                       "image_reference": [
                         {
                           "image": {
-                            "url": "{{image_media_url}}",
+                            "url": "https://replace.invalid/image-media-url-1-from-upload",
                             "type": "UPLOADED"
                           },
                           "strength": "HIGH",
@@ -492,7 +595,7 @@
                         },
                         {
                           "image": {
-                            "url": "{{image_media_url_2}}",
+                            "url": "https://replace.invalid/image-media-url-2-from-upload",
                             "type": "UPLOADED"
                           },
                           "strength": "HIGH",
@@ -503,7 +606,7 @@
                   }
                 },
                 "ltxProText": {
-                  "summary": "已验证：LTX Pro 纯文本",
+                  "summary": "LTX 01｜已验证：Pro 纯文本",
                   "value": {
                     "model": "ltx-2.3-pro",
                     "prompt": "A cinematic sunrise over a coastal city, smooth aerial camera movement.",
@@ -515,7 +618,7 @@
                   }
                 },
                 "ltxFastText": {
-                  "summary": "已验证：LTX Fast 纯文本",
+                  "summary": "LTX 02｜已验证：Fast 纯文本",
                   "value": {
                     "model": "ltx-2.3-fast",
                     "prompt": "A fast tracking shot through a neon city street.",
@@ -527,7 +630,7 @@
                   }
                 },
                 "ltxFramesAudio": {
-                  "summary": "配置示例：LTX Pro 首尾帧 + 生成音轨（本轮未覆盖此组合）",
+                  "summary": "LTX 03｜已验证：Pro 首尾帧 + 生成音轨",
                   "value": {
                     "model": "ltx-2.3-pro",
                     "prompt": "Create a smooth studio transition from the first uploaded composition to the second. Keep the camera centered and add subtle synchronized electronic ambience.",
@@ -536,8 +639,8 @@
                     "aspect_ratio": "16:9",
                     "audio": true,
                     "prompt_enhance": "AUTO",
-                    "start_frame_url": "{{image_media_url}}",
-                    "end_frame_url": "{{image_media_url_2}}"
+                    "start_frame_url": "https://replace.invalid/image-media-url-1-from-upload",
+                    "end_frame_url": "https://replace.invalid/image-media-url-2-from-upload"
                   }
                 }
               }
@@ -569,15 +672,163 @@
                 "schema": {
                   "$ref": "#/components/schemas/CreateJobResponse"
                 },
-                "example": {
-                  "job_id": "vidjob_example_123",
-                  "status": "pending",
-                  "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123",
-                  "model": "happy-horse-1.1",
-                  "resolution": "720p",
-                  "duration": 5,
-                  "aspect_ratio": "16:9",
-                  "created_at": "2026-08-03T12:00:00+08:00"
+                "examples": {
+                  "seedance20Text": {
+                    "summary": "Seedance 01｜已验证：2.0 纯文本",
+                    "value": {
+                      "job_id": "vidjob_seedance20Text_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedance20Text_example_123",
+                      "model": "seedance-2.0",
+                      "resolution": "720p",
+                      "duration": 8,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "seedanceSingleImage": {
+                    "summary": "Seedance 02｜已验证：Fast 单图参考",
+                    "value": {
+                      "job_id": "vidjob_seedanceSingleImage_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceSingleImage_example_123",
+                      "model": "seedance-2.0-fast",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "1:1",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "seedanceMultiImage": {
+                    "summary": "Seedance 03｜已验证：Fast 两张图片参考",
+                    "value": {
+                      "job_id": "vidjob_seedanceMultiImage_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceMultiImage_example_123",
+                      "model": "seedance-2.0-fast",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "seedanceVideoReference": {
+                    "summary": "Seedance 04｜已验证：Fast 视频动作参考",
+                    "value": {
+                      "job_id": "vidjob_seedanceVideoReference_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceVideoReference_example_123",
+                      "model": "seedance-2.0-fast",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "seedanceImageAudio": {
+                    "summary": "Seedance 05｜已验证：Fast 单图 + 参考音频",
+                    "value": {
+                      "job_id": "vidjob_seedanceImageAudio_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceImageAudio_example_123",
+                      "model": "seedance-2.0-fast",
+                      "resolution": "480p",
+                      "duration": 5,
+                      "aspect_ratio": "1:1",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "seedanceMiniText": {
+                    "summary": "Seedance 06｜已验证提交：Mini 纯文本",
+                    "value": {
+                      "job_id": "vidjob_seedanceMiniText_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceMiniText_example_123",
+                      "model": "seedance-2.0-mini",
+                      "resolution": "480p",
+                      "duration": 4,
+                      "aspect_ratio": "1:1",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "happyHorseText": {
+                    "summary": "HappyHorse 01｜已验证：纯文本",
+                    "value": {
+                      "job_id": "vidjob_happyHorseText_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseText_example_123",
+                      "model": "happy-horse-1.1",
+                      "resolution": "1080p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "happyHorseFirstFrame": {
+                    "summary": "HappyHorse 02｜已验证：首帧图生视频",
+                    "value": {
+                      "job_id": "vidjob_happyHorseFirstFrame_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseFirstFrame_example_123",
+                      "model": "happy-horse-1.1",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "9:16",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "happyHorseMultiAudio": {
+                    "summary": "HappyHorse 03｜已验证：两张参考图 + 生成音轨",
+                    "value": {
+                      "job_id": "vidjob_happyHorseMultiAudio_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseMultiAudio_example_123",
+                      "model": "happy-horse-1.1",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "ltxProText": {
+                    "summary": "LTX 01｜已验证：Pro 纯文本",
+                    "value": {
+                      "job_id": "vidjob_ltxProText_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxProText_example_123",
+                      "model": "ltx-2.3-pro",
+                      "resolution": "1080p",
+                      "duration": 6,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "ltxFastText": {
+                    "summary": "LTX 02｜已验证：Fast 纯文本",
+                    "value": {
+                      "job_id": "vidjob_ltxFastText_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxFastText_example_123",
+                      "model": "ltx-2.3-fast",
+                      "resolution": "1080p",
+                      "duration": 6,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  },
+                  "ltxFramesAudio": {
+                    "summary": "LTX 03｜已验证：Pro 首尾帧 + 生成音轨",
+                    "value": {
+                      "job_id": "vidjob_ltxFramesAudio_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxFramesAudio_example_123",
+                      "model": "ltx-2.3-pro",
+                      "resolution": "1080p",
+                      "duration": 6,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-03T12:00:00+08:00"
+                    }
+                  }
                 }
               }
             }
@@ -600,19 +851,7 @@
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
           }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "Shell",
-            "label": "已验证：HappyHorse 纯文本",
-            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/generations' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: order-20260803-000001' \\\n  -d '{\"model\":\"happy-horse-1.1\",\"prompt\":\"A horse runs through a sunlit meadow, cinematic tracking shot.\",\"resolution\":\"1080p\",\"duration\":5,\"aspect_ratio\":\"16:9\",\"audio\":false,\"prompt_enhance\":\"OFF\"}'"
-          },
-          {
-            "lang": "Shell",
-            "label": "已验证：Seedance 图片 + 参考音频",
-            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/generations' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"model\":\"seedance-2.0-fast\",\"prompt\":\"Keep the product from the reference image and preserve the 660Hz continuous tone from beginning to end.\",\"resolution\":\"480p\",\"duration\":5,\"aspect_ratio\":\"1:1\",\"audio\":true,\"guidances\":{\"image_reference\":[{\"image\":{\"url\":\"<FULL_IMAGE_MEDIA_URL_FROM_UPLOAD>\",\"type\":\"UPLOADED\"},\"strength\":\"HIGH\",\"order\":0}],\"audio_reference\":[{\"audio\":{\"url\":\"<FULL_AUDIO_MEDIA_URL_FROM_UPLOAD>\",\"type\":\"UPLOADED\"},\"order\":0}]}}'"
-          }
-        ]
+        }
       }
     },
     "/videos/jobs": {
@@ -666,8 +905,6 @@
                       "job_id": "vidjob_example_123",
                       "status": "completed",
                       "status_url": "/v1/videos/jobs/vidjob_example_123",
-                      "model": "happy-horse-1.1",
-                      "prompt": "A person holds a product bag and turns it toward the camera.",
                       "created_at": "2026-08-03T12:00:00+08:00",
                       "updated_at": "2026-08-03T12:01:10+08:00",
                       "result": {
@@ -740,8 +977,6 @@
                       "job_id": "vidjob_example_123",
                       "status": "running",
                       "status_url": "/v1/videos/jobs/vidjob_example_123",
-                      "model": "happy-horse-1.1",
-                      "prompt": "A person holds a product bag and turns it toward the camera.",
                       "created_at": "2026-08-03T12:00:00+08:00",
                       "updated_at": "2026-08-03T12:00:20+08:00"
                     }
@@ -752,8 +987,6 @@
                       "job_id": "vidjob_example_123",
                       "status": "completed",
                       "status_url": "/v1/videos/jobs/vidjob_example_123",
-                      "model": "happy-horse-1.1",
-                      "prompt": "A person holds a product bag and turns it toward the camera.",
                       "created_at": "2026-08-03T12:00:00+08:00",
                       "updated_at": "2026-08-03T12:01:10+08:00",
                       "result": {
@@ -762,8 +995,7 @@
                           {
                             "mp4_url": "/v1/videos/jobs/vidjob_example_123/content",
                             "url": "/v1/videos/jobs/vidjob_example_123/content",
-                            "local_url": "/v1/videos/jobs/vidjob_example_123/content",
-                            "thumbnail_url": "https://cdn.example/thumbnail.jpg"
+                            "local_url": "/v1/videos/jobs/vidjob_example_123/content"
                           }
                         ]
                       }
@@ -775,7 +1007,6 @@
                       "job_id": "vidjob_example_123",
                       "status": "failed",
                       "status_url": "/v1/videos/jobs/vidjob_example_123",
-                      "model": "happy-horse-1.1",
                       "error": {
                         "message": "Video generation failed"
                       }
@@ -1215,6 +1446,7 @@
         }
       },
       "Seedance20Request": {
+        "title": "seedance-2.0 请求",
         "type": "object",
         "required": [
           "model",
@@ -1441,6 +1673,7 @@
         }
       },
       "SeedanceFastRequest": {
+        "title": "seedance-2.0-fast 请求",
         "type": "object",
         "required": [
           "model",
@@ -1666,6 +1899,7 @@
         }
       },
       "SeedanceMiniRequest": {
+        "title": "seedance-2.0-mini 请求",
         "type": "object",
         "required": [
           "model",
@@ -1886,6 +2120,7 @@
         }
       },
       "HappyHorseRequest": {
+        "title": "happy-horse-1.1 请求",
         "type": "object",
         "required": [
           "model",
@@ -2020,6 +2255,7 @@
         }
       },
       "LTXProRequest": {
+        "title": "ltx-2.3-pro 请求",
         "type": "object",
         "required": [
           "model",
@@ -2103,6 +2339,7 @@
         }
       },
       "LTXFastRequest": {
+        "title": "ltx-2.3-fast 请求",
         "type": "object",
         "required": [
           "model",
@@ -2215,24 +2452,20 @@
             "description": "创建响应中固定为绝对 URL。"
           },
           "model": {
-            "type": "string",
-            "example": "happy-horse-1.1"
+            "type": "string"
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
           },
           "resolution": {
-            "type": "string",
-            "example": "720p"
+            "type": "string"
           },
           "duration": {
-            "type": "integer",
-            "example": 5
+            "type": "integer"
           },
           "aspect_ratio": {
-            "type": "string",
-            "example": "16:9"
+            "type": "string"
           }
         }
       },
@@ -2291,8 +2524,7 @@
             "description": "站点相对路径；完整地址为 https://tkcreazy.top + 此值。"
           },
           "model": {
-            "type": "string",
-            "example": "happy-horse-1.1"
+            "type": "string"
           },
           "prompt": {
             "type": "string"
