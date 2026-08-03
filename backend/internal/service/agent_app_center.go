@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"io"
+	"net/http"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -623,6 +624,18 @@ type AgentArtifactObjectLocation struct {
 	StorageProvider string
 	Bucket          string
 	ObjectKey       string
+}
+
+// AgentArtifactObjectReadResult is the optional direct-read contract used by
+// services that must stream an object without first exposing a presigned URL.
+type AgentArtifactObjectReadResult struct {
+	StatusCode int
+	Header     http.Header
+	Body       io.ReadCloser
+}
+
+type AgentArtifactObjectReader interface {
+	ReadObject(ctx context.Context, location AgentArtifactObjectLocation, rangeHeader string) (*AgentArtifactObjectReadResult, error)
 }
 
 type AgentArtifactStore interface {

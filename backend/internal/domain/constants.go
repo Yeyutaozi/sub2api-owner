@@ -26,6 +26,7 @@ const (
 	PlatformGLM         = "glm"
 	PlatformSeedance    = "seedance"
 	PlatformLTX         = "ltx"
+	PlatformHappyHorse  = "happyhorse"
 	PlatformComposite   = "composite"
 )
 

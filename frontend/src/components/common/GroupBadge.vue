@@ -168,6 +168,12 @@ const labelClass = computed(() => {
   if (props.platform === 'seedance') {
     return `${base} bg-rose-200/70 text-rose-800 dark:bg-rose-800/40 dark:text-rose-200`
   }
+  if (props.platform === 'ltx') {
+    return `${base} bg-cyan-200/70 text-cyan-900 dark:bg-cyan-900/50 dark:text-cyan-300`
+  }
+  if (props.platform === 'happyhorse') {
+    return `${base} bg-amber-200/70 text-amber-900 dark:bg-amber-900/50 dark:text-amber-300`
+  }
   if (props.platform === 'composite') {
     return `${base} bg-cyan-200/70 text-cyan-900 dark:bg-cyan-900/50 dark:text-cyan-300`
   }
@@ -215,6 +221,16 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
       : 'bg-pink-50 text-pink-700 dark:bg-pink-900/20 dark:text-pink-400'
+  }
+  if (props.platform === 'ltx') {
+    return isSubscription.value
+      ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+      : 'bg-cyan-50 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300'
+  }
+  if (props.platform === 'happyhorse') {
+    return isSubscription.value
+      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+      : 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
   }
   if (props.platform === 'composite') {
     return isSubscription.value

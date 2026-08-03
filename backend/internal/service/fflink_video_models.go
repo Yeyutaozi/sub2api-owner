@@ -16,7 +16,8 @@ type ffLinkVideoModelProfile struct {
 	MaxImageReferences  int
 	MaxVideoReferences  int
 	MaxAudioReferences  int
-	AllowFrames         bool
+	AllowStartFrame     bool
+	AllowEndFrame       bool
 	AllowGeneratedAudio bool
 	PromptEnhanceMode   string
 	ValidateDuration    func(int, string) bool
@@ -25,43 +26,50 @@ type ffLinkVideoModelProfile struct {
 var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 	"seedance-2.0": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
-		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
-		PromptLimit: 5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
-		AllowFrames: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, resolution string) bool {
 			return duration >= 4 && duration <= 15 && !(resolution == VideoBillingResolution1080P && duration > 12)
 		},
 	},
 	"seedance-2.0-fast": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
-		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
-		PromptLimit: 5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
-		AllowFrames: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
 	},
 	"seedance-2.0-mini": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
-		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "1:1", "9:16"),
-		PromptLimit: 5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
-		AllowFrames: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
 	},
 	"ltx-2.3-pro": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
-		AllowedResolutions: resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
+		AllowedResolutions:  resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
 		AllowedAspectRatios: ratioSet("16:9"), PromptLimit: 5000,
-		AllowFrames: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
 		ValidateDuration: func(duration int, _ string) bool { return duration == 6 || duration == 8 || duration == 10 },
 	},
 	"ltx-2.3-fast": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
-		AllowedResolutions: resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
+		AllowedResolutions:  resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
 		AllowedAspectRatios: ratioSet("16:9"), PromptLimit: 5000,
-		AllowFrames: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 6 && duration <= 20 && duration%2 == 0 },
+	},
+	"happy-horse-1.1": {
+		Platform: PlatformHappyHorse, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P, VideoBillingResolution1080P),
+		AllowedAspectRatios: ratioSet("16:9", "4:3", "1:1", "3:4", "9:16"), PromptLimit: 2500,
+		MaxImageReferences: 9, AllowStartFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 3 && duration <= 15 },
 	},
 }
 
@@ -92,6 +100,8 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 		return []string{"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini"}
 	case PlatformLTX:
 		return []string{"ltx-2.3-pro", "ltx-2.3-fast"}
+	case PlatformHappyHorse:
+		return []string{"happy-horse-1.1"}
 	default:
 		return nil
 	}
@@ -149,8 +159,11 @@ func validateFFLinkVideoRequestInfo(info *SeedanceRequestInfo) error {
 	if len(info.AudioReferences) > profile.MaxAudioReferences {
 		return fmt.Errorf("model %s supports at most %d reference audio files", info.Model, profile.MaxAudioReferences)
 	}
-	if !profile.AllowFrames && (info.StartFrameURL != "" || info.EndFrameURL != "") {
-		return fmt.Errorf("model %s does not support first or last frames", info.Model)
+	if !profile.AllowStartFrame && info.StartFrameURL != "" {
+		return fmt.Errorf("model %s does not support a first frame", info.Model)
+	}
+	if !profile.AllowEndFrame && info.EndFrameURL != "" {
+		return fmt.Errorf("model %s does not support a last frame", info.Model)
 	}
 	if !profile.AllowGeneratedAudio && info.GenerateAudio {
 		return fmt.Errorf("model %s does not support generated audio", info.Model)

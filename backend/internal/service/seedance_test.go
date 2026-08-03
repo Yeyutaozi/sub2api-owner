@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -38,6 +41,124 @@ type seedanceUsageRefundRepoStub struct {
 	taskID   string
 	userID   int64
 	apiKeyID int64
+}
+
+type seedanceTaskBindingRepoStub struct {
+	UsageLogRepository
+	mu           sync.Mutex
+	saved        *SeedanceTaskBinding
+	bindings     []SeedanceTaskBinding
+	listUserID   int64
+	listAPIKeyID int64
+	listGroupID  int64
+	listLimit    int
+	getCalls     int
+}
+
+func (s *seedanceTaskBindingRepoStub) SaveSeedanceTaskBinding(_ context.Context, binding *SeedanceTaskBinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *binding
+	s.saved = &copy
+	return nil
+}
+
+func (s *seedanceTaskBindingRepoStub) GetSeedanceTaskBinding(
+	_ context.Context,
+	userID, apiKeyID, groupID int64,
+	jobID string,
+) (*SeedanceTaskBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getCalls++
+	for i := range s.bindings {
+		binding := s.bindings[i]
+		if binding.UserID == userID && binding.APIKeyID == apiKeyID && binding.GroupID == groupID && binding.JobID == jobID {
+			return &binding, nil
+		}
+	}
+	return nil, errors.New("binding not found")
+}
+
+func (s *seedanceTaskBindingRepoStub) ListSeedanceTaskBindings(
+	_ context.Context,
+	userID, apiKeyID, groupID int64,
+	limit int,
+) ([]SeedanceTaskBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listUserID = userID
+	s.listAPIKeyID = apiKeyID
+	s.listGroupID = groupID
+	s.listLimit = limit
+	bindings := append([]SeedanceTaskBinding(nil), s.bindings...)
+	if len(bindings) > limit {
+		bindings = bindings[:limit]
+	}
+	return bindings, nil
+}
+
+type seedanceBindingCacheStub struct {
+	GatewayCache
+	mu       sync.Mutex
+	bindings map[string]int64
+}
+
+func (s *seedanceBindingCacheStub) GetSessionAccountID(_ context.Context, _ int64, sessionHash string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if accountID, ok := s.bindings[sessionHash]; ok {
+		return accountID, nil
+	}
+	return 0, errors.New("cache miss")
+}
+
+func (s *seedanceBindingCacheStub) SetSessionAccountID(_ context.Context, _ int64, sessionHash string, accountID int64, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bindings == nil {
+		s.bindings = make(map[string]int64)
+	}
+	s.bindings[sessionHash] = accountID
+	return nil
+}
+
+type seedanceAccountRepoStub struct {
+	AccountRepository
+	accounts map[int64]*Account
+}
+
+func (s *seedanceAccountRepoStub) GetByID(_ context.Context, id int64) (*Account, error) {
+	account, ok := s.accounts[id]
+	if !ok {
+		return nil, errors.New("account not found")
+	}
+	return account, nil
+}
+
+type seedanceIndexedHTTPUpstreamStub struct {
+	mu         sync.Mutex
+	bodies     map[int64]string
+	accountIDs []int64
+}
+
+func (s *seedanceIndexedHTTPUpstreamStub) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+	s.mu.Lock()
+	s.accountIDs = append(s.accountIDs, accountID)
+	body, ok := s.bodies[accountID]
+	s.mu.Unlock()
+	if !ok {
+		return nil, errors.New("upstream unavailable")
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}, nil
+}
+
+func (s *seedanceIndexedHTTPUpstreamStub) DoWithTLS(request *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(request, proxyURL, accountID, concurrency)
 }
 
 func (s *seedanceUsageRefundRepoStub) RefundSeedanceUsage(
@@ -414,4 +535,136 @@ func TestForwardSeedanceJobsListPreservesQuery(t *testing.T) {
 	require.Equal(t, "https://api.fflink.top/v1/videos/jobs?limit=50&status=running", upstream.request.URL.String())
 	require.Equal(t, "Bearer upstream-secret", upstream.request.Header.Get("Authorization"))
 	require.Equal(t, `{"data":[{"job_id":"vidjob_123"}]}`, string(response.Body))
+}
+
+func TestFilterSeedanceJobsListKeepsOnlyBoundTasks(t *testing.T) {
+	body := []byte(`{"data":[{"job_id":"vidjob_owned","status":"completed","status_url":"https://upstream.example/jobs/vidjob_owned","result":{"data":[{"mp4_url":"https://upstream.example/video.mp4","url":"https://upstream.example/video.mp4","local_url":"https://upstream.example/video.mp4"}]}},{"job_id":"vidjob_other","status":"completed"}]}`)
+	filtered, err := FilterSeedanceJobsList(body, func(taskID string) bool {
+		return taskID == "vidjob_owned"
+	})
+	require.NoError(t, err)
+
+	var payload struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(filtered, &payload))
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "vidjob_owned", payload.Data[0]["job_id"])
+	require.Equal(t, "/v1/videos/jobs/vidjob_owned", payload.Data[0]["status_url"])
+	result := payload.Data[0]["result"].(map[string]any)
+	file := result["data"].([]any)[0].(map[string]any)
+	require.Equal(t, "/v1/videos/jobs/vidjob_owned/content", file["mp4_url"])
+	require.Equal(t, file["mp4_url"], file["url"])
+	require.Equal(t, file["mp4_url"], file["local_url"])
+}
+
+func TestFilterSeedanceJobsListRejectsMalformedPayload(t *testing.T) {
+	_, err := FilterSeedanceJobsList([]byte(`{"jobs":[]}`), func(string) bool { return true })
+	require.ErrorContains(t, err, "data array")
+}
+
+func TestNormalizeSeedanceJobRewritesUpstreamURLs(t *testing.T) {
+	body := []byte(`{"job_id":"vidjob_example","status":"completed","status_url":"https://upstream.example/jobs/vidjob_example","result":{"data":[{"mp4_url":"https://upstream.example/video.mp4","url":"https://upstream.example/video.mp4","local_url":"https://upstream.example/video.mp4","thumbnail_url":"https://cdn.example/thumb.jpg"}]}}`)
+	normalized, err := NormalizeSeedanceJob(body, "vidjob_example")
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &payload))
+	require.Equal(t, "/v1/videos/jobs/vidjob_example", payload["status_url"])
+	result := payload["result"].(map[string]any)
+	file := result["data"].([]any)[0].(map[string]any)
+	require.Equal(t, "/v1/videos/jobs/vidjob_example/content", file["mp4_url"])
+	require.Equal(t, "https://cdn.example/thumb.jpg", file["thumbnail_url"])
+}
+
+func TestSeedanceTaskBindingPersistsAndBackfillsCache(t *testing.T) {
+	groupID := int64(3)
+	repo := &seedanceTaskBindingRepoStub{}
+	cache := &seedanceBindingCacheStub{}
+	service := &OpenAIGatewayService{usageLogRepo: repo, cache: cache}
+
+	err := service.BindSeedanceTaskAccount(
+		context.Background(), &groupID, "vidjob_bound", 1, 2, 4, "seedance-2.0",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, repo.saved)
+	require.Equal(t, int64(1), repo.saved.UserID)
+	require.Equal(t, int64(2), repo.saved.APIKeyID)
+	require.Equal(t, int64(3), repo.saved.GroupID)
+	require.Equal(t, int64(4), repo.saved.AccountID)
+	require.Equal(t, "seedance-2.0", repo.saved.Model)
+
+	repo.bindings = []SeedanceTaskBinding{*repo.saved}
+	cache = &seedanceBindingCacheStub{}
+	service.cache = cache
+	accountID, err := service.ResolveSeedanceTaskAccount(context.Background(), &groupID, "vidjob_bound", 1, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), accountID)
+	require.Equal(t, 1, repo.getCalls)
+
+	cacheKey := service.openAISessionCacheKey(SeedanceTaskSessionHash("vidjob_bound", 1, 2))
+	cachedAccountID, err := cache.GetSessionAccountID(context.Background(), groupID, cacheKey)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), cachedAccountID)
+
+	legacyCache := &seedanceBindingCacheStub{bindings: map[string]int64{cacheKey: 4}}
+	legacyService := &OpenAIGatewayService{cache: legacyCache}
+	legacyAccountID, err := legacyService.ResolveSeedanceTaskAccount(context.Background(), &groupID, "vidjob_bound", 1, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), legacyAccountID)
+}
+
+func TestListOwnedSeedanceJobsAggregatesBoundAccounts(t *testing.T) {
+	groupID := int64(30)
+	createdAt := time.Date(2026, 8, 3, 8, 0, 0, 0, time.UTC)
+	repo := &seedanceTaskBindingRepoStub{bindings: []SeedanceTaskBinding{
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 101, JobID: "vidjob_completed", Model: "seedance-2.0", CreatedAt: createdAt.Add(2 * time.Minute)},
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 202, JobID: "vidjob_running", Model: "ltx-2.0", CreatedAt: createdAt.Add(time.Minute)},
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 303, JobID: "vidjob_unavailable", Model: "happy-horse-1.1", CreatedAt: createdAt},
+		{UserID: 99, APIKeyID: 20, GroupID: groupID, AccountID: 404, JobID: "vidjob_other_user", Model: "seedance-2.0", CreatedAt: createdAt},
+		{UserID: 10, APIKeyID: 99, GroupID: groupID, AccountID: 505, JobID: "vidjob_other_key", Model: "seedance-2.0", CreatedAt: createdAt},
+	}}
+	account := func(id int64) *Account {
+		return &Account{
+			ID: id, Platform: PlatformSeedance, Type: AccountTypeAPIKey, Concurrency: 1,
+			Credentials: map[string]any{"base_url": "https://video-upstream.example", "api_key": "secret"},
+		}
+	}
+	accounts := &seedanceAccountRepoStub{accounts: map[int64]*Account{
+		101: account(101),
+		202: account(202),
+	}}
+	upstream := &seedanceIndexedHTTPUpstreamStub{bodies: map[int64]string{
+		101: `{"job_id":"vidjob_completed","status":"completed","model":"internal-model","result":{"data":[{"mp4_url":"https://upstream.example/one.mp4"}]}}`,
+		202: `{"job_id":"vidjob_running","status":"running"}`,
+	}}
+	service := &OpenAIGatewayService{
+		accountRepo: accounts, usageLogRepo: repo, cfg: &config.Config{}, httpUpstream: upstream,
+	}
+
+	jobs, err := service.ListOwnedSeedanceJobs(context.Background(), &groupID, 10, 20, 10, "")
+	require.NoError(t, err)
+	require.Len(t, jobs, 3)
+	require.Equal(t, int64(10), repo.listUserID)
+	require.Equal(t, int64(20), repo.listAPIKeyID)
+	require.Equal(t, groupID, repo.listGroupID)
+	require.Equal(t, 10, repo.listLimit)
+	require.Equal(t, "vidjob_completed", jobs[0]["job_id"])
+	require.Equal(t, "seedance-2.0", jobs[0]["model"])
+	require.Equal(t, "completed", jobs[0]["status"])
+	result := jobs[0]["result"].(map[string]any)
+	file := result["data"].([]any)[0].(map[string]any)
+	require.Equal(t, "/v1/videos/jobs/vidjob_completed/content", file["mp4_url"])
+	require.Equal(t, "running", jobs[1]["status"])
+	require.Equal(t, "unknown", jobs[2]["status"])
+	require.Equal(t, "/v1/videos/jobs/vidjob_unavailable", jobs[2]["status_url"])
+	for _, job := range jobs {
+		require.NotEqual(t, "vidjob_other_user", job["job_id"])
+		require.NotEqual(t, "vidjob_other_key", job["job_id"])
+	}
+
+	completed, err := service.ListOwnedSeedanceJobs(context.Background(), &groupID, 10, 20, 1, "completed")
+	require.NoError(t, err)
+	require.Len(t, completed, 1)
+	require.Equal(t, "vidjob_completed", completed[0]["job_id"])
+	require.Equal(t, MaxSeedanceJobsLimit, repo.listLimit)
 }

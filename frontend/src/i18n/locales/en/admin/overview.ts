@@ -964,6 +964,7 @@ export default {
         grok: 'Grok',
         seedance: 'Seedance',
         ltx: 'LTX',
+        happyhorse: 'HappyHorse',
         composite: 'Composite',
       },
       deleteConfirm:
@@ -1005,22 +1006,21 @@ export default {
         title: 'Video Generation Pricing',
         description:
           'Configure Grok video generation prices in USD per second of output video. Leave empty to use the default per-second rates (grok-imagine-video: $0.05/s 480p, $0.07/s 720p; video-1.5: $0.08/s 480p, $0.14/s 720p, $0.25/s 1080p).',
-        seedanceDescription:
-          'Configure Seedance prices in USD per generated second for each requested model and resolution.',
-        allowVideoGeneration: 'Allow Seedance video generation for this group',
+        modelDescription:
+          'Configure video prices in USD per generated second for each requested model and resolution.',
+        allowVideoGeneration: 'Allow video generation for this group',
         independentMultiplier: 'Use independent video multiplier',
         videoMultiplier: 'Video multiplier',
         modelPrices: 'Model and resolution prices',
         model: 'Requested model',
-        modelPlaceholder: 'seedance-2.0',
         addModel: 'Add model',
         removeModel: 'Remove model {model}',
         clearMatrix: 'Clear matrix',
         emptyMatrix: 'No model-specific prices. The legacy group resolution prices will be used.',
         modeHint:
           'Videos are billed per second: per-second price × duration (1-15s, default 8s). By default the current effective group multiplier applies; independent mode uses the video multiplier instead.',
-        seedanceModeHint:
-          'Seedance is billed per second: the requested model and resolution price × duration (4-15s, default 8s). A non-empty matrix is also the allowed model list; clear it to fall back to the legacy group resolution prices.',
+        modelModeHint:
+          'Videos are billed per second: the requested model and resolution price × actual generated duration. A non-empty matrix is also the allowed model list; clear it to fall back to the legacy group resolution prices.',
         finalPricePreview: 'Final per-second price preview',
         notConfigured: 'Not configured',
         validation: {

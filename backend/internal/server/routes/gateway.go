@@ -133,7 +133,7 @@ func RegisterGatewayRoutes(
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
-		case service.PlatformSeedance, service.PlatformLTX:
+		case service.PlatformSeedance, service.PlatformLTX, service.PlatformHappyHorse:
 			h.OpenAIGateway.SeedanceCreateJob(c)
 			return
 		}
@@ -186,7 +186,7 @@ func RegisterGatewayRoutes(
 	}
 	videoJobStatusHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformSeedance, service.PlatformLTX:
+		case service.PlatformSeedance, service.PlatformLTX, service.PlatformHappyHorse:
 			h.OpenAIGateway.SeedanceGetJob(c)
 		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoStatus(c)
@@ -217,7 +217,7 @@ func RegisterGatewayRoutes(
 	}
 	videoJobContentHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformSeedance, service.PlatformLTX:
+		case service.PlatformSeedance, service.PlatformLTX, service.PlatformHappyHorse:
 			h.OpenAIGateway.SeedanceJobContent(c)
 		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoContent(c)

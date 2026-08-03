@@ -253,6 +253,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return FFLinkVideoModelIDsForPlatform(PlatformSeedance)
 	case PlatformLTX:
 		return FFLinkVideoModelIDsForPlatform(PlatformLTX)
+	case PlatformHappyHorse:
+		return FFLinkVideoModelIDsForPlatform(PlatformHappyHorse)
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
@@ -1025,7 +1027,7 @@ func (s *adminServiceImpl) BatchSetGroupVideoModelPrices(ctx context.Context, gr
 		return err
 	}
 	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
-		return infraerrors.BadRequest("VIDEO_PRICE_OVERRIDES_UNSUPPORTED", "per-user video prices require a Seedance or LTX group")
+		return infraerrors.BadRequest("VIDEO_PRICE_OVERRIDES_UNSUPPORTED", "per-user video prices require a Seedance, LTX, or HappyHorse group")
 	}
 	normalized := make([]GroupVideoModelPricesInput, 0, len(entries))
 	seenUserIDs := make(map[int64]struct{}, len(entries))

@@ -333,6 +333,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import {
+  supportsVideoModelPricingPlatform,
   videoModelsForPricingPlatform,
   supportedResolutionsForVideoModel,
   type VideoModelPriceResolution,
@@ -374,18 +375,22 @@ const platformColorClass = computed(() => {
     case 'anthropic': return 'text-orange-700 dark:text-orange-400'
     case 'openai': return 'text-emerald-700 dark:text-emerald-400'
     case 'antigravity': return 'text-purple-700 dark:text-purple-400'
+    case 'seedance': return 'text-rose-700 dark:text-rose-400'
+    case 'ltx': return 'text-cyan-700 dark:text-cyan-300'
+    case 'happyhorse': return 'text-amber-700 dark:text-amber-300'
     default: return 'text-blue-700 dark:text-blue-400'
   }
 })
 
 const isVideoPricingGroup = computed(() =>
-  props.group?.platform === 'seedance' || props.group?.platform === 'ltx'
+  supportsVideoModelPricingPlatform(props.group?.platform ?? '')
 )
 
 const availableVideoModels = computed(() => [
   ...new Set([
     ...videoModelsForPricingPlatform(props.group?.platform ?? 'seedance'),
     ...Object.keys(props.group?.video_model_prices ?? {}),
+    ...localEntries.value.flatMap(entry => Object.keys(entry.video_model_prices ?? {})),
   ]),
 ])
 

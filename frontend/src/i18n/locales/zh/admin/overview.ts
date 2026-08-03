@@ -879,6 +879,7 @@ export default {
         grok: 'Grok',
         seedance: 'Seedance',
         ltx: 'LTX',
+        happyhorse: 'HappyHorse',
         composite: 'Composite',
       },
       saving: '保存中...',
@@ -1002,22 +1003,21 @@ export default {
         title: '视频生成计费',
         description:
           '配置 Grok 视频生成的每秒单价（USD/秒），留空则使用默认每秒价（grok-imagine-video：480p $0.05/s、720p $0.07/s；video-1.5：480p $0.08/s、720p $0.14/s、1080p $0.25/s）',
-        seedanceDescription:
-          '按请求模型和分辨率配置 Seedance 视频每生成一秒的价格（USD/秒）。',
-        allowVideoGeneration: '允许当前分组生成 Seedance 视频',
+        modelDescription:
+          '按请求模型和分辨率配置视频每生成一秒的价格（USD/秒）。',
+        allowVideoGeneration: '允许当前分组生成视频',
         independentMultiplier: '视频倍率独立',
         videoMultiplier: '视频独立倍率',
         modelPrices: '模型与分辨率价格',
         model: '请求模型',
-        modelPlaceholder: 'seedance-2.0',
         addModel: '添加模型',
         removeModel: '删除模型 {model}',
         clearMatrix: '清空矩阵',
         emptyMatrix: '未配置模型价格，将回退使用旧版分组分辨率价格。',
         modeHint:
           '视频按秒计费：费用 = 每秒价格 × 时长（1-15 秒，未指定默认 8 秒）。默认叠加当前分组有效倍率；开启独立倍率后改用视频独立倍率。',
-        seedanceModeHint:
-          'Seedance 按秒计费：费用 = 请求模型对应分辨率的每秒价格 × 时长（4-15 秒，未指定默认 8 秒）。非空矩阵同时作为模型白名单；清空后回退旧版分组分辨率价格。',
+        modelModeHint:
+          '视频按秒计费：费用 = 请求模型对应分辨率的每秒价格 × 实际生成时长。非空矩阵同时作为模型白名单；清空后回退旧版分组分辨率价格。',
         finalPricePreview: '最终每秒价格预览',
         notConfigured: '未配置',
         validation: {

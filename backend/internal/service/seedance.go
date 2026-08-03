@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -29,6 +30,9 @@ const (
 	seedanceUpstreamCreatePath      = "/v1/videos/generations"
 	seedanceUpstreamJobsPath        = "/v1/videos/jobs"
 	seedanceTaskBindingTTL          = 7 * 24 * time.Hour
+	seedanceTaskStatusConcurrency   = 5
+	DefaultSeedanceJobsLimit        = 50
+	MaxSeedanceJobsLimit            = 100
 )
 
 var seedanceTaskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
@@ -172,6 +176,22 @@ type SeedanceUpstreamResponse struct {
 	Result      *OpenAIForwardResult
 }
 
+type SeedanceTaskBinding struct {
+	UserID    int64
+	APIKeyID  int64
+	GroupID   int64
+	AccountID int64
+	JobID     string
+	Model     string
+	CreatedAt time.Time
+}
+
+type SeedanceTaskBindingRepository interface {
+	SaveSeedanceTaskBinding(ctx context.Context, binding *SeedanceTaskBinding) error
+	GetSeedanceTaskBinding(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (*SeedanceTaskBinding, error)
+	ListSeedanceTaskBindings(ctx context.Context, userID, apiKeyID, groupID int64, limit int) ([]SeedanceTaskBinding, error)
+}
+
 type SeedanceUpstreamError struct {
 	StatusCode int
 	Body       []byte
@@ -222,24 +242,6 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if request.GenerateAudio != nil {
 		info.GenerateAudio = *request.GenerateAudio
 	}
-	if info.Resolution == "" {
-		info.Resolution = VideoBillingResolution720P
-	}
-	switch info.Resolution {
-	case VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P:
-	default:
-		return nil, errors.New("resolution must be one of 480p, 720p, or 1080p")
-	}
-	if info.DurationSeconds == 0 {
-		info.DurationSeconds = VideoBillingDefaultDurationSeconds
-	}
-	if info.DurationSeconds < 4 || info.DurationSeconds > VideoBillingMaxDurationSeconds {
-		return nil, errors.New("duration must be between 4 and 15 seconds")
-	}
-	if err := validateSeedanceAspectRatio(info.AspectRatio); err != nil {
-		return nil, err
-	}
-
 	var unroledImageSeen bool
 	for _, item := range request.Content {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
@@ -285,9 +287,6 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	}
 	if info.EndFrameURL != "" && info.StartFrameURL == "" {
 		return nil, errors.New("a last-frame image requires a first-frame image")
-	}
-	if len(info.References) > 4 {
-		return nil, errors.New("at most 4 reference images are allowed")
 	}
 	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
@@ -363,8 +362,6 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 			switch {
 			case info.StartFrameURL != "" || info.EndFrameURL != "":
 				return nil, errors.New("image references cannot be combined with start_frame_url or end_frame_url")
-			case len(info.References) >= 4:
-				return nil, errors.New("at most 4 reference images are allowed")
 			}
 			info.References = append(info.References, SeedanceReferenceImage{
 				URL:      url,
@@ -556,7 +553,7 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 		if !isSeedanceHTTPImageURL(i.StartFrameURL) {
 			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
 		}
-		if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && profile.Platform == PlatformLTX {
+		if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && (profile.Platform == PlatformLTX || profile.Platform == PlatformHappyHorse) {
 			body["start_frame_url"] = i.StartFrameURL
 		} else {
 			body["image_url"] = i.StartFrameURL
@@ -617,26 +614,198 @@ func SeedanceUsageRequestID(taskID string) string {
 	return "seedance:" + taskID
 }
 
-func (s *OpenAIGatewayService) BindSeedanceTaskAccount(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID, accountID int64) error {
-	if s == nil || s.cache == nil {
-		return errors.New("seedance task binding cache is unavailable")
+func (s *OpenAIGatewayService) BindSeedanceTaskAccount(
+	ctx context.Context,
+	groupID *int64,
+	taskID string,
+	userID, apiKeyID, accountID int64,
+	model string,
+) error {
+	group := derefGroupID(groupID)
+	taskID = strings.TrimSpace(taskID)
+	model = strings.TrimSpace(model)
+	cacheKey := ""
+	if s != nil {
+		cacheKey = s.openAISessionCacheKey(SeedanceTaskSessionHash(taskID, userID, apiKeyID))
 	}
-	cacheKey := s.openAISessionCacheKey(SeedanceTaskSessionHash(taskID, userID, apiKeyID))
-	if cacheKey == "" || accountID <= 0 {
+	if s == nil || cacheKey == "" || group <= 0 || accountID <= 0 || model == "" {
 		return errors.New("seedance task binding is invalid")
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, accountID, seedanceTaskBindingTTL)
+	repo, ok := s.usageLogRepo.(SeedanceTaskBindingRepository)
+	if !ok || repo == nil {
+		return errors.New("seedance task binding repository is unavailable")
+	}
+	if err := repo.SaveSeedanceTaskBinding(ctx, &SeedanceTaskBinding{
+		UserID:    userID,
+		APIKeyID:  apiKeyID,
+		GroupID:   group,
+		AccountID: accountID,
+		JobID:     taskID,
+		Model:     model,
+	}); err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.SetSessionAccountID(ctx, group, cacheKey, accountID, seedanceTaskBindingTTL)
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) ResolveSeedanceTaskAccount(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (int64, error) {
-	if s == nil || s.cache == nil {
-		return 0, errors.New("seedance task binding cache is unavailable")
+	group := derefGroupID(groupID)
+	taskID = strings.TrimSpace(taskID)
+	cacheKey := ""
+	if s != nil {
+		cacheKey = s.openAISessionCacheKey(SeedanceTaskSessionHash(taskID, userID, apiKeyID))
 	}
-	cacheKey := s.openAISessionCacheKey(SeedanceTaskSessionHash(taskID, userID, apiKeyID))
-	if cacheKey == "" {
+	if s == nil || cacheKey == "" || group <= 0 {
 		return 0, errors.New("seedance task binding is invalid")
 	}
-	return s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+	if s.cache != nil {
+		if accountID, err := s.cache.GetSessionAccountID(ctx, group, cacheKey); err == nil && accountID > 0 {
+			return accountID, nil
+		}
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskBindingRepository)
+	if !ok || repo == nil {
+		return 0, errors.New("seedance task binding repository is unavailable")
+	}
+	binding, err := repo.GetSeedanceTaskBinding(ctx, userID, apiKeyID, group, taskID)
+	if err != nil {
+		return 0, err
+	}
+	if binding == nil || binding.AccountID <= 0 {
+		return 0, errors.New("seedance task binding is invalid")
+	}
+	if s.cache != nil {
+		_ = s.cache.SetSessionAccountID(ctx, group, cacheKey, binding.AccountID, seedanceTaskBindingTTL)
+	}
+	return binding.AccountID, nil
+}
+
+func (s *OpenAIGatewayService) ListOwnedSeedanceJobs(
+	ctx context.Context,
+	groupID *int64,
+	userID, apiKeyID int64,
+	limit int,
+	status string,
+) ([]map[string]any, error) {
+	group := derefGroupID(groupID)
+	if s == nil || group <= 0 || userID <= 0 || apiKeyID <= 0 {
+		return nil, errors.New("seedance task owner is invalid")
+	}
+	if limit <= 0 {
+		limit = DefaultSeedanceJobsLimit
+	}
+	if limit > MaxSeedanceJobsLimit {
+		limit = MaxSeedanceJobsLimit
+	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	queryLimit := limit
+	if status != "" {
+		queryLimit = MaxSeedanceJobsLimit
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskBindingRepository)
+	if !ok || repo == nil {
+		return nil, errors.New("seedance task binding repository is unavailable")
+	}
+	bindings, err := repo.ListSeedanceTaskBindings(ctx, userID, apiKeyID, group, queryLimit)
+	if err != nil {
+		return nil, err
+	}
+	ownedBindings := bindings[:0]
+	for _, binding := range bindings {
+		if binding.UserID == userID && binding.APIKeyID == apiKeyID && binding.GroupID == group {
+			ownedBindings = append(ownedBindings, binding)
+		}
+	}
+	bindings = ownedBindings
+	if len(bindings) == 0 {
+		return []map[string]any{}, nil
+	}
+
+	jobs := make([]map[string]any, len(bindings))
+	semaphore := make(chan struct{}, seedanceTaskStatusConcurrency)
+	var wg sync.WaitGroup
+	for i := range bindings {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+				jobs[index] = s.loadSeedanceIndexedJob(ctx, bindings[index])
+			case <-ctx.Done():
+				jobs[index] = seedanceIndexedJobFallback(bindings[index])
+			}
+		}(i)
+	}
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	filtered := make([]map[string]any, 0, min(limit, len(jobs)))
+	for _, job := range jobs {
+		if status != "" {
+			jobStatus, _ := job["status"].(string)
+			if strings.ToLower(strings.TrimSpace(jobStatus)) != status {
+				continue
+			}
+		}
+		filtered = append(filtered, job)
+		if len(filtered) >= limit {
+			break
+		}
+	}
+	return filtered, nil
+}
+
+func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, binding SeedanceTaskBinding) map[string]any {
+	fallback := seedanceIndexedJobFallback(binding)
+	if s.accountRepo == nil || s.httpUpstream == nil {
+		return fallback
+	}
+	account, err := s.accountRepo.GetByID(ctx, binding.AccountID)
+	if err != nil || account == nil {
+		return fallback
+	}
+	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, binding.JobID, nil)
+	if err != nil || forwarded == nil || len(forwarded.Body) == 0 {
+		return fallback
+	}
+	normalized, err := NormalizeSeedanceJob(forwarded.Body, binding.JobID)
+	if err != nil {
+		return fallback
+	}
+	var job map[string]any
+	if err := json.Unmarshal(normalized, &job); err != nil {
+		return fallback
+	}
+	job["job_id"] = binding.JobID
+	if strings.TrimSpace(binding.Model) != "" {
+		job["model"] = binding.Model
+	}
+	if value, ok := job["status"].(string); !ok || strings.TrimSpace(value) == "" {
+		job["status"] = "unknown"
+	}
+	if _, ok := job["created_at"]; !ok && !binding.CreatedAt.IsZero() {
+		job["created_at"] = binding.CreatedAt.Format(time.RFC3339)
+	}
+	return job
+}
+
+func seedanceIndexedJobFallback(binding SeedanceTaskBinding) map[string]any {
+	job := map[string]any{
+		"job_id":     strings.TrimSpace(binding.JobID),
+		"model":      strings.TrimSpace(binding.Model),
+		"status":     "unknown",
+		"status_url": SeedancePublicJobsEndpoint + "/" + url.PathEscape(strings.TrimSpace(binding.JobID)),
+	}
+	if !binding.CreatedAt.IsZero() {
+		job["created_at"] = binding.CreatedAt.Format(time.RFC3339)
+	}
+	return job
 }
 
 func (s *OpenAIGatewayService) ForwardSeedance(
@@ -879,6 +1048,79 @@ func extractSeedanceUpstreamTaskID(body []byte) string {
 		}
 	}
 	return ""
+}
+
+func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, error) {
+	if allowTask == nil {
+		return nil, errors.New("Seedance task filter is required")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, errors.New("invalid Seedance upstream jobs response")
+	}
+	items, ok := payload["data"].([]any)
+	if !ok {
+		return nil, errors.New("Seedance upstream jobs response does not contain a data array")
+	}
+	filtered := make([]any, 0, len(items))
+	for _, item := range items {
+		job, ok := item.(map[string]any)
+		if !ok {
+			return nil, errors.New("Seedance upstream jobs response contains an invalid job")
+		}
+		taskID := ""
+		for _, key := range []string{"job_id", "id", "task_id"} {
+			if value, ok := job[key].(string); ok && seedanceTaskIDPattern.MatchString(strings.TrimSpace(value)) {
+				taskID = strings.TrimSpace(value)
+				break
+			}
+		}
+		if taskID != "" && allowTask(taskID) {
+			normalizeSeedancePublicJob(job, taskID)
+			filtered = append(filtered, item)
+		}
+	}
+	payload["data"] = filtered
+	return json.Marshal(payload)
+}
+
+func NormalizeSeedanceJob(body []byte, taskID string) ([]byte, error) {
+	taskID = strings.TrimSpace(taskID)
+	if !seedanceTaskIDPattern.MatchString(taskID) {
+		return nil, errors.New("invalid Seedance task id")
+	}
+	var job map[string]any
+	if err := json.Unmarshal(body, &job); err != nil {
+		return nil, errors.New("invalid Seedance upstream job response")
+	}
+	normalizeSeedancePublicJob(job, taskID)
+	return json.Marshal(job)
+}
+
+func normalizeSeedancePublicJob(job map[string]any, taskID string) {
+	if job == nil || taskID == "" {
+		return
+	}
+	statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
+	contentPath := statusPath + "/content"
+	job["status_url"] = statusPath
+	result, ok := job["result"].(map[string]any)
+	if !ok {
+		return
+	}
+	files, ok := result["data"].([]any)
+	if !ok {
+		return
+	}
+	for _, item := range files {
+		file, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		file["mp4_url"] = contentPath
+		file["url"] = contentPath
+		file["local_url"] = contentPath
+	}
 }
 
 func BuildSeedanceOfficialTaskResponse(taskID string, upstreamBody []byte, contentURL string) (map[string]any, error) {

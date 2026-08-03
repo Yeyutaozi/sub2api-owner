@@ -402,7 +402,7 @@
               >
                 <Icon name="dollar" size="sm" />
                 <span class="text-xs">{{
-                  ["seedance", "ltx"].includes(row.platform)
+                  supportsVideoModelPricingPlatform(row.platform)
                     ? t("admin.groups.userPricing")
                     : t("admin.groups.rateMultipliers")
                 }}</span>
@@ -1017,7 +1017,7 @@
 
         <!-- 视频生成计费配置 -->
         <div
-          v-if="supportsVideoPricingPlatform(createForm.platform) || supportsSeedanceVideoModelPricingPlatform(createForm.platform)"
+          v-if="supportsVideoPricingPlatform(createForm.platform) || supportsVideoModelPricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -1029,15 +1029,15 @@
             {{
               t(
                 videoPricingI18nKey(
-                  ["seedance", "ltx"].includes(createForm.platform)
-                    ? "seedanceDescription"
+                  supportsVideoModelPricingPlatform(createForm.platform)
+                    ? "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
           <div
-            v-if="supportsSeedanceVideoModelPricingPlatform(createForm.platform)"
+            v-if="supportsVideoModelPricingPlatform(createForm.platform)"
             class="mb-4"
           >
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -1076,7 +1076,7 @@
               placeholder="1"
             />
           </div>
-          <template v-if="supportsSeedanceVideoModelPricingPlatform(createForm.platform)">
+          <template v-if="supportsVideoModelPricingPlatform(createForm.platform)">
             <div
               class="space-y-3"
               data-testid="create-seedance-video-model-pricing"
@@ -1133,7 +1133,7 @@
                       class="input font-mono text-sm"
                       autocomplete="off"
                       spellcheck="false"
-                      :placeholder="t(videoPricingI18nKey('modelPlaceholder'))"
+                      :placeholder="videoModelPricePlaceholder(createForm.platform)"
                       data-testid="create-seedance-model-input"
                     />
                   </div>
@@ -1213,7 +1213,7 @@
               </div>
             </div>
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-              {{ t(videoPricingI18nKey("seedanceModeHint")) }}
+              {{ t(videoPricingI18nKey("modelModeHint")) }}
             </p>
           </template>
 
@@ -2737,7 +2737,7 @@
 
         <!-- 视频生成计费配置 -->
         <div
-          v-if="supportsVideoPricingPlatform(editForm.platform) || supportsSeedanceVideoModelPricingPlatform(editForm.platform)"
+          v-if="supportsVideoPricingPlatform(editForm.platform) || supportsVideoModelPricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -2749,15 +2749,15 @@
             {{
               t(
                 videoPricingI18nKey(
-                  ["seedance", "ltx"].includes(editForm.platform)
-                    ? "seedanceDescription"
+                  supportsVideoModelPricingPlatform(editForm.platform)
+                    ? "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
           <div
-            v-if="supportsSeedanceVideoModelPricingPlatform(editForm.platform)"
+            v-if="supportsVideoModelPricingPlatform(editForm.platform)"
             class="mb-4"
           >
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -2796,7 +2796,7 @@
               placeholder="1"
             />
           </div>
-          <template v-if="supportsSeedanceVideoModelPricingPlatform(editForm.platform)">
+          <template v-if="supportsVideoModelPricingPlatform(editForm.platform)">
             <div
               class="space-y-3"
               data-testid="edit-seedance-video-model-pricing"
@@ -2853,7 +2853,7 @@
                       class="input font-mono text-sm"
                       autocomplete="off"
                       spellcheck="false"
-                      :placeholder="t(videoPricingI18nKey('modelPlaceholder'))"
+                      :placeholder="videoModelPricePlaceholder(editForm.platform)"
                       data-testid="edit-seedance-model-input"
                     />
                   </div>
@@ -2933,7 +2933,7 @@
               </div>
             </div>
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-              {{ t(videoPricingI18nKey("seedanceModeHint")) }}
+              {{ t(videoPricingI18nKey("modelModeHint")) }}
             </p>
           </template>
 
@@ -4428,9 +4428,10 @@ import {
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
 import {
-  createDefaultSeedanceVideoModelPriceRows,
+  createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
-  supportsSeedanceVideoModelPricingPlatform,
+  supportsVideoModelPricingPlatform,
+  videoModelPricePlaceholder,
   videoModelSupportsResolution,
   validateVideoModelPriceRows,
   videoModelPricesPayloadForPlatform,
@@ -4641,6 +4642,7 @@ const platformOptions = computed(() => [
   { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
   { value: "ltx", label: "LTX" },
+  { value: "happyhorse", label: "HappyHorse" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -4654,6 +4656,7 @@ const platformFilterOptions = computed(() => [
   { value: "glm", label: "GLM" },
   { value: "seedance", label: "Seedance" },
   { value: "ltx", label: "LTX" },
+  { value: "happyhorse", label: "HappyHorse" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -4921,7 +4924,7 @@ const editModelsListState = reactive(createInitialModelsListState());
 const createModelsListLoading = ref(false);
 const editModelsListLoading = ref(false);
 const createVideoModelPriceRows = ref<VideoModelPriceRow[]>(
-  createDefaultSeedanceVideoModelPriceRows(),
+  createDefaultVideoModelPriceRows(),
 );
 const editVideoModelPriceRows = ref<VideoModelPriceRow[]>([]);
 type ReasoningEffortPolicyFieldsExpose = {
@@ -5782,7 +5785,7 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
-  createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows("seedance");
+  createVideoModelPriceRows.value = createDefaultVideoModelPriceRows("seedance");
   createForm.web_search_price_per_call = null;
   createForm.peak_rate_enabled = false;
   createForm.peak_start = "";
@@ -5835,7 +5838,7 @@ const normalizeRateMultiplier = (
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
-const ensureValidSeedanceVideoModelPrices = (
+const ensureValidVideoModelPrices = (
   rows: VideoModelPriceRow[],
   platform: string,
 ): boolean => {
@@ -5859,8 +5862,8 @@ const handleCreateGroup = async () => {
     return;
   }
   if (
-    supportsSeedanceVideoModelPricingPlatform(createForm.platform) &&
-    !ensureValidSeedanceVideoModelPrices(createVideoModelPriceRows.value, createForm.platform)
+    supportsVideoModelPricingPlatform(createForm.platform) &&
+    !ensureValidVideoModelPrices(createVideoModelPriceRows.value, createForm.platform)
   ) {
     return;
   }
@@ -5995,7 +5998,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
   editVideoModelPriceRows.value =
-    supportsSeedanceVideoModelPricingPlatform(group.platform)
+    supportsVideoModelPricingPlatform(group.platform)
       ? videoModelPricesToRows(group.video_model_prices)
       : [];
   editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
@@ -6082,8 +6085,8 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (
-    supportsSeedanceVideoModelPricingPlatform(editForm.platform) &&
-    !ensureValidSeedanceVideoModelPrices(editVideoModelPriceRows.value, editForm.platform)
+    supportsVideoModelPricingPlatform(editForm.platform) &&
+    !ensureValidVideoModelPrices(editVideoModelPriceRows.value, editForm.platform)
   ) {
     return;
   }
@@ -6482,8 +6485,8 @@ watch(
 watch(
   () => createForm.platform,
   (newVal) => {
-    if (supportsSeedanceVideoModelPricingPlatform(newVal)) {
-      createVideoModelPriceRows.value = createDefaultSeedanceVideoModelPriceRows(newVal);
+    if (supportsVideoModelPricingPlatform(newVal)) {
+      createVideoModelPriceRows.value = createDefaultVideoModelPriceRows(newVal);
     }
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
@@ -6529,7 +6532,14 @@ watch(
 
 watch(
   () => editForm.platform,
-  (newVal) => {
+  (newVal, oldVal) => {
+    if (newVal !== oldVal) {
+      editVideoModelPriceRows.value = supportsVideoModelPricingPlatform(newVal)
+        ? editingGroup.value?.platform === newVal
+          ? videoModelPricesToRows(editingGroup.value.video_model_prices)
+          : createDefaultVideoModelPriceRows(newVal)
+        : [];
+    }
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }

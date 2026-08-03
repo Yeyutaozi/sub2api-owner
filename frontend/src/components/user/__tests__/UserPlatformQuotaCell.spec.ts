@@ -57,18 +57,21 @@ describe('UserPlatformQuotaCell', () => {
     expect(html).toContain('90.5/2000')
   })
 
-  it('多平台按 anthropic→openai→gemini→antigravity 顺序，仅展示有限额的', () => {
+  it('多平台按平台顺序展示，并包含 LTX 与 HappyHorse', () => {
     const w = mount(UserPlatformQuotaCell, {
       props: {
         quotas: [
           item({ platform: 'gemini', monthly_limit_usd: 50 }),
           item({ platform: 'anthropic', daily_limit_usd: 10 }),
           item({ platform: 'openai', daily_usage_usd: 9 }),
+          item({ platform: 'happyhorse', daily_limit_usd: 30 }),
+          item({ platform: 'ltx', daily_limit_usd: 20 }),
         ],
       },
     })
     const text = w.text()
     expect(text.indexOf('anthropic')).toBeLessThan(text.indexOf('gemini'))
+    expect(text.indexOf('ltx')).toBeLessThan(text.indexOf('happyhorse'))
     expect(text).not.toContain('openai')
   })
 })

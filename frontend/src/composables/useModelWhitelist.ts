@@ -172,8 +172,13 @@ const xaiModels = [
 
 const seedanceModels = [
   'seedance-2.0',
-  'seedance-2.0-fast'
+  'seedance-2.0-fast',
+  'seedance-2.0-mini'
 ]
+
+const ltxModels = ['ltx-2.3-pro', 'ltx-2.3-fast']
+
+const happyHorseModels = ['happy-horse-1.1']
 
 // Cohere
 const cohereModels = [
@@ -256,6 +261,8 @@ const allModelsList: string[] = [
   ...metaModels,
   ...xaiModels,
   ...seedanceModels,
+  ...ltxModels,
+  ...happyHorseModels,
   ...cohereModels,
   ...yiModels,
   ...moonshotModels,
@@ -446,6 +453,8 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'xai':
     case 'grok': return xaiModels
     case 'seedance': return seedanceModels
+    case 'ltx': return ltxModels
+    case 'happyhorse': return happyHorseModels
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot': return moonshotModels

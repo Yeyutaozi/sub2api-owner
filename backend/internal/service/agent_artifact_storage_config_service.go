@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -607,6 +608,18 @@ func (s *dynamicAgentArtifactStore) PresignGetObject(ctx context.Context, locati
 		return "", err
 	}
 	return store.PresignGetObject(ctx, location, ttl)
+}
+
+func (s *dynamicAgentArtifactStore) ReadObject(ctx context.Context, location AgentArtifactObjectLocation, rangeHeader string) (*AgentArtifactObjectReadResult, error) {
+	store, err := s.storeForLocation(ctx, location)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := store.(AgentArtifactObjectReader)
+	if !ok {
+		return nil, errors.New("artifact store does not support direct reads")
+	}
+	return reader.ReadObject(ctx, location, rangeHeader)
 }
 
 func (s *dynamicAgentArtifactStore) Delete(ctx context.Context, key string) error {

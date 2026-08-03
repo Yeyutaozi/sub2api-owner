@@ -20,6 +20,9 @@ func TestDefaultModelsListCandidateIDsSeedance(t *testing.T) {
 		"ltx-2.3-pro",
 		"ltx-2.3-fast",
 	}, defaultModelsListCandidateIDs(PlatformLTX))
+	require.Equal(t, []string{
+		"happy-horse-1.1",
+	}, defaultModelsListCandidateIDs(PlatformHappyHorse))
 }
 
 func TestAdminServiceCreateGroupNormalizesSeedanceVideoModelPrices(t *testing.T) {

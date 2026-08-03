@@ -7,17 +7,21 @@ const source = readFileSync(
   'utf8'
 )
 
-describe('CreateAccountModal Seedance account type', () => {
-  it('creates a dedicated API-key account with the FYLink default', () => {
+describe('CreateAccountModal video platform account types', () => {
+  it('creates dedicated API-key accounts with the internal video upstream default', () => {
     expect(source).toContain('@click="form.platform = \'seedance\'"')
-    expect(source).toContain("if (form.platform === 'seedance' || form.platform === 'glm')")
+    expect(source).toContain('@click="form.platform = \'ltx\'"')
+    expect(source).toContain('@click="form.platform = \'happyhorse\'"')
+    expect(source).toContain("form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'glm'")
     expect(source).toContain("accountCategory.value = 'apikey'")
     expect(source).toContain("form.type = 'apikey'")
     expect(source).toContain("? 'https://api.fflink.top'")
     expect(source).toContain("? 'Sub2API Key'")
   })
 
-  it('does not expose Seedance as an OpenAI endpoint capability', () => {
+  it('does not expose video platforms as OpenAI endpoint capabilities', () => {
     expect(source).not.toContain('seedance_proxy')
+    expect(source).not.toContain('ltx_proxy')
+    expect(source).not.toContain('happyhorse_proxy')
   })
 })

@@ -10,16 +10,19 @@ const groupsViewSource = readFileSync(
   "utf8",
 );
 
-describe("Seedance group video permission", () => {
-  it("exposes the existing media permission as a Seedance-only video switch", () => {
+describe("video platform group permission", () => {
+  it("exposes the media permission for every model-priced video platform", () => {
     expect(groupsViewSource).toMatch(
-      /v-if="createForm\.platform === 'seedance'"[\s\S]*?v-model="createForm\.allow_image_generation"[\s\S]*?data-testid="create-seedance-video-enabled"/,
+      /v-if="supportsVideoModelPricingPlatform\(createForm\.platform\)"[\s\S]*?v-model="createForm\.allow_image_generation"[\s\S]*?data-testid="create-seedance-video-enabled"/,
     );
     expect(groupsViewSource).toMatch(
-      /v-if="editForm\.platform === 'seedance'"[\s\S]*?v-model="editForm\.allow_image_generation"[\s\S]*?data-testid="edit-seedance-video-enabled"/,
+      /v-if="supportsVideoModelPricingPlatform\(editForm\.platform\)"[\s\S]*?v-model="editForm\.allow_image_generation"[\s\S]*?data-testid="edit-seedance-video-enabled"/,
     );
     expect(groupsViewSource).toContain(
       't(videoPricingI18nKey("allowVideoGeneration"))',
     );
+    expect(groupsViewSource).toContain('{ value: "seedance", label: "Seedance" }');
+    expect(groupsViewSource).toContain('{ value: "ltx", label: "LTX" }');
+    expect(groupsViewSource).toContain('{ value: "happyhorse", label: "HappyHorse" }');
   });
 });

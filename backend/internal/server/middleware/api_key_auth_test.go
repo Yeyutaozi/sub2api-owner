@@ -867,8 +867,15 @@ func TestIsSeedanceTaskRead(t *testing.T) {
 	require.True(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/vidjob_123"))
 	require.True(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/vidjob_123/content"))
 	require.True(t, isSeedanceTaskRead(http.MethodDelete, "/api/v3/contents/generations/tasks/vidjob_123"))
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/v1/videos/jobs"))
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/v1/videos/jobs/vidjob_123"))
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/v1/videos/jobs/vidjob_123/content"))
+	require.True(t, isSeedanceTaskRead(http.MethodDelete, "/v1/videos/jobs/vidjob_123"))
+	require.True(t, isSeedanceTaskRead(http.MethodGet, "/v1/videos/uploads/sdupl_123"))
 	require.False(t, isSeedanceTaskRead(http.MethodPost, "/api/v3/contents/generations/tasks"))
 	require.False(t, isSeedanceTaskRead(http.MethodGet, "/api/v3/contents/generations/tasks/"))
+	require.False(t, isSeedanceTaskRead(http.MethodPost, "/v1/videos/jobs"))
+	require.False(t, isSeedanceTaskRead(http.MethodPost, "/v1/videos/uploads/sdupl_123"))
 }
 
 func TestAPIKeyAuthIPRestrictionUsesTrustedPathWhenSwitchDisabled(t *testing.T) {

@@ -180,7 +180,10 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			return
 		}
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, result.UpstreamModel, true, nil)
-		if err := h.gatewayService.BindSeedanceTaskAccount(c.Request.Context(), apiKey.GroupID, result.ResponseID, subject.UserID, apiKey.ID, account.ID); err != nil {
+		if err := h.gatewayService.BindSeedanceTaskAccount(
+			c.Request.Context(), apiKey.GroupID, result.ResponseID,
+			subject.UserID, apiKey.ID, account.ID, requestInfo.Model,
+		); err != nil {
 			reqLog.Error("seedance.bind_task_failed", zap.Error(err), zap.String("task_id", result.ResponseID), zap.Int64("account_id", account.ID))
 			seedanceError(c, http.StatusBadGateway, "task_binding_failed", "Seedance task was accepted upstream but could not be registered locally")
 			return
@@ -462,42 +465,25 @@ func (h *OpenAIGatewayHandler) SeedanceListJobs(c *gin.Context) {
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, []byte(c.Request.URL.RawQuery))
-	selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
-		c.Request.Context(),
-		apiKey.GroupID,
-		"",
-		sessionHash,
-		"",
-		nil,
-		service.OpenAIUpstreamTransportHTTPSSE,
-		"",
-		false,
-		false,
-		false,
-		apiKey.Group.Platform,
+	limit := service.DefaultSeedanceJobsLimit
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed <= 0 {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+			return
+		}
+		limit = min(parsed, service.MaxSeedanceJobsLimit)
+	}
+	jobs, err := h.gatewayService.ListOwnedSeedanceJobs(
+		c.Request.Context(), apiKey.GroupID, subject.UserID, apiKey.ID,
+		limit, c.Query("status"),
 	)
-	if selectErr != nil || selection == nil || selection.Account == nil {
-		markOpsRoutingCapacityLimited(c)
-		seedanceError(c, http.StatusServiceUnavailable, "no_available_account", "No available Seedance upstream account in this API key group")
-		return
-	}
-
-	account := selection.Account
-	setOpsSelectedAccount(c, account.ID, account.Platform)
-	accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-	if !accountAcquired {
-		return
-	}
-	if accountRelease != nil {
-		defer accountRelease()
-	}
-	forwarded, err := h.gatewayService.ForwardSeedanceJobsList(c.Request.Context(), c, account)
 	if err != nil {
-		h.writeSeedanceForwardError(c, err)
+		reqLog.Error("seedance.list_jobs_failed", zap.Error(err))
+		seedanceError(c, http.StatusServiceUnavailable, "task_index_unavailable", "Video task index is temporarily unavailable")
 		return
 	}
-	h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, bytes.NewReader(forwarded.Body))
+	c.JSON(http.StatusOK, gin.H{"data": jobs})
 }
 
 func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, method string, content bool, public bool) {
@@ -698,7 +684,14 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		if status := seedanceStatusFromBody(forwarded.Body); status == "failed" || status == "cancelled" {
 			h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
 		}
-		h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, bytes.NewReader(forwarded.Body))
+		normalizedBody, normalizeErr := service.NormalizeSeedanceJob(forwarded.Body, taskID)
+		if normalizeErr != nil {
+			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", normalizeErr.Error())
+			return
+		}
+		header := forwarded.Header.Clone()
+		header.Del("Content-Length")
+		h.writeSeedanceBody(c, forwarded.StatusCode, header, bytes.NewReader(normalizedBody))
 		return
 	}
 	official, err := service.BuildSeedanceOfficialTaskResponse(taskID, forwarded.Body, seedanceTaskContentURL(c, taskID))
@@ -813,7 +806,7 @@ func (h *OpenAIGatewayHandler) ensureSeedanceGroup(c *gin.Context, apiKey *servi
 		return false
 	}
 	if !service.IsFFLinkVideoPlatform(apiKey.Group.Platform) {
-		seedanceError(c, http.StatusForbidden, "permission_denied", "API key group does not support FFLink video generation")
+		seedanceError(c, http.StatusForbidden, "permission_denied", "API key group does not support video generation")
 		return false
 	}
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {

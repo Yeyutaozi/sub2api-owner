@@ -27,7 +27,8 @@ describe('useModelWhitelist', () => {
   it('uses FYLink model IDs for Seedance while keeping legacy alias mappings', () => {
     expect(getModelsByPlatform('seedance')).toEqual([
       'seedance-2.0',
-      'seedance-2.0-fast'
+      'seedance-2.0-fast',
+      'seedance-2.0-mini'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -35,6 +36,8 @@ describe('useModelWhitelist', () => {
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
+    expect(getModelsByPlatform('ltx')).toEqual(['ltx-2.3-pro', 'ltx-2.3-fast'])
+    expect(getModelsByPlatform('happyhorse')).toEqual(['happy-horse-1.1'])
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {

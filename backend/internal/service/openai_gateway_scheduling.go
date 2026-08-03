@@ -202,6 +202,8 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 		return PlatformSeedance
 	case PlatformLTX:
 		return PlatformLTX
+	case PlatformHappyHorse:
+		return PlatformHappyHorse
 	default:
 		return PlatformOpenAI
 	}

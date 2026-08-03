@@ -976,6 +976,23 @@ func (s *SeedanceMediaService) presignRecord(ctx context.Context, record seedanc
 }
 
 func (s *SeedanceMediaService) openRecord(ctx context.Context, record seedanceMediaRecord, rangeHeader string) (*SeedanceMediaStream, error) {
+	if reader, ok := s.store.(AgentArtifactObjectReader); ok {
+		result, err := reader.ReadObject(ctx, record.location(), rangeHeader)
+		if err != nil {
+			return nil, infraerrors.ServiceUnavailable("media_storage_error", "failed to read stored Seedance media").WithCause(err)
+		}
+		if result == nil || result.Body == nil {
+			return nil, infraerrors.ServiceUnavailable("media_storage_error", "stored Seedance media is unavailable")
+		}
+		if result.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+			return &SeedanceMediaStream{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: result.Body}, nil
+		}
+		if result.StatusCode < 200 || result.StatusCode >= 300 {
+			_ = result.Body.Close()
+			return nil, fmt.Errorf("stored Seedance media returned HTTP %d", result.StatusCode)
+		}
+		return &SeedanceMediaStream{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: result.Body}, nil
+	}
 	signed, err := s.presignRecord(ctx, record)
 	if err != nil {
 		return nil, err

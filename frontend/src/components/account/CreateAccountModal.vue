@@ -201,6 +201,20 @@
             <PlatformIcon platform="ltx" size="sm" />
             LTX
           </button>
+          <button
+            type="button"
+            data-testid="account-platform-happyhorse"
+            @click="form.platform = 'happyhorse'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'happyhorse'
+                ? 'bg-white text-amber-700 shadow-sm dark:bg-dark-600 dark:text-amber-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="happyhorse" size="sm" />
+            HappyHorse
+          </button>
         </div>
       </div>
 
@@ -1156,7 +1170,7 @@
                     ? 'https://api.x.ai/v1'
                     : form.platform === 'glm'
                       ? 'https://open.bigmodel.cn/api/paas/v4'
-                    : form.platform === 'seedance' || form.platform === 'ltx'
+                    : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
                       ? 'https://api.fflink.top'
                     : 'https://api.anthropic.com'
             "
@@ -1184,7 +1198,7 @@
                     ? 'xai-...'
                     : form.platform === 'glm'
                       ? 'sk-...'
-                    : form.platform === 'seedance' || form.platform === 'ltx'
+                    : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
                       ? 'Sub2API Key'
                     : 'sk-ant-...'
             "
@@ -3647,14 +3661,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4196,7 +4210,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'glm') {
+    if (form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
       return
@@ -4236,14 +4250,14 @@ watch(
             ? 'https://api.x.ai/v1'
             : newPlatform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newPlatform === 'seedance' || newPlatform === 'ltx'
+            : newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'happyhorse'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'glm') {
+    if (newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'happyhorse' || newPlatform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
     } else if (newPlatform === 'antigravity') {
@@ -5126,7 +5140,7 @@ const handleSubmit = async () => {
           ? 'https://api.x.ai/v1'
           : form.platform === 'glm'
             ? 'https://open.bigmodel.cn/api/paas/v4'
-          : form.platform === 'seedance' || form.platform === 'ltx'
+          : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
             ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
 

@@ -18,6 +18,8 @@ const allNullQuotas: DefaultPlatformQuotasMap = {
   grok: { daily: null, weekly: null, monthly: null },
   glm: { daily: null, weekly: null, monthly: null },
   seedance: { daily: null, weekly: null, monthly: null },
+  ltx: { daily: null, weekly: null, monthly: null },
+  happyhorse: { daily: null, weekly: null, monthly: null },
 }
 
 describe("admin settings auth source defaults helpers", () => {
@@ -242,11 +244,13 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.glm).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.seedance).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.ltx).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.happyhorse).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
-  it("无参数时返回全 7 平台全 null", () => {
+  it("无参数时返回全 9 平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(Object.keys(result)).toHaveLength(7);
+    expect(Object.keys(result)).toHaveLength(9);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }
@@ -294,7 +298,7 @@ describe("sanitizePlatformQuotasMap", () => {
 
   it("缺失平台填充为全 null", () => {
     const result = sanitizePlatformQuotasMap({});
-    expect(Object.keys(result)).toHaveLength(7);
+    expect(Object.keys(result)).toHaveLength(9);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }

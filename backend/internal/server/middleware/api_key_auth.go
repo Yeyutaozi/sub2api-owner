@@ -344,8 +344,16 @@ func isSeedanceTaskRead(method, path string) bool {
 	if method != http.MethodGet && method != http.MethodDelete {
 		return false
 	}
-	const prefix = "/api/v3/contents/generations/tasks/"
-	return strings.HasPrefix(path, prefix) && len(strings.TrimPrefix(path, prefix)) > 0
+	for _, prefix := range []string{
+		"/api/v3/contents/generations/tasks/",
+		"/v1/videos/jobs/",
+		"/v1/videos/uploads/",
+	} {
+		if strings.HasPrefix(path, prefix) && len(strings.TrimPrefix(path, prefix)) > 0 {
+			return true
+		}
+	}
+	return method == http.MethodGet && strings.TrimRight(path, "/") == "/v1/videos/jobs"
 }
 
 // GetAPIKeyFromContext 从上下文中获取API key

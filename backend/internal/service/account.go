@@ -287,6 +287,10 @@ func (a *Account) IsLTX() bool {
 	return a != nil && a.Platform == PlatformLTX
 }
 
+func (a *Account) IsHappyHorse() bool {
+	return a != nil && a.Platform == PlatformHappyHorse
+}
+
 func (a *Account) IsFFLinkVideo() bool {
 	return a != nil && IsFFLinkVideoPlatform(a.Platform)
 }

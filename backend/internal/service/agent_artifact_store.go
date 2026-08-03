@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -324,6 +326,73 @@ func (s *AgentS3ArtifactStore) PresignGetObject(ctx context.Context, location Ag
 		return "", fmt.Errorf("presign agent artifact: %w", err)
 	}
 	return result.URL, nil
+}
+
+func (s *AgentS3ArtifactStore) ReadObject(ctx context.Context, location AgentArtifactObjectLocation, rangeHeader string) (*AgentArtifactObjectReadResult, error) {
+	if !s.IsConfigured() {
+		return nil, ErrAgentArtifactStorageNotConfigured
+	}
+	key := strings.TrimLeft(strings.TrimSpace(location.ObjectKey), "/")
+	if key == "" {
+		return nil, infraerrors.BadRequest("AGENT_ARTIFACT_OBJECT_KEY_INVALID", "artifact object key is invalid")
+	}
+	bucket := strings.TrimSpace(location.Bucket)
+	if bucket == "" {
+		bucket = s.bucket
+	}
+	input := &s3.GetObjectInput{Bucket: &bucket, Key: &key}
+	if value := strings.TrimSpace(rangeHeader); value != "" {
+		input.Range = &value
+	}
+	result, err := s.client.GetObject(ctx, input)
+	if err != nil {
+		var responseErr *smithyhttp.ResponseError
+		if errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == http.StatusRequestedRangeNotSatisfiable {
+			response := responseErr.HTTPResponse()
+			if response != nil && response.Response != nil {
+				body := response.Body
+				if body == nil {
+					body = io.NopCloser(strings.NewReader(""))
+				}
+				return &AgentArtifactObjectReadResult{
+					StatusCode: http.StatusRequestedRangeNotSatisfiable,
+					Header:     response.Header.Clone(),
+					Body:       body,
+				}, nil
+			}
+		}
+		return nil, fmt.Errorf("get agent artifact: %w", err)
+	}
+	if result == nil || result.Body == nil {
+		return nil, errors.New("get agent artifact returned an empty body")
+	}
+	header := make(http.Header)
+	if value := aws.ToString(result.ContentType); value != "" {
+		header.Set("Content-Type", value)
+	}
+	if value := aws.ToString(result.ContentDisposition); value != "" {
+		header.Set("Content-Disposition", value)
+	}
+	if value := aws.ToString(result.AcceptRanges); value != "" {
+		header.Set("Accept-Ranges", value)
+	}
+	if value := aws.ToString(result.ContentRange); value != "" {
+		header.Set("Content-Range", value)
+	}
+	if value := aws.ToString(result.ETag); value != "" {
+		header.Set("ETag", value)
+	}
+	if result.ContentLength != nil {
+		header.Set("Content-Length", fmt.Sprintf("%d", *result.ContentLength))
+	}
+	if result.LastModified != nil {
+		header.Set("Last-Modified", result.LastModified.UTC().Format(http.TimeFormat))
+	}
+	status := http.StatusOK
+	if strings.TrimSpace(rangeHeader) != "" || header.Get("Content-Range") != "" {
+		status = http.StatusPartialContent
+	}
+	return &AgentArtifactObjectReadResult{StatusCode: status, Header: header, Body: result.Body}, nil
 }
 
 func (s *AgentS3ArtifactStore) Delete(ctx context.Context, key string) error {

@@ -623,6 +623,33 @@ func TestSeedanceOpenRecordForwardsRangeStatuses(t *testing.T) {
 	}
 }
 
+func TestSeedanceOpenRecordPrefersDirectArtifactRead(t *testing.T) {
+	store := &seedanceMediaDirectReadStore{
+		seedanceMediaMemoryStore: newSeedanceMediaMemoryStore(),
+		result: &AgentArtifactObjectReadResult{
+			StatusCode: http.StatusPartialContent,
+			Header: http.Header{
+				"Content-Type":  []string{"image/png"},
+				"Content-Range": []string{"bytes 0-2/3"},
+			},
+			Body: io.NopCloser(strings.NewReader("png")),
+		},
+	}
+	store.presignURL = "http://198.18.1.40/blocked-by-ssrf-policy"
+	service := NewSeedanceMediaService(store, nil, nil)
+
+	stream, err := service.openRecord(context.Background(), seedanceMediaRecord{
+		StorageProvider: store.provider,
+		Bucket:          store.bucket,
+		ObjectKey:       "seedance/inputs/staged/reference.png",
+	}, "bytes=0-2")
+	require.NoError(t, err)
+	require.Equal(t, 1, store.reads)
+	require.Equal(t, http.StatusPartialContent, stream.StatusCode)
+	require.Equal(t, "bytes 0-2/3", stream.Header.Get("Content-Range"))
+	require.NoError(t, stream.Body.Close())
+}
+
 type seedanceMediaTestPut struct {
 	Key         string
 	ContentType string
@@ -659,6 +686,18 @@ type seedanceMediaMemoryStore struct {
 	objects    map[string][]byte
 	puts       []seedanceMediaTestPut
 	deleted    []AgentArtifactObjectLocation
+}
+
+type seedanceMediaDirectReadStore struct {
+	*seedanceMediaMemoryStore
+	result *AgentArtifactObjectReadResult
+	err    error
+	reads  int
+}
+
+func (s *seedanceMediaDirectReadStore) ReadObject(_ context.Context, _ AgentArtifactObjectLocation, _ string) (*AgentArtifactObjectReadResult, error) {
+	s.reads++
+	return s.result, s.err
 }
 
 func newSeedanceMediaMemoryStore() *seedanceMediaMemoryStore {

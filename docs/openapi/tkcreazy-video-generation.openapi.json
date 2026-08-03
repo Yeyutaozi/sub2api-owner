@@ -1,0 +1,2516 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
+    "version": "2026-08-03-final",
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 只能调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：六个模型都可用 audio=true 请求模型生成同步音轨，省略时均为 false。只有 Seedance 支持 guidances.audio_reference 参考音频；HappyHorse 和 LTX 不支持参考音频。参考音频不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律或声音事件。\n\n素材组合：Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧，audio_reference 必须搭配 image_reference 或 video_reference_base。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：请求示例标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；“配置示例”表示参数已按当前后端校验规则核对，但该具体组合未在本轮端到端覆盖。"
+  },
+  "servers": [
+    {
+      "url": "https://tkcreazy.top/v1",
+      "description": "TKCreazy 公网 API"
+    }
+  ],
+  "tags": [
+    {
+      "name": "视频生成",
+      "description": "素材上传、异步视频任务、状态查询、取消和 MP4 下载"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/videos/uploads": {
+      "post": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "上传一张图片、一个音频或一个视频素材",
+        "description": "每次请求只上传一个文件。图片字段名为 image，音频字段名为 audio，视频字段名为 video。需要多个素材时分别调用多次。成功后把 media_url 原样用于创建任务。application/json 仅支持图片 Base64。",
+        "operationId": "uploadVideoMedia",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ImageUploadForm"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AudioUploadForm"
+                  },
+                  {
+                    "$ref": "#/components/schemas/VideoUploadForm"
+                  }
+                ]
+              },
+              "encoding": {
+                "image": {
+                  "contentType": "image/png, image/jpeg, image/webp"
+                },
+                "audio": {
+                  "contentType": "audio/*"
+                },
+                "video": {
+                  "contentType": "video/*"
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Base64ImageUpload"
+              },
+              "examples": {
+                "dataUri": {
+                  "value": {
+                    "image_base64": "data:image/png;base64,<BASE64_DATA>",
+                    "filename": "reference.png"
+                  }
+                },
+                "bareBase64": {
+                  "value": {
+                    "image_base64": "<BASE64_DATA>",
+                    "content_type": "image/png",
+                    "filename": "reference.png"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "上传成功。media_url 是创建任务时要填写的值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                },
+                "example": {
+                  "upload_id": "sdupl_example_123",
+                  "media_url": "https://object-storage.example/video-input.png?temporary-signature=...",
+                  "media_type": "image",
+                  "content_type": "image/png",
+                  "size": 72396,
+                  "sha256": "d42c2780ffcedeb699ac245f42118b4ed082e61d1ba7146549b9df08607f2731",
+                  "expires_at": "2026-08-04T12:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "description": "文件超过限制。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoAPIError"
+                },
+                "example": {
+                  "error": {
+                    "code": "media_too_large",
+                    "message": "uploaded media exceeds the configured size limit",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type 不受支持。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoAPIError"
+                },
+                "example": {
+                  "error": {
+                    "code": "unsupported_media_type",
+                    "message": "Content-Type must be multipart/form-data or application/json",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "label": "上传图片",
+            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/uploads' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -F 'image=@./reference.png'"
+          },
+          {
+            "lang": "Shell",
+            "label": "上传音频",
+            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/uploads' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -F 'audio=@./reference.wav'"
+          },
+          {
+            "lang": "Shell",
+            "label": "上传视频",
+            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/uploads' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -F 'video=@./reference.mp4'"
+          }
+        ]
+      }
+    },
+    "/videos/uploads/{upload_id}": {
+      "get": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "读取已上传的原始素材",
+        "description": "成功响应是原始文件字节，不是 JSON。该接口用于核对上传内容；创建任务仍应填写上传响应中的 media_url。支持 Range。",
+        "operationId": "getUploadedVideoMedia",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UploadID"
+          },
+          {
+            "$ref": "#/components/parameters/Range"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "完整原始文件。",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Range 读取成功。",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "bytes 0-1023/72396"
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "bytes"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "416": {
+            "description": "Range 超出文件范围。",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "bytes */72396"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoAPIError"
+                },
+                "example": {
+                  "error": {
+                    "code": "range_not_satisfiable",
+                    "message": "Requested byte range is not satisfiable",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "source": "curl 'https://tkcreazy.top/v1/videos/uploads/sdupl_example_123' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -o uploaded-file.bin"
+          }
+        ]
+      }
+    },
+    "/videos/generations": {
+      "post": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "创建异步视频生成任务",
+        "description": "model 必须属于当前 API Key 的独立视频分组。请求成功返回 HTTP 202；务必保存 job_id。参考素材 URL 必须使用上传接口刚返回的完整 media_url；把示例中的 {{image_media_url}}、{{image_media_url_2}}、{{audio_media_url}} 整体替换为对应返回值，不要填写 upload_id，也不要删除 URL 查询参数。下方示例标题已明确区分“已验证”和“配置示例”。",
+        "operationId": "createVideoGenerationJob",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Seedance20Request"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceFastRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceMiniRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/HappyHorseRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LTXProRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LTXFastRequest"
+                  }
+                ]
+              },
+              "examples": {
+                "seedanceMiniText": {
+                  "summary": "配置示例：Seedance Mini 纯文本（本轮未覆盖 Mini）",
+                  "value": {
+                    "model": "seedance-2.0-mini",
+                    "prompt": "明亮摄影棚内，一只红色购物袋缓慢旋转，镜头平稳推进，无字幕，无水印。",
+                    "resolution": "480p",
+                    "duration": 4,
+                    "aspect_ratio": "1:1",
+                    "audio": false
+                  }
+                },
+                "seedanceImageAudio": {
+                  "summary": "已验证：Seedance 单图 + 参考音频",
+                  "value": {
+                    "model": "seedance-2.0-fast",
+                    "prompt": "以参考图片中的商品为主体生成 5 秒展示视频。明确保留参考音频中的 660Hz 持续电子提示音，使相同音高、稳定节奏和强弱从开头持续到结尾；不要替换成环境音乐、对白或其他音效。",
+                    "resolution": "480p",
+                    "duration": 5,
+                    "aspect_ratio": "1:1",
+                    "audio": true,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "{{image_media_url}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "{{audio_media_url}}",
+                            "type": "UPLOADED"
+                          },
+                          "order": 0
+                        }
+                      ]
+                    }
+                  }
+                },
+                "happyHorseText": {
+                  "summary": "已验证：HappyHorse 纯文本",
+                  "value": {
+                    "model": "happy-horse-1.1",
+                    "prompt": "A horse runs through a sunlit meadow, cinematic tracking shot.",
+                    "resolution": "1080p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "prompt_enhance": "OFF"
+                  }
+                },
+                "happyHorseFirstFrame": {
+                  "summary": "已验证：HappyHorse 首帧图生视频",
+                  "value": {
+                    "model": "happy-horse-1.1",
+                    "prompt": "Animate the subject in the uploaded first frame with a slow cinematic camera push.",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "9:16",
+                    "audio": false,
+                    "prompt_enhance": "OFF",
+                    "start_frame_url": "{{image_media_url}}"
+                  }
+                },
+                "happyHorseMultiAudio": {
+                  "summary": "配置示例：HappyHorse 两张参考图 + 生成音轨（本轮未覆盖此组合）",
+                  "value": {
+                    "model": "happy-horse-1.1",
+                    "prompt": "A person holds a shopping bag carrying the product mark from the first image and the brand mark from the second image, turns it toward the camera, then takes two steps forward. Keep both marks recognizable and add synchronized studio ambience.",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": true,
+                    "prompt_enhance": "OFF",
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "{{image_media_url}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        },
+                        {
+                          "image": {
+                            "url": "{{image_media_url_2}}",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "ltxProText": {
+                  "summary": "已验证：LTX Pro 纯文本",
+                  "value": {
+                    "model": "ltx-2.3-pro",
+                    "prompt": "A cinematic sunrise over a coastal city, smooth aerial camera movement.",
+                    "resolution": "1080p",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "prompt_enhance": "AUTO"
+                  }
+                },
+                "ltxFastText": {
+                  "summary": "已验证：LTX Fast 纯文本",
+                  "value": {
+                    "model": "ltx-2.3-fast",
+                    "prompt": "A fast tracking shot through a neon city street.",
+                    "resolution": "1080p",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                    "audio": false,
+                    "prompt_enhance": "AUTO"
+                  }
+                },
+                "ltxFramesAudio": {
+                  "summary": "配置示例：LTX Pro 首尾帧 + 生成音轨（本轮未覆盖此组合）",
+                  "value": {
+                    "model": "ltx-2.3-pro",
+                    "prompt": "Create a smooth studio transition from the first uploaded composition to the second. Keep the camera centered and add subtle synchronized electronic ambience.",
+                    "resolution": "1080p",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                    "audio": true,
+                    "prompt_enhance": "AUTO",
+                    "start_frame_url": "{{image_media_url}}",
+                    "end_frame_url": "{{image_media_url_2}}"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "任务已接受。Location 与 status_url 均指向查询接口。",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "example": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123"
+              },
+              "Preference-Applied": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "respond-async"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateJobResponse"
+                },
+                "example": {
+                  "job_id": "vidjob_example_123",
+                  "status": "pending",
+                  "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123",
+                  "model": "happy-horse-1.1",
+                  "resolution": "720p",
+                  "duration": 5,
+                  "aspect_ratio": "16:9",
+                  "created_at": "2026-08-03T12:00:00+08:00"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamFailure"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "label": "已验证：HappyHorse 纯文本",
+            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/generations' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: order-20260803-000001' \\\n  -d '{\"model\":\"happy-horse-1.1\",\"prompt\":\"A horse runs through a sunlit meadow, cinematic tracking shot.\",\"resolution\":\"1080p\",\"duration\":5,\"aspect_ratio\":\"16:9\",\"audio\":false,\"prompt_enhance\":\"OFF\"}'"
+          },
+          {
+            "lang": "Shell",
+            "label": "已验证：Seedance 图片 + 参考音频",
+            "source": "curl -X POST 'https://tkcreazy.top/v1/videos/generations' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"model\":\"seedance-2.0-fast\",\"prompt\":\"Keep the product from the reference image and preserve the 660Hz continuous tone from beginning to end.\",\"resolution\":\"480p\",\"duration\":5,\"aspect_ratio\":\"1:1\",\"audio\":true,\"guidances\":{\"image_reference\":[{\"image\":{\"url\":\"<FULL_IMAGE_MEDIA_URL_FROM_UPLOAD>\",\"type\":\"UPLOADED\"},\"strength\":\"HIGH\",\"order\":0}],\"audio_reference\":[{\"audio\":{\"url\":\"<FULL_AUDIO_MEDIA_URL_FROM_UPLOAD>\",\"type\":\"UPLOADED\"},\"order\":0}]}}'"
+          }
+        ]
+      }
+    },
+    "/videos/jobs": {
+      "get": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "列出当前 API Key 创建的视频任务",
+        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离；不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。列表会逐项读取最新上游状态；暂时读不到时该项 status=unknown，但 job_id 仍可用于单任务查询。列表中的 status_url 和完成任务的 mp4_url/url/local_url 都是 /v1 开头的站点相对路径，完整地址固定按 https://tkcreazy.top + 路径计算。",
+        "operationId": "listVideoGenerationJobs",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "example": 20
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "可选，不区分大小写，按接口返回的 status 精确过滤。为了限制上游查询量，过滤范围是当前 Key 最新 100 条任务。",
+            "schema": {
+              "type": "string"
+            },
+            "example": "completed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "当前 Key 的任务列表。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoJobList"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "job_id": "vidjob_example_123",
+                      "status": "completed",
+                      "status_url": "/v1/videos/jobs/vidjob_example_123",
+                      "model": "happy-horse-1.1",
+                      "prompt": "A person holds a product bag and turns it toward the camera.",
+                      "created_at": "2026-08-03T12:00:00+08:00",
+                      "updated_at": "2026-08-03T12:01:10+08:00",
+                      "result": {
+                        "created": 1785744341,
+                        "data": [
+                          {
+                            "mp4_url": "/v1/videos/jobs/vidjob_example_123/content",
+                            "url": "/v1/videos/jobs/vidjob_example_123/content",
+                            "local_url": "/v1/videos/jobs/vidjob_example_123/content"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "source": "curl 'https://tkcreazy.top/v1/videos/jobs?limit=20&status=completed' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>'"
+          }
+        ]
+      }
+    },
+    "/videos/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "查询一个视频任务",
+        "description": "建议每 3-5 秒查询一次。completed 后读取 result.data[0].mp4_url；failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定按 https://tkcreazy.top + mp4_url 计算。只有创建该任务的同一个 API Key 能查询。",
+        "operationId": "getVideoGenerationJob",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoJob"
+                },
+                "examples": {
+                  "running": {
+                    "summary": "运行中",
+                    "value": {
+                      "job_id": "vidjob_example_123",
+                      "status": "running",
+                      "status_url": "/v1/videos/jobs/vidjob_example_123",
+                      "model": "happy-horse-1.1",
+                      "prompt": "A person holds a product bag and turns it toward the camera.",
+                      "created_at": "2026-08-03T12:00:00+08:00",
+                      "updated_at": "2026-08-03T12:00:20+08:00"
+                    }
+                  },
+                  "completed": {
+                    "summary": "已完成",
+                    "value": {
+                      "job_id": "vidjob_example_123",
+                      "status": "completed",
+                      "status_url": "/v1/videos/jobs/vidjob_example_123",
+                      "model": "happy-horse-1.1",
+                      "prompt": "A person holds a product bag and turns it toward the camera.",
+                      "created_at": "2026-08-03T12:00:00+08:00",
+                      "updated_at": "2026-08-03T12:01:10+08:00",
+                      "result": {
+                        "created": 1785744341,
+                        "data": [
+                          {
+                            "mp4_url": "/v1/videos/jobs/vidjob_example_123/content",
+                            "url": "/v1/videos/jobs/vidjob_example_123/content",
+                            "local_url": "/v1/videos/jobs/vidjob_example_123/content",
+                            "thumbnail_url": "https://cdn.example/thumbnail.jpg"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "failed": {
+                    "summary": "失败",
+                    "value": {
+                      "job_id": "vidjob_example_123",
+                      "status": "failed",
+                      "status_url": "/v1/videos/jobs/vidjob_example_123",
+                      "model": "happy-horse-1.1",
+                      "error": {
+                        "message": "Video generation failed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamFailure"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "source": "curl 'https://tkcreazy.top/v1/videos/jobs/vidjob_example_123' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "取消一个视频任务",
+        "description": "只有创建该任务的同一个 API Key 能取消。上游接受取消时固定返回 HTTP 204 且没有响应体；任务当前不可取消时返回 HTTP 409。取消成功后服务会执行相应退款处理。",
+        "operationId": "cancelVideoGenerationJob",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "取消成功，无响应体。"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamFailure"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "source": "curl -i -X DELETE 'https://tkcreazy.top/v1/videos/jobs/vidjob_example_123' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>'"
+          }
+        ]
+      }
+    },
+    "/videos/jobs/{job_id}/content": {
+      "get": {
+        "tags": [
+          "视频生成"
+        ],
+        "summary": "下载已完成任务的 MP4",
+        "description": "成功响应是 MP4 字节，不是 JSON。必须继续携带 Bearer Key。可直接请求本接口，也可以从查询响应取相对路径后使用 https://tkcreazy.top + 路径。支持 Range，适合播放器在线播放。",
+        "operationId": "downloadVideoGenerationResult",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "$ref": "#/components/parameters/Range"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "完整 MP4。",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "bytes"
+                  ]
+                }
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Range 下载成功。",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "bytes 0-1023/4429922"
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "bytes"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "416": {
+            "description": "Range 超出文件范围。",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "bytes */4429922"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoAPIError"
+                },
+                "example": {
+                  "error": {
+                    "code": "range_not_satisfiable",
+                    "message": "Requested byte range is not satisfiable",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamFailure"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "source": "curl 'https://tkcreazy.top/v1/videos/jobs/vidjob_example_123/content' \\\n  -H 'Authorization: Bearer <TKCREAZY_API_KEY>' \\\n  -o result.mp4"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "TKCreazy API Key"
+      }
+    },
+    "parameters": {
+      "UploadID": {
+        "name": "upload_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^sdupl_[A-Za-z0-9_-]+$"
+        },
+        "example": "sdupl_example_123"
+      },
+      "JobID": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
+        },
+        "example": "vidjob_example_123"
+      },
+      "Range": {
+        "name": "Range",
+        "in": "header",
+        "required": false,
+        "description": "可选字节范围，例如 bytes=0-1023。",
+        "schema": {
+          "type": "string"
+        },
+        "example": "bytes=0-1023"
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "网络重试时可复用同一个值。此 Header 会转发到本次选中的视频账号，但不是跨账号的全局 exactly-once 保证；客户端仍必须保存成功响应中的 job_id。",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 255
+        },
+        "example": "order-20260803-000001"
+      }
+    },
+    "schemas": {
+      "APIKeyAuthError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "INVALID_API_KEY"
+          },
+          "message": {
+            "type": "string",
+            "example": "Invalid API key"
+          }
+        }
+      },
+      "VideoAPIError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "type"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "invalid_request"
+              },
+              "message": {
+                "type": "string",
+                "example": "request parameters are invalid"
+              },
+              "type": {
+                "type": "string",
+                "example": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "AnyError": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/APIKeyAuthError"
+          },
+          {
+            "$ref": "#/components/schemas/VideoAPIError"
+          }
+        ]
+      },
+      "ImageUploadForm": {
+        "type": "object",
+        "required": [
+          "image"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "type": "string",
+            "format": "binary",
+            "description": "PNG、JPEG 或 WebP；最大 10 MiB、最大 8192x8192 且不超过 4000 万像素。"
+          }
+        }
+      },
+      "AudioUploadForm": {
+        "type": "object",
+        "required": [
+          "audio"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "audio": {
+            "type": "string",
+            "format": "binary",
+            "description": "音频文件。服务接受 audio/*；为获得稳定的模型兼容性，建议使用 WAV 或 MP3。大小上限由当前部署的网关请求体限制与对象存储限制共同决定，客户端不能假设固定为 512 MiB；超过限制返回 413。"
+          }
+        }
+      },
+      "VideoUploadForm": {
+        "type": "object",
+        "required": [
+          "video"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "video": {
+            "type": "string",
+            "format": "binary",
+            "description": "视频文件。服务接受 video/*；为获得稳定的模型兼容性，建议使用 MP4。大小上限由当前部署的网关请求体限制与对象存储限制共同决定，客户端不能假设固定为 512 MiB；超过限制返回 413。"
+          }
+        }
+      },
+      "Base64ImageUpload": {
+        "type": "object",
+        "required": [
+          "image_base64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "image_base64": {
+            "type": "string",
+            "description": "完整 Data URI，或不带前缀的 Base64。使用裸 Base64 时必须填写 content_type。"
+          },
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "example": "reference.png"
+          }
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "required": [
+          "upload_id",
+          "media_url",
+          "media_type",
+          "content_type",
+          "size",
+          "sha256",
+          "expires_at"
+        ],
+        "properties": {
+          "upload_id": {
+            "type": "string",
+            "example": "sdupl_example_123"
+          },
+          "media_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "创建视频任务时填写的临时完整 URL。实际主机名和签名参数由对象存储配置决定。"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "audio",
+              "video"
+            ]
+          },
+          "content_type": {
+            "type": "string",
+            "example": "image/png"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "example": 72396
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "上传记录期限，不等同于 media_url 的签名有效期。"
+          }
+        }
+      },
+      "Seedance20Request": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "seedance-2.0"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 15,
+            "default": 8,
+            "description": "4-15 秒；使用 1080p 时最多 12 秒。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "9:21"
+            ],
+            "default": "16:9",
+            "description": "720p 不支持 9:21；选择该组合会返回 400。"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否让模型生成同步音轨。省略时为 false；只要填写 guidances.audio_reference，服务会自动按 true 处理。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 这是首帧快捷字段，不能与其他帧字段或 image_reference 同时使用。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 或 image_reference 同时使用。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url 或 guidances.image_reference。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考视频，最多 3 个。可与 image_reference 和 audio_reference 组合。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "video"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。只要填写 audio_reference，服务就会自动开启生成音轨。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "audio"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SeedanceFastRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "seedance-2.0-fast"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 15,
+            "default": 8,
+            "description": "4-15 秒。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "9:21"
+            ],
+            "default": "16:9",
+            "description": "720p 不支持 9:21；选择该组合会返回 400。"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否让模型生成同步音轨。省略时为 false；只要填写 guidances.audio_reference，服务会自动按 true 处理。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 这是首帧快捷字段，不能与其他帧字段或 image_reference 同时使用。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 或 image_reference 同时使用。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url 或 guidances.image_reference。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考视频，最多 3 个。可与 image_reference 和 audio_reference 组合。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "video"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。只要填写 audio_reference，服务就会自动开启生成音轨。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "audio"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SeedanceMiniRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "seedance-2.0-mini"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 15,
+            "default": 8,
+            "description": "4-15 秒。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "1:1",
+              "9:16"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否让模型生成同步音轨。省略时为 false；只要填写 guidances.audio_reference，服务会自动按 true 处理。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 这是首帧快捷字段，不能与其他帧字段或 image_reference 同时使用。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 或 image_reference 同时使用。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url 或 guidances.image_reference。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考视频，最多 3 个。可与 image_reference 和 audio_reference 组合。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "video"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。只要填写 audio_reference，服务就会自动开启生成音轨。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "audio"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "HappyHorseRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "HappyHorse 请求。支持纯文本、单首帧或最多 9 张参考图，也支持 audio=true 生成同步音轨；不支持尾帧、参考视频或参考音频。首帧和多图不能同时使用。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "happy-horse-1.1"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2500
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "720p",
+              "1080p"
+            ],
+            "default": "1080p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 15,
+            "default": 5
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否生成同步音轨。必须显式填写 true 才会请求音轨。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段，不能与 start_frame_url 或 guidances.image_reference 同时使用。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧，不能与 image_url 或 guidances.image_reference 同时使用。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 9,
+                "description": "参考图片，最多 9 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "LTXProRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "LTX 请求。支持纯文本、首帧、首尾帧和模型生成同步音轨；不支持多图、参考视频或参考音频。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "ltx-2.3-pro"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "1440p",
+              "2160p"
+            ],
+            "default": "1080p"
+          },
+          "duration": {
+            "type": "integer",
+            "enum": [
+              6,
+              8,
+              10
+            ],
+            "default": 6
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否生成同步音轨。必须显式填写 true 才会请求音轨。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段，不能与 start_frame_url 或 end_frame_url 同时填写。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧，不能与 image_url 同时填写。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url。"
+          }
+        }
+      },
+      "LTXFastRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "LTX 请求。支持纯文本、首帧、首尾帧和模型生成同步音轨；不支持多图、参考视频或参考音频。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "ltx-2.3-fast"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "1440p",
+              "2160p"
+            ],
+            "default": "1080p"
+          },
+          "duration": {
+            "type": "integer",
+            "enum": [
+              6,
+              8,
+              10,
+              12,
+              14,
+              16,
+              18,
+              20
+            ],
+            "default": 6
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否生成同步音轨。必须显式填写 true 才会请求音轨。"
+          },
+          "prompt_enhance": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "AUTO",
+                  "ON",
+                  "OFF"
+                ]
+              }
+            ],
+            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段，不能与 start_frame_url 或 end_frame_url 同时填写。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧，不能与 image_url 同时填写。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url。"
+          }
+        }
+      },
+      "CreateJobResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "status_url"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "example": "vidjob_example_123"
+          },
+          "status": {
+            "type": "string",
+            "example": "pending",
+            "description": "任务刚创建时通常为 queued 或 pending；若上游在创建响应中返回状态，服务会原样返回该值。"
+          },
+          "status_url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123",
+            "description": "创建响应中固定为绝对 URL。"
+          },
+          "model": {
+            "type": "string",
+            "example": "happy-horse-1.1"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolution": {
+            "type": "string",
+            "example": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "example": 5
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "example": "16:9"
+          }
+        }
+      },
+      "VideoResultFile": {
+        "type": "object",
+        "required": [
+          "mp4_url",
+          "url",
+          "local_url"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "mp4_url": {
+            "type": "string",
+            "example": "/v1/videos/jobs/vidjob_example_123/content",
+            "description": "站点相对路径；完整地址为 https://tkcreazy.top + 此值。"
+          },
+          "url": {
+            "type": "string",
+            "example": "/v1/videos/jobs/vidjob_example_123/content",
+            "description": "与 mp4_url 指向同一下载接口。"
+          },
+          "local_url": {
+            "type": "string",
+            "example": "/v1/videos/jobs/vidjob_example_123/content",
+            "description": "与 mp4_url 指向同一下载接口。"
+          },
+          "thumbnail_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "可选缩略图地址；上游未提供时该字段不存在。"
+          }
+        }
+      },
+      "VideoJob": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "status_url"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "example": "vidjob_example_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "常见值：queued、pending、running、completed、failed、cancelled。任务索引能找到记录但暂时无法读取上游状态时返回 unknown。",
+            "example": "completed"
+          },
+          "status_url": {
+            "type": "string",
+            "example": "/v1/videos/jobs/vidjob_example_123",
+            "description": "站点相对路径；完整地址为 https://tkcreazy.top + 此值。"
+          },
+          "model": {
+            "type": "string",
+            "example": "happy-horse-1.1"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "created": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VideoResultFile"
+                }
+              }
+            },
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "VideoJobList": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VideoJob"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "请求参数错误。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyError"
+            },
+            "example": {
+              "error": {
+                "code": "invalid_request",
+                "message": "request parameters are invalid",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "缺少或无效 API Key。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyError"
+            },
+            "examples": {
+              "missing": {
+                "value": {
+                  "code": "API_KEY_REQUIRED",
+                  "message": "API key is required in Authorization header (Bearer scheme), x-api-key header, or x-goog-api-key header"
+                }
+              },
+              "invalid": {
+                "value": {
+                  "code": "INVALID_API_KEY",
+                  "message": "Invalid API key"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Key、用户、分组、模型或余额/订阅状态不允许本次操作。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyError"
+            },
+            "examples": {
+              "permission": {
+                "value": {
+                  "error": {
+                    "code": "permission_denied",
+                    "message": "API key group does not support video generation",
+                    "type": "invalid_request_error"
+                  }
+                }
+              },
+              "balance": {
+                "value": {
+                  "code": "INSUFFICIENT_BALANCE",
+                  "message": "Insufficient account balance"
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "资源不存在、已过期或不属于当前 API Key。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyError"
+            },
+            "example": {
+              "error": {
+                "code": "task_not_found",
+                "message": "Video task not found",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "任务当前不能执行该操作。实测 HappyHorse 对不可取消任务返回此状态。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/VideoAPIError"
+            },
+            "example": {
+              "error": {
+                "code": "upstream_error",
+                "message": "Video job cannot be canceled",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "鉴权、用户并发、账号并发或媒体 IO 达到限制。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnyError"
+            },
+            "example": {
+              "error": {
+                "code": "rate_limit_exceeded",
+                "message": "Too many requests",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "UpstreamFailure": {
+        "description": "视频上游返回错误或返回内容无法解析。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/VideoAPIError"
+            },
+            "example": {
+              "error": {
+                "code": "upstream_error",
+                "message": "Video generation upstream request failed",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "没有可用账号、对象存储未配置或任务索引暂时不可用。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/VideoAPIError"
+            },
+            "example": {
+              "error": {
+                "code": "no_available_account",
+                "message": "No available video account in this API key group",
+                "type": "invalid_request_error"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-tkcreazy-workflow": {
+    "steps": [
+      "POST /videos/uploads（有参考素材时）",
+      "POST /videos/generations，并保存 job_id",
+      "每 3-5 秒 GET /videos/jobs/{job_id}",
+      "status=completed 后 GET /videos/jobs/{job_id}/content"
+    ],
+    "relative_url_rule": "absolute_url = https://tkcreazy.top + relative_path",
+    "authorization_required_for_binary_downloads": true
+  }
+}

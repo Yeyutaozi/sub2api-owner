@@ -1,33 +1,58 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createDefaultSeedanceVideoModelPriceRows,
+  createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
-  supportsSeedanceVideoModelPricingPlatform,
+  supportsVideoModelPricingPlatform,
+  supportedResolutionsForVideoModel,
   validateVideoModelPriceRows,
+  videoModelPricePlaceholder,
   videoModelPriceRowsToPrices,
   videoModelPricesPayloadForPlatform,
   videoModelPricesToRows,
 } from "../groupsVideoModelPricing";
 
-describe("Seedance video model pricing form conversion", () => {
+describe("video model pricing form conversion", () => {
   it("uses an FFLink video platform gate", () => {
-    expect(supportsSeedanceVideoModelPricingPlatform("seedance")).toBe(true);
-    expect(supportsSeedanceVideoModelPricingPlatform("ltx")).toBe(true);
+    expect(supportsVideoModelPricingPlatform("seedance")).toBe(true);
+    expect(supportsVideoModelPricingPlatform("ltx")).toBe(true);
+    expect(supportsVideoModelPricingPlatform("happyhorse")).toBe(true);
     for (const platform of ["grok", "openai", "gemini", "antigravity", "anthropic"]) {
-      expect(supportsSeedanceVideoModelPricingPlatform(platform)).toBe(false);
+      expect(supportsVideoModelPricingPlatform(platform)).toBe(false);
     }
   });
 
   it("starts new groups with platform-specific model IDs", () => {
-    expect(createDefaultSeedanceVideoModelPriceRows()).toEqual([
+    expect(createDefaultVideoModelPriceRows()).toEqual([
       createVideoModelPriceRow("seedance-2.0"),
       createVideoModelPriceRow("seedance-2.0-fast"),
       createVideoModelPriceRow("seedance-2.0-mini"),
     ]);
-    expect(createDefaultSeedanceVideoModelPriceRows("ltx")).toEqual([
+    expect(createDefaultVideoModelPriceRows("ltx")).toEqual([
       createVideoModelPriceRow("ltx-2.3-pro"),
       createVideoModelPriceRow("ltx-2.3-fast"),
+    ]);
+    expect(createDefaultVideoModelPriceRows("happyhorse")).toEqual([
+      createVideoModelPriceRow("happy-horse-1.1"),
+    ]);
+    expect(videoModelPricePlaceholder("seedance")).toBe("seedance-2.0");
+    expect(videoModelPricePlaceholder("ltx")).toBe("ltx-2.3-pro");
+    expect(videoModelPricePlaceholder("happyhorse")).toBe("happy-horse-1.1");
+  });
+
+  it("matches each platform model's supported pricing resolutions", () => {
+    expect(supportedResolutionsForVideoModel("seedance", "seedance-2.0-mini")).toEqual([
+      "480p",
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("ltx", "ltx-2.3-fast")).toEqual([
+      "1080p",
+      "1440p",
+      "2160p",
+    ]);
+    expect(supportedResolutionsForVideoModel("happyhorse", "happy-horse-1.1")).toEqual([
+      "720p",
+      "1080p",
     ]);
   });
 
@@ -122,6 +147,12 @@ describe("Seedance video model pricing form conversion", () => {
     expect(videoModelPricesPayloadForPlatform("seedance", rows)).toEqual({
       pro: { "480p": 0.1 },
     });
+    expect(videoModelPricesPayloadForPlatform("ltx", [
+      createVideoModelPriceRow("ltx-2.3-pro", { "1440p": 0.2 }),
+    ])).toEqual({ "ltx-2.3-pro": { "1440p": 0.2 } });
+    expect(videoModelPricesPayloadForPlatform("happyhorse", [
+      createVideoModelPriceRow("happy-horse-1.1", { "1080p": 0.3 }),
+    ])).toEqual({ "happy-horse-1.1": { "1080p": 0.3 } });
     for (const platform of ["grok", "openai", "gemini", "antigravity", "anthropic"]) {
       expect(videoModelPricesPayloadForPlatform(platform, rows)).toBeUndefined();
     }

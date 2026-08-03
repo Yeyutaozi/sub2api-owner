@@ -8,6 +8,8 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
 
 export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const;
 
+export const DEFAULT_HAPPYHORSE_VIDEO_MODELS = ["happy-horse-1.1"] as const;
+
 export const VIDEO_MODEL_PRICE_RESOLUTIONS = [
   "480p",
   "720p",
@@ -28,12 +30,15 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "seedance-2.0-mini": ["480p", "720p"],
   "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
   "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
+  "happy-horse-1.1": ["720p", "1080p"],
 };
 
 export const videoModelsForPricingPlatform = (
   platform: string,
 ): readonly string[] =>
-  platform === "ltx"
+  platform === "happyhorse"
+    ? DEFAULT_HAPPYHORSE_VIDEO_MODELS
+    : platform === "ltx"
     ? DEFAULT_LTX_VIDEO_MODELS
     : platform === "seedance"
       ? DEFAULT_SEEDANCE_VIDEO_MODELS
@@ -50,6 +55,8 @@ export const supportedResolutionsForVideoModel = (
   }
   return platform === "ltx"
     ? ["1080p", "1440p", "2160p"]
+    : platform === "happyhorse"
+      ? ["720p", "1080p"]
     : ["480p", "720p", "1080p"];
 };
 
@@ -76,9 +83,12 @@ export type VideoModelPriceRowValidationError =
   | { code: "invalidPrice"; row: number; model: string }
   | { code: "priceRequired"; row: number; model: string };
 
-export const supportsSeedanceVideoModelPricingPlatform = (
+export const supportsVideoModelPricingPlatform = (
   platform: string,
-): boolean => platform === "seedance" || platform === "ltx";
+): boolean => platform === "seedance" || platform === "ltx" || platform === "happyhorse";
+
+export const videoModelPricePlaceholder = (platform: string): string =>
+  videoModelsForPricingPlatform(platform)[0] ?? "video-model";
 
 const resolutionFields = [
   ["price_480p", "480p"],
@@ -111,7 +121,7 @@ export const createVideoModelPriceRow = (
   price_2160p: price["2160p"] ?? null,
 });
 
-export const createDefaultSeedanceVideoModelPriceRows = (
+export const createDefaultVideoModelPriceRows = (
   platform = "seedance",
 ): VideoModelPriceRow[] =>
   videoModelsForPricingPlatform(platform).map((model) =>
@@ -213,6 +223,6 @@ export const videoModelPricesPayloadForPlatform = (
   platform: string,
   rows: VideoModelPriceRow[],
 ): VideoModelPrices | undefined =>
-  supportsSeedanceVideoModelPricingPlatform(platform)
+  supportsVideoModelPricingPlatform(platform)
     ? videoModelPriceRowsToPrices(rows, platform)
     : undefined;
