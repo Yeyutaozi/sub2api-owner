@@ -109,6 +109,10 @@ func TestSeedanceFallbackSnapshotPreservesRequestShape(t *testing.T) {
 		References:      []SeedanceReferenceImage{{URL: "https://media.example/ref.png", Strength: "strong"}},
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://media.example/ref.mp4"}},
 		AudioReferences: []SeedanceReferenceAudio{{URL: "https://media.example/ref.wav"}},
+		StoredMedia: []SeedanceStoredMediaReference{{
+			Slot: seedanceStoredMediaVideo, StorageProvider: "cos", Bucket: "media-bucket",
+			ObjectKey: "agent-artifacts/seedance/inputs/task/1/2/video.mp4",
+		}},
 	}
 	snapshot, err := SnapshotSeedanceFallbackRequest(info)
 	require.NoError(t, err)
@@ -125,4 +129,5 @@ func TestSeedanceFallbackSnapshotPreservesRequestShape(t *testing.T) {
 	require.Len(t, restored.References, 1)
 	require.Len(t, restored.VideoReferences, 1)
 	require.Len(t, restored.AudioReferences, 1)
+	require.Equal(t, info.StoredMedia, restored.StoredMedia)
 }

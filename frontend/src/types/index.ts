@@ -1861,6 +1861,10 @@ export interface UsageLog {
   video_count?: number
   video_resolution?: string | null
   video_duration_seconds?: number | null
+  video_task_status?: string | null
+  video_refund_status?: string | null
+  video_settled_at?: string | null
+  video_settlement_error?: string | null
 
   // User-Agent
   user_agent: string | null

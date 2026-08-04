@@ -18,7 +18,6 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -278,7 +277,15 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			seedanceError(c, http.StatusBadGateway, "task_binding_failed", "Seedance task was accepted upstream but could not be registered locally")
 			return
 		}
-		recordSeedanceUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestInfo.Model, body)
+		if err := recordSeedanceUsage(c, h, apiKey, subscription, account, result, requestInfo.Model, body); err != nil {
+			reqLog.Error("seedance.record_usage_failed",
+				zap.Error(err),
+				zap.String("task_id", result.ResponseID),
+				zap.Int64("account_id", account.ID),
+			)
+			seedanceError(c, http.StatusServiceUnavailable, "billing_unavailable", "Seedance task was accepted upstream but billing could not be finalized")
+			return
+		}
 		// Keep materialized reference objects alive for the asynchronous task.
 		// This is also required when the task was created through the Huiqu
 		// fallback: the fallback multipart request may still be downloading
@@ -1145,6 +1152,22 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 		writeError(http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback state changed; retry this task")
 		return seedanceFallbackAttemptResult{Handled: true, Outcome: seedanceFallbackOutcomeRetryableLocal}
 	}
+	fallbackCtx, stopFallbackRenewal := service.MaintainSeedanceFallbackLease(
+		c.Request.Context(),
+		func(renewCtx context.Context) (bool, error) {
+			return h.gatewayService.RenewSeedanceTaskFallback(
+				renewCtx, apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID, claimToken,
+			)
+		},
+	)
+	originalRequest := c.Request
+	c.Request = c.Request.WithContext(fallbackCtx)
+	defer func() {
+		c.Request = originalRequest
+		if renewErr := stopFallbackRenewal(); renewErr != nil && originalRequest.Context().Err() == nil {
+			reqLog.Warn("seedance.fallback_lease_lost", zap.Error(renewErr), zap.String("task_id", publicTaskID))
+		}
+	}()
 
 	claimFinalized := false
 	defer func() {
@@ -1650,15 +1673,13 @@ func seedanceMediaOwner(apiKey *service.APIKey, subject middleware2.AuthSubject)
 func recordSeedanceUsage(
 	c *gin.Context,
 	h *OpenAIGatewayHandler,
-	reqLog *zap.Logger,
 	apiKey *service.APIKey,
-	subject middleware2.AuthSubject,
 	subscription *service.UserSubscription,
 	account *service.Account,
 	result *service.OpenAIForwardResult,
 	requestModel string,
 	body []byte,
-) {
+) error {
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
 	inboundEndpoint := GetInboundEndpoint(c)
@@ -1667,7 +1688,7 @@ func recordSeedanceUsage(
 	// The task ID is returned only after its provisional charge and usage row are
 	// durable. This prevents an immediate terminal-status poll from racing ahead
 	// of the refundable usage record.
-	if err := h.gatewayService.RecordSeedanceUsage(c.Request.Context(), &service.SeedanceRecordUsageInput{
+	return h.gatewayService.RecordSeedanceUsage(c.Request.Context(), &service.SeedanceRecordUsageInput{
 		OpenAIRecordUsageInput: service.OpenAIRecordUsageInput{
 			Result:             result,
 			APIKey:             apiKey,
@@ -1685,14 +1706,5 @@ func recordSeedanceUsage(
 		},
 		TaskID:         result.ResponseID,
 		RequestedModel: requestModel,
-	}); err != nil {
-		logger.L().With(
-			zap.String("component", "handler.seedance"),
-			zap.Int64("user_id", subject.UserID),
-			zap.Int64("api_key_id", apiKey.ID),
-			zap.String("model", requestModel),
-			zap.Int64("account_id", account.ID),
-		).Error("seedance.record_usage_failed", zap.Error(err))
-		reqLog.Debug("seedance.record_usage_failed", zap.Error(err))
-	}
+	})
 }

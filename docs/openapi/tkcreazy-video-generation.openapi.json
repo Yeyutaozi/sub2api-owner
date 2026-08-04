@@ -2,12 +2,12 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
-    "version": "2026-08-04.4",
+    "version": "2026-08-04.6",
     "license": {
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
     },
-    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd2-mx933-720-1s、sd2-mx933-720-fast-1s；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；两款 MX933 为 480p/720p，公开请求字段 duration 支持 1-15 之间任意整数（默认 5 秒），服务内部会将 duration 转换为上游 seconds；官方规格声明支持 1-15 秒，但当前实测上游对 7 等非固定值仍返回 invalid_duration，说明线上上游/部署版本尚未同步；模型名中的 1s 表示按秒计费，不代表可以生成 1 秒视频；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：所有已列出的模型都可用 audio=true 明确请求生成同步音轨，省略 audio 时默认 false。MX933 的 audio 会映射到上游 generate_audio；即使填写了 guidances.audio_reference，也仍需同时填写 audio=true 才明确请求输出带声音的视频。Seedance 系列支持 guidances.audio_reference 参考音频，普通 Seedance 最多 1 个，MX933 最多 3 个；HappyHorse 和 LTX 不支持参考音频。参考音频不会自动开启音轨，也不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律、语句或声音事件。\n\n素材组合：普通 Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧。MX933 的首帧、尾帧与 image_reference 可以组合且图片合计最多 9 张，另支持最多 3 视频、3 音频；全部参考文件合计最多 12 个。因此 9 图 + 3 视频 + 3 音频 = 15 个文件属于非法请求；同时用满三种参考素材的最大合法组合是 6 图 + 3 视频 + 3 音频 = 12 个文件。所有 Seedance 参考音频都必须搭配 image_reference 或 video_reference_base，首尾帧本身不能单独满足该条件。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；Seedance Mini 的“已验证提交”表示服务已接受任务并成功执行取消流程，但本轮未等待其生成完成。"
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。服务端后台结算器会持续轮询未结算的视频任务并自动推进容灾、终态结算和幂等退款，因此退款不依赖客户持续轮询；客户端仍应查询任务以获取最新状态。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd2-mx933-720-1s、sd2-mx933-720-fast-1s；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；两款 MX933 为 480p/720p，公开请求字段 duration 支持 1-15 之间任意整数（默认 5 秒），服务内部会将 duration 转换为上游 seconds；官方规格声明支持 1-15 秒，但当前实测上游对 7 等非固定值仍返回 invalid_duration，说明线上上游/部署版本尚未同步；模型名中的 1s 表示按秒计费，不代表可以生成 1 秒视频；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：所有已列出的模型都可用 audio=true 明确请求生成同步音轨，省略 audio 时默认 false。MX933 的 audio 会映射到上游 generate_audio；即使填写了 guidances.audio_reference，也仍需同时填写 audio=true 才明确请求输出带声音的视频。Seedance 系列支持 guidances.audio_reference 参考音频，普通 Seedance 最多 1 个，MX933 最多 3 个；HappyHorse 和 LTX 不支持参考音频。参考音频不会自动开启音轨，也不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律、语句或声音事件。\n\n素材组合：普通 Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧。MX933 的首帧、尾帧与 image_reference 可以组合且图片合计最多 9 张，另支持最多 3 视频、3 音频；全部参考文件合计最多 12 个。因此 9 图 + 3 视频 + 3 音频 = 15 个文件属于非法请求；同时用满三种参考素材的最大合法组合是 6 图 + 3 视频 + 3 音频 = 12 个文件。所有 Seedance 参考音频都必须搭配 image_reference 或 video_reference_base，首尾帧本身不能单独满足该条件。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；Seedance Mini 的“已验证提交”表示服务已接受任务并成功执行取消流程，但本轮未等待其生成完成。"
   },
   "servers": [
     {
@@ -380,6 +380,7 @@
           }
         ],
         "requestBody": {
+          "description": "必须选择与 model 对应的请求 Schema。MX933 素材硬限制：首帧、尾帧和 image_reference 中的图片合计最多 9 张，格式为 JPEG/PNG/WebP，每张不超过 30,000,000 字节；通过 TKCreazy 的 /videos/uploads 上传图片时上限为 10 MiB，因此推荐上传流程应按 10 MiB 执行。video_reference_base 最多 3 个，格式为 MP4/MOV，合计不超过 50,000,000 字节，合计时长 2-15 秒，短边 480-720 像素、长边不超过 1280 像素。audio_reference 最多 3 个，格式为 MP3/WAV，每个不超过 15,000,000 字节，合计时长不超过 15 秒，并且必须同时存在至少一个 image_reference 或 video_reference_base。全部参考素材合计最多 12 个，服务内部提交给 MX933 的 multipart 请求不超过 384 MiB。MX933 不支持 prompt_enhance，必须省略该字段。9 图 + 3 视频 + 3 音频共 15 个素材是非法组合；三类素材同时用满时最大合法组合为 6 图 + 3 视频 + 3 音频。",
           "required": true,
           "content": {
             "application/json": {
@@ -911,7 +912,7 @@
         },
         "responses": {
           "202": {
-            "description": "任务已接受。Location 与 status_url 均指向查询接口。",
+            "description": "任务已被服务和上游接受进入异步处理，不代表视频已经生成成功。Location 与 status_url 均指向查询接口；必须继续查询到 completed、failed 或 cancelled。",
             "headers": {
               "Location": {
                 "schema": {
@@ -1213,7 +1214,7 @@
           "视频生成"
         ],
         "summary": "列出当前 API Key 创建的视频任务",
-        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离；不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。列表会逐项读取最新状态，并会像单任务查询一样推进等待中的自动容灾；一次列表请求最多启动 3 个待切换任务。暂时读不到状态时该项 status=unknown，但 job_id 仍可用于单任务查询。对于支持自动容灾的 seedance-2.0/seedance-2.0-fast 720p 任务，只有原任务和容灾任务都收到明确失败后，任务才进入最终 failed 并执行退款；本地媒体准备、账号容量或网络接单状态不确定不会提前退款。列表中的 status_url 和完成任务的 mp4_url/url/local_url 都是 /v1 开头的站点相对路径，完整地址固定按 https://tkcreazy.top + 路径计算。",
+        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离；不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。服务端后台结算器会持续轮询未结算任务；列表请求也会逐项读取最新状态，并会像单任务查询一样推进等待中的自动容灾；一次列表请求最多启动 3 个待切换任务。暂时读不到状态时该项 status=unknown，但 job_id 仍可用于单任务查询。对于支持自动容灾的 seedance-2.0/seedance-2.0-fast 720p 任务，主任务失败不是终态，只有主任务和自动容灾任务都收到明确失败后，任务才进入最终 failed；后台结算器或列表查询确认该终态后执行幂等退款。本地媒体准备、账号容量或网络接单状态不确定不会提前退款。直接请求 sd2-mx933-720-1s 或 sd2-mx933-720-fast-1s 时没有第二级容灾，该模型任务明确返回 failed 就是终态失败；后台结算器或列表查询确认后执行幂等退款。列表中的 status_url 和完成任务的 mp4_url/url/local_url 都是 /v1 开头的站点相对路径，完整地址固定按 https://tkcreazy.top + 路径计算。",
         "operationId": "listVideoGenerationJobs",
         "security": [
           {
@@ -1303,7 +1304,7 @@
           "视频生成"
         ],
         "summary": "查询一个视频任务",
-        "description": "建议每 3-5 秒查询一次。该查询会自动推进等待中的容灾任务；对于支持自动容灾的 seedance-2.0/seedance-2.0-fast 720p 任务，只有原任务和容灾任务都收到明确失败后才返回最终 failed 并执行退款，本地媒体准备、账号容量或网络接单状态不确定不会提前退款。completed 后读取 result.data[0].mp4_url；failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定按 https://tkcreazy.top + mp4_url 计算。只有创建该任务的同一个 API Key 能查询。",
+        "description": "建议每 3-5 秒查询一次以获取最新状态，但退款不依赖客户持续轮询，服务端后台结算器会持续处理未结算任务。该查询也会自动推进等待中的容灾任务。对 seedance-2.0/seedance-2.0-fast 720p，主任务失败不是终态，只有主任务和自动容灾任务都明确失败后才返回最终 failed；后台结算器或本接口确认该终态后执行幂等退款。本地媒体准备、账号容量或网络接单状态不确定不会提前退款。直接请求 sd2-mx933-720-1s 或 sd2-mx933-720-fast-1s 时没有第二级容灾，该模型任务明确返回 failed 就是终态失败；后台结算器或本接口确认后执行幂等退款。HTTP 200 只表示本次查询成功，必须以响应体 status 判断生成结果。completed 后读取 result.data[0].mp4_url；failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定按 https://tkcreazy.top + mp4_url 计算。只有创建该任务的同一个 API Key 能查询。",
         "operationId": "getVideoGenerationJob",
         "security": [
           {
@@ -1317,7 +1318,7 @@
         ],
         "responses": {
           "200": {
-            "description": "任务状态。",
+            "description": "任务状态。HTTP 200 只表示查询接口调用成功，不代表视频生成成功；必须检查响应体 status。",
             "content": {
               "application/json": {
                 "schema": {
@@ -1363,6 +1364,24 @@
                       "error": {
                         "message": "Video generation failed"
                       }
+                    }
+                  },
+                  "mx933Failed": {
+                    "summary": "MX933 终态失败（直接请求 933 时由后台结算器或查询接口确认并执行幂等退款）",
+                    "value": {
+                      "aspect_ratio": "16:9",
+                      "created_at": 1785825900,
+                      "error": "视频生成失败，请稍后重试",
+                      "id": "hqv1_task_example_failed",
+                      "job_id": "hqv1_task_example_failed",
+                      "model": "sd2-mx933-720-1s",
+                      "object": "video",
+                      "progress": 0,
+                      "resolution": "720p",
+                      "seconds": "10",
+                      "status": "failed",
+                      "status_url": "/v1/videos/jobs/hqv1_task_example_failed",
+                      "task_id": "hqv1_task_example_failed"
                     }
                   },
                   "mx933Completed": {
@@ -1721,7 +1740,7 @@
           "image": {
             "type": "string",
             "format": "binary",
-            "description": "PNG、JPEG 或 WebP；最大 10 MiB、最大 8192x8192 且不超过 4000 万像素。"
+            "description": "PNG、JPEG 或 WebP；TKCreazy 上传接口最大 10 MiB、最大 8192x8192 且不超过 4000 万像素。MX933 上游虽然允许单张图片不超过 30,000,000 字节，但使用推荐的 TKCreazy 上传流程时实际必须按更严格的 10 MiB 上限执行。"
           }
         }
       },
@@ -1735,7 +1754,7 @@
           "audio": {
             "type": "string",
             "format": "binary",
-            "description": "音频文件。服务接受 audio/*；为获得稳定的模型兼容性，建议使用 WAV 或 MP3。大小上限由当前部署的网关请求体限制与对象存储限制共同决定，客户端不能假设固定为 512 MiB；超过限制返回 413。"
+            "description": "音频文件。服务接受 audio/*；为获得稳定的模型兼容性，建议使用 WAV 或 MP3。MX933 参考音频只支持 MP3/WAV，最多 3 个，每个不超过 15,000,000 字节，合计时长不超过 15 秒，并且生成请求中必须同时存在参考图片或参考视频。上传接口本身还受当前部署的网关请求体限制与对象存储限制约束；超过限制返回 413。"
           }
         }
       },
@@ -1749,7 +1768,7 @@
           "video": {
             "type": "string",
             "format": "binary",
-            "description": "视频文件。服务接受 video/*；为获得稳定的模型兼容性，建议使用 MP4。大小上限由当前部署的网关请求体限制与对象存储限制共同决定，客户端不能假设固定为 512 MiB；超过限制返回 413。"
+            "description": "视频文件。服务接受 video/*；为获得稳定的模型兼容性，建议使用 MP4。MX933 参考视频只支持 MP4/MOV，最多 3 个，合计不超过 50,000,000 字节，合计时长 2-15 秒，短边 480-720 像素、长边不超过 1280 像素。上传接口本身还受当前部署的网关请求体限制与对象存储限制约束；超过限制返回 413。"
           }
         }
       },
@@ -2509,7 +2528,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，但图片合计最多 9 张；参考视频最多 3 个，参考音频最多 3 个，全部参考文件合计最多 12 个。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance。",
+        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，图片合计最多 9 张，JPEG/PNG/WebP 每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。参考视频最多 3 个，仅 MP4/MOV，合计不超过 50,000,000 字节、合计时长 2-15 秒、短边 480-720 像素且长边不超过 1280 像素。参考音频最多 3 个，仅 MP3/WAV，每个不超过 15,000,000 字节、合计时长不超过 15 秒，并且必须搭配 image_reference 或 video_reference_base。全部参考文件合计最多 12 个，内部 multipart 请求不超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance，必须省略该字段。",
         "properties": {
           "model": {
             "type": "string",
@@ -2558,17 +2577,17 @@
           "image_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "start_frame_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "end_frame_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "guidances": {
             "type": "object",
@@ -2578,7 +2597,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 9,
-                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张；另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张。图片须为 JPEG/PNG/WebP，每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2628,7 +2647,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 3,
-                "description": "参考视频最多 3 个。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "description": "参考视频最多 3 个，仅支持 MP4/MOV；所有参考视频合计不超过 50,000,000 字节，合计时长 2-15 秒，短边 480-720 像素、长边不超过 1280 像素。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2669,7 +2688,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 3,
-                "description": "参考音频最多 3 个，必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
+                "description": "参考音频最多 3 个，仅支持 MP3/WAV；每个不超过 15,000,000 字节，合计时长不超过 15 秒。必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2718,7 +2737,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，但图片合计最多 9 张；参考视频最多 3 个，参考音频最多 3 个，全部参考文件合计最多 12 个。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance。",
+        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，图片合计最多 9 张，JPEG/PNG/WebP 每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。参考视频最多 3 个，仅 MP4/MOV，合计不超过 50,000,000 字节、合计时长 2-15 秒、短边 480-720 像素且长边不超过 1280 像素。参考音频最多 3 个，仅 MP3/WAV，每个不超过 15,000,000 字节、合计时长不超过 15 秒，并且必须搭配 image_reference 或 video_reference_base。全部参考文件合计最多 12 个，内部 multipart 请求不超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance，必须省略该字段。",
         "properties": {
           "model": {
             "type": "string",
@@ -2767,17 +2786,17 @@
           "image_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "start_frame_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "end_frame_url": {
             "type": "string",
             "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。"
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。图片须为 JPEG/PNG/WebP；MX933 上游单张不超过 30,000,000 字节，通过 TKCreazy 上传时实际按 10 MiB 上限执行。"
           },
           "guidances": {
             "type": "object",
@@ -2787,7 +2806,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 9,
-                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张；另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张。图片须为 JPEG/PNG/WebP，每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2837,7 +2856,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 3,
-                "description": "参考视频最多 3 个。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "description": "参考视频最多 3 个，仅支持 MP4/MOV；所有参考视频合计不超过 50,000,000 字节，合计时长 2-15 秒，短边 480-720 像素、长边不超过 1280 像素。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2878,7 +2897,7 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 3,
-                "description": "参考音频最多 3 个，必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
+                "description": "参考音频最多 3 个，仅支持 MP3/WAV；每个不超过 15,000,000 字节，合计时长不超过 15 秒。必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。全部参考文件合计不能超过 12 个，内部 multipart 请求不能超过 384 MiB。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -3255,8 +3274,17 @@
             "type": "string"
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "integer",
+                "format": "int64"
+              }
+            ],
+            "description": "普通任务创建响应通常使用 ISO 8601 时间；MX933 创建响应使用 Unix 秒时间戳。"
           },
           "resolution": {
             "type": "string"
@@ -3385,8 +3413,16 @@
             "additionalProperties": true
           },
           "error": {
-            "type": "object",
-            "additionalProperties": true
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ],
+            "description": "MX933 终态失败当前返回字符串；其他视频上游可能返回结构化错误对象。"
           },
           "id": {
             "type": "string",

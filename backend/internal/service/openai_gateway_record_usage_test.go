@@ -63,6 +63,10 @@ func (s *openAIRecordUsageBillingRepoStub) Apply(ctx context.Context, cmd *Usage
 	return &UsageBillingApplyResult{Applied: true}, nil
 }
 
+func (s *openAIRecordUsageBillingRepoStub) ApplyWithUsageLog(ctx context.Context, cmd *UsageBillingCommand, _ *UsageLog) (*UsageBillingApplyResult, error) {
+	return s.Apply(ctx, cmd)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_RejectsNilInput(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	require.Error(t, svc.RecordUsage(context.Background(), nil))

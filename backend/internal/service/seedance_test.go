@@ -382,6 +382,21 @@ func TestRefundSeedanceUsageRejectsRepositoryWithoutCapability(t *testing.T) {
 	require.ErrorIs(t, err, ErrSeedanceUsageRefundUnavailable)
 }
 
+func TestRefundSeedanceUsageSimpleModeNeverCreditsUnbilledUsage(t *testing.T) {
+	repo := &seedanceUsageRefundRepoStub{}
+	svc := &OpenAIGatewayService{
+		cfg:              &config.Config{RunMode: config.RunModeSimple},
+		usageBillingRepo: repo,
+	}
+
+	result, err := svc.RefundSeedanceUsage(context.Background(), "vidjob_simple", 42, 7)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.NotRequired)
+	require.False(t, result.Applied)
+	require.Zero(t, repo.calls)
+}
+
 func TestSeedancePlatformIsolation(t *testing.T) {
 	require.Equal(t, PlatformSeedance, normalizeOpenAICompatiblePlatform(PlatformSeedance))
 	require.Equal(t, PlatformOpenAI, normalizeOpenAICompatiblePlatform(PlatformOpenAI))

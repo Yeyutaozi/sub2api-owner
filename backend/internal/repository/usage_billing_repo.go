@@ -62,6 +62,61 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	return result, nil
 }
 
+// ApplyWithUsageLog commits the charge and the row used to identify a later
+// refund together. A Seedance task must not become billable unless its
+// seedance:<task_id> usage row is durable in the same transaction.
+func (r *usageBillingRepository) ApplyWithUsageLog(
+	ctx context.Context,
+	cmd *service.UsageBillingCommand,
+	usageLog *service.UsageLog,
+) (_ *service.UsageBillingApplyResult, err error) {
+	if cmd == nil || usageLog == nil {
+		return nil, errors.New("durable usage billing requires a command and usage log")
+	}
+	if r == nil || r.db == nil {
+		return nil, errors.New("usage billing repository db is nil")
+	}
+
+	cmd.Normalize()
+	if cmd.RequestID == "" {
+		return nil, service.ErrUsageBillingRequestIDRequired
+	}
+	if strings.TrimSpace(usageLog.RequestID) != cmd.RequestID || usageLog.APIKeyID != cmd.APIKeyID {
+		return nil, errors.New("durable usage billing identity does not match usage log")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	applied, err := r.claimUsageBillingKey(ctx, tx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	result := &service.UsageBillingApplyResult{Applied: applied}
+	if applied {
+		if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
+			return nil, err
+		}
+	}
+
+	logRepo := &usageLogRepository{}
+	if _, err := logRepo.createSingle(ctx, tx, usageLog); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	tx = nil
+	return result, nil
+}
+
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {
 	return r.claimUsageBillingRequest(ctx, tx, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint)
 }

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -81,6 +83,8 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	SynchronousCache      bool   // async jobs that can be refunded must not leave stale cache writes behind
+	DurableUsageLog       bool   // charge and usage row must commit atomically for refundable async jobs
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -303,7 +307,17 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 
-	result, err := repo.Apply(billingCtx, cmd)
+	var result *UsageBillingApplyResult
+	var err error
+	if p.DurableUsageLog {
+		durableRepo, ok := repo.(DurableUsageBillingRepository)
+		if !ok {
+			return false, errors.New("durable usage billing repository is unavailable")
+		}
+		result, err = durableRepo.ApplyWithUsageLog(billingCtx, cmd, usageLog)
+	} else {
+		result, err = repo.Apply(billingCtx, cmd)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -330,14 +344,26 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 
 	if p.IsSubscriptionBill {
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
-			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
+			if p.SynchronousCache {
+				_ = deps.billingCacheService.InvalidateSubscription(ctx, p.User.ID, *p.APIKey.GroupID)
+			} else {
+				deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
+			}
 		}
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
-		syncBalanceCacheAfterDeduction(ctx, p, deps, result)
+		if p.SynchronousCache {
+			_ = deps.billingCacheService.InvalidateUserBalance(ctx, p.User.ID)
+		} else {
+			syncBalanceCacheAfterDeduction(ctx, p, deps, result)
+		}
 	}
 
 	if p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() {
-		deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.Cost.ActualCost)
+		if p.SynchronousCache {
+			_ = deps.billingCacheService.InvalidateAPIKeyRateLimit(ctx, p.APIKey.ID)
+		} else {
+			deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.Cost.ActualCost)
+		}
 	}
 
 	deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
@@ -349,37 +375,61 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步(flusher_enabled=false):在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
 	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
-		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
-			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
-			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
-				// 降级路径:flusher 未启用时保留原有异步直写 DB
-				dbCtx, dbCancel := detachUpstreamContext(ctx)
-				userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logger.LegacyPrintf("service.gateway", "ALERT: panic in user platform quota incr goroutine user=%d platform=%s: %v", userID, platform, r)
-						}
-					}()
-					defer dbCancel()
-					if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(dbCtx, userID, platform, cost, time.Now().UTC()); err != nil {
-						// 失败计数器:暴露给 GatewayUserPlatformQuotaIncrStats(),由 ops 面板做斜率告警。
-						userPlatformQuotaDBIncrErrorTotal.Add(1)
-						// ALERT 级别:DB 持久化失败意味着 Redis cache 失效后该笔 cost 永久丢失,
-						// 用户配额视图与实际消费会偏差,oncall 需要据此对账或人工补录。
-						logger.LegacyPrintf("service.gateway", "ALERT: incr user platform quota DB failed user=%d platform=%s cost=%f: %v", userID, platform, cost, err)
-					}
-				}()
-			}
-			// flusher_enabled=true:不直写 DB,flusher 异步批量刷
-		}
-	}
+	finalizePostUsagePlatformQuota(ctx, p, deps)
 
 	// Notification checks run async — all parameters are already captured,
 	// no dependency on the request context or upstream connection.
 	go notifyBalanceLow(p, deps, result)
 	go notifyAccountQuota(p, deps, result)
+}
+
+func finalizePostUsagePlatformQuota(ctx context.Context, p *postUsageBillingParams, deps *billingDeps) {
+	if p == nil || p.Cost == nil || p.IsSubscriptionBill || p.Platform == "" ||
+		p.Cost.ActualCost <= 0 || p.User == nil || deps == nil ||
+		deps.userPlatformQuotaRepo == nil || deps.billingCacheService == nil {
+		return
+	}
+	if !deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
+		return
+	}
+
+	if p.SynchronousCache {
+		// Refundable video usage must not enter the asynchronous snapshot
+		// flusher. A stale snapshot can otherwise land after the refund and
+		// restore quota usage that was already reversed in PostgreSQL.
+		if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(ctx, p.User.ID, p.Platform, p.Cost.ActualCost, time.Now().UTC()); err != nil {
+			userPlatformQuotaDBIncrErrorTotal.Add(1)
+			logger.LegacyPrintf("service.gateway", "ALERT: synchronous user platform quota increment failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, p.Cost.ActualCost, err)
+			return
+		}
+		if cache := deps.billingCacheService.cache; cache != nil {
+			if err := cache.DeleteUserPlatformQuotaCache(ctx, p.User.ID, p.Platform); err != nil {
+				logger.LegacyPrintf("service.gateway", "ALERT: invalidate user platform quota cache failed user=%d platform=%s: %v", p.User.ID, p.Platform, err)
+			}
+		}
+		return
+	}
+
+	deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
+	if deps.cfg != nil && deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
+		return
+	}
+
+	// Preserve the legacy detached DB write when the snapshot flusher is off.
+	dbCtx, dbCancel := detachUpstreamContext(ctx)
+	userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.LegacyPrintf("service.gateway", "ALERT: panic in user platform quota incr goroutine user=%d platform=%s: %v", userID, platform, r)
+			}
+		}()
+		defer dbCancel()
+		if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(dbCtx, userID, platform, cost, time.Now().UTC()); err != nil {
+			userPlatformQuotaDBIncrErrorTotal.Add(1)
+			logger.LegacyPrintf("service.gateway", "ALERT: incr user platform quota DB failed user=%d platform=%s cost=%f: %v", userID, platform, cost, err)
+		}
+	}()
 }
 
 func syncBalanceCacheAfterDeduction(ctx context.Context, p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
@@ -520,6 +570,18 @@ func (s *GatewayService) billingDeps() *billingDeps {
 		userPlatformQuotaRepo: s.userPlatformQuotaRepo,
 		cfg:                   s.cfg,
 	}
+}
+
+func writeUsageLogDurable(ctx context.Context, repo UsageLogRepository, usageLog *UsageLog) error {
+	if repo == nil || usageLog == nil {
+		return errors.New("durable usage log repository is unavailable")
+	}
+	usageCtx, cancel := detachedBillingContext(ctx)
+	defer cancel()
+	if _, err := repo.Create(usageCtx, usageLog); err != nil {
+		return fmt.Errorf("persist durable usage log: %w", err)
+	}
+	return nil
 }
 
 func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usageLog *UsageLog, logKey string) {

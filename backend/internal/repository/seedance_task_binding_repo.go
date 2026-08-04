@@ -15,6 +15,84 @@ import (
 var _ service.SeedanceTaskBindingRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskFallbackRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskCancellationRepository = (*usageLogRepository)(nil)
+var _ service.SeedanceTaskSettlementRepository = (*usageLogRepository)(nil)
+
+const seedanceTaskBindingSelectColumns = `
+		id, user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
+		model, COALESCE(fallback_model, ''), fallback_status,
+		COALESCE(fallback_claim_token, ''), fallback_lease_until, request_snapshot,
+		task_status, next_poll_at, last_polled_at, settled_at, refunded_at,
+		refund_status, refund_attempts, settlement_attempts, settlement_claimed_at,
+		COALESCE(settlement_claimed_by, ''), COALESCE(last_error, ''), created_at, updated_at`
+
+const seedanceTaskBindingReturningColumns = `
+		binding.id, binding.user_id, binding.api_key_id, binding.group_id, binding.account_id,
+		binding.job_id, binding.upstream_job_id, binding.model,
+		COALESCE(binding.fallback_model, ''), binding.fallback_status,
+		COALESCE(binding.fallback_claim_token, ''), binding.fallback_lease_until, binding.request_snapshot,
+		binding.task_status, binding.next_poll_at, binding.last_polled_at, binding.settled_at, binding.refunded_at,
+		binding.refund_status, binding.refund_attempts, binding.settlement_attempts, binding.settlement_claimed_at,
+		COALESCE(binding.settlement_claimed_by, ''), COALESCE(binding.last_error, ''),
+		binding.created_at, binding.updated_at`
+
+type seedanceTaskBindingScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSeedanceTaskBinding(scanner seedanceTaskBindingScanner) (*service.SeedanceTaskBinding, error) {
+	binding := &service.SeedanceTaskBinding{}
+	var fallbackLeaseUntil sql.NullTime
+	var lastPolledAt sql.NullTime
+	var settledAt sql.NullTime
+	var refundedAt sql.NullTime
+	var settlementClaimedAt sql.NullTime
+	if err := scanner.Scan(
+		&binding.ID,
+		&binding.UserID,
+		&binding.APIKeyID,
+		&binding.GroupID,
+		&binding.AccountID,
+		&binding.JobID,
+		&binding.UpstreamJobID,
+		&binding.Model,
+		&binding.FallbackModel,
+		&binding.FallbackStatus,
+		&binding.FallbackClaimToken,
+		&fallbackLeaseUntil,
+		&binding.RequestSnapshot,
+		&binding.TaskStatus,
+		&binding.NextPollAt,
+		&lastPolledAt,
+		&settledAt,
+		&refundedAt,
+		&binding.RefundStatus,
+		&binding.RefundAttempts,
+		&binding.SettlementAttempts,
+		&settlementClaimedAt,
+		&binding.SettlementClaimedBy,
+		&binding.LastError,
+		&binding.CreatedAt,
+		&binding.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if fallbackLeaseUntil.Valid {
+		binding.FallbackLeaseUntil = fallbackLeaseUntil.Time
+	}
+	if lastPolledAt.Valid {
+		binding.LastPolledAt = lastPolledAt.Time
+	}
+	if settledAt.Valid {
+		binding.SettledAt = settledAt.Time
+	}
+	if refundedAt.Valid {
+		binding.RefundedAt = refundedAt.Time
+	}
+	if settlementClaimedAt.Valid {
+		binding.SettlementClaimedAt = settlementClaimedAt.Time
+	}
+	return binding, nil
+}
 
 func (r *usageLogRepository) SaveSeedanceTaskBinding(ctx context.Context, binding *service.SeedanceTaskBinding) error {
 	if r == nil || r.sql == nil {
@@ -26,8 +104,9 @@ func (r *usageLogRepository) SaveSeedanceTaskBinding(ctx context.Context, bindin
 	_, err := r.sql.ExecContext(ctx, `
 		INSERT INTO fflink_video_job_bindings (
 			user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
-			model, fallback_model, fallback_status, request_snapshot, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, NOW())
+			model, fallback_model, fallback_status, request_snapshot,
+			task_status, next_poll_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, 'queued', NOW() + INTERVAL '10 seconds', NOW())
 		ON CONFLICT (user_id, api_key_id, group_id, job_id) DO NOTHING
 	`, binding.UserID, binding.APIKeyID, binding.GroupID, binding.AccountID,
 		strings.TrimSpace(binding.JobID), firstSeedanceBindingValue(binding.UpstreamJobID, binding.JobID),
@@ -48,10 +127,7 @@ func (r *usageLogRepository) GetSeedanceTaskBinding(
 		return nil, errors.New("seedance task binding repository is unavailable")
 	}
 	rows, err := r.sql.QueryContext(ctx, `
-		SELECT user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
-		       model, COALESCE(fallback_model, ''), fallback_status,
-		       COALESCE(fallback_claim_token, ''), fallback_lease_until, request_snapshot,
-		       created_at, updated_at
+		SELECT `+seedanceTaskBindingSelectColumns+`
 		FROM fflink_video_job_bindings
 		WHERE user_id = $1 AND api_key_id = $2 AND group_id = $3 AND job_id = $4
 		LIMIT 1
@@ -66,28 +142,9 @@ func (r *usageLogRepository) GetSeedanceTaskBinding(
 		}
 		return nil, errors.New("seedance task binding not found")
 	}
-	binding := &service.SeedanceTaskBinding{}
-	var fallbackLeaseUntil sql.NullTime
-	if err := rows.Scan(
-		&binding.UserID,
-		&binding.APIKeyID,
-		&binding.GroupID,
-		&binding.AccountID,
-		&binding.JobID,
-		&binding.UpstreamJobID,
-		&binding.Model,
-		&binding.FallbackModel,
-		&binding.FallbackStatus,
-		&binding.FallbackClaimToken,
-		&fallbackLeaseUntil,
-		&binding.RequestSnapshot,
-		&binding.CreatedAt,
-		&binding.UpdatedAt,
-	); err != nil {
+	binding, err := scanSeedanceTaskBinding(rows)
+	if err != nil {
 		return nil, fmt.Errorf("scan seedance task binding: %w", err)
-	}
-	if fallbackLeaseUntil.Valid {
-		binding.FallbackLeaseUntil = fallbackLeaseUntil.Time
 	}
 	return binding, nil
 }
@@ -101,10 +158,7 @@ func (r *usageLogRepository) ListSeedanceTaskBindings(
 		return nil, errors.New("seedance task binding repository is unavailable")
 	}
 	rows, err := r.sql.QueryContext(ctx, `
-		SELECT user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
-		       model, COALESCE(fallback_model, ''), fallback_status,
-		       COALESCE(fallback_claim_token, ''), fallback_lease_until, request_snapshot,
-		       created_at, updated_at
+		SELECT `+seedanceTaskBindingSelectColumns+`
 		FROM fflink_video_job_bindings
 		WHERE user_id = $1 AND api_key_id = $2 AND group_id = $3
 		ORDER BY created_at DESC, id DESC
@@ -117,35 +171,138 @@ func (r *usageLogRepository) ListSeedanceTaskBindings(
 
 	bindings := make([]service.SeedanceTaskBinding, 0)
 	for rows.Next() {
-		var binding service.SeedanceTaskBinding
-		var fallbackLeaseUntil sql.NullTime
-		if err := rows.Scan(
-			&binding.UserID,
-			&binding.APIKeyID,
-			&binding.GroupID,
-			&binding.AccountID,
-			&binding.JobID,
-			&binding.UpstreamJobID,
-			&binding.Model,
-			&binding.FallbackModel,
-			&binding.FallbackStatus,
-			&binding.FallbackClaimToken,
-			&fallbackLeaseUntil,
-			&binding.RequestSnapshot,
-			&binding.CreatedAt,
-			&binding.UpdatedAt,
-		); err != nil {
+		binding, err := scanSeedanceTaskBinding(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan seedance task binding: %w", err)
 		}
-		if fallbackLeaseUntil.Valid {
-			binding.FallbackLeaseUntil = fallbackLeaseUntil.Time
-		}
-		bindings = append(bindings, binding)
+		bindings = append(bindings, *binding)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list seedance task bindings: %w", err)
 	}
 	return bindings, nil
+}
+
+func (r *usageLogRepository) ClaimSeedanceTaskSettlements(
+	ctx context.Context,
+	workerID string,
+	limit int,
+	leaseDuration time.Duration,
+) ([]service.SeedanceTaskBinding, error) {
+	if r == nil || r.sql == nil {
+		return nil, errors.New("seedance task settlement repository is unavailable")
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if leaseDuration <= 0 {
+		leaseDuration = 2 * time.Minute
+	}
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return nil, errors.New("seedance task settlement worker id is required")
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		WITH candidates AS (
+			SELECT id
+			FROM fflink_video_job_bindings
+			WHERE settled_at IS NULL
+			  AND next_poll_at <= NOW()
+			  AND (settlement_claimed_at IS NULL OR settlement_claimed_at < NOW() - ($3 * INTERVAL '1 millisecond'))
+			ORDER BY next_poll_at ASC, id ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE fflink_video_job_bindings AS binding
+		SET settlement_claimed_by = $2,
+		    settlement_claimed_at = NOW(),
+		    updated_at = NOW()
+		FROM candidates
+		WHERE binding.id = candidates.id
+		RETURNING `+seedanceTaskBindingReturningColumns+`
+	`, limit, workerID, leaseDuration.Milliseconds())
+	if err != nil {
+		return nil, fmt.Errorf("claim seedance task settlements: %w", err)
+	}
+	defer rows.Close()
+	bindings := make([]service.SeedanceTaskBinding, 0, limit)
+	for rows.Next() {
+		binding, scanErr := scanSeedanceTaskBinding(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan claimed seedance task settlement: %w", scanErr)
+		}
+		bindings = append(bindings, *binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate claimed seedance task settlements: %w", err)
+	}
+	return bindings, nil
+}
+
+func (r *usageLogRepository) RenewSeedanceTaskSettlement(
+	ctx context.Context,
+	id int64,
+	workerID string,
+) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("seedance task settlement repository is unavailable")
+	}
+	if id <= 0 || strings.TrimSpace(workerID) == "" {
+		return false, errors.New("seedance task settlement claim is invalid")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE fflink_video_job_bindings
+		SET settlement_claimed_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND settlement_claimed_by = $2 AND settled_at IS NULL
+	`, id, strings.TrimSpace(workerID))
+	if err != nil {
+		return false, fmt.Errorf("renew seedance task settlement: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("renew seedance task settlement rows: %w", err)
+	}
+	return rows == 1, nil
+}
+
+func (r *usageLogRepository) CompleteSeedanceTaskSettlement(
+	ctx context.Context,
+	id int64,
+	workerID string,
+	update service.SeedanceTaskSettlementUpdate,
+) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("seedance task settlement repository is unavailable")
+	}
+	if id <= 0 || strings.TrimSpace(workerID) == "" {
+		return false, errors.New("seedance task settlement claim is invalid")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE fflink_video_job_bindings
+		SET task_status = $3,
+		    next_poll_at = COALESCE($4, next_poll_at),
+		    last_polled_at = NOW(),
+		    settled_at = $5,
+		    refunded_at = $6,
+		    refund_status = $7,
+		    refund_attempts = $8,
+		    settlement_attempts = $9,
+		    last_error = NULLIF($10, ''),
+		    settlement_claimed_at = NULL,
+		    settlement_claimed_by = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND settlement_claimed_by = $2
+	`, id, strings.TrimSpace(workerID), strings.TrimSpace(update.TaskStatus),
+		update.NextPollAt, update.SettledAt, update.RefundedAt, strings.TrimSpace(update.RefundStatus),
+		update.RefundAttempts, update.SettlementAttempts, strings.TrimSpace(update.LastError))
+	if err != nil {
+		return false, fmt.Errorf("complete seedance task settlement: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("complete seedance task settlement rows: %w", err)
+	}
+	return rows == 1, nil
 }
 
 func (r *usageLogRepository) ClaimSeedanceTaskFallback(
@@ -271,6 +428,34 @@ func (r *usageLogRepository) ReleaseSeedanceTaskFallback(
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("release seedance task fallback: %w", err)
+	}
+	return rows == 1, nil
+}
+
+func (r *usageLogRepository) RenewSeedanceTaskFallback(
+	ctx context.Context,
+	userID, apiKeyID, groupID int64,
+	jobID string,
+	claimToken string,
+) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("seedance task binding repository is unavailable")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE fflink_video_job_bindings
+		SET fallback_lease_until = NOW() + ($7 * INTERVAL '1 millisecond'),
+		    updated_at = NOW()
+		WHERE user_id = $1 AND api_key_id = $2 AND group_id = $3 AND job_id = $4
+		  AND fallback_status = $5 AND fallback_claim_token = $6
+	`, userID, apiKeyID, groupID, strings.TrimSpace(jobID),
+		service.SeedanceFallbackStatusStarting, strings.TrimSpace(claimToken),
+		service.SeedanceFallbackLeaseDuration.Milliseconds())
+	if err != nil {
+		return false, fmt.Errorf("renew seedance task fallback: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("renew seedance task fallback rows: %w", err)
 	}
 	return rows == 1, nil
 }

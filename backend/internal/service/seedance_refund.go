@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 var ErrSeedanceUsageRefundUnavailable = errors.New("seedance usage refund repository is unavailable")
@@ -16,6 +18,9 @@ func (s *OpenAIGatewayService) RefundSeedanceUsage(
 	userID int64,
 	apiKeyID int64,
 ) (*SeedanceUsageRefundResult, error) {
+	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		return &SeedanceUsageRefundResult{NotRequired: true}, nil
+	}
 	if s == nil || s.usageBillingRepo == nil {
 		return nil, ErrSeedanceUsageRefundUnavailable
 	}
@@ -24,7 +29,7 @@ func (s *OpenAIGatewayService) RefundSeedanceUsage(
 		return nil, ErrSeedanceUsageRefundUnavailable
 	}
 	result, err := repo.RefundSeedanceUsage(ctx, taskID, userID, apiKeyID)
-	if err != nil || result == nil || !result.Applied || s.billingCacheService == nil {
+	if err != nil || result == nil || !result.Found || result.UsageLogID <= 0 || s.billingCacheService == nil {
 		return result, err
 	}
 

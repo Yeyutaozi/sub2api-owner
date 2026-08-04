@@ -28,3 +28,20 @@ func TestSeedanceProviderFallbackMigrationDefinesLeaseColumns(t *testing.T) {
 	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS FALLBACK_LEASE_UNTIL TIMESTAMPTZ")
 	require.Contains(t, sql, "FALLBACK_STATUS IN ('READY', 'STARTING')")
 }
+
+func TestSeedanceTaskSettlementMigrationDefinesDurableReconciliationState(t *testing.T) {
+	content, err := FS.ReadFile("198_seedance_task_settlement.sql")
+	require.NoError(t, err)
+
+	sql := strings.ToUpper(strings.Join(strings.Fields(string(content)), " "))
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS TASK_STATUS VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS NEXT_POLL_AT TIMESTAMPTZ NOT NULL DEFAULT NOW()")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS SETTLED_AT TIMESTAMPTZ")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS REFUNDED_AT TIMESTAMPTZ")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS REFUND_STATUS VARCHAR(20) NOT NULL DEFAULT ''")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS REFUND_ATTEMPTS INTEGER NOT NULL DEFAULT 0")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS SETTLEMENT_ATTEMPTS INTEGER NOT NULL DEFAULT 0")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS SETTLEMENT_CLAIMED_AT TIMESTAMPTZ")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS SETTLEMENT_CLAIMED_BY VARCHAR(64)")
+	require.Contains(t, sql, "WHERE SETTLED_AT IS NULL")
+}

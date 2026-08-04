@@ -314,6 +314,95 @@ func (r *usageLogRepository) hydrateUsageLogAssociations(ctx context.Context, lo
 			}
 		}
 	}
+	return r.hydrateSeedanceSettlementState(ctx, logs)
+}
+
+type seedanceUsageSettlementKey struct {
+	userID   int64
+	apiKeyID int64
+	jobID    string
+}
+
+func (r *usageLogRepository) hydrateSeedanceSettlementState(ctx context.Context, logs []service.UsageLog) error {
+	jobIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+	for i := range logs {
+		if logs[i].BillingMode == nil || strings.TrimSpace(*logs[i].BillingMode) != string(service.BillingModeVideo) {
+			continue
+		}
+		jobID := strings.TrimPrefix(strings.TrimSpace(logs[i].RequestID), "seedance:")
+		if jobID == "" || jobID == strings.TrimSpace(logs[i].RequestID) {
+			continue
+		}
+		if _, ok := seen[jobID]; ok {
+			continue
+		}
+		seen[jobID] = struct{}{}
+		jobIDs = append(jobIDs, jobID)
+	}
+	if len(jobIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(jobIDs))
+	args := make([]any, len(jobIDs))
+	for i := range jobIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = jobIDs[i]
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT user_id, api_key_id, job_id, task_status, refund_status,
+		       settled_at, NULLIF(last_error, '')
+		FROM fflink_video_job_bindings
+		WHERE job_id IN (`+strings.Join(placeholders, ",")+`)
+	`, args...)
+	if err != nil {
+		return fmt.Errorf("hydrate seedance settlement state: %w", err)
+	}
+	defer rows.Close()
+	type settlementState struct {
+		taskStatus   string
+		refundStatus string
+		settledAt    *time.Time
+		lastError    *string
+	}
+	states := make(map[seedanceUsageSettlementKey]settlementState)
+	for rows.Next() {
+		var key seedanceUsageSettlementKey
+		var settledAt sql.NullTime
+		var lastError sql.NullString
+		var state settlementState
+		if err := rows.Scan(&key.userID, &key.apiKeyID, &key.jobID, &state.taskStatus, &state.refundStatus, &settledAt, &lastError); err != nil {
+			return fmt.Errorf("scan seedance settlement state: %w", err)
+		}
+		if settledAt.Valid {
+			value := settledAt.Time
+			state.settledAt = &value
+		}
+		if lastError.Valid {
+			value := lastError.String
+			state.lastError = &value
+		}
+		states[key] = state
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate seedance settlement state: %w", err)
+	}
+	for i := range logs {
+		jobID := strings.TrimPrefix(strings.TrimSpace(logs[i].RequestID), "seedance:")
+		state, ok := states[seedanceUsageSettlementKey{userID: logs[i].UserID, apiKeyID: logs[i].APIKeyID, jobID: jobID}]
+		if !ok {
+			continue
+		}
+		if value := strings.TrimSpace(state.taskStatus); value != "" {
+			logs[i].VideoTaskStatus = &value
+		}
+		if value := strings.TrimSpace(state.refundStatus); value != "" {
+			logs[i].VideoRefundStatus = &value
+		}
+		logs[i].VideoSettledAt = state.settledAt
+		logs[i].VideoSettlementError = state.lastError
+	}
 	return nil
 }
 

@@ -32,6 +32,7 @@ type OpenAIRecordUsageInput struct {
 	SessionID          string // 客户端显式会话标识（session_id / X-Session-Id 等请求头），仅用于用量行会话关联
 	RequestPayloadHash string
 	UsageRequestID     string // Optional stable billing/log ID for asynchronous jobs.
+	DurableUsageLog    bool   // Require billing and the usage row to commit atomically.
 	APIKeyService      APIKeyQuotaUpdater
 	QuotaPlatform      string // user×platform quota platform resolved by the handler before async billing.
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
@@ -367,7 +368,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+		if input.DurableUsageLog {
+			if err := writeUsageLogDurable(ctx, s.usageLogRepo, usageLog); err != nil {
+				return err
+			}
+		} else {
+			writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+		}
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
 		return nil
@@ -392,6 +399,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			AccountRateMultiplier: accountRateMultiplier,
 			APIKeyService:         input.APIKeyService,
 			Platform:              quotaPlatform,
+			SynchronousCache:      isVideoUsage,
+			DurableUsageLog:       input.DurableUsageLog,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()
@@ -399,7 +408,16 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if billingErr != nil {
 		return billingErr
 	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	if input.DurableUsageLog {
+		// The production billing repository already inserted this row in the
+		// charge transaction. This idempotent read-back also supports lightweight
+		// repository implementations and confirms the refund key before returning.
+		if err := writeUsageLogDurable(ctx, s.usageLogRepo, usageLog); err != nil {
+			return err
+		}
+	} else {
+		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	}
 
 	return nil
 }

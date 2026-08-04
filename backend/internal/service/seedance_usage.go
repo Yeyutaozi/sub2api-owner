@@ -70,6 +70,7 @@ func (s *OpenAIGatewayService) RecordSeedanceUsage(ctx context.Context, input *S
 	usageInput.APIKey = &apiKey
 	usageInput.OriginalModel = requestedModel
 	usageInput.UsageRequestID = requestID
+	usageInput.DurableUsageLog = true
 
 	result := *usageInput.Result
 	result.RequestID = requestID

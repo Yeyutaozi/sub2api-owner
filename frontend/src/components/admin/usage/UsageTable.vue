@@ -173,7 +173,11 @@
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <span
+                data-testid="actual-cost"
+                class="font-medium"
+                :class="getActualCostClass(row)"
+              >${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <span
                 v-if="row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
@@ -190,6 +194,16 @@
                 </div>
               </div>
             </div>
+            <span
+              v-if="getVideoSettlementState(row)"
+              data-testid="video-settlement-status"
+              :data-status="getVideoSettlementState(row)"
+              class="mt-1 inline-flex items-center rounded px-1.5 py-px text-[10px] font-medium leading-tight ring-1 ring-inset"
+              :class="getVideoSettlementBadgeClass(row)"
+              :title="getVideoSettlementTooltip(row)"
+            >
+              {{ getVideoSettlementLabel(row) }}
+            </span>
             <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
               A ${{ accountBilled(row).toFixed(6) }}
             </div>
@@ -503,6 +517,84 @@ function accountBilled(row: { total_cost?: number | null; account_stats_cost?: n
   const base = row.account_stats_cost != null ? row.account_stats_cost : (row.total_cost ?? 0)
   const result = base * (row.account_rate_multiplier ?? 1)
   return Number.isNaN(result) ? 0 : result
+}
+
+type VideoSettlementState =
+  | 'queued'
+  | 'running'
+  | 'unknown'
+  | 'succeeded'
+  | 'failed_refunded'
+  | 'cancelled_refunded'
+  | 'refunded'
+  | 'refund_pending'
+  | 'refund_error'
+
+const normalizeSettlementStatus = (status?: string | null): string =>
+  status?.trim().toLowerCase().replace(/[\s-]+/g, '_') ?? ''
+
+const getVideoSettlementState = (row: AdminUsageLog): VideoSettlementState | null => {
+  const taskStatus = normalizeSettlementStatus(row.video_task_status)
+  const refundStatus = normalizeSettlementStatus(row.video_refund_status)
+
+  if (['failed', 'error', 'refund_failed'].includes(refundStatus)) return 'refund_error'
+  if (['pending', 'processing', 'requested', 'refunding', 'retrying'].includes(refundStatus)) return 'refund_pending'
+
+  if (['applied', 'refunded', 'succeeded', 'success', 'completed'].includes(refundStatus)) {
+    if (['cancelled', 'canceled'].includes(taskStatus)) return 'cancelled_refunded'
+    if (['failed', 'error'].includes(taskStatus)) return 'failed_refunded'
+    return 'refunded'
+  }
+
+  if (['succeeded', 'success', 'completed'].includes(taskStatus)) return 'succeeded'
+  if (['failed', 'error', 'cancelled', 'canceled'].includes(taskStatus)) return 'refund_pending'
+  if (['queued', 'pending', 'submitted'].includes(taskStatus)) return 'queued'
+  if (['running', 'processing', 'in_progress'].includes(taskStatus)) return 'running'
+  if (taskStatus === 'unknown') return 'unknown'
+  return null
+}
+
+const getVideoSettlementLabel = (row: AdminUsageLog): string => {
+  const state = getVideoSettlementState(row)
+  if (!state) return ''
+  return t(`usage.videoSettlement.${state}`)
+}
+
+const getVideoSettlementBadgeClass = (row: AdminUsageLog): string => {
+  const state = getVideoSettlementState(row)
+  if (state === 'succeeded') {
+    return 'bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-500/30'
+  }
+  if (state === 'failed_refunded' || state === 'cancelled_refunded' || state === 'refunded') {
+    return 'bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:ring-violet-500/30'
+  }
+  if (state === 'refund_error') {
+    return 'bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-500/30'
+  }
+  return 'bg-amber-100 text-amber-700 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30'
+}
+
+const getActualCostClass = (row: AdminUsageLog): string => {
+  const state = getVideoSettlementState(row)
+  if (state === 'refund_error') return 'text-rose-600 dark:text-rose-400'
+  if (state === 'refund_pending' || state === 'queued' || state === 'running' || state === 'unknown') {
+    return 'text-amber-600 dark:text-amber-400'
+  }
+  if (state === 'failed_refunded' || state === 'cancelled_refunded' || state === 'refunded') {
+    return 'text-violet-600 dark:text-violet-400'
+  }
+  return 'text-green-600 dark:text-green-400'
+}
+
+const getVideoSettlementTooltip = (row: AdminUsageLog): string | undefined => {
+  const details: string[] = []
+  if (row.video_settlement_error) {
+    details.push(t('usage.videoSettlement.detail', { detail: row.video_settlement_error }))
+  }
+  if (row.video_settled_at) {
+    details.push(t('usage.videoSettlement.settledAt', { time: formatDateTime(row.video_settled_at) }))
+  }
+  return details.length > 0 ? details.join('\n') : undefined
 }
 
 

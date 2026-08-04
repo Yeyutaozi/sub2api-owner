@@ -198,6 +198,10 @@ type UsageLog struct {
 	VideoCount           int
 	VideoResolution      *string
 	VideoDurationSeconds *int
+	VideoTaskStatus      *string
+	VideoRefundStatus    *string
+	VideoSettledAt       *time.Time
+	VideoSettlementError *string
 
 	CreatedAt time.Time
 

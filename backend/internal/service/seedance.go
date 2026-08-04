@@ -164,6 +164,7 @@ type SeedanceRequestInfo struct {
 	References      []SeedanceReferenceImage
 	VideoReferences []SeedanceReferenceVideo
 	AudioReferences []SeedanceReferenceAudio
+	StoredMedia     []SeedanceStoredMediaReference
 	HuiquMedia      *SeedanceHuiquPreparedMedia
 }
 
@@ -178,6 +179,18 @@ type SeedanceReferenceVideo struct {
 
 type SeedanceReferenceAudio struct {
 	URL string
+}
+
+// SeedanceStoredMediaReference ties a request media slot to the durable object
+// that backs its temporary URL. Fallback workers use it to issue a fresh URL
+// instead of persisting an expiring presigned URL as the source of truth.
+type SeedanceStoredMediaReference struct {
+	Slot                  string `json:"slot"`
+	Index                 int    `json:"index,omitempty"`
+	StorageProvider       string `json:"storage_provider"`
+	Bucket                string `json:"bucket"`
+	ObjectKey             string `json:"object_key"`
+	DeleteAfterSettlement bool   `json:"delete_after_settlement,omitempty"`
 }
 
 func (i *SeedanceRequestInfo) HasInlineImages() bool {
@@ -206,20 +219,32 @@ type SeedanceUpstreamResponse struct {
 }
 
 type SeedanceTaskBinding struct {
-	UserID             int64
-	APIKeyID           int64
-	GroupID            int64
-	AccountID          int64
-	JobID              string
-	UpstreamJobID      string
-	Model              string
-	FallbackModel      string
-	FallbackStatus     string
-	FallbackClaimToken string
-	FallbackLeaseUntil time.Time
-	RequestSnapshot    []byte
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                  int64
+	UserID              int64
+	APIKeyID            int64
+	GroupID             int64
+	AccountID           int64
+	JobID               string
+	UpstreamJobID       string
+	Model               string
+	FallbackModel       string
+	FallbackStatus      string
+	FallbackClaimToken  string
+	FallbackLeaseUntil  time.Time
+	RequestSnapshot     []byte
+	TaskStatus          string
+	NextPollAt          time.Time
+	LastPolledAt        time.Time
+	SettledAt           time.Time
+	RefundedAt          time.Time
+	RefundStatus        string
+	RefundAttempts      int
+	SettlementAttempts  int
+	SettlementClaimedAt time.Time
+	SettlementClaimedBy string
+	LastError           string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type SeedanceTaskBindingRepository interface {
@@ -233,12 +258,51 @@ type SeedanceTaskFallbackRepository interface {
 	ActivateSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string, accountID int64, upstreamJobID string) (bool, error)
 	FailSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
 	ReleaseSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
+	RenewSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
 }
 
 type SeedanceTaskCancellationRepository interface {
 	ClaimSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (bool, string, error)
 	CompleteSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
 	ReleaseSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
+}
+
+type SeedanceTaskSettlementUpdate struct {
+	TaskStatus         string
+	NextPollAt         *time.Time
+	SettledAt          *time.Time
+	RefundedAt         *time.Time
+	RefundStatus       string
+	RefundAttempts     int
+	SettlementAttempts int
+	LastError          string
+}
+
+type SeedanceTaskSettlementRepository interface {
+	ClaimSeedanceTaskSettlements(ctx context.Context, workerID string, limit int, leaseDuration time.Duration) ([]SeedanceTaskBinding, error)
+	RenewSeedanceTaskSettlement(ctx context.Context, id int64, workerID string) (bool, error)
+	CompleteSeedanceTaskSettlement(ctx context.Context, id int64, workerID string, update SeedanceTaskSettlementUpdate) (bool, error)
+}
+
+type seedanceIdempotencyKeyContextKey struct{}
+
+func WithSeedanceIdempotencyKey(ctx context.Context, key string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, seedanceIdempotencyKeyContextKey{}, key)
+}
+
+func seedanceIdempotencyKeyFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	key, _ := ctx.Value(seedanceIdempotencyKeyContextKey{}).(string)
+	return strings.TrimSpace(key)
 }
 
 type SeedanceUpstreamError struct {
@@ -832,6 +896,24 @@ func (s *OpenAIGatewayService) ReleaseSeedanceTaskFallback(
 	return repo.ReleaseSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken)
 }
 
+func (s *OpenAIGatewayService) RenewSeedanceTaskFallback(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	if s == nil || group <= 0 || userID <= 0 || apiKeyID <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" {
+		return false, errors.New("seedance fallback renewal owner is invalid")
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskFallbackRepository)
+	if !ok || repo == nil {
+		return false, errors.New("seedance fallback repository is unavailable")
+	}
+	return repo.RenewSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken)
+}
+
 func (s *OpenAIGatewayService) ClaimSeedanceTaskCancellation(
 	ctx context.Context,
 	groupID *int64,
@@ -1315,6 +1397,11 @@ func (s *OpenAIGatewayService) forwardSeedance(
 		}
 		if c != nil {
 			if idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key")); idempotencyKey != "" {
+				upstreamReq.Header.Set("Idempotency-Key", idempotencyKey)
+			}
+		}
+		if upstreamReq.Header.Get("Idempotency-Key") == "" {
+			if idempotencyKey := seedanceIdempotencyKeyFromContext(ctx); idempotencyKey != "" {
 				upstreamReq.Header.Set("Idempotency-Key", idempotencyKey)
 			}
 		}

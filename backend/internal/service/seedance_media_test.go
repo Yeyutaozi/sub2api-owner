@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -361,7 +362,7 @@ func TestSeedanceMaterializeImagesStoresEveryInlineImage(t *testing.T) {
 	require.Len(t, store.deleted, 2)
 }
 
-func TestSeedanceMaterializeImagesKeepsOwnPersistentUploadURL(t *testing.T) {
+func TestSeedanceMaterializeImagesResignsOwnPersistentUploadURL(t *testing.T) {
 	store := newSeedanceMediaMemoryStore()
 	service := NewSeedanceMediaService(store, nil, nil)
 	owner := seedanceMediaTestOwner()
@@ -371,8 +372,108 @@ func TestSeedanceMaterializeImagesKeepsOwnPersistentUploadURL(t *testing.T) {
 	materialized, err := service.MaterializeImages(context.Background(), owner, info)
 	require.NoError(t, err)
 	require.NotNil(t, materialized)
-	require.Equal(t, source, info.StartFrameURL)
+	require.NotEqual(t, source, info.StartFrameURL)
+	require.Contains(t, info.StartFrameURL, "agent-artifacts%2Fseedance%2Finputs%2Fstaged%2F101%2F202%2Fsdupl_abc123.png")
+	require.Equal(t, []SeedanceStoredMediaReference{{
+		Slot: seedanceStoredMediaStartFrame, StorageProvider: "cos", Bucket: "seedance-test",
+		ObjectKey: "agent-artifacts/seedance/inputs/staged/101/202/sdupl_abc123.png",
+	}}, info.StoredMedia)
+	require.Empty(t, materialized.objects)
 	require.Len(t, store.puts, 0)
+}
+
+func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSignatures(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	mp4 := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+	wav := []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+	service.httpClient = &http.Client{Transport: seedanceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := mp4
+		contentType := "video/mp4"
+		if strings.HasSuffix(request.URL.Path, ".wav") {
+			body = wav
+			contentType = "audio/wav"
+		}
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{contentType}, "Content-Length": []string{strconv.Itoa(len(body))}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+			ContentLength: int64(len(body)),
+			Request:       request,
+		}, nil
+	})}
+	info := &SeedanceRequestInfo{
+		Model: "seedance-2.0", Prompt: "preserve every reference", Resolution: "720p",
+		DurationSeconds: 8, AspectRatio: "16:9",
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://93.184.216.34/reference.mp4"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://93.184.216.34/reference.wav"}},
+	}
+
+	materialized, err := service.MaterializeImages(context.Background(), seedanceMediaTestOwner(), info)
+	require.NoError(t, err)
+	require.Len(t, materialized.objects, 2)
+	require.Len(t, store.puts, 2)
+	require.Len(t, info.StoredMedia, 2)
+	require.Equal(t, seedanceStoredMediaVideo, info.StoredMedia[0].Slot)
+	require.Equal(t, seedanceStoredMediaAudio, info.StoredMedia[1].Slot)
+	require.True(t, info.StoredMedia[0].DeleteAfterSettlement)
+	require.True(t, info.StoredMedia[1].DeleteAfterSettlement)
+	require.Contains(t, info.VideoReferences[0].URL, "seedance%2Finputs%2Ftask")
+	require.Contains(t, info.AudioReferences[0].URL, "seedance%2Finputs%2Ftask")
+
+	snapshot, err := SnapshotSeedanceFallbackRequest(info)
+	require.NoError(t, err)
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, "sd2-mx933-720-1s")
+	require.NoError(t, err)
+	restored.VideoReferences[0].URL = "https://expired.example.com/video"
+	restored.AudioReferences[0].URL = "https://expired.example.com/audio"
+	presignsBeforeRefresh := len(store.presigned)
+	require.NoError(t, service.RefreshSeedanceFallbackMediaURLs(context.Background(), seedanceMediaTestOwner(), restored))
+	require.Len(t, store.presigned, presignsBeforeRefresh+2)
+	require.Contains(t, restored.VideoReferences[0].URL, "seedance%2Finputs%2Ftask")
+	require.Contains(t, restored.AudioReferences[0].URL, "seedance%2Finputs%2Ftask")
+
+	materialized.Cleanup(context.Background())
+	require.Len(t, store.deleted, 2)
+}
+
+func TestSeedanceRefreshFallbackMediaURLsSupportsLegacySnapshotURLs(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	legacyURL := "https://seedance-test.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/task/101/202/sdupl_legacy.wav?X-Amz-Expires=1&X-Amz-Signature=expired"
+	info := &SeedanceRequestInfo{AudioReferences: []SeedanceReferenceAudio{{URL: legacyURL}}}
+
+	require.NoError(t, service.RefreshSeedanceFallbackMediaURLs(context.Background(), seedanceMediaTestOwner(), info))
+	require.NotEqual(t, legacyURL, info.AudioReferences[0].URL)
+	require.Len(t, store.presigned, 1)
+	require.Equal(t, "agent-artifacts/seedance/inputs/task/101/202/sdupl_legacy.wav", store.presigned[0].ObjectKey)
+}
+
+func TestSeedanceDeleteFallbackMediaDeletesTaskCopiesButKeepsStagedUploads(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	owner := seedanceMediaTestOwner()
+	info := &SeedanceRequestInfo{
+		Model: "seedance-2.0", Resolution: "720p",
+		StoredMedia: []SeedanceStoredMediaReference{
+			{
+				Slot: seedanceStoredMediaVideo, StorageProvider: "cos", Bucket: "seedance-test",
+				ObjectKey: "agent-artifacts/seedance/inputs/task/101/202/fallback-video.mp4", DeleteAfterSettlement: true,
+			},
+			{
+				Slot: seedanceStoredMediaAudio, StorageProvider: "cos", Bucket: "seedance-test",
+				ObjectKey: "agent-artifacts/seedance/inputs/staged/101/202/user-audio.wav",
+			},
+		},
+	}
+	snapshot, err := SnapshotSeedanceFallbackRequest(info)
+	require.NoError(t, err)
+
+	require.NoError(t, service.DeleteSeedanceFallbackMedia(context.Background(), owner, snapshot))
+	require.Equal(t, []AgentArtifactObjectLocation{{
+		StorageProvider: "cos", Bucket: "seedance-test",
+		ObjectKey: "agent-artifacts/seedance/inputs/task/101/202/fallback-video.mp4",
+	}}, store.deleted)
 }
 
 func TestSeedanceCaptureOutputUsesDeterministicOwnerScopedObjectKey(t *testing.T) {
@@ -686,6 +787,14 @@ type seedanceMediaMemoryStore struct {
 	objects    map[string][]byte
 	puts       []seedanceMediaTestPut
 	deleted    []AgentArtifactObjectLocation
+	presigned  []AgentArtifactObjectLocation
+	deleteErr  error
+}
+
+type seedanceRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f seedanceRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 type seedanceMediaDirectReadStore struct {
@@ -740,8 +849,12 @@ func (s *seedanceMediaMemoryStore) PresignGet(ctx context.Context, key string, t
 }
 
 func (s *seedanceMediaMemoryStore) PresignGetObject(_ context.Context, location AgentArtifactObjectLocation, _ time.Duration) (string, error) {
-	if s.presignURL != "" {
-		return s.presignURL, nil
+	s.mu.Lock()
+	s.presigned = append(s.presigned, location)
+	presignURL := s.presignURL
+	s.mu.Unlock()
+	if presignURL != "" {
+		return presignURL, nil
 	}
 	return "https://cos.example.com/" + url.PathEscape(location.ObjectKey), nil
 }
@@ -755,7 +868,7 @@ func (s *seedanceMediaMemoryStore) DeleteObject(_ context.Context, location Agen
 	defer s.mu.Unlock()
 	delete(s.objects, location.ObjectKey)
 	s.deleted = append(s.deleted, location)
-	return nil
+	return s.deleteErr
 }
 
 func seedanceMediaTestOwner() SeedanceMediaOwner {

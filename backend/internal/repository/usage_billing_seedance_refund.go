@@ -120,6 +120,7 @@ func loadSeedanceRefundUsageRow(ctx context.Context, tx *sql.Tx, requestID strin
 
 func seedanceRefundResult(row *seedanceRefundUsageRow) *service.SeedanceUsageRefundResult {
 	result := &service.SeedanceUsageRefundResult{
+		Found:       true,
 		UsageLogID:  row.id,
 		UserID:      row.userID,
 		APIKeyID:    row.apiKeyID,

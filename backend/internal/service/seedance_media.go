@@ -59,6 +59,14 @@ const (
 	seedanceMediaIOPrefix      = "seedance:media:io:"
 )
 
+const (
+	seedanceStoredMediaStartFrame = "start_frame"
+	seedanceStoredMediaEndFrame   = "end_frame"
+	seedanceStoredMediaImage      = "image_reference"
+	seedanceStoredMediaVideo      = "video_reference"
+	seedanceStoredMediaAudio      = "audio_reference"
+)
+
 var ErrSeedanceOutputArchiveInProgress = errors.New("Seedance output archive is already in progress")
 
 var seedanceTempDirOnce sync.Once
@@ -488,6 +496,51 @@ func (s *SeedanceMediaService) UploadDataURI(ctx context.Context, owner Seedance
 	})
 }
 
+type seedanceRequestMediaTarget struct {
+	url   *string
+	kind  string
+	slot  string
+	index int
+}
+
+type seedanceMaterializedReference struct {
+	url      string
+	location *AgentArtifactObjectLocation
+	cleanup  bool
+}
+
+func seedanceRequestMediaTargets(info *SeedanceRequestInfo, includeVideoAudio bool) []seedanceRequestMediaTarget {
+	if info == nil {
+		return nil
+	}
+	targets := []seedanceRequestMediaTarget{
+		{url: &info.StartFrameURL, kind: "image", slot: seedanceStoredMediaStartFrame},
+		{url: &info.EndFrameURL, kind: "image", slot: seedanceStoredMediaEndFrame},
+	}
+	for index := range info.References {
+		targets = append(targets, seedanceRequestMediaTarget{
+			url: &info.References[index].URL, kind: "image", slot: seedanceStoredMediaImage, index: index,
+		})
+	}
+	if includeVideoAudio {
+		for index := range info.VideoReferences {
+			targets = append(targets, seedanceRequestMediaTarget{
+				url: &info.VideoReferences[index].URL, kind: "video", slot: seedanceStoredMediaVideo, index: index,
+			})
+		}
+		for index := range info.AudioReferences {
+			targets = append(targets, seedanceRequestMediaTarget{
+				url: &info.AudioReferences[index].URL, kind: "audio", slot: seedanceStoredMediaAudio, index: index,
+			})
+		}
+	}
+	return targets
+}
+
+func seedanceStoredMediaKey(slot string, index int) string {
+	return strings.TrimSpace(slot) + ":" + strconv.Itoa(index)
+}
+
 func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner SeedanceMediaOwner, info *SeedanceRequestInfo) (*SeedanceMaterializedImages, error) {
 	if info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
@@ -498,22 +551,29 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 		return nil, err
 	}
 
-	values := []*string{&info.StartFrameURL, &info.EndFrameURL}
-	for i := range info.References {
-		values = append(values, &info.References[i].URL)
-	}
+	info.StoredMedia = nil
 	directHTTP := isHuiquVideoModel(info.Model)
-	for _, target := range values {
-		if target == nil || strings.TrimSpace(*target) == "" {
+	_, fallbackEligible := SeedanceFallbackModelFor(info.Model, info.Resolution)
+	for _, target := range seedanceRequestMediaTargets(info, fallbackEligible) {
+		if target.url == nil || strings.TrimSpace(*target.url) == "" {
 			continue
 		}
-		resolved, location, err := s.materializeImageMode(ctx, owner, *target, directHTTP)
+		resolved, err := s.materializeReferenceMedia(ctx, owner, *target.url, target.kind, directHTTP)
 		if err != nil {
 			return cleanupOnError(err)
 		}
-		*target = resolved
-		if location != nil {
-			materialized.objects = append(materialized.objects, *location)
+		*target.url = resolved.url
+		if resolved.location != nil {
+			info.StoredMedia = append(info.StoredMedia, SeedanceStoredMediaReference{
+				Slot: target.slot, Index: target.index,
+				StorageProvider:       resolved.location.StorageProvider,
+				Bucket:                resolved.location.Bucket,
+				ObjectKey:             resolved.location.ObjectKey,
+				DeleteAfterSettlement: resolved.cleanup,
+			})
+			if resolved.cleanup {
+				materialized.objects = append(materialized.objects, *resolved.location)
+			}
 		}
 	}
 	return materialized, nil
@@ -524,77 +584,259 @@ func (s *SeedanceMediaService) materializeImage(ctx context.Context, owner Seeda
 }
 
 func (s *SeedanceMediaService) materializeImageMode(ctx context.Context, owner SeedanceMediaOwner, source string, directHTTP bool) (string, *AgentArtifactObjectLocation, error) {
+	resolved, err := s.materializeReferenceMedia(ctx, owner, source, "image", directHTTP)
+	if err != nil {
+		return "", nil, err
+	}
+	if resolved.cleanup {
+		return resolved.url, resolved.location, nil
+	}
+	return resolved.url, nil, nil
+}
+
+func (s *SeedanceMediaService) materializeReferenceMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	source, mediaKind string,
+	directHTTP bool,
+) (seedanceMaterializedReference, error) {
 	source = strings.TrimSpace(source)
 	if uploadID := managedSeedanceUploadID(source); uploadID != "" {
 		record, err := s.loadManagedUpload(ctx, owner, uploadID)
 		if err != nil {
-			return "", nil, err
+			return seedanceMaterializedReference{}, err
+		}
+		if storedKind := mediaKindFromContentType(record.ContentType); storedKind != mediaKind {
+			return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_type", fmt.Sprintf("reference media must be a %s type", mediaKind))
 		}
 		signed, err := s.presignRecord(ctx, record)
-		return signed, nil, err
+		if err != nil {
+			return seedanceMaterializedReference{}, err
+		}
+		location := record.location()
+		return seedanceMaterializedReference{url: signed, location: &location}, nil
 	}
 	if strings.HasPrefix(strings.ToLower(source), "data:") {
+		if mediaKind != "image" {
+			return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_url", "video and audio references must use HTTP(S) URLs or managed uploads")
+		}
 		upload, err := s.UploadDataURI(ctx, owner, source, false)
 		if err != nil {
-			return "", nil, err
+			return seedanceMaterializedReference{}, err
 		}
 		signed, err := s.presignRecord(ctx, upload.record)
 		if err != nil {
 			s.deleteObjectBestEffort(ctx, upload.record.location())
-			return "", nil, err
+			return seedanceMaterializedReference{}, err
 		}
 		location := upload.record.location()
-		return signed, &location, nil
+		return seedanceMaterializedReference{url: signed, location: &location, cleanup: true}, nil
 	}
 	if !isSeedanceHTTPImageURL(source) {
-		return "", nil, infraerrors.BadRequest("invalid_image_url", "image URL must be HTTP(S), a managed upload URL, or a supported Base64 data URI")
+		if mediaKind == "image" {
+			return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_image_url", "image URL must be HTTP(S), a managed upload URL, or a supported Base64 data URI")
+		}
+		return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_url", "reference media URL must use HTTP(S) or a managed upload")
 	}
 	validated, err := validateSeedanceMediaRemoteURL(source)
 	if err != nil {
-		return "", nil, infraerrors.BadRequest("invalid_image_url", err.Error())
+		if mediaKind == "image" {
+			return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_image_url", err.Error())
+		}
+		return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_url", err.Error())
 	}
 	if directHTTP {
-		return validated, nil, nil
+		return seedanceMaterializedReference{url: validated}, nil
 	}
-	if s.isOwnPersistentSeedanceUploadURL(owner, validated) {
-		return validated, nil, nil
+	if location, ok := s.seedanceObjectLocationFromOwnURL(owner, validated); ok {
+		signed, signErr := s.presignLocation(ctx, location)
+		if signErr != nil {
+			return seedanceMaterializedReference{}, signErr
+		}
+		return seedanceMaterializedReference{url: signed, location: &location}, nil
 	}
 	if !s.IsConfigured() {
-		return validated, nil, nil
+		return seedanceMaterializedReference{url: validated}, nil
 	}
-	upload, err := s.fetchAndStoreImage(ctx, owner, validated)
+	upload, err := s.fetchAndStoreReferenceMedia(ctx, owner, validated, mediaKind)
 	if err != nil {
-		return "", nil, err
+		return seedanceMaterializedReference{}, err
 	}
 	signed, err := s.presignRecord(ctx, upload.record)
 	if err != nil {
 		s.deleteObjectBestEffort(ctx, upload.record.location())
-		return "", nil, err
+		return seedanceMaterializedReference{}, err
 	}
 	location := upload.record.location()
-	return signed, &location, nil
+	return seedanceMaterializedReference{url: signed, location: &location, cleanup: true}, nil
 }
 
 func (s *SeedanceMediaService) isOwnPersistentSeedanceUploadURL(owner SeedanceMediaOwner, source string) bool {
-	if s == nil || s.store == nil || !validSeedanceMediaOwner(owner) {
+	location, ok := s.seedanceObjectLocationFromOwnURL(owner, source)
+	return ok && strings.Contains(location.ObjectKey, fmt.Sprintf("seedance/inputs/staged/%d/%d/", owner.UserID, owner.APIKeyID))
+}
+
+func seedanceObjectKeyBelongsToOwner(objectKey string, owner SeedanceMediaOwner) bool {
+	objectKey = strings.TrimLeft(strings.TrimSpace(objectKey), "/")
+	if objectKey == "" || !validSeedanceMediaOwner(owner) {
 		return false
+	}
+	for _, kind := range []string{"task", "staged"} {
+		marker := fmt.Sprintf("seedance/inputs/%s/%d/%d/", kind, owner.UserID, owner.APIKeyID)
+		if strings.Contains(objectKey, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func seedanceObjectKeyIsTaskOwned(objectKey string, owner SeedanceMediaOwner) bool {
+	marker := fmt.Sprintf("seedance/inputs/task/%d/%d/", owner.UserID, owner.APIKeyID)
+	return strings.Contains(strings.TrimLeft(strings.TrimSpace(objectKey), "/"), marker)
+}
+
+func (s *SeedanceMediaService) seedanceObjectLocationFromOwnURL(owner SeedanceMediaOwner, source string) (AgentArtifactObjectLocation, bool) {
+	if s == nil || s.store == nil || !s.store.IsConfigured() || !validSeedanceMediaOwner(owner) {
+		return AgentArtifactObjectLocation{}, false
 	}
 	parsed, err := url.Parse(strings.TrimSpace(source))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return false
+		return AgentArtifactObjectLocation{}, false
 	}
-	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
-	bucket := strings.ToLower(strings.TrimSpace(s.store.Bucket()))
-	if bucket == "" || !strings.Contains(host, bucket) {
-		return false
-	}
-	path, err := url.PathUnescape(parsed.EscapedPath())
+	objectKey, err := url.PathUnescape(parsed.EscapedPath())
 	if err != nil {
-		return false
+		return AgentArtifactObjectLocation{}, false
 	}
-	path = strings.TrimLeft(path, "/")
-	marker := fmt.Sprintf("seedance/inputs/staged/%d/%d/sdupl_", owner.UserID, owner.APIKeyID)
-	return strings.Contains(path, marker)
+	objectKey = strings.TrimLeft(objectKey, "/")
+	bucket := strings.TrimSpace(s.store.Bucket())
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if bucket != "" && !strings.Contains(host, strings.ToLower(bucket)) && strings.HasPrefix(objectKey, bucket+"/") {
+		objectKey = strings.TrimPrefix(objectKey, bucket+"/")
+	}
+	if !seedanceObjectKeyBelongsToOwner(objectKey, owner) {
+		return AgentArtifactObjectLocation{}, false
+	}
+	return AgentArtifactObjectLocation{
+		StorageProvider: strings.TrimSpace(s.store.Provider()),
+		Bucket:          bucket,
+		ObjectKey:       objectKey,
+	}, true
+}
+
+// RefreshSeedanceFallbackMediaURLs replaces stored or legacy presigned input
+// URLs with fresh signatures immediately before an asynchronous fallback is
+// prepared. References that are genuinely external remain unchanged.
+func (s *SeedanceMediaService) RefreshSeedanceFallbackMediaURLs(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	info *SeedanceRequestInfo,
+) error {
+	if info == nil {
+		return infraerrors.BadRequest("invalid_request", "Seedance request info is required")
+	}
+	if !validSeedanceMediaOwner(owner) {
+		return infraerrors.BadRequest("invalid_media_owner", "Seedance media owner is invalid")
+	}
+	if !s.IsConfigured() {
+		return infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+
+	stored := make(map[string]AgentArtifactObjectLocation, len(info.StoredMedia))
+	for _, reference := range info.StoredMedia {
+		location := AgentArtifactObjectLocation{
+			StorageProvider: strings.TrimSpace(reference.StorageProvider),
+			Bucket:          strings.TrimSpace(reference.Bucket),
+			ObjectKey:       strings.TrimLeft(strings.TrimSpace(reference.ObjectKey), "/"),
+		}
+		if !seedanceObjectKeyBelongsToOwner(location.ObjectKey, owner) {
+			return errors.New("seedance fallback stored media reference is invalid")
+		}
+		key := seedanceStoredMediaKey(reference.Slot, reference.Index)
+		if _, exists := stored[key]; exists {
+			return errors.New("seedance fallback stored media reference is duplicated")
+		}
+		stored[key] = location
+	}
+
+	for _, target := range seedanceRequestMediaTargets(info, true) {
+		if target.url == nil || strings.TrimSpace(*target.url) == "" {
+			continue
+		}
+		location, ok := stored[seedanceStoredMediaKey(target.slot, target.index)]
+		if !ok {
+			location, ok = s.seedanceObjectLocationFromOwnURL(owner, *target.url)
+		}
+		if !ok {
+			continue
+		}
+		signed, err := s.presignLocation(ctx, location)
+		if err != nil {
+			return err
+		}
+		*target.url = signed
+	}
+	return nil
+}
+
+// DeleteSeedanceFallbackMedia removes only request-scoped copies created for a
+// task. Staged user uploads are deliberately excluded and remain reusable for
+// their normal upload lifetime.
+func (s *SeedanceMediaService) DeleteSeedanceFallbackMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	snapshot []byte,
+) error {
+	if len(snapshot) == 0 || s == nil || s.store == nil {
+		return nil
+	}
+	var storedSnapshot seedanceFallbackSnapshot
+	if err := json.Unmarshal(snapshot, &storedSnapshot); err != nil {
+		// Cleanup must never make an otherwise terminal task permanently
+		// unsettled because of a legacy or malformed optional snapshot.
+		return nil
+	}
+	locations := make(map[string]AgentArtifactObjectLocation)
+	add := func(location AgentArtifactObjectLocation, explicitlyTemporary bool) {
+		location.StorageProvider = strings.TrimSpace(location.StorageProvider)
+		location.Bucket = strings.TrimSpace(location.Bucket)
+		location.ObjectKey = strings.TrimLeft(strings.TrimSpace(location.ObjectKey), "/")
+		if !explicitlyTemporary || !seedanceObjectKeyBelongsToOwner(location.ObjectKey, owner) ||
+			!seedanceObjectKeyIsTaskOwned(location.ObjectKey, owner) {
+			return
+		}
+		key := location.StorageProvider + "\x00" + location.Bucket + "\x00" + location.ObjectKey
+		locations[key] = location
+	}
+	for _, reference := range storedSnapshot.StoredMedia {
+		add(AgentArtifactObjectLocation{
+			StorageProvider: reference.StorageProvider,
+			Bucket:          reference.Bucket,
+			ObjectKey:       reference.ObjectKey,
+		}, reference.DeleteAfterSettlement)
+	}
+	legacyURLs := []string{storedSnapshot.StartFrameURL, storedSnapshot.EndFrameURL}
+	for _, reference := range storedSnapshot.References {
+		legacyURLs = append(legacyURLs, reference.URL)
+	}
+	for _, reference := range storedSnapshot.VideoReferences {
+		legacyURLs = append(legacyURLs, reference.URL)
+	}
+	for _, reference := range storedSnapshot.AudioReferences {
+		legacyURLs = append(legacyURLs, reference.URL)
+	}
+	for _, rawURL := range legacyURLs {
+		if location, ok := s.seedanceObjectLocationFromOwnURL(owner, rawURL); ok {
+			add(location, seedanceObjectKeyIsTaskOwned(location.ObjectKey, owner))
+		}
+	}
+
+	var firstErr error
+	for _, location := range locations {
+		if err := s.store.DeleteObject(ctx, location); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func (s *SeedanceMediaService) OpenManagedUpload(ctx context.Context, owner SeedanceMediaOwner, uploadID, rangeHeader string) (*SeedanceMediaStream, error) {
@@ -939,6 +1181,39 @@ func (s *SeedanceMediaService) fetchAndStoreImage(ctx context.Context, owner See
 	})
 }
 
+func (s *SeedanceMediaService) fetchAndStoreReferenceMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	source, mediaKind string,
+) (*SeedanceImageUpload, error) {
+	if mediaKind == "image" {
+		return s.fetchAndStoreImage(ctx, owner, source)
+	}
+	limit := huiquMaxVideoBytes
+	if mediaKind == "audio" {
+		limit = huiquMaxAudioBytes
+	}
+	downloaded, err := s.downloadHuiquMedia(ctx, source, mediaKind, "fallback-"+mediaKind, 0, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.Remove(downloaded.Path) }()
+	file, err := os.Open(downloaded.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return s.UploadMedia(ctx, SeedanceImageUploadInput{
+		Owner:       owner,
+		Body:        file,
+		SizeBytes:   downloaded.SizeBytes,
+		ContentType: downloaded.ContentType,
+		Filename:    downloaded.Filename,
+		MediaKind:   mediaKind,
+		Persistent:  false,
+	})
+}
+
 func (s *SeedanceMediaService) loadManagedUpload(ctx context.Context, owner SeedanceMediaOwner, uploadID string) (seedanceMediaRecord, error) {
 	if s == nil || s.redisClient == nil || !strings.HasPrefix(uploadID, "sdupl_") {
 		return seedanceMediaRecord{}, infraerrors.NotFound("upload_not_found", "Seedance image upload not found")
@@ -969,11 +1244,18 @@ func (s *SeedanceMediaService) saveRecord(ctx context.Context, key string, recor
 }
 
 func (s *SeedanceMediaService) presignRecord(ctx context.Context, record seedanceMediaRecord) (string, error) {
+	return s.presignLocation(ctx, record.location())
+}
+
+func (s *SeedanceMediaService) presignLocation(ctx context.Context, location AgentArtifactObjectLocation) (string, error) {
 	if !s.IsConfigured() {
 		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
+	if strings.TrimSpace(location.ObjectKey) == "" {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "Seedance media object location is invalid")
+	}
 	presignTTL, _ := s.runtimeStorageLimits(ctx)
-	signed, err := s.store.PresignGetObject(ctx, record.location(), presignTTL)
+	signed, err := s.store.PresignGetObject(ctx, location, presignTTL)
 	if err != nil {
 		return "", infraerrors.ServiceUnavailable("media_storage_error", "failed to sign Seedance media URL")
 	}

@@ -48,6 +48,17 @@ const messages: Record<string, string> = {
   'usage.imageSizeUnknown': 'unknown',
   'usage.imageUnitPrice': 'Per-image price',
   'usage.imageTotalPrice': 'Image total price',
+  'usage.videoSettlement.queued': 'Queued',
+  'usage.videoSettlement.running': 'Generating',
+  'usage.videoSettlement.unknown': 'Confirming status',
+  'usage.videoSettlement.succeeded': 'Succeeded',
+  'usage.videoSettlement.failed_refunded': 'Failed · Refunded',
+  'usage.videoSettlement.cancelled_refunded': 'Cancelled · Refunded',
+  'usage.videoSettlement.refunded': 'Refunded',
+  'usage.videoSettlement.refund_pending': 'Refund pending',
+  'usage.videoSettlement.refund_error': 'Refund error',
+  'usage.videoSettlement.detail': 'Status detail: {detail}',
+  'usage.videoSettlement.settledAt': 'Settled at: {time}',
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
@@ -58,7 +69,13 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, string>) => {
+        const message = messages[key] ?? key
+        return Object.entries(params ?? {}).reduce(
+          (result, [name, value]) => result.replace(`{${name}}`, value),
+          message,
+        )
+      },
     }),
   }
 })
@@ -360,6 +377,128 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('Per-image price')
     expect(text).toContain('not recorded')
     expect(text).not.toContain('(2K)')
+  })
+})
+
+describe('admin UsageTable video settlement status', () => {
+  const baseVideoRow = {
+    request_id: 'req-video-settlement',
+    model: 'sd2-mx933-720-1s',
+    actual_cost: 4.4,
+    total_cost: 4.4,
+    account_rate_multiplier: 1,
+    rate_multiplier: 1,
+    input_cost: 0,
+    output_cost: 0,
+    cache_creation_cost: 0,
+    cache_read_cost: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+  }
+
+  it.each([
+    { task: 'queued', refund: null, state: 'queued', label: 'Queued', color: 'text-amber-700' },
+    { task: 'running', refund: null, state: 'running', label: 'Generating', color: 'text-amber-700' },
+    { task: 'unknown', refund: null, state: 'unknown', label: 'Confirming status', color: 'text-amber-700' },
+    { task: 'succeeded', refund: null, state: 'succeeded', label: 'Succeeded', color: 'text-emerald-700' },
+    { task: 'failed', refund: 'applied', state: 'failed_refunded', label: 'Failed · Refunded', color: 'text-violet-700' },
+    { task: 'cancelled', refund: 'applied', state: 'cancelled_refunded', label: 'Cancelled · Refunded', color: 'text-violet-700' },
+    { task: 'failed', refund: 'pending', state: 'refund_pending', label: 'Refund pending', color: 'text-amber-700' },
+    { task: 'failed', refund: 'failed', state: 'refund_error', label: 'Refund error', color: 'text-rose-700' },
+  ])('renders $state for a settled video usage row', ({ task, refund, state, label, color }) => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseVideoRow,
+          video_task_status: task,
+          video_refund_status: refund,
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const badge = wrapper.get('[data-testid="video-settlement-status"]')
+    expect(badge.text()).toBe(label)
+    expect(badge.attributes('data-status')).toBe(state)
+    expect(badge.classes()).toContain(color)
+  })
+
+  it('treats a terminal failure without a completed refund as refund pending', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseVideoRow, video_task_status: 'failed' }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.get('[data-testid="video-settlement-status"]').text()).toBe('Refund pending')
+    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-amber-600')
+  })
+
+  it('prioritizes refund errors and exposes settlement details in the badge tooltip', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseVideoRow,
+          video_task_status: 'succeeded',
+          video_refund_status: 'error',
+          video_settlement_error: 'balance update failed',
+          video_settled_at: '2026-08-04T10:00:00Z',
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    const badge = wrapper.get('[data-testid="video-settlement-status"]')
+    expect(badge.text()).toBe('Refund error')
+    expect(badge.attributes('title')).toContain('Status detail: balance update failed')
+    expect(badge.attributes('title')).toContain('Settled at:')
+    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-rose-600')
+  })
+
+  it('shows a refunded task failure as status detail instead of a refund error', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseVideoRow,
+          actual_cost: 0,
+          video_task_status: 'failed',
+          video_refund_status: 'applied',
+          video_settlement_error: 'video generation was rejected',
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    const badge = wrapper.get('[data-testid="video-settlement-status"]')
+    expect(badge.text()).toBe('Failed · Refunded')
+    expect(badge.attributes('title')).toContain('Status detail: video generation was rejected')
+    expect(badge.attributes('title')).not.toContain('Refund error')
+  })
+
+  it('keeps legacy non-video usage rows unchanged', () => {
+    const wrapper = mount(UsageTable, {
+      props: { data: [baseVideoRow], loading: false, columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.find('[data-testid="video-settlement-status"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-green-600')
   })
 })
 

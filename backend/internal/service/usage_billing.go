@@ -122,7 +122,9 @@ type UsageBillingApplyResult struct {
 // SeedanceUsageRefundResult describes an idempotent reversal of an accepted
 // Seedance task that later reached a failed or cancelled terminal state.
 type SeedanceUsageRefundResult struct {
+	Found          bool
 	Applied        bool
+	NotRequired    bool
 	UsageLogID     int64
 	UserID         int64
 	APIKeyID       int64
@@ -194,4 +196,11 @@ type UsageBillingRepository interface {
 	ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
+}
+
+// DurableUsageBillingRepository applies billing and persists its usage row in
+// one transaction. Asynchronous jobs that may later be refunded must use this
+// capability so a committed charge can never exist without its refund key.
+type DurableUsageBillingRepository interface {
+	ApplyWithUsageLog(ctx context.Context, cmd *UsageBillingCommand, usageLog *UsageLog) (*UsageBillingApplyResult, error)
 }

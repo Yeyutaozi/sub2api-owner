@@ -1,10 +1,53 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
+
+type SeedanceFallbackLeaseRenewFunc func(context.Context) (bool, error)
+
+// MaintainSeedanceFallbackLease cancels the returned context if ownership of
+// a fallback-creation claim cannot be renewed. Media preparation and create
+// forwarding should use that context so an expired creator cannot race a newer
+// worker after a long multi-file download.
+func MaintainSeedanceFallbackLease(parent context.Context, renew SeedanceFallbackLeaseRenewFunc) (context.Context, func() error) {
+	ctx, cancel := context.WithCancel(parent)
+	if renew == nil {
+		return ctx, func() error { cancel(); return nil }
+	}
+	done := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(SeedanceFallbackLeaseDuration / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				done <- nil
+				return
+			case <-ticker.C:
+				renewCtx, renewCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				renewed, err := renew(renewCtx)
+				renewCancel()
+				if err != nil || !renewed {
+					if err == nil {
+						err = errors.New("seedance fallback claim is no longer owned")
+					}
+					cancel()
+					done <- err
+					return
+				}
+			}
+		}
+	}()
+	return ctx, func() error {
+		cancel()
+		return <-done
+	}
+}
 
 const (
 	SeedanceFallbackStatusReady      = "ready"
@@ -16,17 +59,18 @@ const (
 )
 
 type seedanceFallbackSnapshot struct {
-	Prompt          string                   `json:"prompt"`
-	Resolution      string                   `json:"resolution"`
-	DurationSeconds int                      `json:"duration_seconds"`
-	AspectRatio     string                   `json:"aspect_ratio"`
-	GenerateAudio   bool                     `json:"generate_audio"`
-	PromptEnhance   any                      `json:"prompt_enhance,omitempty"`
-	StartFrameURL   string                   `json:"start_frame_url,omitempty"`
-	EndFrameURL     string                   `json:"end_frame_url,omitempty"`
-	References      []SeedanceReferenceImage `json:"image_references,omitempty"`
-	VideoReferences []SeedanceReferenceVideo `json:"video_references,omitempty"`
-	AudioReferences []SeedanceReferenceAudio `json:"audio_references,omitempty"`
+	Prompt          string                         `json:"prompt"`
+	Resolution      string                         `json:"resolution"`
+	DurationSeconds int                            `json:"duration_seconds"`
+	AspectRatio     string                         `json:"aspect_ratio"`
+	GenerateAudio   bool                           `json:"generate_audio"`
+	PromptEnhance   any                            `json:"prompt_enhance,omitempty"`
+	StartFrameURL   string                         `json:"start_frame_url,omitempty"`
+	EndFrameURL     string                         `json:"end_frame_url,omitempty"`
+	References      []SeedanceReferenceImage       `json:"image_references,omitempty"`
+	VideoReferences []SeedanceReferenceVideo       `json:"video_references,omitempty"`
+	AudioReferences []SeedanceReferenceAudio       `json:"audio_references,omitempty"`
+	StoredMedia     []SeedanceStoredMediaReference `json:"stored_media,omitempty"`
 }
 
 // SeedanceFallbackModelFor maps only the 720p FFLink Seedance 431 family to
@@ -65,6 +109,7 @@ func SnapshotSeedanceFallbackRequest(info *SeedanceRequestInfo) ([]byte, error) 
 		References:      append([]SeedanceReferenceImage(nil), info.References...),
 		VideoReferences: append([]SeedanceReferenceVideo(nil), info.VideoReferences...),
 		AudioReferences: append([]SeedanceReferenceAudio(nil), info.AudioReferences...),
+		StoredMedia:     append([]SeedanceStoredMediaReference(nil), info.StoredMedia...),
 	}
 	return json.Marshal(snapshot)
 }
@@ -93,6 +138,7 @@ func RestoreSeedanceFallbackRequest(snapshot []byte, fallbackModel string) (*See
 		References:      append([]SeedanceReferenceImage(nil), stored.References...),
 		VideoReferences: append([]SeedanceReferenceVideo(nil), stored.VideoReferences...),
 		AudioReferences: append([]SeedanceReferenceAudio(nil), stored.AudioReferences...),
+		StoredMedia:     append([]SeedanceStoredMediaReference(nil), stored.StoredMedia...),
 	}
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
 		return nil, err
