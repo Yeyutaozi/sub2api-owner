@@ -23,9 +23,41 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		"seedance-2.0",
 		"seedance-2.0-fast",
 		"seedance-2.0-mini",
-		"sd2-mx933-720-1s",
-		"sd2-mx933-720-fast-1s",
+		SeedanceMX933Model,
+		SeedanceMX933FastModel,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
+}
+
+func TestSeedanceIndexedJobFallbackHidesLegacyMX933Model(t *testing.T) {
+	job := seedanceIndexedJobFallback(SeedanceTaskBinding{
+		JobID: "hqv1_legacy_task",
+		Model: SeedanceMX933LegacyFastModel,
+	})
+	require.Equal(t, SeedanceMX933FastModel, job["model"])
+}
+
+func TestSeedanceStatusResponsesHideLegacyMX933Model(t *testing.T) {
+	normalized, err := NormalizeSeedanceJobForRoute(
+		[]byte(`{"status":"completed","model":"sd2-mx933-720-fast-10s"}`),
+		"hqv1_legacy_task",
+		VideoProviderHuiqu,
+		SeedanceMX933LegacyFastModel,
+	)
+	require.NoError(t, err)
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &job))
+	require.Equal(t, SeedanceMX933FastModel, job["model"])
+	require.NotContains(t, string(normalized), SeedanceMX933LegacyFastModel)
+
+	official, err := BuildSeedanceOfficialTaskResponseForRoute(
+		"hqv1_legacy_task",
+		[]byte(`{"status":"failed","model":"sd2-mx933-720-10s"}`),
+		"",
+		VideoProviderHuiqu,
+		SeedanceMX933LegacyModel,
+	)
+	require.NoError(t, err)
+	require.Equal(t, SeedanceMX933Model, official["model"])
 }
 
 type seedanceHTTPUpstreamStub struct {
@@ -202,7 +234,7 @@ func TestParseSeedanceCreateRequestTextOnly(t *testing.T) {
 		"model":"seedance-2.0",
 		"content":[{"type":"text","text":"A slow aerial shot"}],
 		"ratio":"16:9",
-		"duration":8,
+		"duration":10,
 		"resolution":"720p",
 		"generate_audio":true,
 		"watermark":false
@@ -211,7 +243,7 @@ func TestParseSeedanceCreateRequestTextOnly(t *testing.T) {
 	require.Equal(t, "seedance-2.0", request.Model)
 	require.Equal(t, "A slow aerial shot", request.Prompt)
 	require.Equal(t, "16:9", request.AspectRatio)
-	require.Equal(t, 8, request.DurationSeconds)
+	require.Equal(t, 10, request.DurationSeconds)
 	require.Equal(t, "720p", request.Resolution)
 	require.True(t, request.GenerateAudio)
 
@@ -222,8 +254,44 @@ func TestParseSeedanceCreateRequestTextOnly(t *testing.T) {
 	require.Equal(t, "seedance-2.0-fast", upstream["model"])
 	require.Equal(t, "A slow aerial shot", upstream["prompt"])
 	require.Equal(t, "16:9", upstream["aspect_ratio"])
-	require.Equal(t, float64(8), upstream["duration"])
+	require.Equal(t, float64(10), upstream["duration"])
 	require.Equal(t, true, upstream["audio"])
+}
+
+func TestParseSeedanceRequestsOnlyDefaultOmittedDuration(t *testing.T) {
+	privateOmitted, err := ParseSeedanceCreateRequest([]byte(`{
+		"model":"seedance-2.0",
+		"content":[{"type":"text","text":"Use the default duration"}]
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, 5, privateOmitted.DurationSeconds)
+
+	publicOmitted, err := ParseSeedanceVideoGenerationRequest([]byte(`{
+		"model":"sd2-mx933",
+		"prompt":"Use the default duration"
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, 5, publicOmitted.DurationSeconds)
+
+	for _, duration := range []string{"0", "null"} {
+		t.Run("private/"+duration, func(t *testing.T) {
+			_, parseErr := ParseSeedanceCreateRequest([]byte(`{
+				"model":"seedance-2.0",
+				"content":[{"type":"text","text":"Reject an explicit empty duration"}],
+				"duration":` + duration + `
+			}`))
+			require.ErrorContains(t, parseErr, "duration must be a positive integer")
+		})
+
+		t.Run("public/"+duration, func(t *testing.T) {
+			_, parseErr := ParseSeedanceVideoGenerationRequest([]byte(`{
+				"model":"sd2-mx933",
+				"prompt":"Reject an explicit empty duration",
+				"duration":` + duration + `
+			}`))
+			require.ErrorContains(t, parseErr, "duration must be a positive integer")
+		})
+	}
 }
 
 func TestParseSeedanceCreateRequestFirstAndLastFrames(t *testing.T) {
@@ -278,7 +346,7 @@ func TestParseSeedanceVideoGenerationRequestPublicGuidances(t *testing.T) {
 		"model":"seedance-2.0",
 		"prompt":"Animate the product",
 		"resolution":"720p",
-		"duration":6,
+		"duration":5,
 		"aspect_ratio":"9:16",
 		"audio":true,
 		"prompt_enhance":true,
@@ -467,7 +535,7 @@ func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {
 		Model:           "doubao-seedance-2-0-pro",
 		Prompt:          "A coastal sunrise",
 		Resolution:      "720p",
-		DurationSeconds: 8,
+		DurationSeconds: 10,
 		AspectRatio:     "16:9",
 	}
 	recorder := httptest.NewRecorder()
@@ -481,7 +549,7 @@ func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {
 	require.Equal(t, "vidjob_123", response.Result.ResponseID)
 	require.Equal(t, "doubao-seedance-2-0-pro", response.Result.Model)
 	require.Equal(t, "seedance-2.0", response.Result.UpstreamModel)
-	require.Equal(t, 8, response.Result.VideoDurationSeconds)
+	require.Equal(t, 10, response.Result.VideoDurationSeconds)
 	require.Equal(t, "720p", response.Result.VideoResolution)
 
 	require.NotNil(t, upstream.request)
@@ -495,7 +563,7 @@ func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {
 	require.NoError(t, json.Unmarshal(forwardedBody, &forwarded))
 	require.Equal(t, "seedance-2.0", forwarded["model"])
 	require.Equal(t, "A coastal sunrise", forwarded["prompt"])
-	require.Equal(t, float64(8), forwarded["duration"])
+	require.Equal(t, float64(10), forwarded["duration"])
 }
 
 func TestForwardSeedanceContentUsesExplicitRangeOverride(t *testing.T) {

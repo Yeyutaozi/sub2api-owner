@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +30,61 @@ type seedanceSettlementHarness struct {
 	fallback      seedanceSettlementFallbackOutcome
 	fallbackErr   error
 	updates       []SeedanceTaskSettlementUpdate
+}
+
+type seedanceSettlementFallbackRepositoryStub struct {
+	UsageLogRepository
+	claimed    bool
+	claimToken string
+	claimCalls int
+	failed     bool
+	failErr    error
+	failCalls  int
+	userID     int64
+	apiKeyID   int64
+	groupID    int64
+	jobID      string
+}
+
+func (s *seedanceSettlementFallbackRepositoryStub) ClaimSeedanceTaskFallback(context.Context, int64, int64, int64, string) (bool, string, error) {
+	s.claimCalls++
+	return s.claimed, s.claimToken, nil
+}
+
+func (s *seedanceSettlementFallbackRepositoryStub) ActivateSeedanceTaskFallback(context.Context, int64, int64, int64, string, string, int64, string) (bool, error) {
+	return false, nil
+}
+
+func (s *seedanceSettlementFallbackRepositoryStub) FailSeedanceTaskFallback(_ context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error) {
+	s.failCalls++
+	s.userID, s.apiKeyID, s.groupID = userID, apiKeyID, groupID
+	s.jobID, s.claimToken = jobID, claimToken
+	return s.failed, s.failErr
+}
+
+func (s *seedanceSettlementFallbackRepositoryStub) ReleaseSeedanceTaskFallback(context.Context, int64, int64, int64, string, string) (bool, error) {
+	return true, nil
+}
+
+func (s *seedanceSettlementFallbackRepositoryStub) RenewSeedanceTaskFallback(context.Context, int64, int64, int64, string, string) (bool, error) {
+	return true, nil
+}
+
+type seedanceSettlementRejectingUpstream struct {
+	calls int
+}
+
+func (s *seedanceSettlementRejectingUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	s.calls++
+	return &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"request rejected"}}`)),
+	}, nil
+}
+
+func (s *seedanceSettlementRejectingUpstream) DoWithTLS(request *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(request, proxyURL, accountID, concurrency)
 }
 
 func newSeedanceSettlementHarness(binding SeedanceTaskBinding) *seedanceSettlementHarness {
@@ -207,6 +269,111 @@ func TestSeedanceSettlementExplicitFallbackRejectionRefundsAfterStateRecheck(t *
 	require.NotNil(t, h.updates[0].SettledAt)
 }
 
+func TestSeedanceSettlementExhaustedExplicitFallbackRejectionsFinalizeAsRejected(t *testing.T) {
+	binding := seedanceSettlementBinding()
+	binding.Model = "seedance-2.0"
+	binding.FallbackModel = SeedanceMX933Model
+	repo := &seedanceSettlementFallbackRepositoryStub{failed: true}
+	worker := &SeedanceSettlementWorker{gateway: &OpenAIGatewayService{usageLogRepo: repo}}
+
+	outcome, err := worker.finalizeFallbackRejection(context.Background(), &binding, "fallback-claim")
+
+	require.NoError(t, err)
+	require.Equal(t, seedanceSettlementFallbackRejected, outcome)
+	require.Equal(t, 1, repo.failCalls)
+	require.Equal(t, []int64{binding.UserID, binding.APIKeyID, binding.GroupID}, []int64{repo.userID, repo.apiKeyID, repo.groupID})
+	require.Equal(t, binding.JobID, repo.jobID)
+	require.Equal(t, "fallback-claim", repo.claimToken)
+}
+
+func TestSeedanceSettlementStartFallbackMarksFailedAfterAllAccountsReject(t *testing.T) {
+	binding := seedanceSettlementBinding()
+	binding.Model = "seedance-2.0"
+	binding.FallbackModel = SeedanceMX933Model
+	binding.FallbackStatus = SeedanceFallbackStatusReady
+	snapshot, err := SnapshotSeedanceFallbackRequest(&SeedanceRequestInfo{
+		Model: "seedance-2.0", Prompt: "fallback rejection integration",
+		Resolution: VideoBillingResolution720P, DurationSeconds: 10, AspectRatio: "16:9",
+	})
+	require.NoError(t, err)
+	binding.RequestSnapshot = snapshot
+
+	repo := &seedanceSettlementFallbackRepositoryStub{claimed: true, claimToken: "fallback-claim", failed: true}
+	accounts := []Account{
+		{ID: 91, Name: "huiqu-one", Platform: PlatformSeedance, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{binding.GroupID}, Credentials: map[string]any{"api_key": "one", "video_provider": VideoProviderHuiqu}},
+		{ID: 92, Name: "huiqu-two", Platform: PlatformSeedance, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{binding.GroupID}, Credentials: map[string]any{"api_key": "two", "video_provider": VideoProviderHuiqu}},
+	}
+	upstream := &seedanceSettlementRejectingUpstream{}
+	gateway := &OpenAIGatewayService{
+		accountRepo:  stubOpenAIAccountRepo{accounts: accounts},
+		usageLogRepo: repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+	}
+	miniRedis := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	worker := NewSeedanceSettlementWorker(
+		gateway,
+		NewSeedanceMediaService(newSeedanceMediaMemoryStore(), nil, redisClient),
+		nil,
+		nil,
+	)
+
+	outcome, err := worker.startFallback(context.Background(), &binding)
+
+	require.NoError(t, err)
+	require.Equal(t, seedanceSettlementFallbackRejected, outcome)
+	require.Equal(t, 1, repo.claimCalls)
+	require.Equal(t, 2, upstream.calls)
+	require.Equal(t, 1, repo.failCalls)
+	require.Equal(t, binding.JobID, repo.jobID)
+	require.Equal(t, "fallback-claim", repo.claimToken)
+}
+
+func TestSeedanceSettlementFallbackRejectionFinalizeFailureRemainsRetryable(t *testing.T) {
+	binding := seedanceSettlementBinding()
+	repo := &seedanceSettlementFallbackRepositoryStub{failErr: errors.New("database unavailable")}
+	worker := &SeedanceSettlementWorker{gateway: &OpenAIGatewayService{usageLogRepo: repo}}
+
+	outcome, err := worker.finalizeFallbackRejection(context.Background(), &binding, "fallback-claim")
+
+	require.ErrorContains(t, err, "database unavailable")
+	require.Equal(t, seedanceSettlementFallbackRetry, outcome)
+}
+
+func TestSeedanceFallbackExplicitRejectionClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "bad request", err: &SeedanceUpstreamError{StatusCode: 400}, want: true},
+		{name: "unauthorized failover", err: &UpstreamFailoverError{StatusCode: 401}, want: true},
+		{name: "payment required failover", err: &UpstreamFailoverError{StatusCode: 402}, want: true},
+		{name: "forbidden failover", err: &UpstreamFailoverError{StatusCode: 403}, want: true},
+		{name: "payload too large failover", err: &UpstreamFailoverError{StatusCode: 413}, want: true},
+		{name: "request timeout", err: &SeedanceUpstreamError{StatusCode: 408}, want: false},
+		{name: "rate limited failover", err: &UpstreamFailoverError{StatusCode: 429}, want: false},
+		{name: "upstream unavailable failover", err: &UpstreamFailoverError{StatusCode: 503}, want: false},
+		{name: "provider overloaded failover", err: &UpstreamFailoverError{StatusCode: 529}, want: false},
+		{name: "network error", err: errors.New("connection reset"), want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, isSeedanceFallbackExplicitRejection(test.err))
+		})
+	}
+}
+
+func TestSeedanceFallbackOnlyFinalizesWhenEveryAttemptExplicitlyRejected(t *testing.T) {
+	require.False(t, allSeedanceFallbackAttemptsExplicitlyRejected(0, 0))
+	require.False(t, allSeedanceFallbackAttemptsExplicitlyRejected(2, 1))
+	require.False(t, allSeedanceFallbackAttemptsExplicitlyRejected(4, 0))
+	require.True(t, allSeedanceFallbackAttemptsExplicitlyRejected(1, 1))
+	require.True(t, allSeedanceFallbackAttemptsExplicitlyRejected(4, 4))
+}
+
 func TestSeedanceSettlementUnknownPollingErrorNeverRefunds(t *testing.T) {
 	binding := seedanceSettlementBinding()
 	h := newSeedanceSettlementHarness(binding)
@@ -315,7 +482,7 @@ func TestSeedanceSettlementRetriesTerminalUpdateWhenFallbackMediaCleanupFails(t 
 	binding.Model = "seedance-2.0"
 	binding.FallbackModel = "sd2-mx933-720-1s"
 	snapshot, err := SnapshotSeedanceFallbackRequest(&SeedanceRequestInfo{
-		Model: "seedance-2.0", Resolution: "720p",
+		Model: "seedance-2.0", Resolution: "720p", DurationSeconds: 10,
 		StoredMedia: []SeedanceStoredMediaReference{{
 			Slot: seedanceStoredMediaVideo, StorageProvider: "cos", Bucket: "seedance-test",
 			ObjectKey: "agent-artifacts/seedance/inputs/task/2/3/reference.mp4", DeleteAfterSettlement: true,

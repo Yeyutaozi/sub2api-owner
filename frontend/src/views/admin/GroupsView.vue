@@ -5999,7 +5999,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_1080p = group.video_price_1080p;
   editVideoModelPriceRows.value =
     supportsVideoModelPricingPlatform(group.platform)
-      ? videoModelPricesToRows(group.video_model_prices)
+      ? videoModelPricesToRows(group.video_model_prices, group.platform)
       : [];
   editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
   editForm.peak_rate_enabled = group.peak_rate_enabled ?? false;
@@ -6536,7 +6536,7 @@ watch(
     if (newVal !== oldVal) {
       editVideoModelPriceRows.value = supportsVideoModelPricingPlatform(newVal)
         ? editingGroup.value?.platform === newVal
-          ? videoModelPricesToRows(editingGroup.value.video_model_prices)
+          ? videoModelPricesToRows(editingGroup.value.video_model_prices, newVal)
           : createDefaultVideoModelPriceRows(newVal)
         : [];
     }

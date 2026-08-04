@@ -15,8 +15,8 @@ func TestDefaultModelsListCandidateIDsSeedance(t *testing.T) {
 		"seedance-2.0",
 		"seedance-2.0-fast",
 		"seedance-2.0-mini",
-		"sd2-mx933-720-1s",
-		"sd2-mx933-720-fast-1s",
+		SeedanceMX933Model,
+		SeedanceMX933FastModel,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 	require.Equal(t, []string{
 		"ltx-2.3-pro",

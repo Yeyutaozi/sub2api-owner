@@ -27,8 +27,8 @@ describe("video model pricing form conversion", () => {
       createVideoModelPriceRow("seedance-2.0"),
       createVideoModelPriceRow("seedance-2.0-fast"),
       createVideoModelPriceRow("seedance-2.0-mini"),
-      createVideoModelPriceRow("sd2-mx933-720-1s"),
-      createVideoModelPriceRow("sd2-mx933-720-fast-1s"),
+      createVideoModelPriceRow("sd2-mx933"),
+      createVideoModelPriceRow("sd2-mx933-fast"),
     ]);
     expect(createDefaultVideoModelPriceRows("ltx")).toEqual([
       createVideoModelPriceRow("ltx-2.3-pro"),
@@ -47,11 +47,11 @@ describe("video model pricing form conversion", () => {
       "480p",
       "720p",
     ]);
-    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933-720-1s")).toEqual([
+    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933")).toEqual([
       "480p",
       "720p",
     ]);
-    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933-720-fast-1s")).toEqual([
+    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933-fast")).toEqual([
       "480p",
       "720p",
     ]);
@@ -92,7 +92,7 @@ describe("video model pricing form conversion", () => {
       "seedance-2.0-fast": { "720p": 0.08 },
     };
 
-    expect(videoModelPricesToRows(prices)).toEqual([
+    expect(videoModelPricesToRows(prices, "seedance")).toEqual([
       {
         model: "seedance-2.0",
         price_480p: 0,
@@ -118,8 +118,26 @@ describe("video model pricing form conversion", () => {
     };
 
     expect(
-      videoModelPriceRowsToPrices(videoModelPricesToRows(legacyPrices)),
+      videoModelPriceRowsToPrices(videoModelPricesToRows(legacyPrices, "seedance")),
     ).toEqual(legacyPrices);
+  });
+
+  it("loads legacy MX933 price keys as public models and prefers public prices", () => {
+    const prices = {
+      "sd2-mx933": { "480p": 0.04, "720p": 0.06 },
+      "sd2-mx933-720-1s": { "480p": 0.03, "720p": 0.05 },
+      "sd2-mx933-720-fast-1s": { "720p": 0.02 },
+    };
+
+    const rows = videoModelPricesToRows(prices, "seedance");
+    expect(rows).toEqual([
+      createVideoModelPriceRow("sd2-mx933", { "480p": 0.04, "720p": 0.06 }),
+      createVideoModelPriceRow("sd2-mx933-fast", { "720p": 0.02 }),
+    ]);
+    expect(videoModelPriceRowsToPrices(rows, "seedance")).toEqual({
+      "sd2-mx933": { "480p": 0.04, "720p": 0.06 },
+      "sd2-mx933-fast": { "720p": 0.02 },
+    });
   });
 
   it("uses an empty object when the matrix is cleared", () => {
@@ -140,14 +158,14 @@ describe("video model pricing form conversion", () => {
 
     expect(
       videoModelPriceRowsToPrices([
-        createVideoModelPriceRow("sd2-mx933-720-1s", {
+        createVideoModelPriceRow("sd2-mx933", {
           "480p": 0.03,
           "720p": 0.05,
           "1080p": 0.08,
         }),
       ], "seedance"),
     ).toEqual({
-      "sd2-mx933-720-1s": { "480p": 0.03, "720p": 0.05 },
+      "sd2-mx933": { "480p": 0.03, "720p": 0.05 },
     });
 
     expect(

@@ -179,8 +179,8 @@ const seedanceFFLinkModels = [
 ]
 
 const seedanceHuiquModels = [
-  'sd2-mx933-720-1s',
-  'sd2-mx933-720-fast-1s'
+  'sd2-mx933',
+  'sd2-mx933-fast'
 ]
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels]
@@ -355,8 +355,8 @@ const grokPresetMappings = [
 ]
 
 const seedancePresetMappings = [
-  { label: 'MX933', from: 'sd2-mx933-720-1s', to: 'sd2-mx933-720-1s', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
-  { label: 'MX933 Fast', from: 'sd2-mx933-720-fast-1s', to: 'sd2-mx933-720-fast-1s', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'MX933', from: 'sd2-mx933', to: 'sd2-mx933', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'MX933 Fast', from: 'sd2-mx933-fast', to: 'sd2-mx933-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Legacy Fast alias', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]

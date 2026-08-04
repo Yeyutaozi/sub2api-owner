@@ -333,6 +333,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import {
+  normalizeVideoModelPricesForPlatform,
   supportsVideoModelPricingPlatform,
   videoModelsForPricingPlatform,
   supportedResolutionsForVideoModel,
@@ -386,10 +387,17 @@ const isVideoPricingGroup = computed(() =>
   supportsVideoModelPricingPlatform(props.group?.platform ?? '')
 )
 
+const groupVideoModelPrices = computed(() =>
+  normalizeVideoModelPricesForPlatform(
+    props.group?.platform ?? '',
+    props.group?.video_model_prices,
+  ),
+)
+
 const availableVideoModels = computed(() => [
   ...new Set([
     ...videoModelsForPricingPlatform(props.group?.platform ?? 'seedance'),
-    ...Object.keys(props.group?.video_model_prices ?? {}),
+    ...Object.keys(groupVideoModelPrices.value),
     ...localEntries.value.flatMap(entry => Object.keys(entry.video_model_prices ?? {})),
   ]),
 ])
@@ -402,11 +410,7 @@ const videoPriceGridStyle = (model: string) => ({
 })
 
 const cloneVideoModelPrices = (prices: VideoModelPrices | undefined): VideoModelPrices => {
-  const copy: VideoModelPrices = {}
-  for (const [model, value] of Object.entries(prices ?? {})) {
-    copy[model] = { ...value }
-  }
-  return copy
+  return normalizeVideoModelPricesForPlatform(props.group?.platform ?? '', prices)
 }
 
 const hasVideoPrices = (entry: GroupRateMultiplierEntry): boolean =>
@@ -473,9 +477,9 @@ const loadEntries = async () => {
   try {
     const raw = await adminAPI.groups.getGroupRateMultipliers(props.group.id)
     // RPM 在另一个弹窗管理；视频分组还要保留只设置了专属视频单价的用户。
-    serverEntries.value = raw.filter(e =>
+    serverEntries.value = cloneEntries(raw.filter(e =>
       e.rate_multiplier != null || (isVideoPricingGroup.value && hasVideoPrices(e)),
-    )
+    ))
     localEntries.value = cloneEntries(serverEntries.value)
     adjustPage()
   } catch (error) {
@@ -605,7 +609,7 @@ const groupVideoPricePlaceholder = (
   model: string,
   resolution: VideoModelPriceResolution,
 ): string => {
-  const groupPrice = props.group?.video_model_prices?.[model]?.[resolution]
+  const groupPrice = groupVideoModelPrices.value[model]?.[resolution]
   return groupPrice == null
     ? t('admin.groups.videoPriceOverrides.notConfigured')
     : t('admin.groups.videoPriceOverrides.inheritPrice', { price: groupPrice })

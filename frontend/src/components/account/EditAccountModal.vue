@@ -3267,6 +3267,44 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
+const HUIQU_SEEDANCE_PUBLIC_MODEL_BY_ID: Record<string, string> = {
+  'sd2-mx933': 'sd2-mx933',
+  'sd2-mx933-fast': 'sd2-mx933-fast',
+  'sd2-mx933-720-1s': 'sd2-mx933',
+  'sd2-mx933-720-fast-1s': 'sd2-mx933-fast'
+}
+
+const normalizeHuiquSeedanceModelMapping = (
+  rawMapping?: Record<string, unknown>
+): Record<string, unknown> | undefined => {
+  if (!rawMapping) return rawMapping
+
+  const explicitPublicModels = new Set<string>(
+    Object.keys(rawMapping)
+      .map(model => model.trim().toLowerCase())
+      .filter(model => model === 'sd2-mx933' || model === 'sd2-mx933-fast')
+  )
+  const normalized: Record<string, unknown> = {}
+
+  for (const [rawFrom, rawTo] of Object.entries(rawMapping)) {
+    const fromID = rawFrom.trim().toLowerCase()
+    const publicFrom = HUIQU_SEEDANCE_PUBLIC_MODEL_BY_ID[fromID] ?? rawFrom.trim()
+    const isLegacyFrom = publicFrom !== fromID
+    if (isLegacyFrom && explicitPublicModels.has(publicFrom)) {
+      continue
+    }
+
+    if (typeof rawTo === 'string') {
+      const toID = rawTo.trim().toLowerCase()
+      normalized[publicFrom] = HUIQU_SEEDANCE_PUBLIC_MODEL_BY_ID[toID] ?? rawTo.trim()
+    } else {
+      normalized[publicFrom] = rawTo
+    }
+  }
+
+  return normalized
+}
+
 const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
   const parsed = splitModelMappingObject(rawMapping)
   allowedModels.value = parsed.allowedModels
@@ -3554,8 +3592,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
-    // Load model mappings and detect mode
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+    // Load model mappings and detect mode. Existing MX933 accounts may still use fixed execution IDs.
+    const rawModelMapping = credentials.model_mapping as Record<string, unknown> | undefined
+    loadModelRestrictionFromMapping(
+      newAccount.platform === 'seedance' && seedanceVideoProvider.value === 'huiqu'
+        ? normalizeHuiquSeedanceModelMapping(rawModelMapping)
+        : rawModelMapping
+    )
 
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true

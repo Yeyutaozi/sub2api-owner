@@ -844,6 +844,13 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if mappingSupportsRequestedModel(mapping, requestedModel) {
 		return true
 	}
+	if a.Platform == PlatformSeedance {
+		for _, candidate := range seedanceModelLookupCandidates(requestedModel) {
+			if candidate != requestedModel && mappingSupportsRequestedModel(mapping, candidate) {
+				return true
+			}
+		}
+	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
 }
@@ -864,6 +871,16 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 	}
 	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
 		return mappedModel, true
+	}
+	if a.Platform == PlatformSeedance {
+		for _, candidate := range seedanceModelLookupCandidates(requestedModel) {
+			if candidate == requestedModel {
+				continue
+			}
+			if mappedModel, matched := resolveRequestedModelInMapping(mapping, candidate); matched {
+				return mappedModel, true
+			}
+		}
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	if normalized != requestedModel {

@@ -43,7 +43,7 @@ const baseDialogStub = {
 }
 
 const makeGroup = (
-  platform: 'ltx' | 'happyhorse',
+  platform: 'seedance' | 'ltx' | 'happyhorse',
   videoModelPrices: AdminGroup['video_model_prices'],
 ): AdminGroup => ({
   id: 17,
@@ -150,5 +150,57 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
     expect(labels.some(label => label.includes('1080p'))).toBe(true)
     expect(labels.some(label => label.includes('480p'))).toBe(false)
     expect(labels.some(label => label.includes('1440p'))).toBe(false)
+  })
+
+  it('normalizes legacy MX933 group and user prices to public model IDs before saving', async () => {
+    apiMocks.getGroupRateMultipliers.mockResolvedValue([
+      {
+        user_id: 11,
+        user_name: 'Seedance User',
+        user_email: 'seedance@example.com',
+        user_notes: '',
+        user_status: 'active',
+        rate_multiplier: null,
+        video_model_prices: {
+          'sd2-mx933-720-1s': { '480p': 0.03, '720p': 0.05 },
+          'sd2-mx933': { '480p': 0.04, '720p': 0.06 },
+          'sd2-mx933-720-fast-1s': { '720p': 0.02 },
+        },
+      },
+    ])
+    const wrapper = await mountAndOpen(makeGroup('seedance', {
+      'sd2-mx933-720-1s': { '480p': 0.03, '720p': 0.05 },
+      'sd2-mx933-fast': { '480p': 0.04, '720p': 0.06 },
+    }))
+
+    const configure = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+    )
+    await configure!.trigger('click')
+
+    expect(wrapper.text()).toContain('sd2-mx933')
+    expect(wrapper.text()).toContain('sd2-mx933-fast')
+    expect(wrapper.text()).not.toContain('sd2-mx933-720-1s')
+    expect(wrapper.text()).not.toContain('sd2-mx933-720-fast-1s')
+
+    const legacyFastPrice = wrapper.findAll('input').find(input =>
+      (input.element as HTMLInputElement).value === '0.02',
+    )
+    await legacyFastPrice!.setValue('0.025')
+    await legacyFastPrice!.trigger('change')
+
+    const save = wrapper.findAll('button').find(button => button.text() === 'common.save')
+    await save!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.batchSetGroupVideoModelPrices).toHaveBeenCalledWith(17, [
+      {
+        user_id: 11,
+        video_model_prices: {
+          'sd2-mx933': { '480p': 0.04, '720p': 0.06 },
+          'sd2-mx933-fast': { '720p': 0.025 },
+        },
+      },
+    ])
   })
 })

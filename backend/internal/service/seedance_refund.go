@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
@@ -33,17 +34,26 @@ func (s *OpenAIGatewayService) RefundSeedanceUsage(
 		return result, err
 	}
 
+	var cacheErrs []error
 	if result.BillingType == BillingTypeBalance {
-		_ = s.billingCacheService.InvalidateUserBalance(ctx, result.UserID)
+		if err := s.billingCacheService.InvalidateUserBalance(ctx, result.UserID); err != nil {
+			cacheErrs = append(cacheErrs, fmt.Errorf("invalidate refunded user balance cache: %w", err))
+		}
+	}
+	if result.BillingType == BillingTypeSubscription && result.GroupID != nil {
+		if err := s.billingCacheService.InvalidateSubscription(ctx, result.UserID, *result.GroupID); err != nil {
+			cacheErrs = append(cacheErrs, fmt.Errorf("invalidate refunded subscription cache: %w", err))
+		}
+	}
+	if err := s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, result.APIKeyID); err != nil {
+		cacheErrs = append(cacheErrs, fmt.Errorf("invalidate refunded api key rate limit cache: %w", err))
 	}
 	if cache := s.billingCacheService.cache; cache != nil {
-		if result.BillingType == BillingTypeSubscription && result.GroupID != nil {
-			_ = cache.InvalidateSubscriptionCache(ctx, result.UserID, *result.GroupID)
-		}
-		_ = cache.InvalidateAPIKeyRateLimit(ctx, result.APIKeyID)
 		if result.Platform != "" {
-			_ = cache.DeleteUserPlatformQuotaCache(ctx, result.UserID, result.Platform)
+			if err := cache.DeleteUserPlatformQuotaCache(ctx, result.UserID, result.Platform); err != nil {
+				cacheErrs = append(cacheErrs, fmt.Errorf("invalidate refunded platform quota cache: %w", err))
+			}
 		}
 	}
-	return result, nil
+	return result, errors.Join(cacheErrs...)
 }

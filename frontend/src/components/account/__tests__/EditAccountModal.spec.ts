@@ -280,7 +280,7 @@ function buildGrokAPIKeyAccount() {
 }
 
 function buildSeedanceAccount(videoProvider: 'fflink' | 'huiqu' = 'fflink') {
-  const model = videoProvider === 'huiqu' ? 'sd2-mx933-720-1s' : 'seedance-2.0'
+  const model = videoProvider === 'huiqu' ? 'sd2-mx933' : 'seedance-2.0'
   return {
     ...buildAccount(),
     id: 7,
@@ -352,8 +352,37 @@ describe('EditAccountModal', () => {
       video_provider: 'huiqu',
       api_key: 'new-huiqu-key',
       model_mapping: {
-        'sd2-mx933-720-1s': 'sd2-mx933-720-1s',
-        'sd2-mx933-720-fast-1s': 'sd2-mx933-720-fast-1s'
+        'sd2-mx933': 'sd2-mx933',
+        'sd2-mx933-fast': 'sd2-mx933-fast'
+      }
+    })
+  })
+
+  it('normalizes a legacy Huiqu Seedance mapping to public models before display and save', async () => {
+    const account = buildSeedanceAccount('huiqu')
+    account.credentials.model_mapping = {
+      'sd2-mx933-720-1s': 'sd2-mx933-720-1s',
+      'sd2-mx933': 'sd2-mx933',
+      'sd2-mx933-720-fast-1s': 'sd2-mx933-720-fast-1s'
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe(
+      'sd2-mx933,sd2-mx933-fast'
+    )
+    expect(wrapper.text()).not.toContain('sd2-mx933-720-1s')
+    expect(wrapper.text()).not.toContain('sd2-mx933-720-fast-1s')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      video_provider: 'huiqu',
+      model_mapping: {
+        'sd2-mx933': 'sd2-mx933',
+        'sd2-mx933-fast': 'sd2-mx933-fast'
       }
     })
   })

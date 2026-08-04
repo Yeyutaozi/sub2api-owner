@@ -1,8 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,16 +85,18 @@ func TestSeedanceFallbackModelForOnlyMapsSupportedFFLink720pModels(t *testing.T)
 	tests := []struct {
 		model      string
 		resolution string
+		duration   int
 		wantModel  string
 		wantOK     bool
 	}{
-		{model: "seedance-2.0", resolution: "720p", wantModel: "sd2-mx933-720-1s", wantOK: true},
-		{model: "seedance-2.0-fast", resolution: "720p", wantModel: "sd2-mx933-720-fast-1s", wantOK: true},
-		{model: "seedance-2.0-mini", resolution: "720p", wantOK: false},
-		{model: "seedance-2.0", resolution: "1080p", wantOK: false},
+		{model: "seedance-2.0", resolution: "720p", duration: 5, wantModel: SeedanceMX933Model, wantOK: true},
+		{model: "seedance-2.0-fast", resolution: "720p", duration: 15, wantModel: SeedanceMX933FastModel, wantOK: true},
+		{model: "seedance-2.0-mini", resolution: "720p", duration: 10, wantOK: false},
+		{model: "seedance-2.0", resolution: "1080p", duration: 10, wantOK: false},
+		{model: "seedance-2.0", resolution: "720p", duration: 8, wantOK: false},
 	}
 	for _, test := range tests {
-		got, ok := SeedanceFallbackModelFor(test.model, test.resolution)
+		got, ok := SeedanceFallbackModelFor(test.model, test.resolution, test.duration)
 		require.Equal(t, test.wantOK, ok, test.model+"/"+test.resolution)
 		require.Equal(t, test.wantModel, got, test.model+"/"+test.resolution)
 	}
@@ -101,7 +107,7 @@ func TestSeedanceFallbackSnapshotPreservesRequestShape(t *testing.T) {
 		Model:           "seedance-2.0",
 		Prompt:          "keep the subject and motion",
 		Resolution:      "720p",
-		DurationSeconds: 7,
+		DurationSeconds: 10,
 		AspectRatio:     "9:16",
 		GenerateAudio:   true,
 		PromptEnhance:   "AUTO",
@@ -120,9 +126,9 @@ func TestSeedanceFallbackSnapshotPreservesRequestShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(snapshot, &raw))
 	require.Equal(t, "AUTO", raw["prompt_enhance"])
 
-	restored, err := RestoreSeedanceFallbackRequest(snapshot, "sd2-mx933-720-1s")
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, SeedanceMX933Model)
 	require.NoError(t, err)
-	require.Equal(t, "sd2-mx933-720-1s", restored.Model)
+	require.Equal(t, SeedanceMX933Model, restored.Model)
 	require.Equal(t, info.Prompt, restored.Prompt)
 	require.Equal(t, info.DurationSeconds, restored.DurationSeconds)
 	require.Equal(t, info.PromptEnhance, restored.PromptEnhance)
@@ -130,4 +136,83 @@ func TestSeedanceFallbackSnapshotPreservesRequestShape(t *testing.T) {
 	require.Len(t, restored.VideoReferences, 1)
 	require.Len(t, restored.AudioReferences, 1)
 	require.Equal(t, info.StoredMedia, restored.StoredMedia)
+}
+
+func TestSeedanceFallbackAudioReferenceEnablesHuiquGeneratedAudio(t *testing.T) {
+	info := &SeedanceRequestInfo{
+		Model:           "seedance-2.0",
+		Prompt:          "preserve the reference sound",
+		Resolution:      VideoBillingResolution720P,
+		DurationSeconds: 10,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://media.example/reference.png"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://media.example/reference.wav"}},
+	}
+	snapshot, err := SnapshotSeedanceFallbackRequest(info)
+	require.NoError(t, err)
+
+	var raw seedanceFallbackSnapshot
+	require.NoError(t, json.Unmarshal(snapshot, &raw))
+	require.True(t, raw.GenerateAudio)
+
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, SeedanceMX933Model)
+	require.NoError(t, err)
+	require.True(t, restored.GenerateAudio)
+	restored.HuiquMedia = &SeedanceHuiquPreparedMedia{
+		Images: []SeedanceHuiquMediaFile{huiquTestMediaFile(t, "reference.png", "image/png", []byte("image"))},
+		Audios: []SeedanceHuiquMediaFile{huiquTestMediaFile(t, "reference.wav", "audio/wav", []byte("audio"))},
+	}
+
+	body, err := buildHuiquMultipartBody(restored, "sd2-mx933-720-10s")
+	require.NoError(t, err)
+	defer body.Close()
+	mediaType, params, err := mime.ParseMediaType(body.ContentType)
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	payload, err := io.ReadAll(body.File)
+	require.NoError(t, err)
+	reader := multipart.NewReader(bytes.NewReader(payload), params["boundary"])
+	fields := map[string][]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		value, readErr := io.ReadAll(part)
+		require.NoError(t, readErr)
+		fields[part.FormName()] = append(fields[part.FormName()], string(value))
+	}
+	require.Equal(t, []string{"true"}, fields["generate_audio"])
+}
+
+func TestRestoreLegacyFallbackSnapshotAudioReferenceEnablesGeneratedAudio(t *testing.T) {
+	snapshot, err := json.Marshal(seedanceFallbackSnapshot{
+		Prompt: "legacy audio fallback", Resolution: VideoBillingResolution720P,
+		DurationSeconds: 10, AspectRatio: "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://media.example/reference.png"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://media.example/reference.wav"}},
+	})
+	require.NoError(t, err)
+
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, SeedanceMX933LegacyModel)
+	require.NoError(t, err)
+	require.True(t, restored.GenerateAudio)
+}
+
+func TestRestoreSeedanceFallbackRequestAllowsLegacyVariableDurationSnapshot(t *testing.T) {
+	snapshot, err := json.Marshal(seedanceFallbackSnapshot{
+		Prompt: "legacy in-flight task", Resolution: VideoBillingResolution720P,
+		DurationSeconds: 8, AspectRatio: "16:9",
+	})
+	require.NoError(t, err)
+
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, SeedanceMX933LegacyModel)
+	require.NoError(t, err)
+	require.Equal(t, 8, restored.DurationSeconds)
+	require.Equal(t, SeedanceMX933LegacyModel, restored.Model)
+
+	upstreamModel, err := huiquUpstreamModelFor(restored.Model, restored.DurationSeconds)
+	require.NoError(t, err)
+	require.Equal(t, SeedanceMX933LegacyModel, upstreamModel)
 }

@@ -1,7 +1,5 @@
 package service
 
-import "strings"
-
 func imagePriceConfigFromAPIKey(apiKey *APIKey) *ImagePriceConfig {
 	if apiKey == nil || apiKey.Group == nil {
 		return nil
@@ -26,7 +24,7 @@ func videoPriceConfigFromAPIKeyForModel(apiKey *APIKey, model string) *VideoPric
 		return nil
 	}
 	if IsFFLinkVideoPlatform(apiKey.Group.Platform) && len(apiKey.Group.VideoModelPrices) > 0 {
-		price, ok := apiKey.Group.VideoModelPrices[strings.ToLower(strings.TrimSpace(model))]
+		price, ok := findVideoModelPrice(apiKey.Group.Platform, apiKey.Group.VideoModelPrices, model)
 		if !ok {
 			return nil
 		}

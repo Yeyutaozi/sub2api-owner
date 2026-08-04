@@ -2,10 +2,12 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,4 +71,20 @@ func TestSeedanceListFallbackResumeCandidateRequiresExpiredLease(t *testing.T) {
 
 	binding.FallbackLeaseUntil = now.Add(time.Minute)
 	require.False(t, seedanceShouldResumeExpiredFallback(binding, http.MethodGet, false, now))
+}
+
+func TestSeedanceQueuedStateHidesLegacyMX933Model(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+
+	writeSeedanceQueuedFallback(ctx, "hqv1_legacy_task", service.SeedanceMX933LegacyModel, true)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{
+		"job_id":"hqv1_legacy_task",
+		"status":"queued",
+		"status_url":"/v1/videos/jobs/hqv1_legacy_task",
+		"model":"sd2-mx933"
+	}`, recorder.Body.String())
 }

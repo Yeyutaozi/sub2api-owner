@@ -42,7 +42,7 @@ var seedanceSensitiveQueryParamPattern = regexp.MustCompile(`(?i)((?:[?&]|\\u002
 var huiquCamelCaseResponseKeyPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 var huiquAbsoluteURLPattern = regexp.MustCompile(`(?i)(?:https?:)?//[^\s"'<>\\]+`)
 var huiquSensitiveAssignmentPattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|token|sig|signature|credential|secret)\s*[=:]\s*)[^\s,;"'}]+`)
-var huiquInternalModelPattern = regexp.MustCompile(`(?i)\bsd2-mx933-720(?:-fast)?-1s\b`)
+var huiquInternalModelPattern = regexp.MustCompile(`(?i)\bsd2-mx933-720(?:-fast)?-(?:1|5|10|15)s\b`)
 var huiquProviderNamePattern = regexp.MustCompile(`(?i)\b(?:huiqu|bjhuiqu)\b`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
@@ -352,6 +352,9 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return nil, errors.New("request body must contain exactly one JSON object")
 	}
+	if err := validateExplicitVideoDuration(body, request.Duration); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(request.Model) == "" {
 		return nil, errors.New("model is required")
 	}
@@ -445,6 +448,9 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return nil, errors.New("request body must contain exactly one JSON object")
 	}
+	if err := validateExplicitVideoDuration(body, request.Duration); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(request.Model) == "" {
 		return nil, errors.New("model is required")
 	}
@@ -534,6 +540,21 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		return nil, err
 	}
 	return info, nil
+}
+
+func validateExplicitVideoDuration(body []byte, duration int) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil
+	}
+	raw, provided := fields["duration"]
+	if !provided {
+		return nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || duration <= 0 {
+		return errors.New("duration must be a positive integer when provided")
+	}
+	return nil
 }
 
 func parseSeedanceImageInput(item SeedanceContentItem) (*seedanceImageInput, error) {
@@ -1184,7 +1205,7 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 	}
 	job["job_id"] = binding.JobID
 	if strings.TrimSpace(binding.Model) != "" {
-		job["model"] = binding.Model
+		job["model"] = PublicSeedanceModelID(binding.Model)
 	}
 	if value, ok := job["status"].(string); !ok || strings.TrimSpace(value) == "" {
 		job["status"] = "unknown"
@@ -1198,7 +1219,7 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 func seedanceIndexedJobFallback(binding SeedanceTaskBinding) map[string]any {
 	job := map[string]any{
 		"job_id":     strings.TrimSpace(binding.JobID),
-		"model":      strings.TrimSpace(binding.Model),
+		"model":      PublicSeedanceModelID(binding.Model),
 		"status":     "unknown",
 		"status_url": SeedancePublicJobsEndpoint + "/" + url.PathEscape(strings.TrimSpace(binding.JobID)),
 	}
@@ -1327,8 +1348,15 @@ func (s *OpenAIGatewayService) forwardSeedance(
 			return nil, errors.New("Seedance create request is required")
 		}
 		requestModel = requestInfo.Model
-		upstreamModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestModel))
 		var err error
+		mappedModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestModel))
+		upstreamModel = mappedModel
+		if provider == VideoProviderHuiqu {
+			upstreamModel, err = huiquUpstreamModelFor(mappedModel, requestInfo.DurationSeconds)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if provider == VideoProviderHuiqu {
 			path = huiquVideoCreatePath
 			if requestInfo.HasReferenceMedia() {
@@ -1578,7 +1606,7 @@ func normalizeSeedancePublicJob(job map[string]any, taskID string, isHuiquTask b
 		job["task_id"] = taskID
 	}
 	job["status_url"] = statusPath
-	if publicModel = strings.TrimSpace(publicModel); publicModel != "" {
+	if publicModel = PublicSeedanceModelID(publicModel); publicModel != "" {
 		job["model"] = publicModel
 	}
 	synthesizeHuiquResult := func() {
@@ -1756,7 +1784,7 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 			response[key] = value
 		}
 	}
-	if publicModel = strings.TrimSpace(publicModel); publicModel != "" {
+	if publicModel = PublicSeedanceModelID(publicModel); publicModel != "" {
 		response["model"] = publicModel
 	}
 	if isHuiquTask {

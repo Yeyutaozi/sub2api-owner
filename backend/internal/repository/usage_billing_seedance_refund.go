@@ -66,7 +66,7 @@ func (r *usageBillingRepository) RefundSeedanceUsage(
 	if err := reverseSeedanceUserCharge(ctx, tx, row); err != nil {
 		return nil, err
 	}
-	if err := reverseSeedanceAPIKeyUsage(ctx, tx, row.apiKeyID, row.actualCost); err != nil {
+	if err := reverseSeedanceAPIKeyUsage(ctx, tx, row.apiKeyID, row.actualCost, row.createdAt); err != nil {
 		return nil, err
 	}
 	if err := reverseSeedanceAccountQuota(ctx, tx, row); err != nil {
@@ -146,12 +146,30 @@ func reverseSeedanceUserCharge(ctx context.Context, tx *sql.Tx, row *seedanceRef
 		}
 		res, err := tx.ExecContext(ctx, `
 			UPDATE user_subscriptions
-			SET daily_usage_usd = GREATEST(0, daily_usage_usd - $1),
-				weekly_usage_usd = GREATEST(0, weekly_usage_usd - $1),
-				monthly_usage_usd = GREATEST(0, monthly_usage_usd - $1),
+			SET daily_usage_usd = CASE
+					WHEN daily_window_start IS NOT NULL
+						AND $3::timestamptz >= daily_window_start
+						AND $3::timestamptz < daily_window_start + INTERVAL '1 day'
+					THEN GREATEST(0, daily_usage_usd - $1)
+					ELSE daily_usage_usd
+				END,
+				weekly_usage_usd = CASE
+					WHEN weekly_window_start IS NOT NULL
+						AND $3::timestamptz >= weekly_window_start
+						AND $3::timestamptz < weekly_window_start + INTERVAL '7 days'
+					THEN GREATEST(0, weekly_usage_usd - $1)
+					ELSE weekly_usage_usd
+				END,
+				monthly_usage_usd = CASE
+					WHEN monthly_window_start IS NOT NULL
+						AND $3::timestamptz >= monthly_window_start
+						AND $3::timestamptz < monthly_window_start + INTERVAL '30 days'
+					THEN GREATEST(0, monthly_usage_usd - $1)
+					ELSE monthly_usage_usd
+				END,
 				updated_at = NOW()
 			WHERE id = $2 AND deleted_at IS NULL
-		`, row.actualCost, row.subscriptionID.Int64)
+		`, row.actualCost, row.subscriptionID.Int64, row.createdAt)
 		if err != nil {
 			return err
 		}
@@ -168,20 +186,32 @@ func reverseSeedanceUserCharge(ctx context.Context, tx *sql.Tx, row *seedanceRef
 	return requireAffectedRow(res, service.ErrUserNotFound)
 }
 
-func reverseSeedanceAPIKeyUsage(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64) error {
+func reverseSeedanceAPIKeyUsage(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64, createdAt time.Time) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE api_keys
 		SET quota_used = CASE WHEN quota > 0 THEN GREATEST(0, quota_used - $1) ELSE quota_used END,
-			usage_5h = CASE WHEN rate_limit_5h > 0 THEN GREATEST(0, usage_5h - $1) ELSE usage_5h END,
-			usage_1d = CASE WHEN rate_limit_1d > 0 THEN GREATEST(0, usage_1d - $1) ELSE usage_1d END,
-			usage_7d = CASE WHEN rate_limit_7d > 0 THEN GREATEST(0, usage_7d - $1) ELSE usage_7d END,
+			usage_5h = CASE
+				WHEN rate_limit_5h > 0 AND window_5h_start IS NOT NULL
+					AND $5::timestamptz >= window_5h_start
+					AND $5::timestamptz < window_5h_start + INTERVAL '5 hours'
+				THEN GREATEST(0, usage_5h - $1) ELSE usage_5h END,
+			usage_1d = CASE
+				WHEN rate_limit_1d > 0 AND window_1d_start IS NOT NULL
+					AND $5::timestamptz >= window_1d_start
+					AND $5::timestamptz < window_1d_start + INTERVAL '24 hours'
+				THEN GREATEST(0, usage_1d - $1) ELSE usage_1d END,
+			usage_7d = CASE
+				WHEN rate_limit_7d > 0 AND window_7d_start IS NOT NULL
+					AND $5::timestamptz >= window_7d_start
+					AND $5::timestamptz < window_7d_start + INTERVAL '7 days'
+				THEN GREATEST(0, usage_7d - $1) ELSE usage_7d END,
 			status = CASE
 				WHEN status = $3 AND quota > 0 AND GREATEST(0, quota_used - $1) < quota THEN $4
 				ELSE status
 			END,
 			updated_at = NOW()
 		WHERE id = $2
-	`, cost, apiKeyID, service.StatusAPIKeyQuotaExhausted, service.StatusAPIKeyActive)
+	`, cost, apiKeyID, service.StatusAPIKeyQuotaExhausted, service.StatusAPIKeyActive, createdAt)
 	return err
 }
 
@@ -199,8 +229,14 @@ func reverseSeedanceAccountQuota(ctx context.Context, tx *sql.Tx, row *seedanceR
 			|| CASE WHEN COALESCE((extra->>'quota_limit')::numeric, 0) > 0
 				THEN jsonb_build_object('quota_used', GREATEST(0, COALESCE((extra->>'quota_used')::numeric, 0) - $1)) ELSE '{}'::jsonb END
 			|| CASE WHEN COALESCE((extra->>'quota_daily_limit')::numeric, 0) > 0
+					AND NULLIF(extra->>'quota_daily_start', '') IS NOT NULL
+					AND $3::timestamptz >= NULLIF(extra->>'quota_daily_start', '')::timestamptz
+					AND $3::timestamptz < NULLIF(extra->>'quota_daily_start', '')::timestamptz + INTERVAL '1 day'
 				THEN jsonb_build_object('quota_daily_used', GREATEST(0, COALESCE((extra->>'quota_daily_used')::numeric, 0) - $1)) ELSE '{}'::jsonb END
 			|| CASE WHEN COALESCE((extra->>'quota_weekly_limit')::numeric, 0) > 0
+					AND NULLIF(extra->>'quota_weekly_start', '') IS NOT NULL
+					AND $3::timestamptz >= NULLIF(extra->>'quota_weekly_start', '')::timestamptz
+					AND $3::timestamptz < NULLIF(extra->>'quota_weekly_start', '')::timestamptz + INTERVAL '7 days'
 				THEN jsonb_build_object('quota_weekly_used', GREATEST(0, COALESCE((extra->>'quota_weekly_used')::numeric, 0) - $1)) ELSE '{}'::jsonb END,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
@@ -209,7 +245,7 @@ func reverseSeedanceAccountQuota(ctx context.Context, tx *sql.Tx, row *seedanceR
 				COALESCE((extra->>'quota_daily_limit')::numeric, 0) > 0 OR
 				COALESCE((extra->>'quota_weekly_limit')::numeric, 0) > 0
 			)
-	`, accountCost, row.accountID)
+	`, accountCost, row.accountID, row.createdAt)
 	if err != nil {
 		return err
 	}
@@ -229,12 +265,24 @@ func reverseSeedancePlatformQuota(ctx context.Context, tx *sql.Tx, row *seedance
 	}
 	_, err := tx.ExecContext(ctx, `
 		UPDATE user_platform_quotas
-		SET daily_usage_usd = CASE WHEN daily_limit_usd IS NOT NULL THEN GREATEST(0, daily_usage_usd - $1) ELSE daily_usage_usd END,
-			weekly_usage_usd = CASE WHEN weekly_limit_usd IS NOT NULL THEN GREATEST(0, weekly_usage_usd - $1) ELSE weekly_usage_usd END,
-			monthly_usage_usd = CASE WHEN monthly_limit_usd IS NOT NULL THEN GREATEST(0, monthly_usage_usd - $1) ELSE monthly_usage_usd END,
+		SET daily_usage_usd = CASE
+				WHEN daily_limit_usd IS NOT NULL AND daily_window_start IS NOT NULL
+					AND $4::timestamptz >= daily_window_start
+					AND $4::timestamptz < daily_window_start + INTERVAL '1 day'
+				THEN GREATEST(0, daily_usage_usd - $1) ELSE daily_usage_usd END,
+			weekly_usage_usd = CASE
+				WHEN weekly_limit_usd IS NOT NULL AND weekly_window_start IS NOT NULL
+					AND $4::timestamptz >= weekly_window_start
+					AND $4::timestamptz < weekly_window_start + INTERVAL '7 days'
+				THEN GREATEST(0, weekly_usage_usd - $1) ELSE weekly_usage_usd END,
+			monthly_usage_usd = CASE
+				WHEN monthly_limit_usd IS NOT NULL AND monthly_window_start IS NOT NULL
+					AND $4::timestamptz >= monthly_window_start
+					AND $4::timestamptz < monthly_window_start + INTERVAL '30 days'
+				THEN GREATEST(0, monthly_usage_usd - $1) ELSE monthly_usage_usd END,
 			updated_at = NOW()
 		WHERE user_id = $2 AND platform = $3 AND deleted_at IS NULL
-	`, row.actualCost, row.userID, strings.TrimSpace(row.platform))
+	`, row.actualCost, row.userID, strings.TrimSpace(row.platform), row.createdAt)
 	return err
 }
 

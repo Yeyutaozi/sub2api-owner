@@ -23,6 +23,11 @@ const (
 	VideoProviderFFLink = "fflink"
 	VideoProviderHuiqu  = "huiqu"
 
+	SeedanceMX933Model           = "sd2-mx933"
+	SeedanceMX933FastModel       = "sd2-mx933-fast"
+	SeedanceMX933LegacyModel     = "sd2-mx933-720-1s"
+	SeedanceMX933LegacyFastModel = "sd2-mx933-720-fast-1s"
+
 	DefaultHuiquVideoBaseURL = "https://api.bjhuiqu.net"
 
 	huiquVideoCreatePath   = "/v1/videos/generations"
@@ -36,8 +41,10 @@ const (
 )
 
 var huiquVideoModels = map[string]struct{}{
-	"sd2-mx933-720-1s":      {},
-	"sd2-mx933-720-fast-1s": {},
+	SeedanceMX933Model:           {},
+	SeedanceMX933FastModel:       {},
+	SeedanceMX933LegacyModel:     {},
+	SeedanceMX933LegacyFastModel: {},
 }
 
 func isHuiquVideoModel(model string) bool {
@@ -47,6 +54,84 @@ func isHuiquVideoModel(model string) bool {
 
 func IsHuiquVideoModel(model string) bool {
 	return isHuiquVideoModel(model)
+}
+
+func isSeedanceDurationSupported(duration int) bool {
+	return duration == 5 || duration == 10 || duration == 15
+}
+
+func isLegacyHuiquVariableDurationModel(model string) bool {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case SeedanceMX933LegacyModel, SeedanceMX933LegacyFastModel:
+		return true
+	default:
+		return false
+	}
+}
+
+// seedanceModelLookupCandidates keeps existing Huiqu account mappings and
+// price cards usable while the public model IDs move away from the legacy
+// per-second names. The exact requested model always wins when both exist.
+func seedanceModelLookupCandidates(model string) []string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	switch model {
+	case SeedanceMX933Model:
+		return []string{SeedanceMX933Model, SeedanceMX933LegacyModel}
+	case SeedanceMX933LegacyModel:
+		return []string{SeedanceMX933LegacyModel, SeedanceMX933Model}
+	case SeedanceMX933FastModel:
+		return []string{SeedanceMX933FastModel, SeedanceMX933LegacyFastModel}
+	case SeedanceMX933LegacyFastModel:
+		return []string{SeedanceMX933LegacyFastModel, SeedanceMX933FastModel}
+	default:
+		return []string{model}
+	}
+}
+
+// PublicSeedanceModelID keeps provider-only MX933 tier names out of client
+// responses while preserving the stored model for legacy task recovery.
+func PublicSeedanceModelID(model string) string {
+	trimmed := strings.TrimSpace(model)
+	switch strings.ToLower(trimmed) {
+	case SeedanceMX933Model,
+		SeedanceMX933LegacyModel,
+		"sd2-mx933-720-5s",
+		"sd2-mx933-720-10s",
+		"sd2-mx933-720-15s":
+		return SeedanceMX933Model
+	case SeedanceMX933FastModel,
+		SeedanceMX933LegacyFastModel,
+		"sd2-mx933-720-fast-5s",
+		"sd2-mx933-720-fast-10s",
+		"sd2-mx933-720-fast-15s":
+		return SeedanceMX933FastModel
+	default:
+		return trimmed
+	}
+}
+
+// huiquUpstreamModelFor resolves a public MX933 model to the fixed-duration
+// provider model. Legacy -1s bindings with non-standard durations are passed
+// through only so already-created fallback tasks remain recoverable.
+func huiquUpstreamModelFor(model string, duration int) (string, error) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if isLegacyHuiquVariableDurationModel(model) && !isSeedanceDurationSupported(duration) {
+		if duration >= 1 && duration <= 15 {
+			return model, nil
+		}
+		return "", fmt.Errorf("duration %d is not supported by model %s", duration, model)
+	}
+	if !isSeedanceDurationSupported(duration) {
+		return "", fmt.Errorf("duration %d is not supported by model %s", duration, model)
+	}
+	switch model {
+	case SeedanceMX933Model, SeedanceMX933LegacyModel:
+		return fmt.Sprintf("sd2-mx933-720-%ds", duration), nil
+	case SeedanceMX933FastModel, SeedanceMX933LegacyFastModel:
+		return fmt.Sprintf("sd2-mx933-720-fast-%ds", duration), nil
+	default:
+		return "", fmt.Errorf("unsupported Huiqu video model: %s", model)
+	}
 }
 
 func IsHuiquSeedanceTaskID(taskID string) bool {

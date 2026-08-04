@@ -26,19 +26,19 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('zhipu')).toContain('cogvideo')
   })
 
-  it('uses FYLink model IDs for Seedance while keeping legacy alias mappings', () => {
+  it('uses public Seedance model IDs while keeping legacy alias mappings', () => {
     expect(getModelsByPlatform('seedance')).toEqual([
       'seedance-2.0',
       'seedance-2.0-fast',
       'seedance-2.0-mini',
-      'sd2-mx933-720-1s',
-      'sd2-mx933-720-fast-1s'
+      'sd2-mx933',
+      'sd2-mx933-fast'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
     ).toEqual([
-      { from: 'sd2-mx933-720-1s', to: 'sd2-mx933-720-1s' },
-      { from: 'sd2-mx933-720-fast-1s', to: 'sd2-mx933-720-fast-1s' },
+      { from: 'sd2-mx933', to: 'sd2-mx933' },
+      { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
@@ -50,8 +50,8 @@ describe('useModelWhitelist', () => {
       'seedance-2.0-mini'
     ])
     expect(getSeedanceModelsByVideoProvider('huiqu')).toEqual([
-      'sd2-mx933-720-1s',
-      'sd2-mx933-720-fast-1s'
+      'sd2-mx933',
+      'sd2-mx933-fast'
     ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')

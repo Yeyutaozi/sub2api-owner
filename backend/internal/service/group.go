@@ -173,8 +173,7 @@ func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
 	if !IsFFLinkVideoPlatform(g.Platform) || len(g.VideoModelPrices) == 0 {
 		return g.GetVideoPrice(resolution)
 	}
-	model = strings.ToLower(strings.TrimSpace(model))
-	price, ok := g.VideoModelPrices[model]
+	price, ok := findVideoModelPrice(g.Platform, g.VideoModelPrices, model)
 	if !ok {
 		return nil
 	}
@@ -192,6 +191,20 @@ func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
 	default:
 		return price.Price480P
 	}
+}
+
+func findVideoModelPrice(platform string, prices VideoModelPrices, model string) (VideoModelPrice, bool) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	keys := []string{model}
+	if platform == PlatformSeedance {
+		keys = seedanceModelLookupCandidates(model)
+	}
+	for _, key := range keys {
+		if price, ok := prices[key]; ok {
+			return price, true
+		}
+	}
+	return VideoModelPrice{}, false
 }
 
 // IsGroupContextValid reports whether a group from context has the fields required for routing decisions.

@@ -390,6 +390,14 @@ func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, _ int
 	return nil
 }
 
+func (s *stubAdminService) ClearGroupVideoModelPrices(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (s *stubAdminService) BatchSetGroupVideoModelPrices(_ context.Context, _ int64, _ []service.GroupVideoModelPricesInput) error {
+	return nil
+}
+
 func (s *stubAdminService) ClearGroupRPMOverrides(_ context.Context, _ int64) error {
 	return nil
 }

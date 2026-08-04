@@ -4,8 +4,8 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "seedance-2.0",
   "seedance-2.0-fast",
   "seedance-2.0-mini",
-  "sd2-mx933-720-1s",
-  "sd2-mx933-720-fast-1s",
+  "sd2-mx933",
+  "sd2-mx933-fast",
 ] as const;
 
 export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const;
@@ -30,8 +30,8 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "seedance-2.0": ["480p", "720p", "1080p"],
   "seedance-2.0-fast": ["480p", "720p"],
   "seedance-2.0-mini": ["480p", "720p"],
-  "sd2-mx933-720-1s": ["480p", "720p"],
-  "sd2-mx933-720-fast-1s": ["480p", "720p"],
+  "sd2-mx933": ["480p", "720p"],
+  "sd2-mx933-fast": ["480p", "720p"],
   "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
   "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
   "happy-horse-1.1": ["720p", "1080p"],
@@ -132,10 +132,49 @@ export const createDefaultVideoModelPriceRows = (
     createVideoModelPriceRow(model),
   );
 
+const LEGACY_SEEDANCE_VIDEO_MODEL_ALIASES: Record<string, string> = {
+  "sd2-mx933-720-1s": "sd2-mx933",
+  "sd2-mx933-720-fast-1s": "sd2-mx933-fast",
+};
+
+export const normalizeVideoModelPricesForPlatform = (
+  platform: string,
+  prices: VideoModelPrices | null | undefined,
+): VideoModelPrices => {
+  const source = prices ?? {};
+  const normalized: VideoModelPrices = {};
+
+  if (platform !== "seedance") {
+    for (const [model, price] of Object.entries(source)) {
+      normalized[model] = { ...price };
+    }
+    return normalized;
+  }
+
+  const normalizedSourceModels = new Set(
+    Object.keys(source).map((model) => model.trim().toLowerCase()),
+  );
+
+  for (const [model, price] of Object.entries(source)) {
+    const normalizedModel = model.trim().toLowerCase();
+    const publicModel = LEGACY_SEEDANCE_VIDEO_MODEL_ALIASES[normalizedModel] ?? normalizedModel;
+    if (
+      publicModel !== normalizedModel
+      && normalizedSourceModels.has(publicModel)
+    ) {
+      continue;
+    }
+    normalized[publicModel] = { ...price };
+  }
+
+  return normalized;
+};
+
 export const videoModelPricesToRows = (
   prices: VideoModelPrices | null | undefined,
+  platform: string,
 ): VideoModelPriceRow[] =>
-  Object.entries(prices ?? {}).map(([model, price]) =>
+  Object.entries(normalizeVideoModelPricesForPlatform(platform, prices)).map(([model, price]) =>
     createVideoModelPriceRow(model, price),
   );
 

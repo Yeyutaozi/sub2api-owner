@@ -403,6 +403,7 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 	}
 
 	failedAccountIDs := make(map[int64]struct{})
+	attemptedAccounts := 0
 	explicitRejections := 0
 	sessionHash := SeedanceTaskSessionHash(binding.JobID+":fallback", binding.UserID, binding.APIKeyID)
 	for switchCount := 0; switchCount <= seedanceSettlementMaxSwitches; switchCount++ {
@@ -414,13 +415,12 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 			if selection != nil && selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
-			if explicitRejections > 0 {
-				failed, failErr := w.gateway.FailSeedanceTaskFallback(fallbackCtx, &groupID, binding.JobID, binding.UserID, binding.APIKeyID, claimToken)
-				if failErr != nil || !failed {
-					return seedanceSettlementFallbackRetry, firstNonNilError(failErr, errors.New("fallback rejection could not be finalized"))
+			if allSeedanceFallbackAttemptsExplicitlyRejected(attemptedAccounts, explicitRejections) {
+				outcome, finalizeErr := w.finalizeFallbackRejection(fallbackCtx, binding, claimToken)
+				if finalizeErr == nil {
+					finalized = true
 				}
-				finalized = true
-				return seedanceSettlementFallbackRejected, nil
+				return outcome, finalizeErr
 			}
 			releaseClaim()
 			return seedanceSettlementFallbackRetry, firstNonNilError(selectErr, errors.New("no compatible fallback account is available"))
@@ -432,6 +432,7 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 			return seedanceSettlementFallbackRetry, firstNonNilError(acquireErr, errors.New("fallback account is at capacity"))
 		}
 		forwardCtx := WithSeedanceIdempotencyKey(fallbackCtx, "seedance-fallback-"+binding.JobID)
+		attemptedAccounts++
 		forwarded, forwardErr := func() (*SeedanceUpstreamResponse, error) {
 			if release != nil {
 				defer release()
@@ -446,12 +447,13 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 			var failover *UpstreamFailoverError
 			if errors.As(forwardErr, &failover) {
 				failedAccountIDs[account.ID] = struct{}{}
-				explicitRejections++
+				if isSeedanceFallbackExplicitRejection(forwardErr) {
+					explicitRejections++
+				}
 				w.gateway.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(binding.FallbackModel), false, nil)
 				continue
 			}
-			var upstream *SeedanceUpstreamError
-			if errors.As(forwardErr, &upstream) && upstream.StatusCode >= http.StatusBadRequest && upstream.StatusCode < http.StatusInternalServerError && upstream.StatusCode != http.StatusRequestTimeout && upstream.StatusCode != http.StatusTooManyRequests {
+			if isSeedanceFallbackExplicitRejection(forwardErr) {
 				explicitRejections++
 				failedAccountIDs[account.ID] = struct{}{}
 				continue
@@ -474,8 +476,55 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 		w.gateway.RecordOpenAIAccountSwitch()
 		return seedanceSettlementFallbackActive, nil
 	}
+	if allSeedanceFallbackAttemptsExplicitlyRejected(attemptedAccounts, explicitRejections) {
+		outcome, finalizeErr := w.finalizeFallbackRejection(fallbackCtx, binding, claimToken)
+		if finalizeErr == nil {
+			finalized = true
+		}
+		return outcome, finalizeErr
+	}
 	releaseClaim()
 	return seedanceSettlementFallbackRetry, errors.New("fallback account attempts exhausted")
+}
+
+func isSeedanceFallbackExplicitRejection(err error) bool {
+	statusCode := 0
+	var failover *UpstreamFailoverError
+	if errors.As(err, &failover) {
+		statusCode = failover.StatusCode
+	} else {
+		var upstream *SeedanceUpstreamError
+		if !errors.As(err, &upstream) {
+			return false
+		}
+		statusCode = upstream.StatusCode
+	}
+	return statusCode >= http.StatusBadRequest &&
+		statusCode < http.StatusInternalServerError &&
+		statusCode != http.StatusRequestTimeout &&
+		statusCode != http.StatusTooManyRequests
+}
+
+func allSeedanceFallbackAttemptsExplicitlyRejected(attemptedAccounts, explicitRejections int) bool {
+	return attemptedAccounts > 0 && explicitRejections == attemptedAccounts
+}
+
+func (w *SeedanceSettlementWorker) finalizeFallbackRejection(
+	ctx context.Context,
+	binding *SeedanceTaskBinding,
+	claimToken string,
+) (seedanceSettlementFallbackOutcome, error) {
+	if w == nil || w.gateway == nil || binding == nil {
+		return seedanceSettlementFallbackRetry, errors.New("fallback rejection could not be finalized")
+	}
+	groupID := binding.GroupID
+	failed, err := w.gateway.FailSeedanceTaskFallback(
+		ctx, &groupID, binding.JobID, binding.UserID, binding.APIKeyID, claimToken,
+	)
+	if err != nil || !failed {
+		return seedanceSettlementFallbackRetry, firstNonNilError(err, errors.New("fallback rejection could not be finalized"))
+	}
+	return seedanceSettlementFallbackRejected, nil
 }
 
 func (w *SeedanceSettlementWorker) maintainFallbackClaim(

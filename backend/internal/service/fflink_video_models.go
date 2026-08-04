@@ -27,46 +27,66 @@ type ffLinkVideoModelProfile struct {
 
 var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 	"seedance-2.0": {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
 		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, resolution string) bool {
-			return duration >= 4 && duration <= 15 && !(resolution == VideoBillingResolution1080P && duration > 12)
+			return isSeedanceDurationSupported(duration) && !(resolution == VideoBillingResolution1080P && duration > 12)
 		},
 	},
 	"seedance-2.0-fast": {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
 		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
-		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
 	"seedance-2.0-mini": {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 8,
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "1:1", "9:16"),
 		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
-		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
-	"sd2-mx933-720-1s": {
+	SeedanceMX933Model: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
 		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
-		ValidateDuration: func(duration int, _ string) bool { return duration >= 1 && duration <= 15 },
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
-	"sd2-mx933-720-fast-1s": {
+	SeedanceMX933FastModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
 		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
-		ValidateDuration: func(duration int, _ string) bool { return duration >= 1 && duration <= 15 },
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
+	},
+	// Legacy model IDs remain readable for existing account mappings and
+	// already-created tasks. New requests must use the logical model IDs above;
+	// RestoreSeedanceFallbackRequest may temporarily allow their old variable
+	// duration snapshots so a deployment cannot strand an in-flight task.
+	SeedanceMX933LegacyModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
+	},
+	SeedanceMX933LegacyFastModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
 	"ltx-2.3-pro": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
@@ -119,8 +139,8 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			"seedance-2.0",
 			"seedance-2.0-fast",
 			"seedance-2.0-mini",
-			"sd2-mx933-720-1s",
-			"sd2-mx933-720-fast-1s",
+			SeedanceMX933Model,
+			SeedanceMX933FastModel,
 		}
 	case PlatformLTX:
 		return []string{"ltx-2.3-pro", "ltx-2.3-fast"}
@@ -140,8 +160,15 @@ func ValidateFFLinkVideoModelPlatform(platform, model string) error {
 }
 
 func validateFFLinkVideoRequestInfo(info *SeedanceRequestInfo) error {
+	return validateFFLinkVideoRequestInfoWithLegacyDuration(info, false)
+}
+
+func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo, allowLegacyVariableDuration bool) error {
 	if info == nil {
 		return fmt.Errorf("video request is required")
+	}
+	if isLegacyHuiquVariableDurationModel(info.Model) && !allowLegacyVariableDuration {
+		return fmt.Errorf("unsupported video model: %s", info.Model)
 	}
 	profile, ok := ffLinkVideoModelProfileFor(info.Model)
 	if !ok {
@@ -157,7 +184,11 @@ func validateFFLinkVideoRequestInfo(info *SeedanceRequestInfo) error {
 	if info.DurationSeconds == 0 {
 		info.DurationSeconds = profile.DefaultDuration
 	}
-	if profile.ValidateDuration == nil || !profile.ValidateDuration(info.DurationSeconds, info.Resolution) {
+	durationValid := profile.ValidateDuration != nil && profile.ValidateDuration(info.DurationSeconds, info.Resolution)
+	if !durationValid && allowLegacyVariableDuration && isLegacyHuiquVariableDurationModel(info.Model) {
+		durationValid = info.DurationSeconds >= 1 && info.DurationSeconds <= 15
+	}
+	if !durationValid {
 		return fmt.Errorf("duration %d is not supported by model %s at %s", info.DurationSeconds, info.Model, info.Resolution)
 	}
 	ratio := strings.ToLower(strings.TrimSpace(info.AspectRatio))

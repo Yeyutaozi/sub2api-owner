@@ -553,7 +553,7 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 
 	info.StoredMedia = nil
 	directHTTP := isHuiquVideoModel(info.Model)
-	_, fallbackEligible := SeedanceFallbackModelFor(info.Model, info.Resolution)
+	_, fallbackEligible := SeedanceFallbackModelFor(info.Model, info.Resolution, info.DurationSeconds)
 	for _, target := range seedanceRequestMediaTargets(info, fallbackEligible) {
 		if target.url == nil || strings.TrimSpace(*target.url) == "" {
 			continue

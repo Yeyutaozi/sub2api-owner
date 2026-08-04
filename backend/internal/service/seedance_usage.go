@@ -52,8 +52,8 @@ func (s *OpenAIGatewayService) RecordSeedanceUsage(ctx context.Context, input *S
 		if err != nil {
 			return fmt.Errorf("load user video prices: %w", err)
 		}
-		if override, ok := userPrices[strings.ToLower(requestedModel)]; ok {
-			base := group.VideoModelPrices[strings.ToLower(requestedModel)]
+		if override, ok := findVideoModelPrice(group.Platform, userPrices, requestedModel); ok {
+			base, _ := findVideoModelPrice(group.Platform, group.VideoModelPrices, requestedModel)
 			group.VideoModelPrices[strings.ToLower(requestedModel)] = mergeVideoModelPrice(base, override)
 		}
 	}

@@ -125,7 +125,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			fallbackRequestInfo.HuiquMedia.Cleanup()
 		}
 	}()
-	fallbackModel, fallbackEligible := service.SeedanceFallbackModelFor(requestInfo.Model, requestInfo.Resolution)
+	fallbackModel, fallbackEligible := service.SeedanceFallbackModelFor(requestInfo.Model, requestInfo.Resolution, requestInfo.DurationSeconds)
 	var fallbackSnapshot []byte
 	if fallbackEligible {
 		fallbackSnapshot, err = service.SnapshotSeedanceFallbackRequest(requestInfo)
@@ -1387,16 +1387,17 @@ func (h *OpenAIGatewayHandler) tryAcquireSeedanceFallbackAccountSlot(
 }
 
 func writeSeedanceQueuedFallback(c *gin.Context, taskID, model string, public bool) {
+	model = service.PublicSeedanceModelID(model)
 	if public {
 		c.JSON(http.StatusOK, gin.H{
 			"job_id":     taskID,
 			"status":     "queued",
 			"status_url": service.SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID),
-			"model":      strings.TrimSpace(model),
+			"model":      model,
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": "queued", "model": strings.TrimSpace(model)})
+	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": "queued", "model": model})
 }
 
 func writeSeedanceCancellationPending(c *gin.Context, taskID, model string, public bool) {
@@ -1405,16 +1406,17 @@ func writeSeedanceCancellationPending(c *gin.Context, taskID, model string, publ
 
 func writeSeedanceTaskState(c *gin.Context, taskID, model string, public bool, status string) {
 	status = strings.TrimSpace(status)
+	model = service.PublicSeedanceModelID(model)
 	if public {
 		c.JSON(http.StatusOK, gin.H{
 			"job_id":     taskID,
 			"status":     status,
 			"status_url": service.SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID),
-			"model":      strings.TrimSpace(model),
+			"model":      model,
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": status, "model": strings.TrimSpace(model)})
+	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": status, "model": model})
 }
 
 func seedanceFallbackLeaseActive(binding *service.SeedanceTaskBinding, now time.Time) bool {

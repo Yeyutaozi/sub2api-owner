@@ -46,7 +46,7 @@ func TestParseSeedanceCreateRequestAcceptsInlineImageForms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"model":      "seedance-2.0",
-				"duration":   4,
+				"duration":   5,
 				"resolution": "720p",
 				"content": []any{
 					map[string]any{"type": "text", "text": "A paper boat crosses a puddle."},
@@ -102,15 +102,15 @@ func TestSeedanceUpstreamBodyRejectsUnmaterializedInlineImages(t *testing.T) {
 	}{
 		{
 			name: "first frame",
-			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 4, StartFrameURL: dataURI},
+			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 5, StartFrameURL: dataURI},
 		},
 		{
 			name: "first and last frames",
-			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 4, StartFrameURL: "https://images.example.com/start.png", EndFrameURL: dataURI},
+			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 5, StartFrameURL: "https://images.example.com/start.png", EndFrameURL: dataURI},
 		},
 		{
 			name: "reference image",
-			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 4, References: []SeedanceReferenceImage{{URL: dataURI, Strength: "MID"}}},
+			info: SeedanceRequestInfo{Prompt: "test", Resolution: "720p", DurationSeconds: 5, References: []SeedanceReferenceImage{{URL: dataURI, Strength: "MID"}}},
 		},
 	}
 
@@ -404,7 +404,7 @@ func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSigna
 	})}
 	info := &SeedanceRequestInfo{
 		Model: "seedance-2.0", Prompt: "preserve every reference", Resolution: "720p",
-		DurationSeconds: 8, AspectRatio: "16:9",
+		DurationSeconds: 10, AspectRatio: "16:9",
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://93.184.216.34/reference.mp4"}},
 		AudioReferences: []SeedanceReferenceAudio{{URL: "https://93.184.216.34/reference.wav"}},
 	}
@@ -423,7 +423,7 @@ func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSigna
 
 	snapshot, err := SnapshotSeedanceFallbackRequest(info)
 	require.NoError(t, err)
-	restored, err := RestoreSeedanceFallbackRequest(snapshot, "sd2-mx933-720-1s")
+	restored, err := RestoreSeedanceFallbackRequest(snapshot, SeedanceMX933Model)
 	require.NoError(t, err)
 	restored.VideoReferences[0].URL = "https://expired.example.com/video"
 	restored.AudioReferences[0].URL = "https://expired.example.com/audio"
@@ -454,7 +454,7 @@ func TestSeedanceDeleteFallbackMediaDeletesTaskCopiesButKeepsStagedUploads(t *te
 	service := NewSeedanceMediaService(store, nil, nil)
 	owner := seedanceMediaTestOwner()
 	info := &SeedanceRequestInfo{
-		Model: "seedance-2.0", Resolution: "720p",
+		Model: "seedance-2.0", Prompt: "preserve references", Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
 		StoredMedia: []SeedanceStoredMediaReference{
 			{
 				Slot: seedanceStoredMediaVideo, StorageProvider: "cos", Bucket: "seedance-test",

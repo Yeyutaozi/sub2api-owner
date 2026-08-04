@@ -74,17 +74,20 @@ type seedanceFallbackSnapshot struct {
 }
 
 // SeedanceFallbackModelFor maps only the 720p FFLink Seedance 431 family to
-// its explicitly configured Huiqu MX933 counterpart. Other resolutions and
-// models remain on their original provider.
-func SeedanceFallbackModelFor(model, resolution string) (string, bool) {
+// its logical Huiqu MX933 counterpart. The fixed provider model is selected
+// later from the snapshotted duration at the forwarding boundary.
+func SeedanceFallbackModelFor(model, resolution string, duration int) (string, bool) {
 	if !strings.EqualFold(strings.TrimSpace(resolution), VideoBillingResolution720P) {
+		return "", false
+	}
+	if !isSeedanceDurationSupported(duration) {
 		return "", false
 	}
 	switch strings.ToLower(strings.TrimSpace(model)) {
 	case "seedance-2.0":
-		return "sd2-mx933-720-1s", true
+		return SeedanceMX933Model, true
 	case "seedance-2.0-fast":
-		return "sd2-mx933-720-fast-1s", true
+		return SeedanceMX933FastModel, true
 	default:
 		return "", false
 	}
@@ -94,7 +97,7 @@ func SnapshotSeedanceFallbackRequest(info *SeedanceRequestInfo) ([]byte, error) 
 	if info == nil {
 		return nil, errors.New("seedance request info is required")
 	}
-	if _, ok := SeedanceFallbackModelFor(info.Model, info.Resolution); !ok {
+	if _, ok := SeedanceFallbackModelFor(info.Model, info.Resolution, info.DurationSeconds); !ok {
 		return nil, nil
 	}
 	snapshot := seedanceFallbackSnapshot{
@@ -102,7 +105,7 @@ func SnapshotSeedanceFallbackRequest(info *SeedanceRequestInfo) ([]byte, error) 
 		Resolution:      info.Resolution,
 		DurationSeconds: info.DurationSeconds,
 		AspectRatio:     info.AspectRatio,
-		GenerateAudio:   info.GenerateAudio,
+		GenerateAudio:   info.GenerateAudio || len(info.AudioReferences) > 0,
 		PromptEnhance:   info.PromptEnhance,
 		StartFrameURL:   info.StartFrameURL,
 		EndFrameURL:     info.EndFrameURL,
@@ -131,7 +134,7 @@ func RestoreSeedanceFallbackRequest(snapshot []byte, fallbackModel string) (*See
 		Resolution:      stored.Resolution,
 		DurationSeconds: stored.DurationSeconds,
 		AspectRatio:     stored.AspectRatio,
-		GenerateAudio:   stored.GenerateAudio,
+		GenerateAudio:   stored.GenerateAudio || len(stored.AudioReferences) > 0,
 		PromptEnhance:   stored.PromptEnhance,
 		StartFrameURL:   stored.StartFrameURL,
 		EndFrameURL:     stored.EndFrameURL,
@@ -140,7 +143,7 @@ func RestoreSeedanceFallbackRequest(snapshot []byte, fallbackModel string) (*See
 		AudioReferences: append([]SeedanceReferenceAudio(nil), stored.AudioReferences...),
 		StoredMedia:     append([]SeedanceStoredMediaReference(nil), stored.StoredMedia...),
 	}
-	if err := validateFFLinkVideoRequestInfo(info); err != nil {
+	if err := validateFFLinkVideoRequestInfoWithLegacyDuration(info, true); err != nil {
 		return nil, err
 	}
 	return info, nil

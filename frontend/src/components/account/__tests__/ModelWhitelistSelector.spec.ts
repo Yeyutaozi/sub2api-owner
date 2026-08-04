@@ -89,7 +89,7 @@ describe('ModelWhitelistSelector', () => {
   })
 
   it('limits provider-specific video accounts to their configured model options', async () => {
-    const models = ['sd2-mx933-720-1s', 'sd2-mx933-720-fast-1s']
+    const models = ['sd2-mx933', 'sd2-mx933-fast']
     const wrapper = mountSelector({ platform: 'seedance', models })
     await wrapper.get('div.cursor-pointer').trigger('click')
 

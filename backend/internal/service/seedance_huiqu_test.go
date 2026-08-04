@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -64,9 +66,12 @@ func TestVideoProviderRoutesSeedanceAccountsByRequestedModel(t *testing.T) {
 	huiqu := &Account{Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "hq", "video_provider": VideoProviderHuiqu}}
 
 	require.True(t, fflink.IsModelSupported("seedance-2.0"))
-	require.False(t, fflink.IsModelSupported("sd2-mx933-720-1s"))
-	require.True(t, huiqu.IsModelSupported("sd2-mx933-720-1s"))
-	require.True(t, huiqu.IsModelSupported("sd2-mx933-720-fast-1s"))
+	require.False(t, fflink.IsModelSupported(SeedanceMX933Model))
+	require.True(t, huiqu.IsModelSupported(SeedanceMX933Model))
+	require.True(t, huiqu.IsModelSupported(SeedanceMX933FastModel))
+	// Legacy account mappings remain readable for already-created tasks.
+	require.True(t, huiqu.IsModelSupported(SeedanceMX933LegacyModel))
+	require.True(t, huiqu.IsModelSupported(SeedanceMX933LegacyFastModel))
 	require.False(t, huiqu.IsModelSupported("seedance-2.0"))
 	require.True(t, IsHuiquSeedanceTaskID("hqv1_task_abc123"))
 	require.False(t, IsHuiquSeedanceTaskID("vidjob_existing_fflink_task"))
@@ -77,7 +82,8 @@ func TestValidateHuiquVideoAccountConfiguration(t *testing.T) {
 		"api_key":        "hq-secret",
 		"video_provider": VideoProviderHuiqu,
 		"model_mapping": map[string]any{
-			"sd2-mx933-720-1s": "sd2-mx933-720-1s",
+			SeedanceMX933Model:     SeedanceMX933Model,
+			SeedanceMX933FastModel: SeedanceMX933FastModel,
 		},
 	}))
 	require.Error(t, ValidateSeedanceAccountConfiguration(PlatformLTX, AccountTypeAPIKey, map[string]any{
@@ -177,7 +183,7 @@ func TestSeedanceTaskAccountSelectionRequiresCurrentHuiquAccountInOriginalGroup(
 
 func TestParseHuiquRequestAllowsMixedReferenceMedia(t *testing.T) {
 	request, err := ParseSeedanceVideoGenerationRequest([]byte(`{
-		"model":"sd2-mx933-720-1s",
+		"model":"sd2-mx933",
 		"prompt":"Keep the subject consistent and move the camera forward",
 		"duration":10,
 		"resolution":"720p",
@@ -198,26 +204,60 @@ func TestParseHuiquRequestAllowsMixedReferenceMedia(t *testing.T) {
 	require.True(t, request.GenerateAudio)
 
 	_, err = ParseSeedanceVideoGenerationRequest([]byte(`{
-		"model":"sd2-mx933-720-fast-1s",
+		"model":"sd2-mx933-fast",
 		"prompt":"Animate",
 		"prompt_enhance":true
 	}`))
 	require.ErrorContains(t, err, "does not support prompt_enhance")
 }
 
+func TestParseSeedanceRequestRejectsNonTierDurations(t *testing.T) {
+	for _, model := range []string{"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", SeedanceMX933Model, SeedanceMX933FastModel} {
+		for _, duration := range []int{4, 8} {
+			t.Run(model+"/"+strconv.Itoa(duration), func(t *testing.T) {
+				_, err := ParseSeedanceVideoGenerationRequest([]byte(fmt.Sprintf(`{
+					"model":%q,
+					"prompt":"fixed duration validation",
+					"duration":%d,
+					"resolution":"720p",
+					"aspect_ratio":"16:9"
+				}`, model, duration)))
+				require.ErrorContains(t, err, fmt.Sprintf("duration %d is not supported", duration))
+			})
+		}
+	}
+}
+
+func TestParseSeedanceRequestRejectsLegacyHuiquModelIDs(t *testing.T) {
+	for _, model := range []string{SeedanceMX933LegacyModel, SeedanceMX933LegacyFastModel} {
+		t.Run(model, func(t *testing.T) {
+			_, err := ParseSeedanceVideoGenerationRequest([]byte(fmt.Sprintf(`{
+				"model":%q,
+				"prompt":"legacy model IDs are not public request models",
+				"duration":5,
+				"resolution":"720p",
+				"aspect_ratio":"16:9"
+			}`, model)))
+			require.ErrorContains(t, err, "unsupported video model")
+		})
+	}
+}
+
 func TestHuiquTextRequestUsesSeconds(t *testing.T) {
 	request := &SeedanceRequestInfo{
-		Model:           "sd2-mx933-720-1s",
+		Model:           SeedanceMX933Model,
 		Prompt:          "A city at night",
 		Resolution:      "480p",
 		DurationSeconds: 10,
 		AspectRatio:     "2:3",
 		GenerateAudio:   true,
 	}
-	body, err := request.HuiquUpstreamBody(request.Model)
+	upstreamModel, err := huiquUpstreamModelFor(request.Model, request.DurationSeconds)
+	require.NoError(t, err)
+	body, err := request.HuiquUpstreamBody(upstreamModel)
 	require.NoError(t, err)
 	require.JSONEq(t, `{
-		"model":"sd2-mx933-720-1s",
+		"model":"sd2-mx933-720-10s",
 		"prompt":"A city at night",
 		"seconds":10,
 		"aspect_ratio":"2:3",
@@ -233,7 +273,7 @@ func TestBuildHuiquMultipartBodyUsesDocumentedFields(t *testing.T) {
 	video := huiquTestMediaFile(t, "motion.mp4", "video/mp4", []byte("video-bytes"))
 	audio := huiquTestMediaFile(t, "voice.wav", "audio/wav", []byte("audio-bytes"))
 	request := &SeedanceRequestInfo{
-		Model:           "sd2-mx933-720-fast-1s",
+		Model:           SeedanceMX933FastModel,
 		Prompt:          "Use the reference voice exactly",
 		Resolution:      "720p",
 		DurationSeconds: 10,
@@ -245,7 +285,9 @@ func TestBuildHuiquMultipartBodyUsesDocumentedFields(t *testing.T) {
 			Audios: []SeedanceHuiquMediaFile{audio},
 		},
 	}
-	body, err := buildHuiquMultipartBody(request, request.Model)
+	upstreamModel, err := huiquUpstreamModelFor(request.Model, request.DurationSeconds)
+	require.NoError(t, err)
+	body, err := buildHuiquMultipartBody(request, upstreamModel)
 	require.NoError(t, err)
 	defer body.Close()
 
@@ -264,7 +306,7 @@ func TestBuildHuiquMultipartBodyUsesDocumentedFields(t *testing.T) {
 		require.NoError(t, readErr)
 		values[part.FormName()] = append(values[part.FormName()], string(payload))
 	}
-	require.Equal(t, []string{"sd2-mx933-720-fast-1s"}, values["model"])
+	require.Equal(t, []string{"sd2-mx933-720-fast-10s"}, values["model"])
 	require.Equal(t, []string{"10"}, values["seconds"])
 	require.NotContains(t, values, "duration")
 	require.Equal(t, []string{"true"}, values["generate_audio"])
@@ -301,14 +343,14 @@ func TestForwardHuiquUsesProviderPathsAndOpaquePublicTaskID(t *testing.T) {
 		},
 	}
 	request := &SeedanceRequestInfo{
-		Model: "sd2-mx933-720-1s", Prompt: "A coastal sunrise",
+		Model: SeedanceMX933Model, Prompt: "A coastal sunrise",
 		Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
 	}
 	response, err := service.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
 	require.NoError(t, err)
 	require.Equal(t, DefaultHuiquVideoBaseURL+"/v1/videos/generations", upstream.request.URL.String())
 	require.Empty(t, upstream.request.Header.Get("Prefer"))
-	require.JSONEq(t, `{"model":"sd2-mx933-720-1s","prompt":"A coastal sunrise","seconds":5,"aspect_ratio":"16:9","resolution":"720p","generate_audio":false}`, string(upstream.body))
+	require.JSONEq(t, `{"model":"sd2-mx933-720-5s","prompt":"A coastal sunrise","seconds":5,"aspect_ratio":"16:9","resolution":"720p","generate_audio":false}`, string(upstream.body))
 	require.NotContains(t, string(upstream.body), `"duration"`)
 	require.Equal(t, "hqv1_task_abc123", response.Result.ResponseID)
 
@@ -316,6 +358,47 @@ func TestForwardHuiquUsesProviderPathsAndOpaquePublicTaskID(t *testing.T) {
 	_, err = service.ForwardSeedance(context.Background(), nil, account, http.MethodGet, response.Result.ResponseID, nil)
 	require.NoError(t, err)
 	require.Equal(t, DefaultHuiquVideoBaseURL+"/v1/videos/task_abc123", upstream.request.URL.String())
+}
+
+func TestForwardHuiquMapsLogicalModelsToFixedDurationTiers(t *testing.T) {
+	models := []struct {
+		logical string
+		fixed   func(int) string
+	}{
+		{logical: SeedanceMX933Model, fixed: func(duration int) string { return fmt.Sprintf("sd2-mx933-720-%ds", duration) }},
+		{logical: SeedanceMX933FastModel, fixed: func(duration int) string { return fmt.Sprintf("sd2-mx933-720-fast-%ds", duration) }},
+	}
+	for _, model := range models {
+		for _, resolution := range []string{VideoBillingResolution480P, VideoBillingResolution720P} {
+			for _, duration := range []int{5, 10, 15} {
+				name := model.logical + "/" + resolution + "/" + strconv.Itoa(duration)
+				t.Run(name, func(t *testing.T) {
+					upstream := &huiquCapturingUpstream{reply: `{"id":"task_fixed_tier","status":"queued"}`}
+					gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+					account := &Account{
+						ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+						Credentials: map[string]any{"api_key": "hq-secret", "video_provider": VideoProviderHuiqu},
+					}
+					request := &SeedanceRequestInfo{
+						Model: model.logical, Prompt: "Map the public model at the forwarding boundary",
+						Resolution: resolution, DurationSeconds: duration, AspectRatio: "16:9",
+					}
+
+					response, err := gateway.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
+					require.NoError(t, err)
+					require.Equal(t, "hqv1_task_fixed_tier", response.Result.ResponseID)
+					require.Equal(t, DefaultHuiquVideoBaseURL+huiquVideoCreatePath, upstream.request.URL.String())
+
+					var body map[string]any
+					require.NoError(t, json.Unmarshal(upstream.body, &body))
+					require.Equal(t, model.fixed(duration), body["model"])
+					require.EqualValues(t, duration, body["seconds"])
+					require.Equal(t, resolution, body["resolution"])
+					require.NotContains(t, body, "duration")
+				})
+			}
+		}
+	}
 }
 
 func TestForwardHuiquTreatsSuccessfulResponseWithoutTaskIDAsAcceptanceUnknown(t *testing.T) {
@@ -329,7 +412,7 @@ func TestForwardHuiquTreatsSuccessfulResponseWithoutTaskIDAsAcceptanceUnknown(t 
 		},
 	}
 	request := &SeedanceRequestInfo{
-		Model: "sd2-mx933-720-1s", Prompt: "safe prompt",
+		Model: SeedanceMX933Model, Prompt: "safe prompt",
 		Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
 	}
 
@@ -349,7 +432,7 @@ func TestForwardHuiquTreatsCreateTransportFailureAsAcceptanceUnknown(t *testing.
 		},
 	}
 	request := &SeedanceRequestInfo{
-		Model: "sd2-mx933-720-1s", Prompt: "safe prompt",
+		Model: SeedanceMX933Model, Prompt: "safe prompt",
 		Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
 	}
 
@@ -369,7 +452,7 @@ func TestForwardHuiquMultipartUsesSecondsAndRepeatedMediaFields(t *testing.T) {
 		},
 	}
 	request := &SeedanceRequestInfo{
-		Model: "sd2-mx933-720-fast-1s", Prompt: "Keep all reference media consistent",
+		Model: SeedanceMX933FastModel, Prompt: "Keep all reference media consistent",
 		Resolution: "720p", DurationSeconds: 10, AspectRatio: "9:16", GenerateAudio: true,
 		References: []SeedanceReferenceImage{
 			{URL: "https://media.example/reference-1.png"},
@@ -419,7 +502,7 @@ func TestForwardHuiquMultipartUsesSecondsAndRepeatedMediaFields(t *testing.T) {
 		require.NoError(t, readErr)
 		values[part.FormName()] = append(values[part.FormName()], string(payload))
 	}
-	require.Equal(t, []string{"sd2-mx933-720-fast-1s"}, values["model"])
+	require.Equal(t, []string{"sd2-mx933-720-fast-10s"}, values["model"])
 	require.Equal(t, []string{"10"}, values["seconds"])
 	require.NotContains(t, values, "duration")
 	require.Equal(t, []string{"true"}, values["generate_audio"])
@@ -427,6 +510,63 @@ func TestForwardHuiquMultipartUsesSecondsAndRepeatedMediaFields(t *testing.T) {
 	require.Equal(t, []string{"video-one", "video-two"}, values["videos"])
 	require.Equal(t, []string{"audio-one", "audio-two"}, values["audios"])
 	require.Equal(t, "hqv1_task_multipart123", response.Result.ResponseID)
+}
+
+func TestForwardHuiquMultipartMapsLogicalModelsToFixedDurationTiers(t *testing.T) {
+	models := []struct {
+		logical string
+		fixed   func(int) string
+	}{
+		{logical: SeedanceMX933Model, fixed: func(duration int) string { return fmt.Sprintf("sd2-mx933-720-%ds", duration) }},
+		{logical: SeedanceMX933FastModel, fixed: func(duration int) string { return fmt.Sprintf("sd2-mx933-720-fast-%ds", duration) }},
+	}
+	for _, model := range models {
+		for _, resolution := range []string{VideoBillingResolution480P, VideoBillingResolution720P} {
+			for _, duration := range []int{5, 10, 15} {
+				name := model.logical + "/" + resolution + "/" + strconv.Itoa(duration)
+				t.Run(name, func(t *testing.T) {
+					upstream := &huiquCapturingUpstream{reply: `{"id":"task_multipart_tier","status":"queued"}`}
+					gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+					account := &Account{
+						ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+						Credentials: map[string]any{"api_key": "hq-secret", "video_provider": VideoProviderHuiqu},
+					}
+					image := huiquTestMediaFile(t, "reference.png", "image/png", []byte("reference-image"))
+					request := &SeedanceRequestInfo{
+						Model: model.logical, Prompt: "Preserve the reference image",
+						Resolution: resolution, DurationSeconds: duration, AspectRatio: "16:9",
+						References: []SeedanceReferenceImage{{URL: "https://media.example/reference.png"}},
+						HuiquMedia: &SeedanceHuiquPreparedMedia{Images: []SeedanceHuiquMediaFile{image}},
+					}
+
+					response, err := gateway.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
+					require.NoError(t, err)
+					require.Equal(t, "hqv1_task_multipart_tier", response.Result.ResponseID)
+
+					mediaType, params, err := mime.ParseMediaType(upstream.request.Header.Get("Content-Type"))
+					require.NoError(t, err)
+					require.Equal(t, "multipart/form-data", mediaType)
+					reader := multipart.NewReader(bytes.NewReader(upstream.body), params["boundary"])
+					values := map[string][]string{}
+					for {
+						part, nextErr := reader.NextPart()
+						if nextErr == io.EOF {
+							break
+						}
+						require.NoError(t, nextErr)
+						payload, readErr := io.ReadAll(part)
+						require.NoError(t, readErr)
+						values[part.FormName()] = append(values[part.FormName()], string(payload))
+					}
+					require.Equal(t, []string{model.fixed(duration)}, values["model"])
+					require.Equal(t, []string{strconv.Itoa(duration)}, values["seconds"])
+					require.Equal(t, []string{resolution}, values["resolution"])
+					require.Equal(t, []string{"reference-image"}, values["images"])
+					require.NotContains(t, values, "duration")
+				})
+			}
+		}
+	}
 }
 
 func TestForwardHuiquSanitizesUpstreamErrorBody(t *testing.T) {
@@ -587,7 +727,7 @@ func TestBuildSeedanceOfficialTaskResponseSanitizesHuiquFailure(t *testing.T) {
 
 func TestHuiquResponsesAndErrorsDoNotLeakProviderModelMetadata(t *testing.T) {
 	normalized, err := NormalizeSeedanceJobForRoute(
-		[]byte(`{"status":"completed","model":"sd2-mx933-720-1s","provider":"huiqu","metadata":{"upstream_model":"sd2-mx933-720-fast-1s","provider_model":"sd2-mx933-720-1s"}}`),
+		[]byte(`{"status":"completed","model":"sd2-mx933-720-15s","provider":"huiqu","metadata":{"upstream_model":"sd2-mx933-720-fast-10s","provider_model":"sd2-mx933-720-15s"}}`),
 		"hqv1_task_abc123",
 		VideoProviderHuiqu,
 		"seedance-2.0",
@@ -600,16 +740,35 @@ func TestHuiquResponsesAndErrorsDoNotLeakProviderModelMetadata(t *testing.T) {
 	require.Equal(t, "seedance-2.0", payload["model"])
 
 	sanitizedError := string(sanitizeHuiquSeedanceUpstreamErrorBody(
-		[]byte(`{"error":{"message":"huiqu model sd2-mx933-720-1s rejected","upstream_model":"sd2-mx933-720-1s"}}`),
+		[]byte(`{"error":{"message":"huiqu model sd2-mx933-720-15s rejected","upstream_model":"sd2-mx933-720-15s"}}`),
 	))
 	require.NotContains(t, strings.ToLower(sanitizedError), "mx933")
 	require.NotContains(t, strings.ToLower(sanitizedError), "huiqu")
 }
 
+func TestHuiquPublicLogicalModelRemainsVisible(t *testing.T) {
+	normalized, err := NormalizeSeedanceJobForRoute(
+		[]byte(`{"status":"completed","model":"sd2-mx933-720-5s"}`),
+		"hqv1_task_abc123",
+		VideoProviderHuiqu,
+		SeedanceMX933Model,
+	)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &payload))
+	require.Equal(t, SeedanceMX933Model, payload["model"])
+	require.NotContains(t, string(normalized), "sd2-mx933-720-5s")
+
+	sanitizedError := string(sanitizeHuiquSeedanceUpstreamErrorBody(
+		[]byte(`{"error":{"message":"request for sd2-mx933-fast failed"}}`),
+	))
+	require.Contains(t, sanitizedError, SeedanceMX933FastModel)
+}
+
 func TestBuildSeedanceOfficialTaskResponseMapsHuiquFields(t *testing.T) {
 	response, err := BuildSeedanceOfficialTaskResponse(
 		"hqv1_task_abc123",
-		[]byte(`{"id":"task_abc123","status":"completed","model":"sd2-mx933-720-1s","seconds":15,"aspect_ratio":"3:2"}`),
+		[]byte(`{"id":"task_abc123","status":"completed","model":"sd2-mx933-720-15s","seconds":15,"aspect_ratio":"3:2"}`),
 		"https://gateway.example/v1/videos/jobs/hqv1_task_abc123/content",
 	)
 	require.NoError(t, err)

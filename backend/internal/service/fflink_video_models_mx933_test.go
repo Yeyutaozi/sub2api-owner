@@ -12,19 +12,60 @@ import (
 
 func TestMX933ModelProfiles(t *testing.T) {
 	models := FFLinkVideoModelIDsForPlatform(PlatformSeedance)
-	require.Contains(t, models, "sd2-mx933-720-1s")
-	require.Contains(t, models, "sd2-mx933-720-fast-1s")
+	require.Contains(t, models, SeedanceMX933Model)
+	require.Contains(t, models, SeedanceMX933FastModel)
+	require.NotContains(t, models, SeedanceMX933LegacyModel)
+	require.NotContains(t, models, SeedanceMX933LegacyFastModel)
 
-	for _, model := range []string{"sd2-mx933-720-1s", "sd2-mx933-720-fast-1s"} {
+	for _, model := range []string{SeedanceMX933Model, SeedanceMX933FastModel, SeedanceMX933LegacyModel, SeedanceMX933LegacyFastModel} {
 		require.NoError(t, ValidateFFLinkVideoModelPlatform(PlatformSeedance, model))
 		require.Error(t, ValidateFFLinkVideoModelPlatform(PlatformLTX, model))
 	}
 }
 
+func TestPublicSeedanceModelIDHidesMX933ProviderTiers(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{SeedanceMX933Model, SeedanceMX933Model},
+		{" SD2-MX933-720-1S ", SeedanceMX933Model},
+		{"sd2-mx933-720-10s", SeedanceMX933Model},
+		{SeedanceMX933FastModel, SeedanceMX933FastModel},
+		{" SD2-MX933-720-FAST-1S ", SeedanceMX933FastModel},
+		{"sd2-mx933-720-fast-15s", SeedanceMX933FastModel},
+		{"seedance-2.0", "seedance-2.0"},
+	} {
+		require.Equal(t, test.want, PublicSeedanceModelID(test.input))
+	}
+}
+
+func TestNewSeedanceRequestsRejectLegacyMX933ModelIDs(t *testing.T) {
+	for _, model := range []string{" SD2-MX933-720-1S ", "sd2-mx933-720-fast-1s"} {
+		_, err := ParseSeedanceVideoGenerationRequest([]byte(fmt.Sprintf(`{
+			"model":%q,
+			"prompt":"legacy public request",
+			"duration":5,
+			"resolution":"720p",
+			"aspect_ratio":"16:9"
+		}`, model)))
+		require.ErrorContains(t, err, "unsupported video model")
+
+		_, err = ParseSeedanceCreateRequest([]byte(fmt.Sprintf(`{
+			"model":%q,
+			"content":[{"type":"text","text":"legacy task request"}],
+			"duration":5,
+			"resolution":"720p",
+			"ratio":"16:9"
+		}`, model)))
+		require.ErrorContains(t, err, "unsupported video model")
+	}
+}
+
 func TestMX933RequestValidation(t *testing.T) {
-	for _, model := range []string{"sd2-mx933-720-1s", "sd2-mx933-720-fast-1s"} {
+	for _, model := range []string{SeedanceMX933Model, SeedanceMX933FastModel} {
 		t.Run(model, func(t *testing.T) {
-			for duration := 1; duration <= 15; duration++ {
+			for _, duration := range []int{5, 10, 15} {
 				valid := mx933RequestInfo(model)
 				valid.Resolution = VideoBillingResolution720P
 				valid.DurationSeconds = duration
@@ -32,7 +73,7 @@ func TestMX933RequestValidation(t *testing.T) {
 				require.NoError(t, validateFFLinkVideoRequestInfo(valid))
 			}
 
-			for _, duration := range []int{-1, 16} {
+			for _, duration := range []int{-1, 1, 4, 6, 8, 14, 16} {
 				invalid := mx933RequestInfo(model)
 				invalid.DurationSeconds = duration
 				require.ErrorContains(t, validateFFLinkVideoRequestInfo(invalid), fmt.Sprintf("duration %d is not supported", duration))
@@ -68,16 +109,60 @@ func TestMX933RequestValidation(t *testing.T) {
 	}
 }
 
+func TestSeedanceModelsOnlyAcceptFixedDurationTiers(t *testing.T) {
+	for _, model := range []string{"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", SeedanceMX933Model, SeedanceMX933FastModel} {
+		for _, duration := range []int{5, 10, 15} {
+			info := &SeedanceRequestInfo{Model: model, Prompt: "duration tier", Resolution: VideoBillingResolution720P, DurationSeconds: duration, AspectRatio: "16:9"}
+			require.NoError(t, validateFFLinkVideoRequestInfo(info), model+"/"+fmt.Sprint(duration))
+		}
+		for _, duration := range []int{4, 6, 8, 12, 14} {
+			info := &SeedanceRequestInfo{Model: model, Prompt: "duration tier", Resolution: VideoBillingResolution720P, DurationSeconds: duration, AspectRatio: "16:9"}
+			require.ErrorContains(t, validateFFLinkVideoRequestInfo(info), fmt.Sprintf("duration %d is not supported", duration), model)
+		}
+	}
+
+	unsupported1080 := &SeedanceRequestInfo{Model: "seedance-2.0", Prompt: "duration tier", Resolution: VideoBillingResolution1080P, DurationSeconds: 15, AspectRatio: "16:9"}
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(unsupported1080), "duration 15 is not supported")
+
+	for _, duration := range []int{5, 10} {
+		supported1080 := &SeedanceRequestInfo{Model: "seedance-2.0", Prompt: "duration tier", Resolution: VideoBillingResolution1080P, DurationSeconds: duration, AspectRatio: "16:9"}
+		require.NoError(t, validateFFLinkVideoRequestInfo(supported1080), fmt.Sprintf("seedance-2.0/1080p/%d", duration))
+	}
+}
+
+func TestHuiquUpstreamModelForFixedDurationTiers(t *testing.T) {
+	for _, test := range []struct {
+		model    string
+		duration int
+		want     string
+	}{
+		{SeedanceMX933Model, 5, "sd2-mx933-720-5s"},
+		{SeedanceMX933Model, 10, "sd2-mx933-720-10s"},
+		{SeedanceMX933Model, 15, "sd2-mx933-720-15s"},
+		{SeedanceMX933FastModel, 5, "sd2-mx933-720-fast-5s"},
+		{SeedanceMX933FastModel, 10, "sd2-mx933-720-fast-10s"},
+		{SeedanceMX933FastModel, 15, "sd2-mx933-720-fast-15s"},
+		{SeedanceMX933LegacyModel, 10, "sd2-mx933-720-10s"},
+	} {
+		got, err := huiquUpstreamModelFor(test.model, test.duration)
+		require.NoError(t, err)
+		require.Equal(t, test.want, got)
+	}
+
+	_, err := huiquUpstreamModelFor(SeedanceMX933Model, 8)
+	require.ErrorContains(t, err, "duration 8 is not supported")
+}
+
 func TestMX933TotalImageLimitIncludesFirstAndLastFrames(t *testing.T) {
-	valid := mx933RequestInfo("sd2-mx933-720-1s")
+	valid := mx933RequestInfo(SeedanceMX933Model)
 	require.Len(t, valid.References, 4)
 	require.NoError(t, validateFFLinkVideoRequestInfo(valid))
 
-	tooMany := mx933RequestInfo("sd2-mx933-720-1s")
+	tooMany := mx933RequestInfo(SeedanceMX933Model)
 	tooMany.References = make([]SeedanceReferenceImage, 8)
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooMany), "at most 9 total images")
 
-	nineReferences := mx933RequestInfo("sd2-mx933-720-fast-1s")
+	nineReferences := mx933RequestInfo(SeedanceMX933FastModel)
 	nineReferences.References = make([]SeedanceReferenceImage, 9)
 	nineReferences.StartFrameURL = ""
 	nineReferences.EndFrameURL = ""
@@ -87,16 +172,16 @@ func TestMX933TotalImageLimitIncludesFirstAndLastFrames(t *testing.T) {
 }
 
 func TestMX933TotalMediaLimit(t *testing.T) {
-	valid := mx933RequestInfo("sd2-mx933-720-1s")
+	valid := mx933RequestInfo(SeedanceMX933Model)
 	require.NoError(t, validateFFLinkVideoRequestInfo(valid))
 
-	tooMany := mx933RequestInfo("sd2-mx933-720-fast-1s")
+	tooMany := mx933RequestInfo(SeedanceMX933FastModel)
 	tooMany.References = append(tooMany.References, SeedanceReferenceImage{})
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooMany), "at most 12 total reference media files")
 }
 
 func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T) {
-	mx933 := mx933RequestInfo("sd2-mx933-720-1s")
+	mx933 := mx933RequestInfo(SeedanceMX933Model)
 	mx933.References = nil
 	mx933.VideoReferences = nil
 	mx933.EndFrameURL = ""
@@ -107,7 +192,7 @@ func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T)
 		Model:           "seedance-2.0",
 		Prompt:          "Keep the existing FFLink validation behavior",
 		Resolution:      VideoBillingResolution720P,
-		DurationSeconds: 8,
+		DurationSeconds: 10,
 		AspectRatio:     "16:9",
 		StartFrameURL:   "https://media.example/start.png",
 		AudioReferences: make([]SeedanceReferenceAudio, 1),
@@ -116,15 +201,15 @@ func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T)
 }
 
 func TestMX933PromptLimitAndDefaults(t *testing.T) {
-	validPrompt := mx933RequestInfo("sd2-mx933-720-1s")
+	validPrompt := mx933RequestInfo(SeedanceMX933Model)
 	validPrompt.Prompt = strings.Repeat("x", 5000)
 	require.NoError(t, validateFFLinkVideoRequestInfo(validPrompt))
 
-	tooLong := mx933RequestInfo("sd2-mx933-720-1s")
+	tooLong := mx933RequestInfo(SeedanceMX933Model)
 	tooLong.Prompt = strings.Repeat("x", 5001)
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooLong), "prompt exceeds the 5000 character limit")
 
-	defaults := &SeedanceRequestInfo{Model: "sd2-mx933-720-fast-1s", Prompt: "A city street"}
+	defaults := &SeedanceRequestInfo{Model: SeedanceMX933FastModel, Prompt: "A city street"}
 	require.NoError(t, validateFFLinkVideoRequestInfo(defaults))
 	require.Equal(t, VideoBillingResolution720P, defaults.Resolution)
 	require.Equal(t, 5, defaults.DurationSeconds)
@@ -132,7 +217,7 @@ func TestMX933PromptLimitAndDefaults(t *testing.T) {
 }
 
 func TestMX933RejectsPromptEnhance(t *testing.T) {
-	for _, model := range []string{"sd2-mx933-720-1s", "sd2-mx933-720-fast-1s"} {
+	for _, model := range []string{SeedanceMX933Model, SeedanceMX933FastModel} {
 		_, err := normalizeFFLinkPromptEnhance(true, model)
 		require.ErrorContains(t, err, "does not support prompt_enhance")
 	}
@@ -143,7 +228,7 @@ func TestMX933TotalImageLimitDoesNotChangeExistingModels(t *testing.T) {
 		Model:           "seedance-2.0",
 		Prompt:          "Existing Seedance behavior",
 		Resolution:      VideoBillingResolution720P,
-		DurationSeconds: 8,
+		DurationSeconds: 10,
 		AspectRatio:     "16:9",
 		References:      make([]SeedanceReferenceImage, 4),
 		StartFrameURL:   "https://media.example/start.png",
