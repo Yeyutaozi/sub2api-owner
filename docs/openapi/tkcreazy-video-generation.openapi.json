@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
-    "version": "2026-08-04.3",
+    "version": "2026-08-04.4",
     "license": {
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
@@ -665,7 +665,7 @@
                   }
                 },
                 "mx933FullReferences": {
-                  "summary": "Seedance 11｜MX933：满载合法组合请求示例（先上传 6 图、3 视频、3 音频；未宣称线上已成功）",
+                  "summary": "Seedance 11｜MX933：已验证提交 6 图 + 3 视频 + 3 音频（合计 12 个素材）",
                   "value": {
                     "model": "sd2-mx933-720-1s",
                     "prompt": "严格保留六张参考图中的人物身份、红色手提箱、蓝色雨伞、银色相机、绿色店铺招牌和橙色外套；按三个参考视频依次复现从左向右行走、转身看向镜头、举起雨伞的动作节奏。声音必须保留三段参考音频中的女声原句与音色、连续雨声以及三音符提示音，并让提示音与举伞动作同步；不要用相似风格音乐替代这些声音。镜头连续稳定，无字幕，无水印。",
@@ -1066,7 +1066,7 @@
                     }
                   },
                   "mx933FullReferences": {
-                    "summary": "Seedance 11｜MX933：满载合法组合占位响应（6 图、3 视频、3 音频；未宣称线上已成功）",
+                    "summary": "Seedance 11｜MX933：已验证提交后的 202 响应结构（6 图 + 3 视频 + 3 音频）",
                     "value": {
                       "job_id": "vidjob_mx933FullReferences_example_123",
                       "status": "pending",
@@ -1213,7 +1213,7 @@
           "视频生成"
         ],
         "summary": "列出当前 API Key 创建的视频任务",
-        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离；不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。列表会逐项读取最新上游状态；暂时读不到时该项 status=unknown，但 job_id 仍可用于单任务查询。列表中的 status_url 和完成任务的 mp4_url/url/local_url 都是 /v1 开头的站点相对路径，完整地址固定按 https://tkcreazy.top + 路径计算。",
+        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离；不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。列表会逐项读取最新状态，并会像单任务查询一样推进等待中的自动容灾；一次列表请求最多启动 3 个待切换任务。暂时读不到状态时该项 status=unknown，但 job_id 仍可用于单任务查询。对于支持自动容灾的 seedance-2.0/seedance-2.0-fast 720p 任务，只有原任务和容灾任务都收到明确失败后，任务才进入最终 failed 并执行退款；本地媒体准备、账号容量或网络接单状态不确定不会提前退款。列表中的 status_url 和完成任务的 mp4_url/url/local_url 都是 /v1 开头的站点相对路径，完整地址固定按 https://tkcreazy.top + 路径计算。",
         "operationId": "listVideoGenerationJobs",
         "security": [
           {
@@ -1303,7 +1303,7 @@
           "视频生成"
         ],
         "summary": "查询一个视频任务",
-        "description": "建议每 3-5 秒查询一次。completed 后读取 result.data[0].mp4_url；failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定按 https://tkcreazy.top + mp4_url 计算。只有创建该任务的同一个 API Key 能查询。",
+        "description": "建议每 3-5 秒查询一次。该查询会自动推进等待中的容灾任务；对于支持自动容灾的 seedance-2.0/seedance-2.0-fast 720p 任务，只有原任务和容灾任务都收到明确失败后才返回最终 failed 并执行退款，本地媒体准备、账号容量或网络接单状态不确定不会提前退款。completed 后读取 result.data[0].mp4_url；failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定按 https://tkcreazy.top + mp4_url 计算。只有创建该任务的同一个 API Key 能查询。",
         "operationId": "getVideoGenerationJob",
         "security": [
           {
@@ -1366,7 +1366,7 @@
                     }
                   },
                   "mx933Completed": {
-                    "summary": "MX933 完成响应字段示例（结构示例；未宣称线上已成功）",
+                    "summary": "MX933 已验证完成响应（经 TKCreazy 服务生成 5 秒 720p 视频）",
                     "value": {
                       "aspect_ratio": "16:9",
                       "completed_at": 1785777546,
@@ -1387,7 +1387,7 @@
                           }
                         ]
                       },
-                      "seconds": "10",
+                      "seconds": "5",
                       "status": "completed",
                       "status_url": "/v1/videos/jobs/hqv1_task_example_123",
                       "task_id": "hqv1_task_example_123",

@@ -245,6 +245,36 @@ func (r *usageLogRepository) FailSeedanceTaskFallback(
 	return rows == 1, nil
 }
 
+// ReleaseSeedanceTaskFallback returns a locally blocked fallback attempt to the
+// retryable state. The claim token prevents an expired worker from releasing a
+// newer creator's reservation.
+func (r *usageLogRepository) ReleaseSeedanceTaskFallback(
+	ctx context.Context,
+	userID, apiKeyID, groupID int64,
+	jobID string,
+	claimToken string,
+) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("seedance task binding repository is unavailable")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE fflink_video_job_bindings
+		SET fallback_status = $5, fallback_claim_token = NULL,
+		    fallback_lease_until = NULL, updated_at = NOW()
+		WHERE user_id = $1 AND api_key_id = $2 AND group_id = $3 AND job_id = $4
+		  AND fallback_status = $6 AND fallback_claim_token = $7
+	`, userID, apiKeyID, groupID, strings.TrimSpace(jobID),
+		service.SeedanceFallbackStatusReady, service.SeedanceFallbackStatusStarting, strings.TrimSpace(claimToken))
+	if err != nil {
+		return false, fmt.Errorf("release seedance task fallback: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("release seedance task fallback: %w", err)
+	}
+	return rows == 1, nil
+}
+
 // ClaimSeedanceTaskCancellation atomically reserves a task for DELETE. The
 // reservation uses the same row/token protocol as fallback creation, so a
 // ready task can be claimed by exactly one of DELETE or fallback creation.

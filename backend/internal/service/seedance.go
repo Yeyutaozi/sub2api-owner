@@ -42,6 +42,8 @@ var seedanceSensitiveQueryParamPattern = regexp.MustCompile(`(?i)((?:[?&]|\\u002
 var huiquCamelCaseResponseKeyPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 var huiquAbsoluteURLPattern = regexp.MustCompile(`(?i)(?:https?:)?//[^\s"'<>\\]+`)
 var huiquSensitiveAssignmentPattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|token|sig|signature|credential|secret)\s*[=:]\s*)[^\s,;"'}]+`)
+var huiquInternalModelPattern = regexp.MustCompile(`(?i)\bsd2-mx933-720(?:-fast)?-1s\b`)
+var huiquProviderNamePattern = regexp.MustCompile(`(?i)\b(?:huiqu|bjhuiqu)\b`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
 	if !IsFFLinkVideoPlatform(platform) {
@@ -230,6 +232,7 @@ type SeedanceTaskFallbackRepository interface {
 	ClaimSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (bool, string, error)
 	ActivateSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string, accountID int64, upstreamJobID string) (bool, error)
 	FailSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
+	ReleaseSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
 }
 
 type SeedanceTaskCancellationRepository interface {
@@ -248,6 +251,28 @@ func (e *SeedanceUpstreamError) Error() string {
 		return "seedance upstream request failed"
 	}
 	return fmt.Sprintf("seedance upstream returned status %d", e.StatusCode)
+}
+
+// SeedanceUpstreamAcceptanceUnknownError means a create request may have
+// reached the provider, but the gateway could not prove whether it was accepted
+// or recover its task identifier. Callers must keep the reservation recoverable
+// and must not refund until the provider returns an explicit failure.
+type SeedanceUpstreamAcceptanceUnknownError struct {
+	Err error
+}
+
+func (e *SeedanceUpstreamAcceptanceUnknownError) Error() string {
+	if e == nil || e.Err == nil {
+		return "seedance upstream request acceptance is unknown"
+	}
+	return fmt.Sprintf("seedance upstream request acceptance is unknown: %v", e.Err)
+}
+
+func (e *SeedanceUpstreamAcceptanceUnknownError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
@@ -789,6 +814,24 @@ func (s *OpenAIGatewayService) FailSeedanceTaskFallback(
 	return repo.FailSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken)
 }
 
+func (s *OpenAIGatewayService) ReleaseSeedanceTaskFallback(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	if s == nil || group <= 0 || userID <= 0 || apiKeyID <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" {
+		return false, errors.New("seedance fallback release owner is invalid")
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskFallbackRepository)
+	if !ok || repo == nil {
+		return false, errors.New("seedance fallback repository is unavailable")
+	}
+	return repo.ReleaseSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken)
+}
+
 func (s *OpenAIGatewayService) ClaimSeedanceTaskCancellation(
 	ctx context.Context,
 	groupID *int64,
@@ -1296,7 +1339,11 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	startedAt := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
-		return nil, fmt.Errorf("Seedance upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+		forwardErr := fmt.Errorf("Seedance upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+		if method == http.MethodPost {
+			return nil, &SeedanceUpstreamAcceptanceUnknownError{Err: forwardErr}
+		}
+		return nil, forwardErr
 	}
 
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -1329,17 +1376,22 @@ func (s *OpenAIGatewayService) forwardSeedance(
 
 	responseBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
+		if method == http.MethodPost {
+			return nil, &SeedanceUpstreamAcceptanceUnknownError{Err: err}
+		}
 		return nil, err
 	}
 	response.Body = responseBody
 	if method == http.MethodPost {
 		upstreamTaskID := extractSeedanceUpstreamTaskID(responseBody)
 		if upstreamTaskID == "" {
-			return nil, errors.New("Seedance upstream response did not include job_id")
+			return nil, &SeedanceUpstreamAcceptanceUnknownError{
+				Err: errors.New("Seedance upstream response did not include job_id"),
+			}
 		}
 		publicTaskID, err := publicSeedanceTaskID(provider, upstreamTaskID)
 		if err != nil {
-			return nil, err
+			return nil, &SeedanceUpstreamAcceptanceUnknownError{Err: err}
 		}
 		response.Result = &OpenAIForwardResult{
 			RequestID:            firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id"), "seedance:"+publicTaskID),
@@ -1558,7 +1610,8 @@ func isHuiquSensitiveResponseKey(key string) bool {
 	}
 	switch normalized {
 	case "authorization", "apikey", "api_key", "accesskey", "access_key", "accesskeyid", "access_key_id",
-		"policy", "signedheaders", "signed_headers", "ossaccesskeyid":
+		"policy", "signedheaders", "signed_headers", "ossaccesskeyid", "model", "provider", "provider_name",
+		"video_provider", "provider_model", "upstream_model", "mapped_model", "model_mapping", "channel_model":
 		return true
 	default:
 		return false
@@ -1582,7 +1635,8 @@ func containsHuiquPrivateResponseValue(value string) bool {
 	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") || strings.HasPrefix(lower, "//") {
 		return true
 	}
-	return seedanceSensitiveQueryParamPattern.MatchString(value)
+	return seedanceSensitiveQueryParamPattern.MatchString(value) ||
+		huiquInternalModelPattern.MatchString(value) || huiquProviderNamePattern.MatchString(value)
 }
 
 func BuildSeedanceOfficialTaskResponse(taskID string, upstreamBody []byte, contentURL string) (map[string]any, error) {
@@ -1742,7 +1796,9 @@ func sanitizeHuiquSeedanceErrorValue(value any) (any, bool) {
 func redactHuiquSeedanceErrorText(value string) string {
 	value = huiquAbsoluteURLPattern.ReplaceAllString(value, "[redacted-url]")
 	value = seedanceSensitiveQueryParamPattern.ReplaceAllString(value, "${1}***")
-	return huiquSensitiveAssignmentPattern.ReplaceAllString(value, "${1}***")
+	value = huiquSensitiveAssignmentPattern.ReplaceAllString(value, "${1}***")
+	value = huiquInternalModelPattern.ReplaceAllString(value, "[upstream-model]")
+	return huiquProviderNamePattern.ReplaceAllString(value, "upstream provider")
 }
 
 func writeSeedanceContentResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

@@ -2768,6 +2768,7 @@ const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
+const initialSeedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
 const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
@@ -3329,6 +3330,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     newAccount.platform === 'seedance' && credentials?.video_provider === 'huiqu'
       ? 'huiqu'
       : 'fflink'
+  initialSeedanceVideoProvider.value = seedanceVideoProvider.value
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -3674,6 +3676,11 @@ watch(
 const handleSeedanceVideoProviderChange = () => {
   if (props.account?.platform !== 'seedance') return
   editBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+  if (seedanceVideoProvider.value !== initialSeedanceVideoProvider.value) {
+    // API keys are provider-specific. Never carry a masked key from the old
+    // provider into an account switched to a different upstream.
+    editApiKey.value = ''
+  }
   const providerModels = getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
   if (modelRestrictionMode.value === 'whitelist') {
     allowedModels.value = providerModels
@@ -4181,7 +4188,10 @@ const handleSubmit = async () => {
       // 若后端尚未升级（无 credentials_status），回退读旧结构 currentCredentials.api_key。
       // 两者都无才报错。
       const hasExistingApiKey =
-        props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
+        (props.account.platform === 'seedance' &&
+          seedanceVideoProvider.value !== initialSeedanceVideoProvider.value)
+          ? false
+          : props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
       if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (!hasExistingApiKey) {

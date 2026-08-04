@@ -43,9 +43,30 @@ func TestSeedanceShouldClaimCancellationExcludesActiveFallbackAndSerializesExpir
 	require.False(t, seedanceShouldClaimCancellation(cancelling, http.MethodDelete, now))
 }
 
-func TestSeedanceRecoveryPreservesUncertainFallbackClaim(t *testing.T) {
-	require.True(t, seedanceShouldFailFallbackClaim(false, false, false))
-	require.False(t, seedanceShouldFailFallbackClaim(false, false, true))
-	require.False(t, seedanceShouldFailFallbackClaim(false, true, false))
-	require.False(t, seedanceShouldFailFallbackClaim(true, false, false))
+func TestFilterSeedanceListedJobsAppliesStatusAfterFallbackTransition(t *testing.T) {
+	jobs := []map[string]any{
+		{"job_id": "CaseSensitive_A", "status": "queued"},
+		{"job_id": "CaseSensitive_B", "status": "failed"},
+		{"job_id": "CaseSensitive_C", "status": "completed"},
+	}
+
+	failed := filterSeedanceListedJobs(jobs, "FAILED", 10)
+	require.Len(t, failed, 1)
+	require.Equal(t, "CaseSensitive_B", seedanceListedJobString(failed[0], "job_id"))
+
+	limited := filterSeedanceListedJobs(jobs, "", 2)
+	require.Len(t, limited, 2)
+	require.Equal(t, "CaseSensitive_A", seedanceListedJobString(limited[0], "job_id"))
+}
+
+func TestSeedanceListFallbackResumeCandidateRequiresExpiredLease(t *testing.T) {
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	binding := &service.SeedanceTaskBinding{
+		FallbackStatus:     service.SeedanceFallbackStatusStarting,
+		FallbackLeaseUntil: now.Add(-time.Second),
+	}
+	require.True(t, seedanceShouldResumeExpiredFallback(binding, http.MethodGet, false, now))
+
+	binding.FallbackLeaseUntil = now.Add(time.Minute)
+	require.False(t, seedanceShouldResumeExpiredFallback(binding, http.MethodGet, false, now))
 }

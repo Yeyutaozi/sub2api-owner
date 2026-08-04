@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -17,14 +18,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSeedanceUpstreamAcceptanceUnknownErrorIsRecoverable(t *testing.T) {
+	cause := errors.New("response body ended before task id")
+	err := &SeedanceUpstreamAcceptanceUnknownError{Err: cause}
+
+	var unknownAcceptanceErr *SeedanceUpstreamAcceptanceUnknownError
+	require.ErrorAs(t, err, &unknownAcceptanceErr)
+	require.ErrorIs(t, err, cause)
+	require.Contains(t, err.Error(), "acceptance is unknown")
+}
+
 type huiquCapturingUpstream struct {
 	request *http.Request
 	body    []byte
 	status  int
 	reply   string
+	err     error
 }
 
 func (s *huiquCapturingUpstream) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	s.request = request
 	if request.Body != nil {
 		s.body, _ = io.ReadAll(request.Body)
@@ -303,6 +318,46 @@ func TestForwardHuiquUsesProviderPathsAndOpaquePublicTaskID(t *testing.T) {
 	require.Equal(t, DefaultHuiquVideoBaseURL+"/v1/videos/task_abc123", upstream.request.URL.String())
 }
 
+func TestForwardHuiquTreatsSuccessfulResponseWithoutTaskIDAsAcceptanceUnknown(t *testing.T) {
+	upstream := &huiquCapturingUpstream{reply: `{"status":"queued"}`}
+	gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "hq-secret",
+			"video_provider": VideoProviderHuiqu,
+		},
+	}
+	request := &SeedanceRequestInfo{
+		Model: "sd2-mx933-720-1s", Prompt: "safe prompt",
+		Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
+	}
+
+	_, err := gateway.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
+	var unknownAcceptanceErr *SeedanceUpstreamAcceptanceUnknownError
+	require.ErrorAs(t, err, &unknownAcceptanceErr)
+}
+
+func TestForwardHuiquTreatsCreateTransportFailureAsAcceptanceUnknown(t *testing.T) {
+	upstream := &huiquCapturingUpstream{err: errors.New("connection reset after request write")}
+	gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "hq-secret",
+			"video_provider": VideoProviderHuiqu,
+		},
+	}
+	request := &SeedanceRequestInfo{
+		Model: "sd2-mx933-720-1s", Prompt: "safe prompt",
+		Resolution: "720p", DurationSeconds: 5, AspectRatio: "16:9",
+	}
+
+	_, err := gateway.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
+	var unknownAcceptanceErr *SeedanceUpstreamAcceptanceUnknownError
+	require.ErrorAs(t, err, &unknownAcceptanceErr)
+}
+
 func TestForwardHuiquMultipartUsesSecondsAndRepeatedMediaFields(t *testing.T) {
 	upstream := &huiquCapturingUpstream{reply: `{"id":"task_multipart123","status":"queued"}`}
 	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
@@ -528,6 +583,27 @@ func TestBuildSeedanceOfficialTaskResponseSanitizesHuiquFailure(t *testing.T) {
 	require.Equal(t, "/v1/videos/jobs/hqv1_task_abc123", errorValue["statusUrl"])
 	require.NotContains(t, errorValue, "token")
 	require.NotContains(t, errorValue, "details")
+}
+
+func TestHuiquResponsesAndErrorsDoNotLeakProviderModelMetadata(t *testing.T) {
+	normalized, err := NormalizeSeedanceJobForRoute(
+		[]byte(`{"status":"completed","model":"sd2-mx933-720-1s","provider":"huiqu","metadata":{"upstream_model":"sd2-mx933-720-fast-1s","provider_model":"sd2-mx933-720-1s"}}`),
+		"hqv1_task_abc123",
+		VideoProviderHuiqu,
+		"seedance-2.0",
+	)
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToLower(string(normalized)), "mx933")
+	require.NotContains(t, strings.ToLower(string(normalized)), "huiqu")
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &payload))
+	require.Equal(t, "seedance-2.0", payload["model"])
+
+	sanitizedError := string(sanitizeHuiquSeedanceUpstreamErrorBody(
+		[]byte(`{"error":{"message":"huiqu model sd2-mx933-720-1s rejected","upstream_model":"sd2-mx933-720-1s"}}`),
+	))
+	require.NotContains(t, strings.ToLower(sanitizedError), "mx933")
+	require.NotContains(t, strings.ToLower(sanitizedError), "huiqu")
 }
 
 func TestBuildSeedanceOfficialTaskResponseMapsHuiquFields(t *testing.T) {

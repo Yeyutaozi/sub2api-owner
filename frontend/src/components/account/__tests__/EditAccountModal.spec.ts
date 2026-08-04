@@ -341,10 +341,16 @@ describe('EditAccountModal', () => {
     await wrapper.get('[data-testid="edit-seedance-video-provider"]').setValue('huiqu')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    await wrapper.find('input[type="password"]').setValue('new-huiqu-key')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
       base_url: 'https://api.bjhuiqu.net',
       video_provider: 'huiqu',
+      api_key: 'new-huiqu-key',
       model_mapping: {
         'sd2-mx933-720-1s': 'sd2-mx933-720-1s',
         'sd2-mx933-720-fast-1s': 'sd2-mx933-720-fast-1s'

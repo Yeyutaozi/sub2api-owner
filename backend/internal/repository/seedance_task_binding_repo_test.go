@@ -82,6 +82,13 @@ func TestUsageLogRepositorySeedanceFallbackClaimUsesLeaseToken(t *testing.T) {
 	failed, err := repo.FailSeedanceTaskFallback(context.Background(), 1, 2, 3, "vidjob_one", "claim-token-2")
 	require.NoError(t, err)
 	require.True(t, failed)
+
+	mock.ExpectExec(`(?s)UPDATE fflink_video_job_bindings.*fallback_status = \$6 AND fallback_claim_token = \$7`).
+		WithArgs(int64(1), int64(2), int64(3), "vidjob_one", service.SeedanceFallbackStatusReady, service.SeedanceFallbackStatusStarting, "claim-token-3").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	released, err := repo.ReleaseSeedanceTaskFallback(context.Background(), 1, 2, 3, "vidjob_one", "claim-token-3")
+	require.NoError(t, err)
+	require.True(t, released)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
