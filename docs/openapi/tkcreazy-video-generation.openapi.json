@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
-    "version": "2026-08-04.6",
+    "title": "TKCreazy 视频生成 API（Seedance / MX933 / HappyHorse / LTX）",
+    "version": "2026-08-04.7",
     "license": {
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
@@ -426,6 +426,28 @@
                 }
               },
               "examples": {
+                "mx933Text": {
+                  "summary": "MX933 01｜933 标准版：纯文本（sd2-mx933-720-1s）",
+                  "value": {
+                    "model": "sd2-mx933-720-1s",
+                    "prompt": "雨后的城市街道映出霓虹灯光，一名穿橙色外套的人撑着蓝色雨伞向镜头走来，镜头平稳后退并保持人物居中，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": false
+                  }
+                },
+                "mx933FastText": {
+                  "summary": "MX933 02｜933 Fast：纯文本（sd2-mx933-720-fast-1s）",
+                  "value": {
+                    "model": "sd2-mx933-720-fast-1s",
+                    "prompt": "白色摄影棚内，一只红色旅行箱在转台上缓慢旋转，镜头由全景平稳推进至产品近景，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": false
+                  }
+                },
                 "seedance20Text": {
                   "summary": "Seedance 01｜已验证：2.0 纯文本",
                   "value": {
@@ -666,7 +688,7 @@
                   }
                 },
                 "mx933FullReferences": {
-                  "summary": "Seedance 11｜MX933：已验证提交 6 图 + 3 视频 + 3 音频（合计 12 个素材）",
+                  "summary": "MX933 03｜933 标准版：已验证提交 6 图 + 3 视频 + 3 音频（合计 12 个素材）",
                   "value": {
                     "model": "sd2-mx933-720-1s",
                     "prompt": "严格保留六张参考图中的人物身份、红色手提箱、蓝色雨伞、银色相机、绿色店铺招牌和橙色外套；按三个参考视频依次复现从左向右行走、转身看向镜头、举起雨伞的动作节奏。声音必须保留三段参考音频中的女声原句与音色、连续雨声以及三音符提示音，并让提示音与举伞动作同步；不要用相似风格音乐替代这些声音。镜头连续稳定，无字幕，无水印。",
@@ -936,6 +958,32 @@
                   "$ref": "#/components/schemas/CreateJobResponse"
                 },
                 "examples": {
+                  "mx933Text": {
+                    "summary": "MX933 01｜933 标准版：纯文本（sd2-mx933-720-1s）",
+                    "value": {
+                      "job_id": "vidjob_mx933Text_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_mx933Text_example_123",
+                      "model": "sd2-mx933-720-1s",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": 1785844800
+                    }
+                  },
+                  "mx933FastText": {
+                    "summary": "MX933 02｜933 Fast：纯文本（sd2-mx933-720-fast-1s）",
+                    "value": {
+                      "job_id": "vidjob_mx933FastText_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_mx933FastText_example_123",
+                      "model": "sd2-mx933-720-fast-1s",
+                      "resolution": "720p",
+                      "duration": 5,
+                      "aspect_ratio": "16:9",
+                      "created_at": 1785844800
+                    }
+                  },
                   "seedance20Text": {
                     "summary": "Seedance 01｜已验证：2.0 纯文本",
                     "value": {
@@ -1067,7 +1115,7 @@
                     }
                   },
                   "mx933FullReferences": {
-                    "summary": "Seedance 11｜MX933：已验证提交后的 202 响应结构（6 图 + 3 视频 + 3 音频）",
+                    "summary": "MX933 03｜933 标准版：已验证提交后的 202 响应结构（6 图 + 3 视频 + 3 音频）",
                     "value": {
                       "job_id": "vidjob_mx933FullReferences_example_123",
                       "status": "pending",
@@ -2529,6 +2577,14 @@
         ],
         "additionalProperties": false,
         "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，图片合计最多 9 张，JPEG/PNG/WebP 每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。参考视频最多 3 个，仅 MP4/MOV，合计不超过 50,000,000 字节、合计时长 2-15 秒、短边 480-720 像素且长边不超过 1280 像素。参考音频最多 3 个，仅 MP3/WAV，每个不超过 15,000,000 字节、合计时长不超过 15 秒，并且必须搭配 image_reference 或 video_reference_base。全部参考文件合计最多 12 个，内部 multipart 请求不超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance，必须省略该字段。",
+        "example": {
+          "model": "sd2-mx933-720-1s",
+          "prompt": "雨后的城市街道映出霓虹灯光，一名穿橙色外套的人撑着蓝色雨伞向镜头走来，镜头平稳后退并保持人物居中，无字幕，无水印。",
+          "resolution": "720p",
+          "duration": 5,
+          "aspect_ratio": "16:9",
+          "audio": false
+        },
         "properties": {
           "model": {
             "type": "string",
@@ -2738,6 +2794,14 @@
         ],
         "additionalProperties": false,
         "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，图片合计最多 9 张，JPEG/PNG/WebP 每张不超过 30,000,000 字节；通过 TKCreazy 上传时实际按 10 MiB 上限执行。参考视频最多 3 个，仅 MP4/MOV，合计不超过 50,000,000 字节、合计时长 2-15 秒、短边 480-720 像素且长边不超过 1280 像素。参考音频最多 3 个，仅 MP3/WAV，每个不超过 15,000,000 字节、合计时长不超过 15 秒，并且必须搭配 image_reference 或 video_reference_base。全部参考文件合计最多 12 个，内部 multipart 请求不超过 384 MiB。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance，必须省略该字段。",
+        "example": {
+          "model": "sd2-mx933-720-fast-1s",
+          "prompt": "白色摄影棚内，一只红色旅行箱在转台上缓慢旋转，镜头由全景平稳推进至产品近景，无字幕，无水印。",
+          "resolution": "720p",
+          "duration": 5,
+          "aspect_ratio": "16:9",
+          "audio": false
+        },
         "properties": {
           "model": {
             "type": "string",
