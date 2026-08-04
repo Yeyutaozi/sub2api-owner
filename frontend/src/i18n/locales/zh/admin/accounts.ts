@@ -649,6 +649,12 @@ export default {
         baseUrlHint: 'Grok OAuth 账号会转发到官方 xAI API Base URL。',
         apiKeyHint: 'Grok 订阅支持使用 OAuth refresh token；API Key 账号不在本次范围内。'
       },
+      videoProvider: {
+        title: '视频上游渠道',
+        hint: '选择内部协议适配器。已有 Seedance 账号保持 FFLink；MX933 账号请选择汇取云，并填写该渠道实际提供的 Base URL 和 API Key。',
+        fflink: 'FFLink（旧渠道）',
+        huiqu: '汇取云 MX933'
+      },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
@@ -665,6 +671,9 @@ export default {
         webSearchDisabled: '关闭',
       },
       modelRestriction: '模型限制（可选）',
+      videoModelRestriction: '模型限制（必填）',
+      videoModelMappingRequiredHint: '视频账号必须明确选择或映射至少一个模型，否则调度器无法判断该账号可以处理哪些视频模型。',
+      videoModelMappingRequired: '请至少为视频账号选择或映射一个模型。',
       modelWhitelist: '模型白名单',
       modelMapping: '模型映射',
       selectAllowedModels: '选择允许的模型。留空则支持所有模型。',

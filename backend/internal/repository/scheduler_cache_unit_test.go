@@ -325,6 +325,28 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsVideoProviderForModelRouting(t *testing.T) {
+	account := service.Account{
+		ID:       45,
+		Platform: service.PlatformSeedance,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"video_provider": service.VideoProviderHuiqu,
+			"base_url":       service.DefaultHuiquVideoBaseURL,
+			"model_mapping": map[string]any{
+				"sd2-mx933-720-1s": "sd2-mx933-720-1s",
+			},
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, service.VideoProviderHuiqu, got.Credentials["video_provider"])
+	require.Nil(t, got.Credentials["base_url"])
+	require.True(t, got.IsModelSupported("sd2-mx933-720-1s"))
+	require.False(t, got.IsModelSupported("seedance-2.0"))
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsGrokMediaEligibility(t *testing.T) {
 	t.Run("explicit override", func(t *testing.T) {
 		account := service.Account{

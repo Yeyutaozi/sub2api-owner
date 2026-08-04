@@ -30,6 +30,7 @@ const (
 	seedanceUpstreamCreatePath      = "/v1/videos/generations"
 	seedanceUpstreamJobsPath        = "/v1/videos/jobs"
 	seedanceTaskBindingTTL          = 7 * 24 * time.Hour
+	SeedanceFallbackLeaseDuration   = 10 * time.Minute
 	seedanceTaskStatusConcurrency   = 5
 	DefaultSeedanceJobsLimit        = 50
 	MaxSeedanceJobsLimit            = 100
@@ -38,17 +39,42 @@ const (
 var seedanceTaskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
 
 var seedanceSensitiveQueryParamPattern = regexp.MustCompile(`(?i)((?:[?&]|\\u0026)(?:key|client_secret|access_token|refresh_token|token|sig|signature|credential|policy|ossaccesskeyid|x-amz-[a-z0-9-]+|x-goog-[a-z0-9-]+|q-[a-z0-9-]+|x-oss-[a-z0-9-]+)=)[^&"'\s\\},]+`)
+var huiquCamelCaseResponseKeyPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+var huiquAbsoluteURLPattern = regexp.MustCompile(`(?i)(?:https?:)?//[^\s"'<>\\]+`)
+var huiquSensitiveAssignmentPattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|token|sig|signature|credential|secret)\s*[=:]\s*)[^\s,;"'}]+`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
 	if !IsFFLinkVideoPlatform(platform) {
 		return nil
 	}
 	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("FFLINK_VIDEO_ACCOUNT_TYPE_INVALID", "FFLink video accounts must use the apikey account type")
+		return infraerrors.BadRequest("VIDEO_ACCOUNT_TYPE_INVALID", "video accounts must use the apikey account type")
 	}
 	apiKey, _ := credentials["api_key"].(string)
 	if strings.TrimSpace(apiKey) == "" {
-		return infraerrors.BadRequest("FFLINK_VIDEO_API_KEY_REQUIRED", "FFLink video accounts require an upstream API key")
+		return infraerrors.BadRequest("VIDEO_API_KEY_REQUIRED", "video accounts require an upstream API key")
+	}
+	providerValue := ""
+	if raw, exists := credentials["video_provider"]; exists && raw != nil {
+		var ok bool
+		providerValue, ok = raw.(string)
+		if !ok {
+			return infraerrors.BadRequest("VIDEO_PROVIDER_INVALID", "video_provider must be a string")
+		}
+	}
+	provider, err := normalizeVideoProvider(platform, providerValue)
+	if err != nil {
+		return infraerrors.BadRequest("VIDEO_PROVIDER_INVALID", err.Error())
+	}
+	if mapping := stringMappingFromRaw(credentials["model_mapping"]); len(mapping) > 0 {
+		for requestedModel, upstreamModel := range mapping {
+			if !videoProviderSupportsModel(provider, requestedModel) || !videoProviderSupportsModel(provider, upstreamModel) {
+				return infraerrors.BadRequest(
+					"VIDEO_PROVIDER_MODEL_MISMATCH",
+					fmt.Sprintf("model %s is not supported by video provider %s", requestedModel, provider),
+				)
+			}
+		}
 	}
 	return nil
 }
@@ -136,6 +162,7 @@ type SeedanceRequestInfo struct {
 	References      []SeedanceReferenceImage
 	VideoReferences []SeedanceReferenceVideo
 	AudioReferences []SeedanceReferenceAudio
+	HuiquMedia      *SeedanceHuiquPreparedMedia
 }
 
 type SeedanceReferenceImage struct {
@@ -177,19 +204,38 @@ type SeedanceUpstreamResponse struct {
 }
 
 type SeedanceTaskBinding struct {
-	UserID    int64
-	APIKeyID  int64
-	GroupID   int64
-	AccountID int64
-	JobID     string
-	Model     string
-	CreatedAt time.Time
+	UserID             int64
+	APIKeyID           int64
+	GroupID            int64
+	AccountID          int64
+	JobID              string
+	UpstreamJobID      string
+	Model              string
+	FallbackModel      string
+	FallbackStatus     string
+	FallbackClaimToken string
+	FallbackLeaseUntil time.Time
+	RequestSnapshot    []byte
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type SeedanceTaskBindingRepository interface {
 	SaveSeedanceTaskBinding(ctx context.Context, binding *SeedanceTaskBinding) error
 	GetSeedanceTaskBinding(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (*SeedanceTaskBinding, error)
 	ListSeedanceTaskBindings(ctx context.Context, userID, apiKeyID, groupID int64, limit int) ([]SeedanceTaskBinding, error)
+}
+
+type SeedanceTaskFallbackRepository interface {
+	ClaimSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (bool, string, error)
+	ActivateSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string, accountID int64, upstreamJobID string) (bool, error)
+	FailSeedanceTaskFallback(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
+}
+
+type SeedanceTaskCancellationRepository interface {
+	ClaimSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID string) (bool, string, error)
+	CompleteSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
+	ReleaseSeedanceTaskCancellation(ctx context.Context, userID, apiKeyID, groupID int64, jobID, claimToken string) (bool, error)
 }
 
 type SeedanceUpstreamError struct {
@@ -285,10 +331,10 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if info.Prompt == "" {
 		return nil, errors.New("content must include a non-empty text item")
 	}
-	if info.EndFrameURL != "" && info.StartFrameURL == "" {
+	if info.EndFrameURL != "" && info.StartFrameURL == "" && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
-	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
+	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
@@ -339,7 +385,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 	}
 
 	if imageURL := strings.TrimSpace(request.ImageURL); imageURL != "" {
-		if info.StartFrameURL != "" || info.EndFrameURL != "" || len(request.Guidances.ImageReference) > 0 {
+		if info.StartFrameURL != "" || info.EndFrameURL != "" || (len(request.Guidances.ImageReference) > 0 && !isHuiquVideoModel(info.Model)) {
 			return nil, errors.New("image_url cannot be combined with start_frame_url, end_frame_url, or image references")
 		}
 		info.StartFrameURL = imageURL
@@ -360,7 +406,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 				return nil, errors.New("guidances.image_reference.image.url is required")
 			}
 			switch {
-			case info.StartFrameURL != "" || info.EndFrameURL != "":
+			case (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model):
 				return nil, errors.New("image references cannot be combined with start_frame_url or end_frame_url")
 			}
 			info.References = append(info.References, SeedanceReferenceImage{
@@ -389,10 +435,10 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		}
 		info.AudioReferences = append(info.AudioReferences, SeedanceReferenceAudio{URL: url})
 	}
-	if info.EndFrameURL != "" && info.StartFrameURL == "" {
+	if info.EndFrameURL != "" && info.StartFrameURL == "" && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
-	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") {
+	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
@@ -621,27 +667,48 @@ func (s *OpenAIGatewayService) BindSeedanceTaskAccount(
 	userID, apiKeyID, accountID int64,
 	model string,
 ) error {
+	return s.BindSeedanceTaskAccountWithFallback(ctx, groupID, taskID, taskID, userID, apiKeyID, accountID, model, "", nil, "")
+}
+
+func (s *OpenAIGatewayService) BindSeedanceTaskAccountWithFallback(
+	ctx context.Context,
+	groupID *int64,
+	publicTaskID string,
+	upstreamTaskID string,
+	userID, apiKeyID, accountID int64,
+	model, fallbackModel string,
+	requestSnapshot []byte,
+	fallbackStatus string,
+) error {
 	group := derefGroupID(groupID)
-	taskID = strings.TrimSpace(taskID)
+	publicTaskID = strings.TrimSpace(publicTaskID)
+	upstreamTaskID = strings.TrimSpace(upstreamTaskID)
 	model = strings.TrimSpace(model)
 	cacheKey := ""
 	if s != nil {
-		cacheKey = s.openAISessionCacheKey(SeedanceTaskSessionHash(taskID, userID, apiKeyID))
+		cacheKey = s.openAISessionCacheKey(SeedanceTaskSessionHash(publicTaskID, userID, apiKeyID))
 	}
-	if s == nil || cacheKey == "" || group <= 0 || accountID <= 0 || model == "" {
+	if s == nil || cacheKey == "" || group <= 0 || accountID <= 0 || model == "" || publicTaskID == "" {
 		return errors.New("seedance task binding is invalid")
+	}
+	if upstreamTaskID == "" {
+		upstreamTaskID = publicTaskID
 	}
 	repo, ok := s.usageLogRepo.(SeedanceTaskBindingRepository)
 	if !ok || repo == nil {
 		return errors.New("seedance task binding repository is unavailable")
 	}
 	if err := repo.SaveSeedanceTaskBinding(ctx, &SeedanceTaskBinding{
-		UserID:    userID,
-		APIKeyID:  apiKeyID,
-		GroupID:   group,
-		AccountID: accountID,
-		JobID:     taskID,
-		Model:     model,
+		UserID:          userID,
+		APIKeyID:        apiKeyID,
+		GroupID:         group,
+		AccountID:       accountID,
+		JobID:           publicTaskID,
+		UpstreamJobID:   upstreamTaskID,
+		Model:           model,
+		FallbackModel:   strings.TrimSpace(fallbackModel),
+		FallbackStatus:  strings.TrimSpace(fallbackStatus),
+		RequestSnapshot: append([]byte(nil), requestSnapshot...),
 	}); err != nil {
 		return err
 	}
@@ -649,6 +716,137 @@ func (s *OpenAIGatewayService) BindSeedanceTaskAccount(
 		_ = s.cache.SetSessionAccountID(ctx, group, cacheKey, accountID, seedanceTaskBindingTTL)
 	}
 	return nil
+}
+
+func (s *OpenAIGatewayService) GetSeedanceTaskBinding(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+) (*SeedanceTaskBinding, error) {
+	group := derefGroupID(groupID)
+	jobID = strings.TrimSpace(jobID)
+	if s == nil || group <= 0 || jobID == "" || userID <= 0 || apiKeyID <= 0 {
+		return nil, errors.New("seedance task binding is invalid")
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskBindingRepository)
+	if !ok || repo == nil {
+		return nil, errors.New("seedance task binding repository is unavailable")
+	}
+	return repo.GetSeedanceTaskBinding(ctx, userID, apiKeyID, group, jobID)
+}
+
+func (s *OpenAIGatewayService) ClaimSeedanceTaskFallback(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+) (bool, string, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskFallbackRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, "", errors.New("seedance task fallback repository is unavailable")
+	}
+	return repo.ClaimSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID)
+}
+
+func (s *OpenAIGatewayService) ActivateSeedanceTaskFallback(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+	accountID int64,
+	upstreamJobID string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskFallbackRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" || userID <= 0 || apiKeyID <= 0 || accountID <= 0 {
+		return false, errors.New("seedance task fallback repository is unavailable")
+	}
+	activated, err := repo.ActivateSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken, accountID, upstreamJobID)
+	if err == nil && activated && s.cache != nil {
+		cacheKey := s.openAISessionCacheKey(SeedanceTaskSessionHash(jobID, userID, apiKeyID))
+		if cacheKey != "" {
+			_ = s.cache.SetSessionAccountID(ctx, group, cacheKey, accountID, seedanceTaskBindingTTL)
+		}
+	}
+	return activated, err
+}
+
+func (s *OpenAIGatewayService) FailSeedanceTaskFallback(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskFallbackRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, errors.New("seedance task fallback repository is unavailable")
+	}
+	return repo.FailSeedanceTaskFallback(ctx, userID, apiKeyID, group, jobID, claimToken)
+}
+
+func (s *OpenAIGatewayService) ClaimSeedanceTaskCancellation(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+) (bool, string, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskCancellationRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, "", errors.New("seedance task cancellation repository is unavailable")
+	}
+	return repo.ClaimSeedanceTaskCancellation(ctx, userID, apiKeyID, group, jobID)
+}
+
+func (s *OpenAIGatewayService) CompleteSeedanceTaskCancellation(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskCancellationRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, errors.New("seedance task cancellation repository is unavailable")
+	}
+	return repo.CompleteSeedanceTaskCancellation(ctx, userID, apiKeyID, group, jobID, claimToken)
+}
+
+func (s *OpenAIGatewayService) ReleaseSeedanceTaskCancellation(
+	ctx context.Context,
+	groupID *int64,
+	jobID string,
+	userID, apiKeyID int64,
+	claimToken string,
+) (bool, error) {
+	group := derefGroupID(groupID)
+	repo, ok := s.seedanceTaskCancellationRepository()
+	if !ok || group <= 0 || strings.TrimSpace(jobID) == "" || strings.TrimSpace(claimToken) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, errors.New("seedance task cancellation repository is unavailable")
+	}
+	return repo.ReleaseSeedanceTaskCancellation(ctx, userID, apiKeyID, group, jobID, claimToken)
+}
+
+func (s *OpenAIGatewayService) seedanceTaskFallbackRepository() (SeedanceTaskFallbackRepository, bool) {
+	if s == nil || s.usageLogRepo == nil {
+		return nil, false
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskFallbackRepository)
+	return repo, ok && repo != nil
+}
+
+func (s *OpenAIGatewayService) seedanceTaskCancellationRepository() (SeedanceTaskCancellationRepository, bool) {
+	if s == nil || s.usageLogRepo == nil {
+		return nil, false
+	}
+	repo, ok := s.usageLogRepo.(SeedanceTaskCancellationRepository)
+	return repo, ok && repo != nil
 }
 
 func (s *OpenAIGatewayService) ResolveSeedanceTaskAccount(ctx context.Context, groupID *int64, taskID string, userID, apiKeyID int64) (int64, error) {
@@ -681,6 +879,61 @@ func (s *OpenAIGatewayService) ResolveSeedanceTaskAccount(ctx context.Context, g
 		_ = s.cache.SetSessionAccountID(ctx, group, cacheKey, binding.AccountID, seedanceTaskBindingTTL)
 	}
 	return binding.AccountID, nil
+}
+
+func (s *OpenAIGatewayService) SeedanceTaskAccountSelection(ctx context.Context, accountID int64, groupID *int64) (*AccountSelectionResult, error) {
+	selection, err := s.SeedanceBoundTaskAccountSelection(ctx, accountID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if selection == nil || selection.Account == nil || !selection.Account.IsHuiquVideo() {
+		if selection != nil && selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return nil, errors.New("seedance task account is unavailable")
+	}
+	return selection, nil
+}
+
+func (s *OpenAIGatewayService) SeedanceBoundTaskAccountSelection(ctx context.Context, accountID int64, groupID *int64) (*AccountSelectionResult, error) {
+	group := derefGroupID(groupID)
+	if s == nil || s.accountRepo == nil || accountID <= 0 || group <= 0 {
+		return nil, errors.New("seedance task account is invalid")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsFFLinkVideo() || !account.IsSchedulable() || account.GetVideoProvider() == "" || !openAIStickyAccountMatchesGroup(account, &group) {
+		return nil, errors.New("seedance task account is unavailable")
+	}
+	maxConcurrency := account.Concurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+	scheduling := s.schedulingConfig()
+	waitTimeout := scheduling.FallbackWaitTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = 30 * time.Second
+	}
+	maxWaiting := scheduling.FallbackMaxWaiting
+	if maxWaiting <= 0 {
+		maxWaiting = 100
+	}
+	selection, err := s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+		AccountID:      account.ID,
+		MaxConcurrency: maxConcurrency,
+		Timeout:        waitTimeout,
+		MaxWaiting:     maxWaiting,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if selection == nil || selection.Account == nil || !selection.Account.IsFFLinkVideo() || !selection.Account.IsSchedulable() ||
+		selection.Account.GetVideoProvider() == "" || !openAIStickyAccountMatchesGroup(selection.Account, &group) {
+		return nil, errors.New("seedance task account is unavailable")
+	}
+	return selection, nil
 }
 
 func (s *OpenAIGatewayService) ListOwnedSeedanceJobs(
@@ -763,6 +1016,18 @@ func (s *OpenAIGatewayService) ListOwnedSeedanceJobs(
 
 func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, binding SeedanceTaskBinding) map[string]any {
 	fallback := seedanceIndexedJobFallback(binding)
+	if binding.FallbackStatus == SeedanceFallbackStatusStarting {
+		fallback["status"] = "queued"
+		return fallback
+	}
+	if binding.FallbackStatus == SeedanceFallbackStatusCancelling {
+		fallback["status"] = "running"
+		return fallback
+	}
+	if binding.FallbackStatus == SeedanceFallbackStatusCancelled {
+		fallback["status"] = "cancelled"
+		return fallback
+	}
 	if s.accountRepo == nil || s.httpUpstream == nil {
 		return fallback
 	}
@@ -770,11 +1035,21 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 	if err != nil || account == nil {
 		return fallback
 	}
-	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, binding.JobID, nil)
+	if !account.IsFFLinkVideo() || account.GetVideoProvider() == "" {
+		return fallback
+	}
+	if account.IsHuiquVideo() && (!account.IsSchedulable() || !openAIStickyAccountMatchesGroup(account, &binding.GroupID)) {
+		return fallback
+	}
+	upstreamJobID := strings.TrimSpace(binding.UpstreamJobID)
+	if upstreamJobID == "" {
+		upstreamJobID = binding.JobID
+	}
+	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, upstreamJobID, nil)
 	if err != nil || forwarded == nil || len(forwarded.Body) == 0 {
 		return fallback
 	}
-	normalized, err := NormalizeSeedanceJob(forwarded.Body, binding.JobID)
+	normalized, err := NormalizeSeedanceJobForRoute(forwarded.Body, binding.JobID, account.GetVideoProvider(), binding.Model)
 	if err != nil {
 		return fallback
 	}
@@ -910,10 +1185,16 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
+	provider := account.GetVideoProvider()
+	if provider == "" {
+		return nil, fmt.Errorf("account %d has an invalid video_provider", account.ID)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
 	var requestBody []byte
+	var multipartBody *seedanceHuiquMultipartBody
+	requestContentType := "application/json"
 	requestModel := ""
 	upstreamModel := ""
 	if method == http.MethodPost {
@@ -923,18 +1204,41 @@ func (s *OpenAIGatewayService) forwardSeedance(
 		requestModel = requestInfo.Model
 		upstreamModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestModel))
 		var err error
-		requestBody, err = requestInfo.UpstreamBody(upstreamModel)
+		if provider == VideoProviderHuiqu {
+			path = huiquVideoCreatePath
+			if requestInfo.HasReferenceMedia() {
+				multipartBody, err = buildHuiquMultipartBody(requestInfo, upstreamModel)
+				if err == nil {
+					requestContentType = multipartBody.ContentType
+				}
+			} else {
+				requestBody, err = requestInfo.HuiquUpstreamBody(upstreamModel)
+			}
+		} else {
+			requestBody, err = requestInfo.UpstreamBody(upstreamModel)
+		}
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		if !seedanceTaskIDPattern.MatchString(strings.TrimSpace(taskID)) {
-			return nil, errors.New("invalid Seedance task id")
+		upstreamTaskID, err := upstreamSeedanceTaskID(provider, taskID)
+		if err != nil {
+			return nil, err
 		}
-		path = seedanceUpstreamJobsPath + "/" + url.PathEscape(strings.TrimSpace(taskID))
-		if c != nil && strings.HasSuffix(c.Request.URL.Path, "/content") {
+		if provider == VideoProviderHuiqu {
+			if method == http.MethodDelete {
+				return nil, &SeedanceUpstreamError{StatusCode: http.StatusMethodNotAllowed, Body: []byte("this video provider does not support task cancellation")}
+			}
+			path = huiquVideoTaskPath + "/" + url.PathEscape(upstreamTaskID)
+		} else {
+			path = seedanceUpstreamJobsPath + "/" + url.PathEscape(upstreamTaskID)
+		}
+		if c != nil && c.Request != nil && strings.HasSuffix(c.Request.URL.Path, "/content") {
 			path += "/content"
 		}
+	}
+	if multipartBody != nil {
+		defer multipartBody.Close()
 	}
 
 	baseURL, err := s.validateUpstreamBaseURL(account.GetSeedanceBaseURL())
@@ -945,7 +1249,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	SetActualOpenAIUpstreamEndpoint(c, path)
 
 	var bodyReader io.Reader
-	if len(requestBody) > 0 {
+	if multipartBody != nil {
+		bodyReader = multipartBody.File
+	} else if len(requestBody) > 0 {
 		bodyReader = bytes.NewReader(requestBody)
 	}
 	upstreamReq, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
@@ -956,8 +1262,14 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
 	upstreamReq.Header.Set("Accept", "application/json")
 	if method == http.MethodPost {
-		upstreamReq.Header.Set("Content-Type", "application/json")
-		upstreamReq.Header.Set("Prefer", "respond-async")
+		upstreamReq.Header.Set("Content-Type", requestContentType)
+		if multipartBody != nil {
+			upstreamReq.ContentLength = multipartBody.SizeBytes
+			upstreamReq.GetBody = multipartBody.GetBody
+		}
+		if provider == VideoProviderFFLink {
+			upstreamReq.Header.Set("Prefer", "respond-async")
+		}
 		if c != nil {
 			if idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key")); idempotencyKey != "" {
 				upstreamReq.Header.Set("Idempotency-Key", idempotencyKey)
@@ -991,7 +1303,12 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	isContentResponse := strings.HasSuffix(path, "/content")
 	if resp.StatusCode >= http.StatusBadRequest && !(isContentResponse && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable) {
 		defer func() { _ = resp.Body.Close() }()
-		responseBody := sanitizeSeedanceUpstreamErrorBody(s.readUpstreamErrorBody(resp))
+		responseBody := s.readUpstreamErrorBody(resp)
+		if provider == VideoProviderHuiqu {
+			responseBody = sanitizeHuiquSeedanceUpstreamErrorBody(responseBody)
+		} else {
+			responseBody = sanitizeSeedanceUpstreamErrorBody(responseBody)
+		}
 		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
 		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, message, responseBody) {
 			return nil, &UpstreamFailoverError{
@@ -1016,13 +1333,17 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	}
 	response.Body = responseBody
 	if method == http.MethodPost {
-		taskID := extractSeedanceUpstreamTaskID(responseBody)
-		if taskID == "" {
+		upstreamTaskID := extractSeedanceUpstreamTaskID(responseBody)
+		if upstreamTaskID == "" {
 			return nil, errors.New("Seedance upstream response did not include job_id")
 		}
+		publicTaskID, err := publicSeedanceTaskID(provider, upstreamTaskID)
+		if err != nil {
+			return nil, err
+		}
 		response.Result = &OpenAIForwardResult{
-			RequestID:            firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id"), "seedance:"+taskID),
-			ResponseID:           taskID,
+			RequestID:            firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id"), "seedance:"+publicTaskID),
+			ResponseID:           publicTaskID,
 			Model:                requestModel,
 			BillingModel:         requestModel,
 			UpstreamModel:        upstreamModel,
@@ -1076,7 +1397,7 @@ func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, e
 			}
 		}
 		if taskID != "" && allowTask(taskID) {
-			normalizeSeedancePublicJob(job, taskID)
+			normalizeSeedancePublicJob(job, taskID, IsHuiquSeedanceTaskID(taskID), "")
 			filtered = append(filtered, item)
 		}
 	}
@@ -1085,6 +1406,14 @@ func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, e
 }
 
 func NormalizeSeedanceJob(body []byte, taskID string) ([]byte, error) {
+	provider := VideoProviderFFLink
+	if IsHuiquSeedanceTaskID(taskID) {
+		provider = VideoProviderHuiqu
+	}
+	return NormalizeSeedanceJobForRoute(body, taskID, provider, "")
+}
+
+func NormalizeSeedanceJobForRoute(body []byte, taskID, provider, publicModel string) ([]byte, error) {
 	taskID = strings.TrimSpace(taskID)
 	if !seedanceTaskIDPattern.MatchString(taskID) {
 		return nil, errors.New("invalid Seedance task id")
@@ -1093,25 +1422,47 @@ func NormalizeSeedanceJob(body []byte, taskID string) ([]byte, error) {
 	if err := json.Unmarshal(body, &job); err != nil {
 		return nil, errors.New("invalid Seedance upstream job response")
 	}
-	normalizeSeedancePublicJob(job, taskID)
+	normalizeSeedancePublicJob(job, taskID, provider == VideoProviderHuiqu, publicModel)
 	return json.Marshal(job)
 }
 
-func normalizeSeedancePublicJob(job map[string]any, taskID string) {
+func normalizeSeedancePublicJob(job map[string]any, taskID string, isHuiquTask bool, publicModel string) {
 	if job == nil || taskID == "" {
 		return
 	}
 	statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 	contentPath := statusPath + "/content"
+	if isHuiquTask {
+		sanitizeHuiquSeedanceResponse(job, statusPath, contentPath)
+		job["id"] = taskID
+		job["job_id"] = taskID
+		job["task_id"] = taskID
+	}
 	job["status_url"] = statusPath
+	if publicModel = strings.TrimSpace(publicModel); publicModel != "" {
+		job["model"] = publicModel
+	}
+	synthesizeHuiquResult := func() {
+		status, _ := job["status"].(string)
+		if isHuiquTask && MapSeedanceTaskStatus(status) == "succeeded" {
+			job["result"] = map[string]any{"data": []any{map[string]any{
+				"mp4_url":   contentPath,
+				"url":       contentPath,
+				"local_url": contentPath,
+			}}}
+		}
+	}
 	result, ok := job["result"].(map[string]any)
 	if !ok {
+		synthesizeHuiquResult()
 		return
 	}
 	files, ok := result["data"].([]any)
-	if !ok {
+	if !ok || len(files) == 0 {
+		synthesizeHuiquResult()
 		return
 	}
+	rewritten := false
 	for _, item := range files {
 		file, ok := item.(map[string]any)
 		if !ok {
@@ -1120,13 +1471,141 @@ func normalizeSeedancePublicJob(job map[string]any, taskID string) {
 		file["mp4_url"] = contentPath
 		file["url"] = contentPath
 		file["local_url"] = contentPath
+		rewritten = true
+	}
+	if !rewritten {
+		synthesizeHuiquResult()
 	}
 }
 
+func sanitizeHuiquSeedanceResponse(value any, statusPath, contentPath string) bool {
+	_, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath)
+	return keep
+}
+
+func sanitizeHuiquSeedanceValue(value any, statusPath, contentPath string) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if isHuiquSensitiveResponseKey(key) {
+				delete(typed, key)
+				continue
+			}
+			switch huiquPublicURLKind(key) {
+			case "status":
+				typed[key] = statusPath
+				continue
+			case "content":
+				if _, isString := child.(string); isString {
+					typed[key] = contentPath
+					continue
+				}
+			case "remove":
+				delete(typed, key)
+				continue
+			}
+			sanitized, keep := sanitizeHuiquSeedanceValue(child, statusPath, contentPath)
+			if !keep {
+				delete(typed, key)
+				continue
+			}
+			typed[key] = sanitized
+		}
+		return typed, len(typed) > 0
+	case []any:
+		filtered := make([]any, 0, len(typed))
+		for _, child := range typed {
+			sanitized, keep := sanitizeHuiquSeedanceValue(child, statusPath, contentPath)
+			if keep {
+				filtered = append(filtered, sanitized)
+			}
+		}
+		return filtered, len(filtered) > 0
+	case string:
+		return typed, !containsHuiquPrivateResponseValue(typed)
+	default:
+		return value, true
+	}
+}
+
+func huiquPublicURLKind(key string) string {
+	normalized := normalizeHuiquResponseKey(key)
+	switch normalized {
+	case "status_url", "statusurl", "task_url", "taskurl", "job_url", "joburl", "poll_url", "pollurl", "polling_url", "pollingurl":
+		return "status"
+	case "video_url", "videourl", "mp4_url", "mp4url", "url", "local_url", "localurl", "download_url", "downloadurl", "content_url", "contenturl", "playback_url", "playbackurl", "file_url", "fileurl":
+		return "content"
+	case "thumbnail_url", "thumbnailurl", "cover_url", "coverurl", "image_url", "imageurl", "source_url", "sourceurl", "preview_url", "previewurl", "poster_url", "posterurl", "web_url", "weburl", "share_url", "shareurl", "upload_url", "uploadurl":
+		return "remove"
+	default:
+		if strings.HasSuffix(normalized, "_url") || strings.HasSuffix(normalized, "url") || strings.HasSuffix(normalized, "_uri") || strings.HasSuffix(normalized, "uri") {
+			return "remove"
+		}
+		return ""
+	}
+}
+
+func isHuiquSensitiveResponseKey(key string) bool {
+	normalized := normalizeHuiquResponseKey(key)
+	if strings.HasPrefix(normalized, "x_amz_") || strings.HasPrefix(normalized, "x_oss_") ||
+		strings.HasPrefix(normalized, "x_goog_") || strings.HasPrefix(normalized, "q_") ||
+		strings.HasPrefix(normalized, "xamz") || strings.HasPrefix(normalized, "xoss") || strings.HasPrefix(normalized, "xgoog") {
+		return true
+	}
+	if strings.Contains(normalized, "signature") || strings.Contains(normalized, "credential") ||
+		strings.Contains(normalized, "secret") || strings.Contains(normalized, "token") {
+		return true
+	}
+	switch normalized {
+	case "authorization", "apikey", "api_key", "accesskey", "access_key", "accesskeyid", "access_key_id",
+		"policy", "signedheaders", "signed_headers", "ossaccesskeyid":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeHuiquResponseKey(key string) string {
+	key = strings.TrimSpace(key)
+	key = huiquCamelCaseResponseKeyPattern.ReplaceAllString(key, `${1}_${2}`)
+	key = strings.ToLower(key)
+	key = strings.ReplaceAll(key, "-", "_")
+	return strings.ReplaceAll(key, ".", "_")
+}
+
+func containsHuiquPrivateResponseValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") || strings.HasPrefix(lower, "//") {
+		return true
+	}
+	return seedanceSensitiveQueryParamPattern.MatchString(value)
+}
+
 func BuildSeedanceOfficialTaskResponse(taskID string, upstreamBody []byte, contentURL string) (map[string]any, error) {
+	provider := VideoProviderFFLink
+	if IsHuiquSeedanceTaskID(taskID) {
+		provider = VideoProviderHuiqu
+	}
+	return BuildSeedanceOfficialTaskResponseForRoute(taskID, upstreamBody, contentURL, provider, "")
+}
+
+func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byte, contentURL, provider, publicModel string) (map[string]any, error) {
 	var upstream map[string]any
 	if err := json.Unmarshal(upstreamBody, &upstream); err != nil {
 		return nil, errors.New("invalid Seedance upstream task response")
+	}
+	isHuiquTask := provider == VideoProviderHuiqu
+	if isHuiquTask {
+		statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
+		contentPath := statusPath + "/content"
+		// Normalize the complete upstream object before copying any fields into
+		// the official response. This prevents an unexpected URL or credential
+		// field in metadata from bypassing the small field allowlist below.
+		sanitizeHuiquSeedanceResponse(upstream, statusPath, contentPath)
 	}
 	status, _ := upstream["status"].(string)
 	officialStatus := MapSeedanceTaskStatus(status)
@@ -1136,14 +1615,45 @@ func BuildSeedanceOfficialTaskResponse(taskID string, upstreamBody []byte, conte
 			response[key] = value
 		}
 	}
+	if publicModel = strings.TrimSpace(publicModel); publicModel != "" {
+		response["model"] = publicModel
+	}
+	if isHuiquTask {
+		if _, exists := response["duration"]; !exists {
+			if value, ok := upstream["seconds"]; ok && value != nil {
+				response["duration"] = value
+			}
+		}
+		if _, exists := response["ratio"]; !exists {
+			if value, ok := upstream["aspect_ratio"]; ok && value != nil {
+				response["ratio"] = value
+			}
+		}
+	}
 	if officialStatus == "succeeded" {
 		response["content"] = map[string]any{"video_url": strings.TrimSpace(contentURL)}
 	}
 	if officialStatus == "failed" {
 		if value, exists := upstream["error"]; exists {
-			response["error"] = value
+			if isHuiquTask {
+				statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
+				contentPath := statusPath + "/content"
+				if sanitized, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath); keep {
+					response["error"] = sanitized
+				}
+			} else {
+				response["error"] = value
+			}
 		} else if value, exists := upstream["error_message"]; exists {
-			response["error"] = map[string]any{"message": value}
+			if isHuiquTask {
+				statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
+				contentPath := statusPath + "/content"
+				if sanitized, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath); keep {
+					response["error"] = map[string]any{"message": sanitized}
+				}
+			} else {
+				response["error"] = map[string]any{"message": value}
+			}
 		}
 	}
 	return response, nil
@@ -1179,6 +1689,60 @@ func sanitizeSeedanceUpstreamErrorBody(body []byte) []byte {
 		return body
 	}
 	return seedanceSensitiveQueryParamPattern.ReplaceAll(body, []byte("${1}***"))
+}
+
+func sanitizeHuiquSeedanceUpstreamErrorBody(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	var payload any
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if sanitized, keep := sanitizeHuiquSeedanceErrorValue(payload); keep {
+			if encoded, marshalErr := json.Marshal(sanitized); marshalErr == nil {
+				return encoded
+			}
+		}
+		return []byte(`{"error":{"message":"Seedance upstream request failed"}}`)
+	}
+	return []byte(redactHuiquSeedanceErrorText(string(body)))
+}
+
+func sanitizeHuiquSeedanceErrorValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if isHuiquSensitiveResponseKey(key) || huiquPublicURLKind(key) != "" {
+				delete(typed, key)
+				continue
+			}
+			sanitized, keep := sanitizeHuiquSeedanceErrorValue(child)
+			if !keep {
+				delete(typed, key)
+				continue
+			}
+			typed[key] = sanitized
+		}
+		return typed, len(typed) > 0
+	case []any:
+		filtered := make([]any, 0, len(typed))
+		for _, child := range typed {
+			if sanitized, keep := sanitizeHuiquSeedanceErrorValue(child); keep {
+				filtered = append(filtered, sanitized)
+			}
+		}
+		return filtered, len(filtered) > 0
+	case string:
+		sanitized := strings.TrimSpace(redactHuiquSeedanceErrorText(typed))
+		return sanitized, sanitized != ""
+	default:
+		return value, true
+	}
+}
+
+func redactHuiquSeedanceErrorText(value string) string {
+	value = huiquAbsoluteURLPattern.ReplaceAllString(value, "[redacted-url]")
+	value = seedanceSensitiveQueryParamPattern.ReplaceAllString(value, "${1}***")
+	return huiquSensitiveAssignmentPattern.ReplaceAllString(value, "${1}***")
 }
 
 func writeSeedanceContentResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

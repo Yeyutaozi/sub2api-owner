@@ -98,6 +98,37 @@ func TestUserPlatformQuotaRepository_BulkInsertInitial_GrokAllowed(t *testing.T)
 	require.InDelta(t, 9.0, *rec.DailyLimitUSD, 1e-9)
 }
 
+// TestUserPlatformQuotaRepository_BulkInsertInitial_AdditionalPlatformsAllowed
+// covers migration 197 and keeps PostgreSQL aligned with the application-level
+// platform allowlist.
+func TestUserPlatformQuotaRepository_BulkInsertInitial_AdditionalPlatformsAllowed(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	userID := mustCreateUserForQuota(t, client)
+	repo := NewUserPlatformQuotaRepository(client)
+
+	daily := 12.0
+	records := []UserPlatformQuotaRecord{
+		{UserID: userID, Platform: "seedance", DailyLimitUSD: &daily},
+		{UserID: userID, Platform: "glm", DailyLimitUSD: &daily},
+		{UserID: userID, Platform: "ltx", DailyLimitUSD: &daily},
+		{UserID: userID, Platform: "happyhorse", DailyLimitUSD: &daily},
+	}
+	require.NoError(t, repo.BulkInsertInitial(txCtx, records),
+		"application-supported platforms should be accepted after migration 197")
+
+	for _, platform := range []string{"seedance", "glm", "ltx", "happyhorse"} {
+		rec, err := repo.GetByUserPlatform(txCtx, userID, platform)
+		require.NoError(t, err)
+		require.NotNil(t, rec)
+		require.NotNil(t, rec.DailyLimitUSD)
+		require.InDelta(t, 12.0, *rec.DailyLimitUSD, 1e-9)
+	}
+}
+
 func TestUserPlatformQuotaRepository_GetByUserPlatform(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)

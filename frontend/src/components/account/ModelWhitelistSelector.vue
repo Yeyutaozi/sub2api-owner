@@ -161,6 +161,7 @@ const props = defineProps<{
   modelValue: string[]
   platform?: string
   platforms?: string[]
+  models?: string[]
   accountId?: number
   syncCredentials?: {
     platform: string
@@ -212,6 +213,10 @@ const canSyncUpstream = computed(() => {
 })
 
 const availableOptions = computed(() => {
+  if (props.models) {
+    const optionsByValue = new Map(allModels.map(model => [model.value, model]))
+    return props.models.map(value => optionsByValue.get(value) ?? { value, label: value })
+  }
   if (normalizedPlatforms.value.length === 0) {
     return allModels
   }
@@ -272,6 +277,15 @@ const handleEnter = () => {
 
 const fillRelated = () => {
   const newModels = [...props.modelValue]
+  if (props.models) {
+    for (const model of props.models) {
+      if (!newModels.includes(model)) {
+        newModels.push(model)
+      }
+    }
+    emit('update:modelValue', newModels)
+    return
+  }
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
       if (!newModels.includes(model)) {

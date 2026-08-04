@@ -23,6 +23,8 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		"seedance-2.0",
 		"seedance-2.0-fast",
 		"seedance-2.0-mini",
+		"sd2-mx933-720-1s",
+		"sd2-mx933-720-fast-1s",
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 }
 
@@ -327,13 +329,15 @@ func TestParseSeedanceCreateRequestRejectsMixedImageModes(t *testing.T) {
 func TestBuildSeedanceOfficialTaskResponse(t *testing.T) {
 	response, err := BuildSeedanceOfficialTaskResponse(
 		"vidjob_123",
-		[]byte(`{"job_id":"vidjob_123","status":"completed","model":"seedance-2.0","duration":8}`),
+		[]byte(`{"job_id":"vidjob_123","status":"completed","model":"seedance-2.0","duration":8,"seconds":9,"aspect_ratio":"9:16"}`),
 		"https://gateway.example/api/v3/contents/generations/tasks/vidjob_123/content",
 	)
 	require.NoError(t, err)
 	require.Equal(t, "vidjob_123", response["id"])
 	require.Equal(t, "succeeded", response["status"])
 	require.Equal(t, "seedance-2.0", response["model"])
+	require.EqualValues(t, 8, response["duration"])
+	require.NotContains(t, response, "ratio")
 	content, ok := response["content"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "https://gateway.example/api/v3/contents/generations/tasks/vidjob_123/content", content["video_url"])
@@ -564,16 +568,33 @@ func TestFilterSeedanceJobsListRejectsMalformedPayload(t *testing.T) {
 }
 
 func TestNormalizeSeedanceJobRewritesUpstreamURLs(t *testing.T) {
-	body := []byte(`{"job_id":"vidjob_example","status":"completed","status_url":"https://upstream.example/jobs/vidjob_example","result":{"data":[{"mp4_url":"https://upstream.example/video.mp4","url":"https://upstream.example/video.mp4","local_url":"https://upstream.example/video.mp4","thumbnail_url":"https://cdn.example/thumb.jpg"}]}}`)
+	body := []byte(`{"job_id":"vidjob_example","status":"completed","status_url":"https://upstream.example/jobs/vidjob_example","video_url":"https://upstream.example/top-level.mp4","download_url":"https://upstream.example/download.mp4","result":{"data":[{"mp4_url":"https://upstream.example/video.mp4","url":"https://upstream.example/video.mp4","local_url":"https://upstream.example/video.mp4","thumbnail_url":"https://cdn.example/thumb.jpg"}]}}`)
 	normalized, err := NormalizeSeedanceJob(body, "vidjob_example")
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(normalized, &payload))
 	require.Equal(t, "/v1/videos/jobs/vidjob_example", payload["status_url"])
+	require.Equal(t, "vidjob_example", payload["job_id"])
+	require.NotContains(t, payload, "id")
+	require.NotContains(t, payload, "task_id")
+	require.Equal(t, "https://upstream.example/top-level.mp4", payload["video_url"])
+	require.Equal(t, "https://upstream.example/download.mp4", payload["download_url"])
 	result := payload["result"].(map[string]any)
 	file := result["data"].([]any)[0].(map[string]any)
 	require.Equal(t, "/v1/videos/jobs/vidjob_example/content", file["mp4_url"])
 	require.Equal(t, "https://cdn.example/thumb.jpg", file["thumbnail_url"])
+}
+
+func TestNormalizeSeedanceJobDoesNotSynthesizeLegacyFFLinkResult(t *testing.T) {
+	normalized, err := NormalizeSeedanceJob(
+		[]byte(`{"job_id":"vidjob_example","status":"completed","video_url":"https://upstream.example/video.mp4"}`),
+		"vidjob_example",
+	)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &payload))
+	require.NotContains(t, payload, "result")
+	require.Equal(t, "https://upstream.example/video.mp4", payload["video_url"])
 }
 
 func TestSeedanceTaskBindingPersistsAndBackfillsCache(t *testing.T) {
@@ -667,4 +688,45 @@ func TestListOwnedSeedanceJobsAggregatesBoundAccounts(t *testing.T) {
 	require.Len(t, completed, 1)
 	require.Equal(t, "vidjob_completed", completed[0]["job_id"])
 	require.Equal(t, MaxSeedanceJobsLimit, repo.listLimit)
+}
+
+func TestListOwnedSeedanceJobsFailsClosedForEditedHuiquAccounts(t *testing.T) {
+	groupID := int64(31)
+	repo := &seedanceTaskBindingRepoStub{bindings: []SeedanceTaskBinding{
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 101, JobID: "hqv1_task_provider_edited", Model: "sd2-mx933-720-1s"},
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 202, JobID: "hqv1_task_group_removed", Model: "sd2-mx933-720-fast-1s"},
+		{UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 303, JobID: "hqv1_task_valid", Model: "sd2-mx933-720-1s"},
+	}}
+	account := func(id int64, provider string, groups ...int64) *Account {
+		return &Account{
+			ID: id, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1,
+			Credentials: map[string]any{
+				"api_key":        "secret",
+				"video_provider": provider,
+			},
+			GroupIDs: groups,
+		}
+	}
+	accounts := &seedanceAccountRepoStub{accounts: map[int64]*Account{
+		101: account(101, VideoProviderFFLink, groupID),
+		202: account(202, VideoProviderHuiqu, groupID+1),
+		303: account(303, VideoProviderHuiqu, groupID),
+	}}
+	upstream := &seedanceIndexedHTTPUpstreamStub{bodies: map[int64]string{
+		101: `{"id":"task_provider_edited","status":"completed"}`,
+		202: `{"id":"task_group_removed","status":"completed"}`,
+		303: `{"id":"task_valid","status":"running"}`,
+	}}
+	gateway := &OpenAIGatewayService{
+		accountRepo: accounts, usageLogRepo: repo, cfg: &config.Config{}, httpUpstream: upstream,
+	}
+
+	jobs, err := gateway.ListOwnedSeedanceJobs(context.Background(), &groupID, 10, 20, 10, "")
+	require.NoError(t, err)
+	require.Len(t, jobs, 3)
+	require.Equal(t, "unknown", jobs[0]["status"])
+	require.Equal(t, "unknown", jobs[1]["status"])
+	require.Equal(t, "running", jobs[2]["status"])
+	require.Equal(t, []int64{303}, upstream.accountIDs)
 }

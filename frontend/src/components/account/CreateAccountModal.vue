@@ -1155,6 +1155,19 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+        <div v-if="form.platform === 'seedance'">
+          <label class="input-label">{{ t('admin.accounts.videoProvider.title') }}</label>
+          <select
+            v-model="seedanceVideoProvider"
+            class="input"
+            data-testid="create-seedance-video-provider"
+            @change="handleSeedanceVideoProviderChange"
+          >
+            <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
+            <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1170,7 +1183,9 @@
                     ? 'https://api.x.ai/v1'
                     : form.platform === 'glm'
                       ? 'https://open.bigmodel.cn/api/paas/v4'
-                    : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
+                    : form.platform === 'seedance'
+                      ? seedanceProviderBaseUrl
+                    : form.platform === 'ltx' || form.platform === 'happyhorse'
                       ? 'https://api.fflink.top'
                     : 'https://api.anthropic.com'
             "
@@ -1235,7 +1250,23 @@
 
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+          <label class="input-label">
+            {{
+              isVideoAccountPlatform
+                ? t('admin.accounts.videoModelRestriction')
+                : t('admin.accounts.modelRestriction')
+            }}
+          </label>
+
+          <div
+            v-if="isVideoAccountPlatform"
+            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+            data-testid="create-video-model-mapping-required"
+          >
+            <p class="text-xs text-amber-700 dark:text-amber-400">
+              {{ t('admin.accounts.videoModelMappingRequiredHint') }}
+            </p>
+          </div>
 
           <div
             v-if="isOpenAIModelRestrictionDisabled"
@@ -1303,10 +1334,15 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="form.platform"
+                :models="seedanceProviderModels"
+                :sync-credentials="syncPreviewCredentials"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0">{{
+                <span v-if="allowedModels.length === 0 && !isVideoAccountPlatform">{{
                   t('admin.accounts.supportsAllModels')
                 }}</span>
               </p>
@@ -3569,8 +3605,13 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   fetchAntigravityDefaultMappings,
+  getSeedanceModelsByVideoProvider,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  getSeedanceVideoProviderBaseUrl,
+  type SeedanceVideoProvider
+} from '@/utils/videoAccountProviders'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
@@ -3672,6 +3713,12 @@ const apiKeyHint = computed(() => {
   return t('admin.accounts.apiKeyHint')
 })
 
+const isVideoAccountPlatform = computed(() =>
+  form.platform === 'seedance' ||
+  form.platform === 'ltx' ||
+  form.platform === 'happyhorse'
+)
+
 interface Props {
   show: boolean
   proxies: Proxy[]
@@ -3749,7 +3796,16 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
+const seedanceProviderBaseUrl = computed(() =>
+  getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+)
 const upstreamBillingAutoProbeEnabled = ref(true)
+const seedanceProviderModels = computed(() =>
+  form.platform === 'seedance'
+    ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+    : undefined
+)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4088,7 +4144,12 @@ const geminiHelpLinks = {
 }
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
+const presetMappings = computed(() => {
+  const presets = getPresetMappingsByPlatform(form.platform)
+  if (form.platform !== 'seedance') return presets
+  const supportedModels = new Set(getSeedanceModelsByVideoProvider(seedanceVideoProvider.value))
+  return presets.filter(preset => supportedModels.has(preset.to))
+})
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4240,6 +4301,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    seedanceVideoProvider.value = 'fflink'
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
       (newPlatform === 'openai')
@@ -4250,7 +4312,9 @@ watch(
             ? 'https://api.x.ai/v1'
             : newPlatform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'happyhorse'
+            : newPlatform === 'seedance'
+              ? getSeedanceVideoProviderBaseUrl('fflink')
+            : newPlatform === 'ltx' || newPlatform === 'happyhorse'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     // Clear model-related settings
@@ -4375,10 +4439,12 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
 
 // Auto-fill related models when switching to whitelist mode or changing platform
 watch(
-  [modelRestrictionMode, () => form.platform],
+  [modelRestrictionMode, () => form.platform, seedanceVideoProvider],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = form.platform === 'seedance'
+        ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+        : [...getModelsByPlatform(form.platform)]
     }
   }
 )
@@ -4393,6 +4459,18 @@ watch(
 )
 
 // Model mapping helpers
+const handleSeedanceVideoProviderChange = () => {
+  apiKeyBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+  const providerModels = getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+  if (modelRestrictionMode.value === 'whitelist') {
+    allowedModels.value = providerModels
+    modelMappings.value = []
+    return
+  }
+  allowedModels.value = []
+  modelMappings.value = providerModels.map(model => ({ from: model, to: model }))
+}
+
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
 }
@@ -4698,6 +4776,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  seedanceVideoProvider.value = 'fflink'
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
@@ -5140,25 +5219,35 @@ const handleSubmit = async () => {
           ? 'https://api.x.ai/v1'
           : form.platform === 'glm'
             ? 'https://open.bigmodel.cn/api/paas/v4'
-          : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
+          : form.platform === 'seedance'
+            ? seedanceProviderBaseUrl.value
+          : form.platform === 'ltx' || form.platform === 'happyhorse'
             ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
+
+  const modelMapping = !isOpenAIModelRestrictionDisabled.value
+    ? buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    : null
+  if (isVideoAccountPlatform.value && !modelMapping) {
+    appStore.showError(t('admin.accounts.videoModelMappingRequired'))
+    return
+  }
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
   }
+  if (form.platform === 'seedance') {
+    credentials.video_provider = seedanceVideoProvider.value
+  }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
-  if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
   }
   if (form.platform === 'openai') {
     applyOpenAIEndpointCapabilities(credentials)

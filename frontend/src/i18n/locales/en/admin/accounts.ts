@@ -589,6 +589,12 @@ export default {
         baseUrlHint: 'Grok OAuth accounts forward to the official xAI API base URL.',
         apiKeyHint: 'Grok subscription support uses OAuth refresh tokens; API keys are out of scope for this account type.'
       },
+      videoProvider: {
+        title: 'Video upstream provider',
+        hint: 'Select the internal protocol adapter. Keep existing Seedance accounts on FFLink; choose Huiqu for MX933 and enter the Base URL and API key supplied by that provider.',
+        fflink: 'FFLink (legacy)',
+        huiqu: 'Huiqu MX933'
+      },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
@@ -605,6 +611,9 @@ export default {
         webSearchDisabled: 'Disabled',
       },
       modelRestriction: 'Model Restriction (Optional)',
+      videoModelRestriction: 'Model Restriction (Required)',
+      videoModelMappingRequiredHint: 'Video accounts must explicitly select or map at least one model so the scheduler knows which video requests the account can handle.',
+      videoModelMappingRequired: 'Select or map at least one model for this video account.',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',

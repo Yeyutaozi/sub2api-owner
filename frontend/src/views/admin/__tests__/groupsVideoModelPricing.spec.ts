@@ -27,6 +27,8 @@ describe("video model pricing form conversion", () => {
       createVideoModelPriceRow("seedance-2.0"),
       createVideoModelPriceRow("seedance-2.0-fast"),
       createVideoModelPriceRow("seedance-2.0-mini"),
+      createVideoModelPriceRow("sd2-mx933-720-1s"),
+      createVideoModelPriceRow("sd2-mx933-720-fast-1s"),
     ]);
     expect(createDefaultVideoModelPriceRows("ltx")).toEqual([
       createVideoModelPriceRow("ltx-2.3-pro"),
@@ -42,6 +44,14 @@ describe("video model pricing form conversion", () => {
 
   it("matches each platform model's supported pricing resolutions", () => {
     expect(supportedResolutionsForVideoModel("seedance", "seedance-2.0-mini")).toEqual([
+      "480p",
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933-720-1s")).toEqual([
+      "480p",
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("seedance", "sd2-mx933-720-fast-1s")).toEqual([
       "480p",
       "720p",
     ]);
@@ -126,6 +136,18 @@ describe("video model pricing form conversion", () => {
       ], "seedance"),
     ).toEqual({
       "seedance-2.0-mini": { "720p": 0.04 },
+    });
+
+    expect(
+      videoModelPriceRowsToPrices([
+        createVideoModelPriceRow("sd2-mx933-720-1s", {
+          "480p": 0.03,
+          "720p": 0.05,
+          "1080p": 0.08,
+        }),
+      ], "seedance"),
+    ).toEqual({
+      "sd2-mx933-720-1s": { "480p": 0.03, "720p": 0.05 },
     });
 
     expect(

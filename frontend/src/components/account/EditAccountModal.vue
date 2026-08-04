@@ -28,6 +28,19 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <div v-if="account.platform === 'seedance'">
+          <label class="input-label">{{ t('admin.accounts.videoProvider.title') }}</label>
+          <select
+            v-model="seedanceVideoProvider"
+            class="input"
+            data-testid="edit-seedance-video-provider"
+            @change="handleSeedanceVideoProviderChange"
+          >
+            <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
+            <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -45,7 +58,9 @@
                       ? 'https://api.x.ai/v1'
                       : account.platform === 'glm'
                         ? 'https://open.bigmodel.cn/api/paas/v4'
-                      : account.platform === 'seedance' || account.platform === 'ltx' || account.platform === 'happyhorse'
+                      : account.platform === 'seedance'
+                        ? seedanceProviderBaseUrl
+                      : account.platform === 'ltx' || account.platform === 'happyhorse'
                         ? 'https://api.fflink.top'
                       : 'https://api.anthropic.com'
             "
@@ -88,7 +103,23 @@
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
         <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+          <label class="input-label">
+            {{
+              isVideoAccountPlatform
+                ? t('admin.accounts.videoModelRestriction')
+                : t('admin.accounts.modelRestriction')
+            }}
+          </label>
+
+          <div
+            v-if="isVideoAccountPlatform"
+            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+            data-testid="edit-video-model-mapping-required"
+          >
+            <p class="text-xs text-amber-700 dark:text-amber-400">
+              {{ t('admin.accounts.videoModelMappingRequiredHint') }}
+            </p>
+          </div>
 
           <div
             v-if="isOpenAIModelRestrictionDisabled"
@@ -156,10 +187,17 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :models="seedanceProviderModels"
+                :account-id="account?.id"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
+                <span
+                  v-if="allowedModels.length === 0 && modelMappings.length === 0 && !isVideoAccountPlatform"
+                >{{
                   t('admin.accounts.supportsAllModels')
                 }}</span>
               </p>
@@ -2660,9 +2698,14 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  getSeedanceModelsByVideoProvider,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  getSeedanceVideoProviderBaseUrl,
+  type SeedanceVideoProvider
+} from '@/utils/videoAccountProviders'
 
 interface Props {
   show: boolean
@@ -2698,6 +2741,12 @@ const baseUrlHint = computed(() => {
   return t('admin.accounts.baseUrlHint')
 })
 
+const isVideoAccountPlatform = computed(() =>
+  props.account?.platform === 'seedance' ||
+  props.account?.platform === 'ltx' ||
+  props.account?.platform === 'happyhorse'
+)
+
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
 const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
 
@@ -2718,6 +2767,15 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
+const seedanceProviderBaseUrl = computed(() =>
+  getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+)
+const seedanceProviderModels = computed(() =>
+  props.account?.platform === 'seedance'
+    ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+    : undefined
+)
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3107,7 +3165,13 @@ const openAICompactStatusKey = computed(() => {
 })
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
+const presetMappings = computed(() => {
+  const platform = props.account?.platform || 'anthropic'
+  const presets = getPresetMappingsByPlatform(platform)
+  if (platform !== 'seedance') return presets
+  const supportedModels = new Set(getSeedanceModelsByVideoProvider(seedanceVideoProvider.value))
+  return presets.filter(preset => supportedModels.has(preset.to))
+})
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -3144,7 +3208,8 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'glm') return 'https://open.bigmodel.cn/api/paas/v4'
-  if (props.account?.platform === 'seedance' || props.account?.platform === 'ltx' || props.account?.platform === 'happyhorse') return 'https://api.fflink.top'
+  if (props.account?.platform === 'seedance') return seedanceProviderBaseUrl.value
+  if (props.account?.platform === 'ltx' || props.account?.platform === 'happyhorse') return 'https://api.fflink.top'
   return 'https://api.anthropic.com'
 })
 
@@ -3260,6 +3325,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  seedanceVideoProvider.value =
+    newAccount.platform === 'seedance' && credentials?.video_provider === 'huiqu'
+      ? 'huiqu'
+      : 'fflink'
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -3476,7 +3545,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance' || newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
+            : newAccount.platform === 'seedance'
+              ? seedanceProviderBaseUrl.value
+            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
@@ -3551,7 +3622,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance' || newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
+            : newAccount.platform === 'seedance'
+              ? seedanceProviderBaseUrl.value
+            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
@@ -3598,6 +3671,19 @@ watch(
 )
 
 // Model mapping helpers
+const handleSeedanceVideoProviderChange = () => {
+  if (props.account?.platform !== 'seedance') return
+  editBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+  const providerModels = getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+  if (modelRestrictionMode.value === 'whitelist') {
+    allowedModels.value = providerModels
+    modelMappings.value = []
+    return
+  }
+  allowedModels.value = []
+  modelMappings.value = providerModels.map(model => ({ from: model, to: model }))
+}
+
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
 }
@@ -4074,11 +4160,19 @@ const handleSubmit = async () => {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const modelMapping = shouldApplyModelMapping ? buildModelRestrictionMapping() : null
+      if (isVideoAccountPlatform.value && !modelMapping) {
+        appStore.showError(t('admin.accounts.videoModelMappingRequired'))
+        return
+      }
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials,
         base_url: newBaseUrl
+      }
+      if (props.account.platform === 'seedance') {
+        newCredentials.video_provider = seedanceVideoProvider.value
       }
 
       // Handle API key
@@ -4097,7 +4191,6 @@ const handleSubmit = async () => {
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (shouldApplyModelMapping) {
-        const modelMapping = buildModelRestrictionMapping()
         if (modelMapping) {
           newCredentials.model_mapping = modelMapping
         } else {

@@ -1,3 +1,5 @@
+import type { SeedanceVideoProvider } from '@/utils/videoAccountProviders'
+
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
@@ -170,11 +172,22 @@ const xaiModels = [
   'grok-imagine-video-1.5'
 ]
 
-const seedanceModels = [
+const seedanceFFLinkModels = [
   'seedance-2.0',
   'seedance-2.0-fast',
   'seedance-2.0-mini'
 ]
+
+const seedanceHuiquModels = [
+  'sd2-mx933-720-1s',
+  'sd2-mx933-720-fast-1s'
+]
+
+const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels]
+
+export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider): string[] {
+  return [...(provider === 'huiqu' ? seedanceHuiquModels : seedanceFFLinkModels)]
+}
 
 const ltxModels = ['ltx-2.3-pro', 'ltx-2.3-fast']
 
@@ -342,6 +355,8 @@ const grokPresetMappings = [
 ]
 
 const seedancePresetMappings = [
+  { label: 'MX933', from: 'sd2-mx933-720-1s', to: 'sd2-mx933-720-1s', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'MX933 Fast', from: 'sd2-mx933-720-fast-1s', to: 'sd2-mx933-720-fast-1s', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Legacy Fast alias', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]

@@ -502,11 +502,12 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 	for i := range info.References {
 		values = append(values, &info.References[i].URL)
 	}
+	directHTTP := isHuiquVideoModel(info.Model)
 	for _, target := range values {
 		if target == nil || strings.TrimSpace(*target) == "" {
 			continue
 		}
-		resolved, location, err := s.materializeImage(ctx, owner, *target)
+		resolved, location, err := s.materializeImageMode(ctx, owner, *target, directHTTP)
 		if err != nil {
 			return cleanupOnError(err)
 		}
@@ -519,6 +520,10 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 }
 
 func (s *SeedanceMediaService) materializeImage(ctx context.Context, owner SeedanceMediaOwner, source string) (string, *AgentArtifactObjectLocation, error) {
+	return s.materializeImageMode(ctx, owner, source, false)
+}
+
+func (s *SeedanceMediaService) materializeImageMode(ctx context.Context, owner SeedanceMediaOwner, source string, directHTTP bool) (string, *AgentArtifactObjectLocation, error) {
 	source = strings.TrimSpace(source)
 	if uploadID := managedSeedanceUploadID(source); uploadID != "" {
 		record, err := s.loadManagedUpload(ctx, owner, uploadID)
@@ -547,6 +552,9 @@ func (s *SeedanceMediaService) materializeImage(ctx context.Context, owner Seeda
 	validated, err := validateSeedanceMediaRemoteURL(source)
 	if err != nil {
 		return "", nil, infraerrors.BadRequest("invalid_image_url", err.Error())
+	}
+	if directHTTP {
+		return validated, nil, nil
 	}
 	if s.isOwnPersistentSeedanceUploadURL(owner, validated) {
 		return validated, nil, nil

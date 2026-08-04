@@ -2,12 +2,12 @@
   "openapi": "3.0.3",
   "info": {
     "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX）",
-    "version": "2026-08-03.2",
+    "version": "2026-08-04.3",
     "license": {
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
     },
-    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 只能调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：六个模型都可用 audio=true 请求模型生成同步音轨，省略时均为 false。只有 Seedance 支持 guidances.audio_reference 参考音频；HappyHorse 和 LTX 不支持参考音频。参考音频不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律或声音事件。\n\n素材组合：Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧，audio_reference 必须搭配 image_reference 或 video_reference_base。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；Seedance Mini 的“已验证提交”表示服务已接受任务并成功执行取消流程，但本轮未等待其生成完成。"
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，不需要也不应该接触任何内部上游服务地址或凭证。\n\n固定流程：1）有参考素材时先上传；2）把上传响应中的完整 media_url 填入创建任务请求；3）保存 job_id；4）每 3-5 秒查询任务；5）status=completed 后下载 MP4。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传素材读取、任务列表、任务查询、取消和下载在生成扣完余额后仍允许访问，但无效/停用 Key 仍会被拒绝。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 当前固定返回以 /v1 开头的站点相对路径；完整地址必须使用 https://tkcreazy.top + 返回值，不能拼到 https://tkcreazy.top/v1 后面，否则会得到重复的 /v1/v1。\n\n上传响应中的 expires_at 是服务端上传记录期限（通常 24 小时）；media_url 是临时签名地址，可能更早过期。上传后应立即创建任务，不要缓存签名 URL 长时间复用。\n\n分组规则：Seedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd2-mx933-720-1s、sd2-mx933-720-fast-1s；HappyHorse Key 只能调用 happy-horse-1.1；LTX Key 只能调用 ltx-2.3-pro、ltx-2.3-fast。Key 必须关联对应的独立视频分组，不能跨分组调用。\n\n模型范围：Seedance 2.0 为 480p/720p/1080p、4-15 秒（1080p 最多 12 秒）；Seedance Fast 和 Mini 为 480p/720p、4-15 秒；两款 MX933 为 480p/720p，公开请求字段 duration 支持 1-15 之间任意整数（默认 5 秒），服务内部会将 duration 转换为上游 seconds；官方规格声明支持 1-15 秒，但当前实测上游对 7 等非固定值仍返回 invalid_duration，说明线上上游/部署版本尚未同步；模型名中的 1s 表示按秒计费，不代表可以生成 1 秒视频；HappyHorse 为 720p/1080p、3-15 秒；LTX Pro 为 1080p/1440p/2160p 且时长只能是 6/8/10 秒；LTX Fast 为同样三档清晰度且时长只能是 6-20 秒中的偶数。每个请求 Schema 还列出了对应画面比例。\n\n音频规则：所有已列出的模型都可用 audio=true 明确请求生成同步音轨，省略 audio 时默认 false。MX933 的 audio 会映射到上游 generate_audio；即使填写了 guidances.audio_reference，也仍需同时填写 audio=true 才明确请求输出带声音的视频。Seedance 系列支持 guidances.audio_reference 参考音频，普通 Seedance 最多 1 个，MX933 最多 3 个；HappyHorse 和 LTX 不支持参考音频。参考音频不会自动开启音轨，也不是原音轨直通，prompt 必须明确列出要保留的音色、节奏、旋律、语句或声音事件。\n\n素材组合：普通 Seedance 最多 4 图、3 视频、1 音频；image_reference 不能与 image_url/start_frame_url/end_frame_url 组合，尾帧必须搭配首帧。MX933 的首帧、尾帧与 image_reference 可以组合且图片合计最多 9 张，另支持最多 3 视频、3 音频；全部参考文件合计最多 12 个。因此 9 图 + 3 视频 + 3 音频 = 15 个文件属于非法请求；同时用满三种参考素材的最大合法组合是 6 图 + 3 视频 + 3 音频 = 12 个文件。所有 Seedance 参考音频都必须搭配 image_reference 或 video_reference_base，首尾帧本身不能单独满足该条件。HappyHorse 最多 9 张参考图，也可单独用首帧，但两种方式不能同时使用。LTX 只支持首帧或首尾帧，不支持多图、参考视频、参考音频。\n\n示例标识：标题中的“已验证”表示该能力已通过 https://tkcreazy.top/v1 提交任务并取得可下载 MP4；Seedance Mini 的“已验证提交”表示服务已接受任务并成功执行取消流程，但本轮未等待其生成完成。"
   },
   "servers": [
     {
@@ -367,7 +367,7 @@
           "视频生成"
         ],
         "summary": "创建异步视频生成任务",
-        "description": "### 真实调用地址\n`POST https://tkcreazy.top/v1/videos/generations`。Seedance、HappyHorse、LTX 都使用这个地址，只通过请求体中的 `model` 区分；不要在路径后添加模型名。\n\n### 模型和 API Key 分组必须一致\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：4-15 秒；1080p：4-12 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：4-15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：4-15 秒 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n### 参考素材怎么填\n1. 先调用 `POST /videos/uploads`。每次只上传一个文件；多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括全部签名查询参数。\n3. 在当前接口选择对应示例，并把 `https://replace.invalid/...` 的整个占位 URL 替换成相应上传响应中的完整 `media_url`。不要填写 `upload_id`。\n4. Seedance 可用最多 4 图、3 视频、1 音频；HappyHorse 可用最多 9 图；LTX 只使用首帧或首尾帧。\n5. 参考音频只有 Seedance 支持，且必须同时提供参考图片或参考视频。`prompt` 必须明确写出要保留的音高、节奏、音色或声音事件。\n\n### 上传字段和生成字段的对应关系\n| 素材 | 上传接口 multipart 字段 | 创建任务 JSON 字段 |\n| --- | --- | --- |\n| 单图/多图参考 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url`，并且必须同时填写 `start_frame_url` |\n| 单视频/多视频参考 | `video` | `guidances.video_reference_base[].video.url` |\n| 参考音频 | `audio` | `guidances.audio_reference[].audio.url` |\n\n参考音频不能单独创建任务。合法组合是“图片 + 音频”或“视频 + 音频”；`audio=true` 表示输出视频需要生成音轨。\n\n### 在 Apifox 中选择示例\nSeedance 示例已分别提供纯文本、单图、多图、首帧、首尾帧、单视频、多视频、图片+音频、视频+音频和 Mini。HappyHorse 提供纯文本、首帧、单图和多图；LTX 提供纯文本、首帧和首尾帧。先选请求示例，再在 `202` 返回响应中选择同名示例；Apifox 的请求和响应示例下拉框彼此独立。\n\n### 成功后怎么做\n成功固定返回 HTTP 202。保存 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`；当 `status=completed` 时，再调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。",
+        "description": "### 真实调用地址\n`POST https://tkcreazy.top/v1/videos/generations`。Seedance、HappyHorse、LTX 都使用这个地址，只通过请求体中的 `model` 区分；不要在路径后添加模型名。\n\n### 模型和 API Key 分组必须一致\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：4-15 秒；1080p：4-12 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：4-15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：4-15 秒 |\n| Seedance | `sd2-mx933-720-1s` | 480p/720p：1-15 秒任意整数；省略时 5 秒 |\n| Seedance | `sd2-mx933-720-fast-1s` | 480p/720p：1-15 秒任意整数；省略时 5 秒 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n模型名中的 1s 仅表示按秒计费，不是 1 秒时长；MX933 的公开 duration 支持 1-15 之间任意整数（默认 5 秒），服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration；这表示线上上游/部署版本尚未同步，不能把该值标记为已验证成功。\n\n### 参考素材怎么填\n1. 先调用 `POST /videos/uploads`。每次只上传一个文件；多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括全部签名查询参数。\n3. 在当前接口选择对应示例，并把 `https://replace.invalid/...` 的整个占位 URL 替换成相应上传响应中的完整 `media_url`。不要填写 `upload_id`。\n4. 普通 Seedance 可用最多 4 图、3 视频、1 音频；MX933 的首帧、尾帧和参考图合计最多 9 张，另可用最多 3 视频、3 音频，全部文件合计最多 12 个。因此 `9 图 + 3 视频 + 3 音频 = 15` 非法；需要同时用满三类素材时，最大合法组合是 `6 图 + 3 视频 + 3 音频 = 12`；HappyHorse 可用最多 9 图；LTX 只使用首帧或首尾帧。\n5. 参考音频只有 Seedance 系列支持，且必须同时提供 guidances.image_reference 或 guidances.video_reference_base。`prompt` 必须明确写出要保留的音高、节奏、音色、语句或声音事件。MX933 的 audio 会映射到上游 generate_audio；参考音频不会自动开启音轨，需要输出带声音视频时必须明确填写 `audio: true`。\n\n### 上传字段和生成字段的对应关系\n| 素材 | 上传接口 multipart 字段 | 创建任务 JSON 字段 |\n| --- | --- | --- |\n| 单图/多图参考 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url`；普通 Seedance 和 LTX 必须同时填写 `start_frame_url`，MX933 允许单独填写 |\n| 单视频/多视频参考 | `video` | `guidances.video_reference_base[].video.url` |\n| 参考音频 | `audio` | `guidances.audio_reference[].audio.url` |\n\n参考音频不能单独创建任务。合法组合是“guidances.image_reference + audio_reference”或“video_reference_base + audio_reference”；只填写首帧/尾帧不能满足参考音频的视觉素材条件。`audio=true` 表示明确请求生成同步音轨；对 MX933 会映射为上游 `generate_audio=true`。即使提供了 audio_reference，也不要省略该字段。\n\n### 在 Apifox 中选择示例\nSeedance 示例已分别提供普通模型的纯文本、单图、多图、首帧、首尾帧、单视频、多视频、图片+音频、视频+音频和 Mini，以及 MX933 的 6 图 + 3 视频 + 3 音频满载合法组合。HappyHorse 提供纯文本、首帧、单图和多图；LTX 提供纯文本、首帧和首尾帧。先选请求示例，再在 `202` 返回响应中选择同名示例；Apifox 的请求和响应示例下拉框彼此独立。\n\n### 成功后怎么做\n成功固定返回 HTTP 202。保存 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`；当 `status=completed` 时，再调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。",
         "operationId": "createVideoGenerationJob",
         "security": [
           {
@@ -395,6 +395,12 @@
                     "$ref": "#/components/schemas/SeedanceMiniRequest"
                   },
                   {
+                    "$ref": "#/components/schemas/SeedanceMX933Request"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SeedanceMX933FastRequest"
+                  },
+                  {
                     "$ref": "#/components/schemas/HappyHorseRequest"
                   },
                   {
@@ -410,6 +416,8 @@
                     "seedance-2.0": "#/components/schemas/Seedance20Request",
                     "seedance-2.0-fast": "#/components/schemas/SeedanceFastRequest",
                     "seedance-2.0-mini": "#/components/schemas/SeedanceMiniRequest",
+                    "sd2-mx933-720-1s": "#/components/schemas/SeedanceMX933Request",
+                    "sd2-mx933-720-fast-1s": "#/components/schemas/SeedanceMX933FastRequest",
                     "happy-horse-1.1": "#/components/schemas/HappyHorseRequest",
                     "ltx-2.3-pro": "#/components/schemas/LTXProRequest",
                     "ltx-2.3-fast": "#/components/schemas/LTXFastRequest"
@@ -654,6 +662,115 @@
                     "duration": 4,
                     "aspect_ratio": "1:1",
                     "audio": false
+                  }
+                },
+                "mx933FullReferences": {
+                  "summary": "Seedance 11｜MX933：满载合法组合请求示例（先上传 6 图、3 视频、3 音频；未宣称线上已成功）",
+                  "value": {
+                    "model": "sd2-mx933-720-1s",
+                    "prompt": "严格保留六张参考图中的人物身份、红色手提箱、蓝色雨伞、银色相机、绿色店铺招牌和橙色外套；按三个参考视频依次复现从左向右行走、转身看向镜头、举起雨伞的动作节奏。声音必须保留三段参考音频中的女声原句与音色、连续雨声以及三音符提示音，并让提示音与举伞动作同步；不要用相似风格音乐替代这些声音。镜头连续稳定，无字幕，无水印。",
+                    "resolution": "720p",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                    "audio": true,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-character-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 0
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-red-suitcase-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 1
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-blue-umbrella-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 2
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-silver-camera-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 3
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-green-sign-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 4
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/image-orange-coat-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "strength": "HIGH",
+                          "order": 5
+                        }
+                      ],
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/video-walk-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 0
+                        },
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/video-turn-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 1
+                        },
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/video-raise-umbrella-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 2
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/audio-female-voice-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 0
+                        },
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/audio-rain-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 1
+                        },
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/audio-three-note-chime-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 2
+                        }
+                      ]
+                    }
                   }
                 },
                 "happyHorseText": {
@@ -948,6 +1065,19 @@
                       "created_at": "2026-08-03T12:00:00+08:00"
                     }
                   },
+                  "mx933FullReferences": {
+                    "summary": "Seedance 11｜MX933：满载合法组合占位响应（6 图、3 视频、3 音频；未宣称线上已成功）",
+                    "value": {
+                      "job_id": "vidjob_mx933FullReferences_example_123",
+                      "status": "pending",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_mx933FullReferences_example_123",
+                      "model": "sd2-mx933-720-1s",
+                      "resolution": "720p",
+                      "duration": 6,
+                      "aspect_ratio": "16:9",
+                      "created_at": "2026-08-04T12:00:00+08:00"
+                    }
+                  },
                   "happyHorseText": {
                     "summary": "HappyHorse 01｜已验证：纯文本",
                     "value": {
@@ -1233,6 +1363,35 @@
                       "error": {
                         "message": "Video generation failed"
                       }
+                    }
+                  },
+                  "mx933Completed": {
+                    "summary": "MX933 完成响应字段示例（结构示例；未宣称线上已成功）",
+                    "value": {
+                      "aspect_ratio": "16:9",
+                      "completed_at": 1785777546,
+                      "created_at": 1785777249,
+                      "download_url": "/v1/videos/jobs/hqv1_task_example_123/content",
+                      "id": "hqv1_task_example_123",
+                      "job_id": "hqv1_task_example_123",
+                      "model": "sd2-mx933-720-1s",
+                      "object": "video",
+                      "progress": 100,
+                      "resolution": "720p",
+                      "result": {
+                        "data": [
+                          {
+                            "local_url": "/v1/videos/jobs/hqv1_task_example_123/content",
+                            "mp4_url": "/v1/videos/jobs/hqv1_task_example_123/content",
+                            "url": "/v1/videos/jobs/hqv1_task_example_123/content"
+                          }
+                        ]
+                      },
+                      "seconds": "10",
+                      "status": "completed",
+                      "status_url": "/v1/videos/jobs/hqv1_task_example_123",
+                      "task_id": "hqv1_task_example_123",
+                      "url": "/v1/videos/jobs/hqv1_task_example_123/content"
                     }
                   }
                 }
@@ -2342,6 +2501,424 @@
           }
         }
       },
+      "SeedanceMX933Request": {
+        "title": "sd2-mx933-720-1s 请求",
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，但图片合计最多 9 张；参考视频最多 3 个，参考音频最多 3 个，全部参考文件合计最多 12 个。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "sd2-mx933-720-1s"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 15,
+            "default": 5,
+            "description": "可填写 1-15 秒之间的任意整数。省略时为 5 秒；服务内部映射为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 7 等非固定值仍返回 invalid_duration。模型名中的 1s 不是固定时长。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否明确请求输出同步音轨；true 映射为上游 generate_audio=true，省略时默认为 false。存在 guidances.audio_reference 时也必须填写 true 才会明确请求带声视频；参考音频不会自动开启音轨。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 9,
+                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张；另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考视频最多 3 个。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "video"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考音频最多 3 个，必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "audio"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SeedanceMX933FastRequest": {
+        "title": "sd2-mx933-720-fast-1s 请求",
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "MX933 按秒模型请求。支持纯文本、首帧、尾帧、多图、参考视频和参考音频；公开 duration 可填写 1-15 之间任意整数，省略时为 5 秒；服务内部会将它转换为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 duration=7 等非固定值仍返回 invalid_duration，不能把该值标记为已验证成功。首帧、尾帧与 image_reference 可以组合，但图片合计最多 9 张；参考视频最多 3 个，参考音频最多 3 个，全部参考文件合计最多 12 个。9 图 + 3 视频 + 3 音频 = 15 个文件非法，三类素材同时使用时的最大合法组合是 6 图 + 3 视频 + 3 音频。audio=true 会映射为上游 generate_audio=true；参考音频不会自动开启音轨，必须明确填写 audio=true。模型名中的 1s 表示按秒计费，不代表只能生成 1 秒。该模型不支持 prompt_enhance。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "sd2-mx933-720-fast-1s"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 15,
+            "default": 5,
+            "description": "可填写 1-15 秒之间的任意整数。省略时为 5 秒；服务内部映射为上游 seconds。官方规格声明支持 1-15 秒，但当前实测上游对 7 等非固定值仍返回 invalid_duration。模型名中的 1s 不是固定时长。"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否明确请求输出同步音轨；true 映射为上游 generate_audio=true，省略时默认为 false。存在 guidances.audio_reference 时也必须填写 true 才会明确请求带声视频；参考音频不会自动开启音轨。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 首帧快捷字段；不能与 start_frame_url 或 end_frame_url 同时填写，但可以与 guidances.image_reference 组合。"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；MX933 允许单独填写，也可以与 start_frame_url 和 guidances.image_reference 组合。"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 9,
+                "description": "参考图片数组最多 9 张。MX933 允许它与 image_url、start_frame_url 或 end_frame_url 组合，但所有首帧、尾帧和参考图合计不能超过 9 张；另可提供最多 3 个视频和 3 个音频，全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "image"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "strength": {
+                      "type": "string",
+                      "enum": [
+                        "LOW",
+                        "MID",
+                        "HIGH"
+                      ],
+                      "default": "MID"
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考视频最多 3 个。可与首帧、尾帧、image_reference 和 audio_reference 组合；全部参考文件合计不能超过 12 个。9 图 + 3 视频 + 3 音频 = 15 非法；三类素材同时使用时最多 6 图 + 3 视频 + 3 音频。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "video"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考音频最多 3 个，必须同时提供至少一个 image_reference 或 video_reference_base；只填写首帧或尾帧不满足该条件。参考音频不会自动开启音轨，必须同时填写 audio=true（映射为上游 generate_audio=true）才会明确请求带声视频。它不是原音轨直通，prompt 必须明确写出要保留的音色、节奏、旋律、语句或声音事件。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "audio"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOADED"
+                          ],
+                          "default": "UPLOADED"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "HappyHorseRequest": {
         "title": "happy-horse-1.1 请求",
         "type": "object",
@@ -2753,16 +3330,43 @@
             "type": "string"
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "integer",
+                "format": "int64"
+              }
+            ],
+            "description": "普通任务可能返回 ISO 8601 时间；MX933 返回 Unix 秒时间戳。"
           },
           "updated_at": {
-            "type": "string",
-            "format": "date-time"
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "integer",
+                "format": "int64"
+              }
+            ],
+            "description": "普通任务可能返回 ISO 8601 时间；MX933 返回 Unix 秒时间戳。"
           },
           "completed_at": {
-            "type": "string",
-            "format": "date-time"
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "integer",
+                "format": "int64"
+              }
+            ],
+            "description": "普通任务可能返回 ISO 8601 时间；MX933 返回 Unix 秒时间戳。"
           },
           "result": {
             "type": "object",
@@ -2783,6 +3387,44 @@
           "error": {
             "type": "object",
             "additionalProperties": true
+          },
+          "id": {
+            "type": "string",
+            "description": "MX933 任务会返回，与 job_id 相同。"
+          },
+          "task_id": {
+            "type": "string",
+            "description": "MX933 任务会返回，与 job_id 相同。"
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "seconds": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "上游 MX933 响应中的 seconds 字段（实际生成秒数）；客户端请求仍使用公开字段 duration。"
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "aspect_ratio": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "完成后返回以 /v1 开头的本站相对下载路径；完整地址为 https://tkcreazy.top + 此值。"
+          },
+          "download_url": {
+            "type": "string",
+            "description": "完成后返回以 /v1 开头的本站相对下载路径；完整地址为 https://tkcreazy.top + 此值。"
           }
         }
       },

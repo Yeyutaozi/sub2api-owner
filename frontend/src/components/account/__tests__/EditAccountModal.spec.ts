@@ -279,6 +279,22 @@ function buildGrokAPIKeyAccount() {
   } as any
 }
 
+function buildSeedanceAccount(videoProvider: 'fflink' | 'huiqu' = 'fflink') {
+  const model = videoProvider === 'huiqu' ? 'sd2-mx933-720-1s' : 'seedance-2.0'
+  return {
+    ...buildAccount(),
+    id: 7,
+    name: 'Seedance Video',
+    platform: 'seedance',
+    credentials: {
+      base_url: videoProvider === 'huiqu' ? 'https://api.bjhuiqu.net' : 'https://api.fflink.top',
+      video_provider: videoProvider,
+      model_mapping: { [model]: model }
+    },
+    credentials_status: { has_api_key: true }
+  } as any
+}
+
 function buildOpenAISetupTokenAccount() {
   return {
     ...buildAccount(),
@@ -314,6 +330,41 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it('switches Seedance provider, Base URL, and model mapping together', async () => {
+    const account = buildSeedanceAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-seedance-video-provider"]').setValue('huiqu')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      base_url: 'https://api.bjhuiqu.net',
+      video_provider: 'huiqu',
+      model_mapping: {
+        'sd2-mx933-720-1s': 'sd2-mx933-720-1s',
+        'sd2-mx933-720-fast-1s': 'sd2-mx933-720-fast-1s'
+      }
+    })
+  })
+
+  it('blocks a video account with no model mapping', async () => {
+    const account = buildSeedanceAccount()
+    account.credentials.model_mapping = {}
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="edit-video-model-mapping-required"]').text()).toContain(
+      'admin.accounts.videoModelMappingRequiredHint'
+    )
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).not.toHaveBeenCalled()
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

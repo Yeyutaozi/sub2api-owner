@@ -29,11 +29,12 @@ vi.mock('@/composables/useClipboard', () => ({
 
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 
-function mountSelector() {
+function mountSelector(props: Record<string, unknown> = {}) {
   return mount(ModelWhitelistSelector, {
     props: {
       modelValue: [],
-      platform: 'openai'
+      platform: 'openai',
+      ...props
     },
     global: {
       stubs: {
@@ -85,5 +86,23 @@ describe('ModelWhitelistSelector', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5.6-sol']]])
     expect(copyToClipboard).not.toHaveBeenCalled()
+  })
+
+  it('limits provider-specific video accounts to their configured model options', async () => {
+    const models = ['sd2-mx933-720-1s', 'sd2-mx933-720-fast-1s']
+    const wrapper = mountSelector({ platform: 'seedance', models })
+    await wrapper.get('div.cursor-pointer').trigger('click')
+
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(2)
+    expect(findModelRow(wrapper, models[0])).toBeTruthy()
+    expect(findModelRow(wrapper, models[1])).toBeTruthy()
+    expect(wrapper.text()).not.toContain('seedance-2.0-mini')
+
+    const fillButton = wrapper
+      .findAll('button')
+      .find(button => button.text().includes('admin.accounts.fillRelatedModels'))
+    await fillButton?.trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[models]])
   })
 })

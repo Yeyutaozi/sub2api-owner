@@ -117,6 +117,24 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		return
 	}
 	defer materialized.Cleanup(context.WithoutCancel(c.Request.Context()))
+	var fallbackRequestInfo *service.SeedanceRequestInfo
+	defer func() {
+		if requestInfo != nil && requestInfo.HuiquMedia != nil {
+			requestInfo.HuiquMedia.Cleanup()
+		}
+		if fallbackRequestInfo != nil && fallbackRequestInfo.HuiquMedia != nil && fallbackRequestInfo != requestInfo {
+			fallbackRequestInfo.HuiquMedia.Cleanup()
+		}
+	}()
+	fallbackModel, fallbackEligible := service.SeedanceFallbackModelFor(requestInfo.Model, requestInfo.Resolution)
+	var fallbackSnapshot []byte
+	if fallbackEligible {
+		fallbackSnapshot, err = service.SnapshotSeedanceFallbackRequest(requestInfo)
+		if err != nil {
+			seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	failedAccountIDs := make(map[int64]struct{})
@@ -126,14 +144,41 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 	}
 	switchCount := 0
 	var lastFailover *service.UpstreamFailoverError
+	fallbackActive := false
+	enterFallback := func() bool {
+		if fallbackActive || !fallbackEligible {
+			return false
+		}
+		fallbackActive = true
+		failedAccountIDs = make(map[int64]struct{})
+		switchCount = 0
+		lastFailover = nil
+		return true
+	}
 
 	for {
+		selectionModel := requestInfo.Model
+		activeRequestInfo := requestInfo
+		if fallbackActive {
+			selectionModel = fallbackModel
+			if fallbackRequestInfo == nil {
+				fallbackRequestInfo, err = service.RestoreSeedanceFallbackRequest(fallbackSnapshot, fallbackModel)
+				if err != nil {
+					seedanceError(c, http.StatusBadGateway, "fallback_request_invalid", "Seedance fallback request could not be prepared")
+					return
+				}
+			}
+			activeRequestInfo = fallbackRequestInfo
+		}
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(), apiKey.GroupID, "", sessionHash, requestInfo.Model,
+			c.Request.Context(), apiKey.GroupID, "", sessionHash, selectionModel,
 			failedAccountIDs, service.OpenAIUpstreamTransportHTTPSSE,
 			"", false, false, false, apiKey.Group.Platform,
 		)
 		if selectErr != nil || selection == nil || selection.Account == nil {
+			if !fallbackActive && enterFallback() {
+				continue
+			}
 			if lastFailover != nil {
 				h.handleFailoverExhausted(c, lastFailover, false)
 				return
@@ -144,7 +189,26 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		}
 
 		account := selection.Account
+		if fallbackActive && !account.IsHuiquVideo() {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			failedAccountIDs[account.ID] = struct{}{}
+			if switchCount >= maxSwitches {
+				seedanceError(c, http.StatusServiceUnavailable, "no_available_account", "No available Huiqu fallback account in this API key group")
+				return
+			}
+			switchCount++
+			continue
+		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+		if account.IsHuiquVideo() && activeRequestInfo.HasReferenceMedia() && activeRequestInfo.HuiquMedia == nil {
+			activeRequestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), activeRequestInfo)
+			if err != nil {
+				writeSeedanceMediaError(c, err)
+				return
+			}
+		}
 		accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
 		if !accountAcquired {
 			return
@@ -153,14 +217,17 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			if accountRelease != nil {
 				defer accountRelease()
 			}
-			return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, http.MethodPost, "", requestInfo)
+			return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, http.MethodPost, "", activeRequestInfo)
 		}()
 		if forwardErr != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) {
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestInfo.Model), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(activeRequestInfo.Model), false, nil)
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailover = failoverErr
+				if !fallbackActive && enterFallback() {
+					continue
+				}
 				if switchCount >= maxSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
@@ -169,7 +236,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				continue
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestInfo.Model), false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(activeRequestInfo.Model), false, nil)
 			h.writeSeedanceForwardError(c, forwardErr)
 			return
 		}
@@ -180,15 +247,35 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			return
 		}
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, result.UpstreamModel, true, nil)
-		if err := h.gatewayService.BindSeedanceTaskAccount(
-			c.Request.Context(), apiKey.GroupID, result.ResponseID,
+		// Keep the requested model in every client-visible and billing-facing
+		// field, even when the actual request was sent to the MX933 fallback.
+		result.Model = requestInfo.Model
+		result.BillingModel = requestInfo.Model
+		bindingFallbackStatus := ""
+		bindingFallbackModel := ""
+		bindingSnapshot := []byte(nil)
+		if fallbackEligible && (fallbackActive || !account.IsHuiquVideo()) {
+			bindingFallbackModel = fallbackModel
+			bindingSnapshot = fallbackSnapshot
+			bindingFallbackStatus = service.SeedanceFallbackStatusReady
+			if fallbackActive {
+				bindingFallbackStatus = service.SeedanceFallbackStatusActive
+			}
+		}
+		if err := h.gatewayService.BindSeedanceTaskAccountWithFallback(
+			c.Request.Context(), apiKey.GroupID, result.ResponseID, result.ResponseID,
 			subject.UserID, apiKey.ID, account.ID, requestInfo.Model,
+			bindingFallbackModel, bindingSnapshot, bindingFallbackStatus,
 		); err != nil {
 			reqLog.Error("seedance.bind_task_failed", zap.Error(err), zap.String("task_id", result.ResponseID), zap.Int64("account_id", account.ID))
 			seedanceError(c, http.StatusBadGateway, "task_binding_failed", "Seedance task was accepted upstream but could not be registered locally")
 			return
 		}
 		recordSeedanceUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestInfo.Model, body)
+		// Keep materialized reference objects alive for the asynchronous task.
+		// This is also required when the task was created through the Huiqu
+		// fallback: the fallback multipart request may still be downloading
+		// those signed URLs after this handler returns.
 		if materialized != nil {
 			materialized.Retain()
 		}
@@ -198,14 +285,27 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				"job_id":     result.ResponseID,
 				"status":     "queued",
 				"status_url": statusURL,
+				"model":      requestInfo.Model,
 			}
 			if forwarded != nil && len(forwarded.Body) > 0 {
+				publicBody := forwarded.Body
+				if account.IsHuiquVideo() {
+					if normalized, normalizeErr := service.NormalizeSeedanceJobForRoute(forwarded.Body, result.ResponseID, account.GetVideoProvider(), requestInfo.Model); normalizeErr == nil {
+						publicBody = normalized
+					} else {
+						publicBody = nil
+						reqLog.Warn("seedance.normalize_create_response_failed", zap.Error(normalizeErr), zap.String("task_id", result.ResponseID))
+					}
+				}
 				var upstream map[string]any
-				if err := json.Unmarshal(forwarded.Body, &upstream); err == nil {
+				if err := json.Unmarshal(publicBody, &upstream); err == nil {
+					response["model"] = requestInfo.Model
 					if value, ok := upstream["status"].(string); ok && strings.TrimSpace(value) != "" {
 						response["status"] = value
 					}
-					for _, key := range []string{"model", "created_at", "updated_at", "completed_at", "seed", "resolution", "duration", "aspect_ratio"} {
+					// The public model is the model requested by the client. Never
+					// expose the provider's mapped MX933 model in this response.
+					for _, key := range []string{"created_at", "updated_at", "completed_at", "seed", "resolution", "duration", "aspect_ratio"} {
 						if value, exists := upstream[key]; exists && value != nil {
 							response[key] = value
 						}
@@ -511,11 +611,91 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		}
 		return
 	}
-	boundAccountID, err := h.gatewayService.ResolveSeedanceTaskAccount(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
-	if err != nil || boundAccountID <= 0 {
+	binding, err := h.gatewayService.GetSeedanceTaskBinding(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
+	if err != nil || binding == nil || binding.AccountID <= 0 {
 		seedanceError(c, http.StatusNotFound, "task_not_found", "Seedance task not found")
 		return
 	}
+	boundAccountID := binding.AccountID
+	upstreamTaskID := strings.TrimSpace(binding.UpstreamJobID)
+	if upstreamTaskID == "" {
+		upstreamTaskID = taskID
+	}
+	now := time.Now()
+	if binding.FallbackStatus == service.SeedanceFallbackStatusStarting {
+		if method == http.MethodDelete {
+			seedanceError(c, http.StatusConflict, "task_not_ready", "Video fallback task is still being created")
+			return
+		}
+		if seedanceFallbackLeaseActive(binding, now) {
+			if content {
+				seedanceError(c, http.StatusConflict, "task_not_ready", "Video fallback task is still being created")
+				return
+			}
+			if method == http.MethodGet {
+				writeSeedanceQueuedFallback(c, taskID, binding.Model, public)
+				return
+			}
+		}
+		// A creator whose lease expired may have lost its process after the
+		// provider accepted the request. Re-enter the token-guarded fallback
+		// path instead of forwarding the stale primary task and refunding it.
+		if seedanceShouldResumeExpiredFallback(binding, method, content, now) {
+			fallbackResult := h.tryStartSeedanceFallback(c, reqLog, apiKey, subject, binding, taskID, public, &streamStarted, true)
+			if fallbackResult.Handled {
+				return
+			}
+			if fallbackResult.Refund {
+				seedanceError(c, http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback recovery is pending; retry this task")
+				return
+			}
+		}
+	}
+	if binding.FallbackStatus == service.SeedanceFallbackStatusCancelling {
+		// Keep readers away from the primary task while DELETE owns the row.
+		// An expired cancellation lease can be reclaimed by a subsequent DELETE.
+		if method != http.MethodDelete || seedanceFallbackLeaseActive(binding, now) {
+			if content {
+				seedanceError(c, http.StatusConflict, "task_not_ready", "Video task cancellation is still in progress")
+				return
+			}
+			if method == http.MethodGet {
+				writeSeedanceCancellationPending(c, taskID, binding.Model, public)
+				return
+			}
+			seedanceError(c, http.StatusConflict, "task_not_ready", "Video task cancellation is still in progress")
+			return
+		}
+	}
+	var cancellationClaimToken string
+	cancellationAccepted := false
+	if seedanceShouldClaimCancellation(binding, method, now) {
+		claimed, claimToken, claimErr := h.gatewayService.ClaimSeedanceTaskCancellation(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
+		if claimErr != nil {
+			reqLog.Error("seedance.cancellation_claim_failed", zap.Error(claimErr), zap.String("task_id", taskID))
+			seedanceError(c, http.StatusServiceUnavailable, "cancellation_unavailable", "Video task cancellation is temporarily unavailable")
+			return
+		}
+		if !claimed {
+			latest, loadErr := h.gatewayService.GetSeedanceTaskBinding(c.Request.Context(), apiKey.GroupID, taskID, subject.UserID, apiKey.ID)
+			if loadErr == nil && latest != nil && (latest.FallbackStatus == service.SeedanceFallbackStatusStarting || latest.FallbackStatus == service.SeedanceFallbackStatusActive || latest.FallbackStatus == service.SeedanceFallbackStatusCancelling) {
+				seedanceError(c, http.StatusConflict, "task_not_ready", "Video fallback task is being created or cancelled")
+				return
+			}
+			seedanceError(c, http.StatusConflict, "task_not_ready", "Video task state changed; retry cancellation")
+			return
+		}
+		cancellationClaimToken = claimToken
+		defer func() {
+			if cancellationClaimToken == "" || cancellationAccepted {
+				return
+			}
+			if released, releaseErr := h.gatewayService.ReleaseSeedanceTaskCancellation(context.WithoutCancel(c.Request.Context()), apiKey.GroupID, taskID, subject.UserID, apiKey.ID, cancellationClaimToken); releaseErr != nil || !released {
+				reqLog.Error("seedance.cancellation_release_failed", zap.Error(releaseErr), zap.String("task_id", taskID))
+			}
+		}()
+	}
+	var selection *service.AccountSelectionResult
 	owner := seedanceMediaOwner(apiKey, subject)
 	if content && h.seedanceMediaService != nil && h.seedanceMediaService.IsConfigured() {
 		mediaRelease, mediaErr := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), owner, subject.Concurrency)
@@ -540,15 +720,8 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	}
 
 	sessionHash := service.SeedanceTaskSessionHash(taskID, subject.UserID, apiKey.ID)
-	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-		c.Request.Context(), apiKey.GroupID, "", sessionHash, "", nil,
-		service.OpenAIUpstreamTransportHTTPSSE, "",
-		false, false, false, apiKey.Group.Platform,
-	)
-	if err != nil || selection == nil || selection.Account == nil || selection.Account.ID != boundAccountID {
-		if selection != nil && selection.ReleaseFunc != nil {
-			selection.ReleaseFunc()
-		}
+	selection, err = h.gatewayService.SeedanceBoundTaskAccountSelection(c.Request.Context(), boundAccountID, apiKey.GroupID)
+	if err != nil || selection == nil || selection.Account == nil {
 		seedanceError(c, http.StatusNotFound, "task_not_found", "Seedance task not found")
 		return
 	}
@@ -583,9 +756,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			defer accountRelease()
 		}
 		if content && archiveLease != nil {
-			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, "")
+			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, "")
 		}
-		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, taskID, nil)
+		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, upstreamTaskID, nil)
 	}()
 	if err != nil {
 		h.writeSeedanceForwardError(c, err)
@@ -611,7 +784,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			_ = forwarded.BodyStream.Close()
 			archiveLease.Close()
 			archiveLease = nil
-			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, clientRange)
+			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, clientRange)
 			if err != nil {
 				h.writeSeedanceForwardError(c, err)
 				return
@@ -632,7 +805,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 				_ = forwarded.BodyStream.Close()
 				archiveLease.Close()
 				archiveLease = nil
-				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, taskID, clientRange)
+				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, clientRange)
 				if err != nil {
 					h.writeSeedanceForwardError(c, err)
 					return
@@ -672,6 +845,21 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		return
 	}
 	if method == http.MethodDelete {
+		if cancellationClaimToken != "" {
+			// Do not refund until the row is durably marked cancelled. If this
+			// CAS loses a concurrent lease owner, leave the reservation in place
+			// for recovery rather than allowing fallback creation and a free job.
+			cancellationAccepted = true
+			completed, completeErr := h.gatewayService.CompleteSeedanceTaskCancellation(
+				context.WithoutCancel(c.Request.Context()), apiKey.GroupID, taskID,
+				subject.UserID, apiKey.ID, cancellationClaimToken,
+			)
+			if completeErr != nil || !completed {
+				reqLog.Error("seedance.cancellation_complete_failed", zap.Error(completeErr), zap.String("task_id", taskID))
+				seedanceError(c, http.StatusServiceUnavailable, "cancellation_unavailable", "Video task cancellation is awaiting confirmation")
+				return
+			}
+		}
 		h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, "cancelled")
 		c.Status(http.StatusNoContent)
 		return
@@ -681,10 +869,20 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream job body is empty")
 			return
 		}
-		if status := seedanceStatusFromBody(forwarded.Body); status == "failed" || status == "cancelled" {
+		status := seedanceStatusFromBody(forwarded.Body)
+		if status == "failed" && binding.FallbackStatus == service.SeedanceFallbackStatusReady {
+			fallbackResult := h.tryStartSeedanceFallback(c, reqLog, apiKey, subject, binding, taskID, public, &streamStarted, false)
+			if fallbackResult.Handled {
+				if fallbackResult.Refund {
+					h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
+				}
+				return
+			}
+		}
+		if status == "failed" || status == "cancelled" {
 			h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
 		}
-		normalizedBody, normalizeErr := service.NormalizeSeedanceJob(forwarded.Body, taskID)
+		normalizedBody, normalizeErr := service.NormalizeSeedanceJobForRoute(forwarded.Body, taskID, account.GetVideoProvider(), binding.Model)
 		if normalizeErr != nil {
 			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", normalizeErr.Error())
 			return
@@ -694,15 +892,264 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		h.writeSeedanceBody(c, forwarded.StatusCode, header, bytes.NewReader(normalizedBody))
 		return
 	}
-	official, err := service.BuildSeedanceOfficialTaskResponse(taskID, forwarded.Body, seedanceTaskContentURL(c, taskID))
+	official, err := service.BuildSeedanceOfficialTaskResponseForRoute(taskID, forwarded.Body, seedanceTaskContentURL(c, taskID), account.GetVideoProvider(), binding.Model)
 	if err != nil {
 		seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", err.Error())
 		return
 	}
-	if status, _ := official["status"].(string); status == "failed" || status == "cancelled" {
+	status, _ := official["status"].(string)
+	if status == "failed" && binding.FallbackStatus == service.SeedanceFallbackStatusReady {
+		fallbackResult := h.tryStartSeedanceFallback(c, reqLog, apiKey, subject, binding, taskID, public, &streamStarted, false)
+		if fallbackResult.Handled {
+			if fallbackResult.Refund {
+				h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
+			}
+			return
+		}
+	}
+	if status == "failed" || status == "cancelled" {
 		h.refundSeedanceTask(c, reqLog, apiKey, subject, taskID, status)
 	}
 	c.JSON(http.StatusOK, official)
+}
+
+type seedanceFallbackAttemptResult struct {
+	// Handled means the helper already wrote the response and the caller must
+	// stop processing the primary provider response.
+	Handled bool
+	// Refund is true only when no fallback request was accepted and the primary
+	// task can be finalized as failed.
+	Refund bool
+}
+
+func (h *OpenAIGatewayHandler) tryStartSeedanceFallback(
+	c *gin.Context,
+	reqLog *zap.Logger,
+	apiKey *service.APIKey,
+	subject middleware2.AuthSubject,
+	binding *service.SeedanceTaskBinding,
+	publicTaskID string,
+	public bool,
+	streamStarted *bool,
+	preserveClaimOnFailure bool,
+) (result seedanceFallbackAttemptResult) {
+	if h == nil || h.gatewayService == nil || h.seedanceMediaService == nil || c == nil || apiKey == nil || binding == nil {
+		return seedanceFallbackAttemptResult{Refund: true}
+	}
+	claimed, claimToken, err := h.gatewayService.ClaimSeedanceTaskFallback(c.Request.Context(), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID)
+	if err != nil {
+		reqLog.Error("seedance.fallback_claim_failed", zap.Error(err), zap.String("task_id", publicTaskID))
+		seedanceError(c, http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback is temporarily unavailable; retry this task")
+		return seedanceFallbackAttemptResult{Handled: true}
+	}
+	if !claimed {
+		latest, loadErr := h.gatewayService.GetSeedanceTaskBinding(c.Request.Context(), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID)
+		if loadErr == nil && latest != nil {
+			switch latest.FallbackStatus {
+			case service.SeedanceFallbackStatusStarting, service.SeedanceFallbackStatusActive:
+				writeSeedanceQueuedFallback(c, publicTaskID, latest.Model, public)
+				return seedanceFallbackAttemptResult{Handled: true}
+			case service.SeedanceFallbackStatusCancelling:
+				writeSeedanceCancellationPending(c, publicTaskID, latest.Model, public)
+				return seedanceFallbackAttemptResult{Handled: true}
+			case service.SeedanceFallbackStatusCancelled:
+				writeSeedanceTaskState(c, publicTaskID, latest.Model, public, "cancelled")
+				return seedanceFallbackAttemptResult{Handled: true}
+			}
+		}
+		if loadErr != nil {
+			seedanceError(c, http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback state is temporarily unavailable; retry this task")
+			return seedanceFallbackAttemptResult{Handled: true}
+		}
+		return seedanceFallbackAttemptResult{Refund: true}
+	}
+
+	fallbackActivated := false
+	fallbackAccepted := false
+	responseWritten := false
+	defer func() {
+		if !seedanceShouldFailFallbackClaim(fallbackActivated, fallbackAccepted, preserveClaimOnFailure) {
+			return
+		}
+		updated, failErr := h.gatewayService.FailSeedanceTaskFallback(context.WithoutCancel(c.Request.Context()), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID, claimToken)
+		if failErr != nil {
+			reqLog.Error("seedance.fallback_mark_failed", zap.Error(failErr), zap.String("task_id", publicTaskID))
+			if !responseWritten {
+				seedanceError(c, http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback state is temporarily unavailable; retry this task")
+				result = seedanceFallbackAttemptResult{Handled: true}
+			}
+			return
+		}
+		if !updated && !responseWritten {
+			latest, loadErr := h.gatewayService.GetSeedanceTaskBinding(context.WithoutCancel(c.Request.Context()), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID)
+			if loadErr != nil || latest == nil || (latest.FallbackStatus != service.SeedanceFallbackStatusStarting && latest.FallbackStatus != service.SeedanceFallbackStatusActive) {
+				seedanceError(c, http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback state changed; retry this task")
+				result = seedanceFallbackAttemptResult{Handled: true}
+				return
+			}
+			writeSeedanceQueuedFallback(c, publicTaskID, latest.Model, public)
+			result = seedanceFallbackAttemptResult{Handled: true}
+		}
+	}()
+
+	requestInfo, err := service.RestoreSeedanceFallbackRequest(binding.RequestSnapshot, binding.FallbackModel)
+	if err != nil {
+		reqLog.Error("seedance.fallback_restore_failed", zap.Error(err), zap.String("task_id", publicTaskID))
+		return seedanceFallbackAttemptResult{Refund: true}
+	}
+	mediaRelease, err := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), seedanceMediaOwner(apiKey, subject), subject.Concurrency)
+	if err != nil {
+		reqLog.Warn("seedance.fallback_media_slot_failed", zap.Error(err), zap.String("task_id", publicTaskID))
+		return seedanceFallbackAttemptResult{Refund: true}
+	}
+	defer mediaRelease()
+	if requestInfo.HasReferenceMedia() {
+		requestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), requestInfo)
+		if err != nil {
+			reqLog.Warn("seedance.fallback_media_prepare_failed", zap.Error(err), zap.String("task_id", publicTaskID))
+			return seedanceFallbackAttemptResult{Refund: true}
+		}
+		defer requestInfo.HuiquMedia.Cleanup()
+	}
+
+	failedAccountIDs := make(map[int64]struct{})
+	maxSwitches := h.maxAccountSwitches
+	if maxSwitches <= 0 {
+		maxSwitches = 3
+	}
+	sessionHash := service.SeedanceTaskSessionHash(publicTaskID+":fallback", subject.UserID, apiKey.ID)
+	for switchCount := 0; switchCount <= maxSwitches; switchCount++ {
+		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
+			c.Request.Context(), apiKey.GroupID, "", sessionHash, binding.FallbackModel,
+			failedAccountIDs, service.OpenAIUpstreamTransportHTTPSSE,
+			"", false, false, false, apiKey.Group.Platform,
+		)
+		if selectErr != nil || selection == nil || selection.Account == nil || !selection.Account.IsHuiquVideo() {
+			if selection != nil && selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			return seedanceFallbackAttemptResult{Refund: true}
+		}
+		account := selection.Account
+		accountRelease, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, streamStarted, reqLog)
+		if !acquired {
+			responseWritten = true
+			return seedanceFallbackAttemptResult{Handled: true, Refund: true}
+		}
+		forwarded, forwardErr := func() (*service.SeedanceUpstreamResponse, error) {
+			if accountRelease != nil {
+				defer accountRelease()
+			}
+			oldKey := c.Request.Header.Get("Idempotency-Key")
+			c.Request.Header.Set("Idempotency-Key", "seedance-fallback-"+publicTaskID)
+			defer func() {
+				if oldKey == "" {
+					c.Request.Header.Del("Idempotency-Key")
+				} else {
+					c.Request.Header.Set("Idempotency-Key", oldKey)
+				}
+			}()
+			return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, http.MethodPost, "", requestInfo)
+		}()
+		if forwardErr != nil {
+			var failoverErr *service.UpstreamFailoverError
+			if errors.As(forwardErr, &failoverErr) {
+				failedAccountIDs[account.ID] = struct{}{}
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(binding.FallbackModel), false, nil)
+				continue
+			}
+			reqLog.Warn("seedance.fallback_forward_failed", zap.Error(forwardErr), zap.String("task_id", publicTaskID), zap.Int64("account_id", account.ID))
+			return seedanceFallbackAttemptResult{Refund: true}
+		}
+		if forwarded == nil || forwarded.Result == nil || strings.TrimSpace(forwarded.Result.ResponseID) == "" {
+			// The provider may have accepted the request before the gateway lost
+			// the response. Keep the claim recoverable instead of refunding it.
+			fallbackAccepted = true
+			writeSeedanceQueuedFallback(c, publicTaskID, binding.Model, public)
+			responseWritten = true
+			return seedanceFallbackAttemptResult{Handled: true}
+		}
+		activated, activateErr := h.gatewayService.ActivateSeedanceTaskFallback(
+			c.Request.Context(), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID,
+			claimToken, account.ID, forwarded.Result.ResponseID,
+		)
+		if activateErr != nil || !activated {
+			reqLog.Error("seedance.fallback_activate_failed", zap.Error(activateErr), zap.String("task_id", publicTaskID), zap.Int64("account_id", account.ID))
+			fallbackAccepted = true
+			writeSeedanceQueuedFallback(c, publicTaskID, binding.Model, public)
+			responseWritten = true
+			return seedanceFallbackAttemptResult{Handled: true}
+		}
+		fallbackActivated = true
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, forwarded.Result.UpstreamModel, true, nil)
+		h.gatewayService.RecordOpenAIAccountSwitch()
+		reqLog.Info("seedance.fallback_activated",
+			zap.String("task_id", publicTaskID),
+			zap.String("requested_model", binding.Model),
+			zap.Int64("fallback_account_id", account.ID),
+		)
+		writeSeedanceQueuedFallback(c, publicTaskID, binding.Model, public)
+		responseWritten = true
+		return seedanceFallbackAttemptResult{Handled: true}
+	}
+	return seedanceFallbackAttemptResult{Refund: true}
+}
+
+func writeSeedanceQueuedFallback(c *gin.Context, taskID, model string, public bool) {
+	if public {
+		c.JSON(http.StatusOK, gin.H{
+			"job_id":     taskID,
+			"status":     "queued",
+			"status_url": service.SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID),
+			"model":      strings.TrimSpace(model),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": "queued", "model": strings.TrimSpace(model)})
+}
+
+func writeSeedanceCancellationPending(c *gin.Context, taskID, model string, public bool) {
+	writeSeedanceTaskState(c, taskID, model, public, "running")
+}
+
+func writeSeedanceTaskState(c *gin.Context, taskID, model string, public bool, status string) {
+	status = strings.TrimSpace(status)
+	if public {
+		c.JSON(http.StatusOK, gin.H{
+			"job_id":     taskID,
+			"status":     status,
+			"status_url": service.SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID),
+			"model":      strings.TrimSpace(model),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": taskID, "status": status, "model": strings.TrimSpace(model)})
+}
+
+func seedanceFallbackLeaseActive(binding *service.SeedanceTaskBinding, now time.Time) bool {
+	if binding == nil || binding.FallbackLeaseUntil.IsZero() {
+		return true
+	}
+	return !now.After(binding.FallbackLeaseUntil)
+}
+
+func seedanceShouldResumeExpiredFallback(binding *service.SeedanceTaskBinding, method string, content bool, now time.Time) bool {
+	return binding != nil && binding.FallbackStatus == service.SeedanceFallbackStatusStarting &&
+		method == http.MethodGet && !content && !seedanceFallbackLeaseActive(binding, now)
+}
+
+func seedanceShouldClaimCancellation(binding *service.SeedanceTaskBinding, method string, now time.Time) bool {
+	if binding == nil || method != http.MethodDelete {
+		return false
+	}
+	if binding.FallbackStatus == service.SeedanceFallbackStatusReady {
+		return true
+	}
+	return binding.FallbackStatus == service.SeedanceFallbackStatusCancelling && !seedanceFallbackLeaseActive(binding, now)
+}
+
+func seedanceShouldFailFallbackClaim(activated, accepted, preserveClaimOnFailure bool) bool {
+	return !activated && !accepted && !preserveClaimOnFailure
 }
 
 func (h *OpenAIGatewayHandler) serveSeedanceCapturedVideo(c *gin.Context, captured *service.SeedanceCapturedVideo) {

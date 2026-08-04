@@ -14,8 +14,10 @@ type ffLinkVideoModelProfile struct {
 	AllowedAspectRatios map[string]struct{}
 	PromptLimit         int
 	MaxImageReferences  int
+	MaxTotalImages      int
 	MaxVideoReferences  int
 	MaxAudioReferences  int
+	MaxTotalMedia       int
 	AllowStartFrame     bool
 	AllowEndFrame       bool
 	AllowGeneratedAudio bool
@@ -49,6 +51,22 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
+	},
+	"sd2-mx933-720-1s": {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 1 && duration <= 15 },
+	},
+	"sd2-mx933-720-fast-1s": {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 1 && duration <= 15 },
 	},
 	"ltx-2.3-pro": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
@@ -97,7 +115,13 @@ func ffLinkVideoModelProfileFor(model string) (ffLinkVideoModelProfile, bool) {
 func FFLinkVideoModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case PlatformSeedance:
-		return []string{"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini"}
+		return []string{
+			"seedance-2.0",
+			"seedance-2.0-fast",
+			"seedance-2.0-mini",
+			"sd2-mx933-720-1s",
+			"sd2-mx933-720-fast-1s",
+		}
 	case PlatformLTX:
 		return []string{"ltx-2.3-pro", "ltx-2.3-fast"}
 	case PlatformHappyHorse:
@@ -153,11 +177,35 @@ func validateFFLinkVideoRequestInfo(info *SeedanceRequestInfo) error {
 	if len(info.References) > profile.MaxImageReferences {
 		return fmt.Errorf("model %s supports at most %d reference images", info.Model, profile.MaxImageReferences)
 	}
+	if profile.MaxTotalImages > 0 {
+		totalImages := len(info.References)
+		if strings.TrimSpace(info.StartFrameURL) != "" {
+			totalImages++
+		}
+		if strings.TrimSpace(info.EndFrameURL) != "" {
+			totalImages++
+		}
+		if totalImages > profile.MaxTotalImages {
+			return fmt.Errorf("model %s supports at most %d total images including reference images and first/last frames", info.Model, profile.MaxTotalImages)
+		}
+	}
 	if len(info.VideoReferences) > profile.MaxVideoReferences {
 		return fmt.Errorf("model %s supports at most %d reference videos", info.Model, profile.MaxVideoReferences)
 	}
 	if len(info.AudioReferences) > profile.MaxAudioReferences {
 		return fmt.Errorf("model %s supports at most %d reference audio files", info.Model, profile.MaxAudioReferences)
+	}
+	if profile.MaxTotalMedia > 0 {
+		totalMedia := len(info.References) + len(info.VideoReferences) + len(info.AudioReferences)
+		if strings.TrimSpace(info.StartFrameURL) != "" {
+			totalMedia++
+		}
+		if strings.TrimSpace(info.EndFrameURL) != "" {
+			totalMedia++
+		}
+		if totalMedia > profile.MaxTotalMedia {
+			return fmt.Errorf("model %s supports at most %d total reference media files", info.Model, profile.MaxTotalMedia)
+		}
 	}
 	if !profile.AllowStartFrame && info.StartFrameURL != "" {
 		return fmt.Errorf("model %s does not support a first frame", info.Model)
@@ -181,6 +229,9 @@ func normalizeFFLinkPromptEnhance(value any, model string) (any, error) {
 	profile, ok := ffLinkVideoModelProfileFor(model)
 	if !ok {
 		return nil, fmt.Errorf("unsupported video model: %s", strings.TrimSpace(model))
+	}
+	if profile.PromptEnhanceMode == "" {
+		return nil, fmt.Errorf("model %s does not support prompt_enhance", strings.TrimSpace(model))
 	}
 	if profile.PromptEnhanceMode == "legacy" {
 		switch typed := value.(type) {

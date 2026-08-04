@@ -8,8 +8,10 @@ import {
   buildModelMappingObject,
   getModelsByPlatform,
   getPresetMappingsByPlatform,
+  getSeedanceModelsByVideoProvider,
   splitModelMappingObject
 } from '../useModelWhitelist'
+import { getSeedanceVideoProviderBaseUrl } from '@/utils/videoAccountProviders'
 
 describe('useModelWhitelist', () => {
   it('keeps GLM defaults limited to supported text and embedding models', () => {
@@ -28,16 +30,31 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('seedance')).toEqual([
       'seedance-2.0',
       'seedance-2.0-fast',
-      'seedance-2.0-mini'
+      'seedance-2.0-mini',
+      'sd2-mx933-720-1s',
+      'sd2-mx933-720-fast-1s'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
     ).toEqual([
+      { from: 'sd2-mx933-720-1s', to: 'sd2-mx933-720-1s' },
+      { from: 'sd2-mx933-720-fast-1s', to: 'sd2-mx933-720-fast-1s' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
     expect(getModelsByPlatform('ltx')).toEqual(['ltx-2.3-pro', 'ltx-2.3-fast'])
     expect(getModelsByPlatform('happyhorse')).toEqual(['happy-horse-1.1'])
+    expect(getSeedanceModelsByVideoProvider('fflink')).toEqual([
+      'seedance-2.0',
+      'seedance-2.0-fast',
+      'seedance-2.0-mini'
+    ])
+    expect(getSeedanceModelsByVideoProvider('huiqu')).toEqual([
+      'sd2-mx933-720-1s',
+      'sd2-mx933-720-fast-1s'
+    ])
+    expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
+    expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
