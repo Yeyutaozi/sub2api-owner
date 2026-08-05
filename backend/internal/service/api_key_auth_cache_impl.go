@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 18 // v18: include Seedance video pricing, group reasoning effort mappings, and OpenAI Live gate
+const apiKeyAuthSnapshotVersion = 19 // v19: include explicit Seedance video billing unit
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -409,6 +409,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			VideoPrice720P:                  apiKey.Group.VideoPrice720P,
 			VideoPrice1080P:                 apiKey.Group.VideoPrice1080P,
 			VideoModelPrices:                videoModelPrices,
+			VideoBillingUnit:                apiKey.Group.EffectiveVideoBillingUnit(),
 			WebSearchPricePerCall:           apiKey.Group.WebSearchPricePerCall,
 			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
@@ -501,6 +502,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			VideoPrice720P:                  snapshot.Group.VideoPrice720P,
 			VideoPrice1080P:                 snapshot.Group.VideoPrice1080P,
 			VideoModelPrices:                videoModelPrices,
+			VideoBillingUnit:                EffectiveVideoBillingUnit(snapshot.Group.Platform, snapshot.Group.VideoBillingUnit),
 			WebSearchPricePerCall:           snapshot.Group.WebSearchPricePerCall,
 			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,

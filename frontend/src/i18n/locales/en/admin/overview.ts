@@ -926,8 +926,8 @@ export default {
         configure: 'Configure prices',
         userTitle: 'Video prices for {user}',
         priorityHint: 'Billing priority: per-user model/resolution price > group model/resolution price. Existing group multiplier rules still apply; leave a price blank to inherit the group value.',
-        inheritHint: 'Enter an absolute USD-per-second price for each model and resolution. Leave blank to inherit the group price.',
-        inheritPrice: 'Inherit ${price}/second',
+        inheritHint: 'Enter an absolute price ({unit}) for each model and resolution. Leave blank to inherit the group price.',
+        inheritPrice: 'Inherit ${price}/{unit}',
         notConfigured: 'Not configured for group',
         invalidPrice: 'Video price must be a number greater than or equal to 0',
         clearUser: 'Clear video prices for this user',
@@ -1008,6 +1008,17 @@ export default {
           'Configure Grok video generation prices in USD per second of output video. Leave empty to use the default per-second rates (grok-imagine-video: $0.05/s 480p, $0.07/s 720p; video-1.5: $0.08/s 480p, $0.14/s 720p, $0.25/s 1080p).',
         modelDescription:
           'Configure video prices in USD per generated second for each requested model and resolution.',
+        perRequestModelDescription:
+          'Configure a flat USD price per generated video for each requested model and resolution.',
+        billingUnit: 'Billing unit',
+        billingUnitHint:
+          'Per-request billing is available only for Seedance. Duration still controls generation, but it does not multiply the configured price; each generated output is charged once.',
+        perSecond: 'Per generated second',
+        perRequest: 'Per generated video',
+        priceUnitPerSecond: '$/s',
+        priceUnitPerRequest: '$/request',
+        pricePeriodPerSecond: 'second',
+        pricePeriodPerRequest: 'request',
         allowVideoGeneration: 'Allow video generation for this group',
         independentMultiplier: 'Use independent video multiplier',
         videoMultiplier: 'Video multiplier',
@@ -1021,6 +1032,8 @@ export default {
           'Videos are billed per second: per-second price × duration (1-15s, default 8s). By default the current effective group multiplier applies; independent mode uses the video multiplier instead.',
         modelModeHint:
           'Videos are billed per second: the requested model and resolution price × actual generated duration. A non-empty matrix is also the allowed model list; clear it to fall back to the legacy group resolution prices.',
+        perRequestModelModeHint:
+          'Videos are billed per request: the requested model and resolution price is charged once for each generated video, without multiplying by duration. A non-empty matrix is also the allowed model list; clear it to fall back to legacy group resolution prices.',
         finalPricePreview: 'Final per-second price preview',
         notConfigured: 'Not configured',
         validation: {

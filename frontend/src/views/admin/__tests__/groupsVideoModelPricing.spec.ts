@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
+  normalizeVideoBillingUnitForPlatform,
   supportsVideoModelPricingPlatform,
   supportedResolutionsForVideoModel,
   validateVideoModelPriceRows,
@@ -29,6 +30,8 @@ describe("video model pricing form conversion", () => {
       createVideoModelPriceRow("seedance-2.0-mini"),
       createVideoModelPriceRow("sd2-mx933"),
       createVideoModelPriceRow("sd2-mx933-fast"),
+      createVideoModelPriceRow("sd-2.0-mx933"),
+      createVideoModelPriceRow("sd-2.5-mx"),
     ]);
     expect(createDefaultVideoModelPriceRows("ltx")).toEqual([
       createVideoModelPriceRow("ltx-2.3-pro"),
@@ -55,6 +58,13 @@ describe("video model pricing form conversion", () => {
       "480p",
       "720p",
     ]);
+    expect(supportedResolutionsForVideoModel("seedance", "sd-2.0-mx933")).toEqual([
+      "480p",
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("seedance", "sd-2.5-mx")).toEqual([
+      "720p",
+    ]);
     expect(supportedResolutionsForVideoModel("ltx", "ltx-2.3-fast")).toEqual([
       "1080p",
       "1440p",
@@ -64,6 +74,20 @@ describe("video model pricing form conversion", () => {
       "720p",
       "1080p",
     ]);
+  });
+
+  it("allows per-request billing only for Seedance groups", () => {
+    expect(normalizeVideoBillingUnitForPlatform("seedance", "per_request")).toBe(
+      "per_request",
+    );
+    expect(normalizeVideoBillingUnitForPlatform("seedance", undefined)).toBe(
+      "per_second",
+    );
+    for (const platform of ["ltx", "happyhorse", "grok", "openai"]) {
+      expect(normalizeVideoBillingUnitForPlatform(platform, "per_request")).toBe(
+        "per_second",
+      );
+    }
   });
 
   it("serializes model and resolution prices, preserving zero as a free price", () => {

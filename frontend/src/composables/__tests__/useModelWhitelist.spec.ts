@@ -32,13 +32,17 @@ describe('useModelWhitelist', () => {
       'seedance-2.0-fast',
       'seedance-2.0-mini',
       'sd2-mx933',
-      'sd2-mx933-fast'
+      'sd2-mx933-fast',
+      'sd-2.0-mx933',
+      'sd-2.5-mx'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
     ).toEqual([
       { from: 'sd2-mx933', to: 'sd2-mx933' },
       { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
+      { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
+      { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
@@ -53,8 +57,15 @@ describe('useModelWhitelist', () => {
       'sd2-mx933',
       'sd2-mx933-fast'
     ])
+    expect(getSeedanceModelsByVideoProvider('ximei')).toEqual([
+      'sd-2.0-mx933',
+      'sd-2.5-mx'
+    ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
+    expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
+      'https://liantongyidong.ximeiedu.org'
+    )
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {

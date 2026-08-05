@@ -25,4 +25,16 @@ describe("video platform group permission", () => {
     expect(groupsViewSource).toContain('{ value: "ltx", label: "LTX" }');
     expect(groupsViewSource).toContain('{ value: "happyhorse", label: "HappyHorse" }');
   });
+
+  it("offers per-request billing only in the Seedance create and edit forms", () => {
+    expect(groupsViewSource).toMatch(
+      /v-if="createForm\.platform === 'seedance'"[\s\S]*?data-testid="create-seedance-video-billing-unit"[\s\S]*?<option value="per_request">/,
+    );
+    expect(groupsViewSource).toMatch(
+      /v-if="editForm\.platform === 'seedance'"[\s\S]*?data-testid="edit-seedance-video-billing-unit"[\s\S]*?<option value="per_request">/,
+    );
+    expect(groupsViewSource).toContain(
+      "video_billing_unit: normalizeVideoBillingUnitForPlatform(",
+    );
+  });
 });

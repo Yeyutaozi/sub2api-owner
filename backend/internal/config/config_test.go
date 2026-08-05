@@ -763,6 +763,9 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 		"api.kimi.com",
 		"api.moonshot.ai",
 		"api.moonshot.cn",
+		"liantongyidong.ximeiedu.org",
+		"tdown1.ximeiedu.org",
+		"tdown2.ximeiedu.org",
 	}
 	hostSet := make(map[string]struct{}, len(cfg.Security.URLAllowlist.UpstreamHosts))
 	for _, h := range cfg.Security.URLAllowlist.UpstreamHosts {

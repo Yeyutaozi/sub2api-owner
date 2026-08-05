@@ -541,6 +541,28 @@ func seedanceStoredMediaKey(slot string, index int) string {
 	return strings.TrimSpace(slot) + ":" + strconv.Itoa(index)
 }
 
+// SnapshotSeedanceTaskMediaCleanup persists only task-owned media that must be
+// deleted after terminal settlement. It deliberately omits staged user uploads
+// and request content; fallback-capable requests continue to use their full
+// fallback snapshot instead.
+func SnapshotSeedanceTaskMediaCleanup(info *SeedanceRequestInfo) ([]byte, error) {
+	if info == nil {
+		return nil, errors.New("seedance request info is required")
+	}
+	temporary := make([]SeedanceStoredMediaReference, 0, len(info.StoredMedia))
+	for _, reference := range info.StoredMedia {
+		if reference.DeleteAfterSettlement {
+			temporary = append(temporary, reference)
+		}
+	}
+	if len(temporary) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(struct {
+		StoredMedia []SeedanceStoredMediaReference `json:"stored_media"`
+	}{StoredMedia: temporary})
+}
+
 func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner SeedanceMediaOwner, info *SeedanceRequestInfo) (*SeedanceMaterializedImages, error) {
 	if info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
@@ -554,7 +576,8 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 	info.StoredMedia = nil
 	directHTTP := isHuiquVideoModel(info.Model)
 	_, fallbackEligible := SeedanceFallbackModelFor(info.Model, info.Resolution, info.DurationSeconds)
-	for _, target := range seedanceRequestMediaTargets(info, fallbackEligible) {
+	includeVideoAudio := fallbackEligible || isXimeiVideoModel(info.Model)
+	for _, target := range seedanceRequestMediaTargets(info, includeVideoAudio) {
 		if target.url == nil || strings.TrimSpace(*target.url) == "" {
 			continue
 		}

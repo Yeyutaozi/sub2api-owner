@@ -279,15 +279,24 @@ function buildGrokAPIKeyAccount() {
   } as any
 }
 
-function buildSeedanceAccount(videoProvider: 'fflink' | 'huiqu' = 'fflink') {
-  const model = videoProvider === 'huiqu' ? 'sd2-mx933' : 'seedance-2.0'
+function buildSeedanceAccount(videoProvider: 'fflink' | 'huiqu' | 'ximei' = 'fflink') {
+  const model = videoProvider === 'huiqu'
+    ? 'sd2-mx933'
+    : videoProvider === 'ximei'
+      ? 'sd-2.0-mx933'
+      : 'seedance-2.0'
+  const baseUrl = videoProvider === 'huiqu'
+    ? 'https://api.bjhuiqu.net'
+    : videoProvider === 'ximei'
+      ? 'https://liantongyidong.ximeiedu.org'
+      : 'https://api.fflink.top'
   return {
     ...buildAccount(),
     id: 7,
     name: 'Seedance Video',
     platform: 'seedance',
     credentials: {
-      base_url: videoProvider === 'huiqu' ? 'https://api.bjhuiqu.net' : 'https://api.fflink.top',
+      base_url: baseUrl,
       video_provider: videoProvider,
       model_mapping: { [model]: model }
     },
@@ -383,6 +392,28 @@ describe('EditAccountModal', () => {
       model_mapping: {
         'sd2-mx933': 'sd2-mx933',
         'sd2-mx933-fast': 'sd2-mx933-fast'
+      }
+    })
+  })
+
+  it('switches Seedance to Ximei with its own Base URL, key, and public models', async () => {
+    const account = buildSeedanceAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-seedance-video-provider"]').setValue('ximei')
+    await wrapper.find('input[type="password"]').setValue('sk_live_ximei')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      base_url: 'https://liantongyidong.ximeiedu.org',
+      video_provider: 'ximei',
+      api_key: 'sk_live_ximei',
+      model_mapping: {
+        'sd-2.0-mx933': 'sd-2.0-mx933',
+        'sd-2.5-mx': 'sd-2.5-mx'
       }
     })
   })

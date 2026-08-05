@@ -2,9 +2,12 @@ package service
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+var ximeiReservedMediaReferencePattern = regexp.MustCompile(`(?i)@(?:image|audio|video)[1-9][0-9]*\b`)
 
 type ffLinkVideoModelProfile struct {
 	Platform            string
@@ -88,6 +91,24 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
 		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
+	SeedanceXimeiSD20Model: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
+	},
+	SeedanceXimeiSD25Model: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: seedanceXimeiSD25DefaultDurationSeconds,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9"),
+		PromptLimit:         30000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool {
+			return isXimeiVideoDurationSupported(SeedanceXimeiSD25Model, duration)
+		},
+	},
 	"ltx-2.3-pro": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
@@ -141,6 +162,8 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			"seedance-2.0-mini",
 			SeedanceMX933Model,
 			SeedanceMX933FastModel,
+			SeedanceXimeiSD20Model,
+			SeedanceXimeiSD25Model,
 		}
 	case PlatformLTX:
 		return []string{"ltx-2.3-pro", "ltx-2.3-fast"}
@@ -247,8 +270,26 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	if !profile.AllowGeneratedAudio && info.GenerateAudio {
 		return fmt.Errorf("model %s does not support generated audio", info.Model)
 	}
+	if len(info.AudioReferences) > 0 && !info.GenerateAudio {
+		return fmt.Errorf("audio=true is required when guidances.audio_reference is provided")
+	}
 	if len(info.AudioReferences) > 0 && len(info.References) == 0 && len(info.VideoReferences) == 0 {
 		return fmt.Errorf("reference audio requires at least one reference image or reference video")
+	}
+	if isXimeiVideoModel(info.Model) {
+		product, err := ximeiVideoProductFor(info.Model, info.Resolution)
+		if err != nil {
+			return err
+		}
+		if err := validateXimeiReferenceDurations(info, product); err != nil {
+			return err
+		}
+		if ximeiReservedMediaReferencePattern.MatchString(info.Prompt) {
+			return fmt.Errorf("prompt must not contain platform-reserved media references such as @Image1, @Audio1, or @Video1")
+		}
+		if compiledPrompt := compileXimeiPrompt(info); profile.PromptLimit > 0 && utf8.RuneCountInString(compiledPrompt) > profile.PromptLimit {
+			return fmt.Errorf("compiled prompt exceeds the %d character limit for model %s", profile.PromptLimit, info.Model)
+		}
 	}
 	return nil
 }

@@ -651,9 +651,10 @@ export default {
       },
       videoProvider: {
         title: '视频上游渠道',
-        hint: '选择内部协议适配器。已有 Seedance 账号保持 FFLink；MX933 账号请选择汇取云，并填写该渠道实际提供的 Base URL 和 API Key。',
+        hint: '选择内部协议适配器。已有账号保持原渠道；新账号请选择 API Key 所属渠道。',
         fflink: 'FFLink（旧渠道）',
-        huiqu: '汇取云 MX933'
+        huiqu: '汇取云 MX933',
+        ximei: '西梅 Developer API V3'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

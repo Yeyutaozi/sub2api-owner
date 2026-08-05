@@ -489,6 +489,20 @@ func (_c *GroupCreate) SetVideoModelPrices(v domain.VideoModelPrices) *GroupCrea
 	return _c
 }
 
+// SetVideoBillingUnit sets the "video_billing_unit" field.
+func (_c *GroupCreate) SetVideoBillingUnit(v string) *GroupCreate {
+	_c.mutation.SetVideoBillingUnit(v)
+	return _c
+}
+
+// SetNillableVideoBillingUnit sets the "video_billing_unit" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableVideoBillingUnit(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetVideoBillingUnit(*v)
+	}
+	return _c
+}
+
 // SetWebSearchPricePerCall sets the "web_search_price_per_call" field.
 func (_c *GroupCreate) SetWebSearchPricePerCall(v float64) *GroupCreate {
 	_c.mutation.SetWebSearchPricePerCall(v)
@@ -948,6 +962,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultVideoModelPrices
 		_c.mutation.SetVideoModelPrices(v)
 	}
+	if _, ok := _c.mutation.VideoBillingUnit(); !ok {
+		v := group.DefaultVideoBillingUnit
+		_c.mutation.SetVideoBillingUnit(v)
+	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
@@ -1113,6 +1131,14 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.VideoModelPrices(); !ok {
 		return &ValidationError{Name: "video_model_prices", err: errors.New(`ent: missing required field "Group.video_model_prices"`)}
+	}
+	if _, ok := _c.mutation.VideoBillingUnit(); !ok {
+		return &ValidationError{Name: "video_billing_unit", err: errors.New(`ent: missing required field "Group.video_billing_unit"`)}
+	}
+	if v, ok := _c.mutation.VideoBillingUnit(); ok {
+		if err := group.VideoBillingUnitValidator(v); err != nil {
+			return &ValidationError{Name: "video_billing_unit", err: fmt.Errorf(`ent: validator failed for field "Group.video_billing_unit": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
@@ -1331,6 +1357,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.VideoModelPrices(); ok {
 		_spec.SetField(group.FieldVideoModelPrices, field.TypeJSON, value)
 		_node.VideoModelPrices = value
+	}
+	if value, ok := _c.mutation.VideoBillingUnit(); ok {
+		_spec.SetField(group.FieldVideoBillingUnit, field.TypeString, value)
+		_node.VideoBillingUnit = value
 	}
 	if value, ok := _c.mutation.WebSearchPricePerCall(); ok {
 		_spec.SetField(group.FieldWebSearchPricePerCall, field.TypeFloat64, value)
@@ -2107,6 +2137,18 @@ func (u *GroupUpsert) SetVideoModelPrices(v domain.VideoModelPrices) *GroupUpser
 // UpdateVideoModelPrices sets the "video_model_prices" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateVideoModelPrices() *GroupUpsert {
 	u.SetExcluded(group.FieldVideoModelPrices)
+	return u
+}
+
+// SetVideoBillingUnit sets the "video_billing_unit" field.
+func (u *GroupUpsert) SetVideoBillingUnit(v string) *GroupUpsert {
+	u.Set(group.FieldVideoBillingUnit, v)
+	return u
+}
+
+// UpdateVideoBillingUnit sets the "video_billing_unit" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateVideoBillingUnit() *GroupUpsert {
+	u.SetExcluded(group.FieldVideoBillingUnit)
 	return u
 }
 
@@ -3074,6 +3116,20 @@ func (u *GroupUpsertOne) SetVideoModelPrices(v domain.VideoModelPrices) *GroupUp
 func (u *GroupUpsertOne) UpdateVideoModelPrices() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateVideoModelPrices()
+	})
+}
+
+// SetVideoBillingUnit sets the "video_billing_unit" field.
+func (u *GroupUpsertOne) SetVideoBillingUnit(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVideoBillingUnit(v)
+	})
+}
+
+// UpdateVideoBillingUnit sets the "video_billing_unit" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateVideoBillingUnit() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVideoBillingUnit()
 	})
 }
 
@@ -4254,6 +4310,20 @@ func (u *GroupUpsertBulk) SetVideoModelPrices(v domain.VideoModelPrices) *GroupU
 func (u *GroupUpsertBulk) UpdateVideoModelPrices() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateVideoModelPrices()
+	})
+}
+
+// SetVideoBillingUnit sets the "video_billing_unit" field.
+func (u *GroupUpsertBulk) SetVideoBillingUnit(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVideoBillingUnit(v)
+	})
+}
+
+// UpdateVideoBillingUnit sets the "video_billing_unit" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateVideoBillingUnit() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVideoBillingUnit()
 	})
 }
 

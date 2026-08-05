@@ -1,6 +1,8 @@
 package domain
 
-// VideoModelPrice stores per-second video prices for one requested model.
+// VideoModelPrice stores video unit prices for one requested model. The owning
+// group's video_billing_unit determines whether each price is per second or per
+// request.
 // Pointer fields distinguish an explicit free price (0) from an unsupported
 // or unconfigured resolution (nil).
 type VideoModelPrice struct {

@@ -84,6 +84,8 @@ const (
 	FieldVideoPrice1080p = "video_price_1080p"
 	// FieldVideoModelPrices holds the string denoting the video_model_prices field in the database.
 	FieldVideoModelPrices = "video_model_prices"
+	// FieldVideoBillingUnit holds the string denoting the video_billing_unit field in the database.
+	FieldVideoBillingUnit = "video_billing_unit"
 	// FieldWebSearchPricePerCall holds the string denoting the web_search_price_per_call field in the database.
 	FieldWebSearchPricePerCall = "web_search_price_per_call"
 	// FieldClaudeCodeOnly holds the string denoting the claude_code_only field in the database.
@@ -231,6 +233,7 @@ var Columns = []string{
 	FieldVideoPrice720p,
 	FieldVideoPrice1080p,
 	FieldVideoModelPrices,
+	FieldVideoBillingUnit,
 	FieldWebSearchPricePerCall,
 	FieldClaudeCodeOnly,
 	FieldFallbackGroupID,
@@ -337,6 +340,10 @@ var (
 	DefaultVideoRateMultiplier float64
 	// DefaultVideoModelPrices holds the default value on creation for the "video_model_prices" field.
 	DefaultVideoModelPrices domain.VideoModelPrices
+	// DefaultVideoBillingUnit holds the default value on creation for the "video_billing_unit" field.
+	DefaultVideoBillingUnit string
+	// VideoBillingUnitValidator is a validator for the "video_billing_unit" field. It is called by the builders before save.
+	VideoBillingUnitValidator func(string) error
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
@@ -544,6 +551,11 @@ func ByVideoPrice720p(opts ...sql.OrderTermOption) OrderOption {
 // ByVideoPrice1080p orders the results by the video_price_1080p field.
 func ByVideoPrice1080p(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldVideoPrice1080p, opts...).ToFunc()
+}
+
+// ByVideoBillingUnit orders the results by the video_billing_unit field.
+func ByVideoBillingUnit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVideoBillingUnit, opts...).ToFunc()
 }
 
 // ByWebSearchPricePerCall orders the results by the web_search_price_per_call field.

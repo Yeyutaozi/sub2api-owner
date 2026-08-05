@@ -222,7 +222,11 @@
                             {{ t('admin.groups.videoPriceOverrides.userTitle', { user: entry.user_email }) }}
                           </div>
                           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            {{ t('admin.groups.videoPriceOverrides.inheritHint') }}
+                            {{
+                              t('admin.groups.videoPriceOverrides.inheritHint', {
+                                unit: videoPriceUnitLabel,
+                              })
+                            }}
                           </p>
                         </div>
                         <button
@@ -250,7 +254,7 @@
                               class="block"
                             >
                               <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
-                                {{ resolution }} ($/s)
+                                {{ resolution }} ({{ videoPriceUnitLabel }})
                               </span>
                               <input
                                 type="number"
@@ -333,6 +337,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import {
+  normalizeVideoBillingUnitForPlatform,
   normalizeVideoModelPricesForPlatform,
   supportsVideoModelPricingPlatform,
   videoModelsForPricingPlatform,
@@ -385,6 +390,33 @@ const platformColorClass = computed(() => {
 
 const isVideoPricingGroup = computed(() =>
   supportsVideoModelPricingPlatform(props.group?.platform ?? '')
+)
+
+const videoBillingUnit = computed(() =>
+  normalizeVideoBillingUnitForPlatform(
+    props.group?.platform ?? '',
+    props.group?.video_billing_unit,
+  )
+)
+
+const videoPriceUnitLabel = computed(() =>
+  t(
+    `admin.groups.videoPricing.${
+      videoBillingUnit.value === 'per_request'
+        ? 'priceUnitPerRequest'
+        : 'priceUnitPerSecond'
+    }`,
+  )
+)
+
+const videoPricePeriodLabel = computed(() =>
+  t(
+    `admin.groups.videoPricing.${
+      videoBillingUnit.value === 'per_request'
+        ? 'pricePeriodPerRequest'
+        : 'pricePeriodPerSecond'
+    }`,
+  )
 )
 
 const groupVideoModelPrices = computed(() =>
@@ -612,7 +644,10 @@ const groupVideoPricePlaceholder = (
   const groupPrice = groupVideoModelPrices.value[model]?.[resolution]
   return groupPrice == null
     ? t('admin.groups.videoPriceOverrides.notConfigured')
-    : t('admin.groups.videoPriceOverrides.inheritPrice', { price: groupPrice })
+    : t('admin.groups.videoPriceOverrides.inheritPrice', {
+        price: groupPrice,
+        unit: videoPricePeriodLabel.value,
+      })
 }
 
 const setEntryVideoPrice = (

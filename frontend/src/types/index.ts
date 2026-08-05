@@ -779,6 +779,8 @@ export interface VideoModelPrice {
 
 export type VideoModelPrices = Record<string, VideoModelPrice>
 
+export type VideoBillingUnit = 'per_second' | 'per_request'
+
 export interface ReasoningEffortMapping {
   from: string
   to: string
@@ -815,6 +817,7 @@ export interface Group {
   video_price_720p: number | null
   video_price_1080p: number | null
   video_model_prices?: VideoModelPrices
+  video_billing_unit: VideoBillingUnit
   // Codex 网页搜索单次价格（USD/次）；null 表示使用默认价 0.01
   web_search_price_per_call: number | null
   // 高峰时段倍率配置
@@ -1010,6 +1013,7 @@ export interface CreateGroupRequest {
   video_price_720p?: number | null
   video_price_1080p?: number | null
   video_model_prices?: VideoModelPrices
+  video_billing_unit?: VideoBillingUnit
   web_search_price_per_call?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string
@@ -1062,6 +1066,7 @@ export interface UpdateGroupRequest {
   video_price_720p?: number | null
   video_price_1080p?: number | null
   video_model_prices?: VideoModelPrices
+  video_billing_unit?: VideoBillingUnit
   web_search_price_per_call?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string

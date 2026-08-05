@@ -38,6 +38,7 @@
           >
             <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
+            <option value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
@@ -3365,9 +3366,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   seedanceVideoProvider.value =
-    newAccount.platform === 'seedance' && credentials?.video_provider === 'huiqu'
-      ? 'huiqu'
-      : 'fflink'
+    newAccount.platform !== 'seedance'
+      ? 'fflink'
+      : credentials?.video_provider === 'ximei'
+        ? 'ximei'
+        : credentials?.video_provider === 'huiqu'
+          ? 'huiqu'
+          : 'fflink'
   initialSeedanceVideoProvider.value = seedanceVideoProvider.value
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true

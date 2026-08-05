@@ -21897,6 +21897,7 @@ type GroupMutation struct {
 	video_price_1080p                       *float64
 	addvideo_price_1080p                    *float64
 	video_model_prices                      *domain.VideoModelPrices
+	video_billing_unit                      *string
 	web_search_price_per_call               *float64
 	addweb_search_price_per_call            *float64
 	claude_code_only                        *bool
@@ -23754,6 +23755,42 @@ func (m *GroupMutation) ResetVideoModelPrices() {
 	m.video_model_prices = nil
 }
 
+// SetVideoBillingUnit sets the "video_billing_unit" field.
+func (m *GroupMutation) SetVideoBillingUnit(s string) {
+	m.video_billing_unit = &s
+}
+
+// VideoBillingUnit returns the value of the "video_billing_unit" field in the mutation.
+func (m *GroupMutation) VideoBillingUnit() (r string, exists bool) {
+	v := m.video_billing_unit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVideoBillingUnit returns the old "video_billing_unit" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldVideoBillingUnit(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVideoBillingUnit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVideoBillingUnit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVideoBillingUnit: %w", err)
+	}
+	return oldValue.VideoBillingUnit, nil
+}
+
+// ResetVideoBillingUnit resets all changes to the "video_billing_unit" field.
+func (m *GroupMutation) ResetVideoBillingUnit() {
+	m.video_billing_unit = nil
+}
+
 // SetWebSearchPricePerCall sets the "web_search_price_per_call" field.
 func (m *GroupMutation) SetWebSearchPricePerCall(f float64) {
 	m.web_search_price_per_call = &f
@@ -24981,7 +25018,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 52)
+	fields := make([]string, 0, 54)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25083,6 +25120,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.video_model_prices != nil {
 		fields = append(fields, group.FieldVideoModelPrices)
+	}
+	if m.video_billing_unit != nil {
+		fields = append(fields, group.FieldVideoBillingUnit)
 	}
 	if m.web_search_price_per_call != nil {
 		fields = append(fields, group.FieldWebSearchPricePerCall)
@@ -25217,6 +25257,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.VideoPrice1080p()
 	case group.FieldVideoModelPrices:
 		return m.VideoModelPrices()
+	case group.FieldVideoBillingUnit:
+		return m.VideoBillingUnit()
 	case group.FieldWebSearchPricePerCall:
 		return m.WebSearchPricePerCall()
 	case group.FieldClaudeCodeOnly:
@@ -25332,6 +25374,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldVideoPrice1080p(ctx)
 	case group.FieldVideoModelPrices:
 		return m.OldVideoModelPrices(ctx)
+	case group.FieldVideoBillingUnit:
+		return m.OldVideoBillingUnit(ctx)
 	case group.FieldWebSearchPricePerCall:
 		return m.OldWebSearchPricePerCall(ctx)
 	case group.FieldClaudeCodeOnly:
@@ -25616,6 +25660,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetVideoModelPrices(v)
+		return nil
+	case group.FieldVideoBillingUnit:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVideoBillingUnit(v)
 		return nil
 	case group.FieldWebSearchPricePerCall:
 		v, ok := value.(float64)
@@ -26254,6 +26305,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldVideoModelPrices:
 		m.ResetVideoModelPrices()
+		return nil
+	case group.FieldVideoBillingUnit:
+		m.ResetVideoBillingUnit()
 		return nil
 	case group.FieldWebSearchPricePerCall:
 		m.ResetWebSearchPricePerCall()

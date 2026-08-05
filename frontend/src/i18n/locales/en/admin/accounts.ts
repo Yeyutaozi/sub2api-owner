@@ -591,9 +591,10 @@ export default {
       },
       videoProvider: {
         title: 'Video upstream provider',
-        hint: 'Select the internal protocol adapter. Keep existing Seedance accounts on FFLink; choose Huiqu for MX933 and enter the Base URL and API key supplied by that provider.',
+        hint: 'Select the internal protocol adapter. Keep existing accounts on their current provider; choose the provider that issued the API key.',
         fflink: 'FFLink (legacy)',
-        huiqu: 'Huiqu MX933'
+        huiqu: 'Huiqu MX933',
+        ximei: 'Ximei Developer API V3'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

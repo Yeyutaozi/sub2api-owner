@@ -79,6 +79,7 @@ type APIKeyAuthGroupSnapshot struct {
 	VideoPrice720P                  *float64         `json:"video_price_720p,omitempty"`
 	VideoPrice1080P                 *float64         `json:"video_price_1080p,omitempty"`
 	VideoModelPrices                VideoModelPrices `json:"video_model_prices,omitempty"`
+	VideoBillingUnit                string           `json:"video_billing_unit"`
 	WebSearchPricePerCall           *float64         `json:"web_search_price_per_call,omitempty"`
 	ClaudeCodeOnly                  bool             `json:"claude_code_only"`
 	FallbackGroupID                 *int64           `json:"fallback_group_id,omitempty"`

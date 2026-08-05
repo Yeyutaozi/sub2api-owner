@@ -146,7 +146,7 @@ func normalizeVideoProvider(platform, provider string) (string, error) {
 	switch provider {
 	case VideoProviderFFLink:
 		return provider, nil
-	case VideoProviderHuiqu:
+	case VideoProviderHuiqu, VideoProviderXimei:
 		if platform != PlatformSeedance {
 			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
 		}
@@ -164,7 +164,10 @@ func videoProviderSupportsModel(provider, model string) bool {
 	if provider == VideoProviderHuiqu {
 		return isHuiquVideoModel(model)
 	}
-	return !isHuiquVideoModel(model)
+	if provider == VideoProviderXimei {
+		return isXimeiVideoModel(model)
+	}
+	return !isHuiquVideoModel(model) && !isXimeiVideoModel(model)
 }
 
 func (a *Account) GetVideoProvider() string {

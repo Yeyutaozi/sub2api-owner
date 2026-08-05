@@ -21,6 +21,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -84,6 +85,11 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		seedanceError(c, status, code, message)
 		return
 	}
+	clientIdempotencyKey := ensureSeedanceCreateIdempotencyKey(c)
+	c.Request = c.Request.WithContext(service.WithSeedanceIdempotencyKey(
+		c.Request.Context(),
+		seedanceCreateIdempotencyScope(subject.UserID, apiKey.ID, clientIdempotencyKey),
+	))
 
 	reqLog = reqLog.With(zap.String("model", requestInfo.Model))
 	setOpsRequestContext(c, requestInfo.Model, false)
@@ -126,6 +132,11 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		}
 	}()
 	fallbackModel, fallbackEligible := service.SeedanceFallbackModelFor(requestInfo.Model, requestInfo.Resolution, requestInfo.DurationSeconds)
+	mediaCleanupSnapshot, err := service.SnapshotSeedanceTaskMediaCleanup(requestInfo)
+	if err != nil {
+		seedanceError(c, http.StatusInternalServerError, "media_snapshot_failed", "Failed to prepare reference media cleanup")
+		return
+	}
 	var fallbackSnapshot []byte
 	if fallbackEligible {
 		fallbackSnapshot, err = service.SnapshotSeedanceFallbackRequest(requestInfo)
@@ -259,7 +270,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		result.BillingModel = requestInfo.Model
 		bindingFallbackStatus := ""
 		bindingFallbackModel := ""
-		bindingSnapshot := []byte(nil)
+		bindingSnapshot := mediaCleanupSnapshot
 		if fallbackEligible && (fallbackActive || !account.IsHuiquVideo()) {
 			bindingFallbackModel = fallbackModel
 			bindingSnapshot = fallbackSnapshot
@@ -268,8 +279,12 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				bindingFallbackStatus = service.SeedanceFallbackStatusActive
 			}
 		}
+		upstreamResponseID := strings.TrimSpace(result.UpstreamResponseID)
+		if upstreamResponseID == "" {
+			upstreamResponseID = result.ResponseID
+		}
 		if err := h.gatewayService.BindSeedanceTaskAccountWithFallback(
-			c.Request.Context(), apiKey.GroupID, result.ResponseID, result.ResponseID,
+			c.Request.Context(), apiKey.GroupID, result.ResponseID, upstreamResponseID,
 			subject.UserID, apiKey.ID, account.ID, requestInfo.Model,
 			bindingFallbackModel, bindingSnapshot, bindingFallbackStatus,
 		); err != nil {
@@ -303,7 +318,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			}
 			if forwarded != nil && len(forwarded.Body) > 0 {
 				publicBody := forwarded.Body
-				if account.IsHuiquVideo() {
+				if service.IsOpaqueSeedanceVideoProvider(account.GetVideoProvider()) {
 					if normalized, normalizeErr := service.NormalizeSeedanceJobForRoute(forwarded.Body, result.ResponseID, account.GetVideoProvider(), requestInfo.Model); normalizeErr == nil {
 						publicBody = normalized
 					} else {
@@ -337,6 +352,23 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		c.JSON(http.StatusOK, gin.H{"id": result.ResponseID})
 		return
 	}
+}
+
+func ensureSeedanceCreateIdempotencyKey(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if key == "" {
+		key = "seedance-" + uuid.NewString()
+		c.Request.Header.Set("Idempotency-Key", key)
+	}
+	c.Header("Idempotency-Key", key)
+	return key
+}
+
+func seedanceCreateIdempotencyScope(userID, apiKeyID int64, clientKey string) string {
+	return fmt.Sprintf("seedance-create:v1:user:%d:api-key:%d:client:%s", userID, apiKeyID, strings.TrimSpace(clientKey))
 }
 
 type seedanceBase64UploadRequest struct {

@@ -141,6 +141,8 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/SEEDANCE_UNIFIED_PROVIDER_ENGINE_PLAN_CN.md
+!docs/SEEDANCE_XIMEI_PER_REQUEST_BILLING_PLAN_CN.md
 !docs/legal/
 !docs/legal/*.md
 .serena/

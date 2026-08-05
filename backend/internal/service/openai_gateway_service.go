@@ -223,8 +223,12 @@ type OpenAIUsage struct {
 type OpenAIForwardResult struct {
 	RequestID  string
 	ResponseID string
-	Usage      OpenAIUsage
-	Model      string // 原始模型（用于响应和日志显示）
+	// UpstreamResponseID is set when the client-visible async job ID is owned by
+	// this gateway instead of the upstream provider. It is persisted only in the
+	// task binding and must never be returned to the client.
+	UpstreamResponseID string
+	Usage              OpenAIUsage
+	Model              string // 原始模型（用于响应和日志显示）
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where

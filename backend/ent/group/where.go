@@ -220,6 +220,11 @@ func VideoPrice1080p(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldVideoPrice1080p, v))
 }
 
+// VideoBillingUnit applies equality check predicate on the "video_billing_unit" field. It's identical to VideoBillingUnitEQ.
+func VideoBillingUnit(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldVideoBillingUnit, v))
+}
+
 // WebSearchPricePerCall applies equality check predicate on the "web_search_price_per_call" field. It's identical to WebSearchPricePerCallEQ.
 func WebSearchPricePerCall(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldWebSearchPricePerCall, v))
@@ -1748,6 +1753,71 @@ func VideoPrice1080pIsNil() predicate.Group {
 // VideoPrice1080pNotNil applies the NotNil predicate on the "video_price_1080p" field.
 func VideoPrice1080pNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldVideoPrice1080p))
+}
+
+// VideoBillingUnitEQ applies the EQ predicate on the "video_billing_unit" field.
+func VideoBillingUnitEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitNEQ applies the NEQ predicate on the "video_billing_unit" field.
+func VideoBillingUnitNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitIn applies the In predicate on the "video_billing_unit" field.
+func VideoBillingUnitIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldVideoBillingUnit, vs...))
+}
+
+// VideoBillingUnitNotIn applies the NotIn predicate on the "video_billing_unit" field.
+func VideoBillingUnitNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldVideoBillingUnit, vs...))
+}
+
+// VideoBillingUnitGT applies the GT predicate on the "video_billing_unit" field.
+func VideoBillingUnitGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitGTE applies the GTE predicate on the "video_billing_unit" field.
+func VideoBillingUnitGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitLT applies the LT predicate on the "video_billing_unit" field.
+func VideoBillingUnitLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitLTE applies the LTE predicate on the "video_billing_unit" field.
+func VideoBillingUnitLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitContains applies the Contains predicate on the "video_billing_unit" field.
+func VideoBillingUnitContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitHasPrefix applies the HasPrefix predicate on the "video_billing_unit" field.
+func VideoBillingUnitHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitHasSuffix applies the HasSuffix predicate on the "video_billing_unit" field.
+func VideoBillingUnitHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitEqualFold applies the EqualFold predicate on the "video_billing_unit" field.
+func VideoBillingUnitEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldVideoBillingUnit, v))
+}
+
+// VideoBillingUnitContainsFold applies the ContainsFold predicate on the "video_billing_unit" field.
+func VideoBillingUnitContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldVideoBillingUnit, v))
 }
 
 // WebSearchPricePerCallEQ applies the EQ predicate on the "web_search_price_per_call" field.

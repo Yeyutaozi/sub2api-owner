@@ -151,7 +151,11 @@ func (Group) Fields() []ent.Field {
 		field.JSON("video_model_prices", domain.VideoModelPrices{}).
 			Default(domain.VideoModelPrices{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
-			Comment("Requested video model -> resolution-specific per-second prices"),
+			Comment("Requested video model -> resolution-specific unit prices"),
+		field.String("video_billing_unit").
+			MaxLen(20).
+			Default(domain.VideoBillingUnitPerSecond).
+			Comment("Video price unit: per_second or per_request; per_request is Seedance-only"),
 		field.Float("web_search_price_per_call").
 			Optional().
 			Nillable().

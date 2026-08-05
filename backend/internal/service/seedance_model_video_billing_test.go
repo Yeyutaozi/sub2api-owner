@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -61,6 +62,88 @@ func TestRecordSeedanceUsage_UsesRequestedModelPriceMatrix(t *testing.T) {
 		require.InDelta(t, tc.want, usageRepo.lastLog.TotalCost, 1e-12)
 		require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
 	}
+}
+
+func TestRecordSeedanceUsage_PerRequestIgnoresDurationAndUsesVideoCountAndMultiplier(t *testing.T) {
+	price720P := 0.16
+	groupID := int64(705)
+	for _, duration := range []int{5, 10, 15} {
+		usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+		svc := newOpenAIRecordUsageServiceForTest(
+			usageRepo,
+			&openAIRecordUsageUserRepoStub{},
+			&openAIRecordUsageSubRepoStub{},
+			nil,
+		)
+		apiKey := &APIKey{
+			ID: 1705, UserID: 2705, GroupID: &groupID, User: &User{ID: 2705},
+			Group: &Group{
+				ID: groupID, Platform: PlatformSeedance, RateMultiplier: 1.5,
+				VideoBillingUnit: VideoBillingUnitPerRequest,
+				VideoModelPrices: VideoModelPrices{
+					"seedance-2.0": {Price720P: &price720P},
+				},
+			},
+		}
+
+		err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+			OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{
+					Model: "seedance-2.0", VideoCount: 2,
+					VideoResolution: VideoBillingResolution720P, VideoDurationSeconds: duration,
+				},
+				APIKey: apiKey, User: apiKey.User,
+				Account: &Account{ID: 3705, Platform: PlatformSeedance},
+			},
+			TaskID: fmt.Sprintf("per-request-%d", duration), RequestedModel: "seedance-2.0",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, usageRepo.lastLog)
+		require.InDelta(t, price720P*2, usageRepo.lastLog.TotalCost, 1e-12)
+		require.InDelta(t, price720P*2*1.5, usageRepo.lastLog.ActualCost, 1e-12)
+	}
+}
+
+func TestRecordSeedanceUsage_PerRequestUsesUserResolutionOverride(t *testing.T) {
+	group720P := 0.16
+	user720P := 0.05
+	groupID := int64(706)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		&openAIUserGroupRateRepoStub{videoPrices: VideoModelPrices{
+			"seedance-2.0": {Price720P: &user720P},
+		}},
+	)
+	apiKey := &APIKey{
+		ID: 1706, UserID: 2706, GroupID: &groupID, User: &User{ID: 2706},
+		Group: &Group{
+			ID: groupID, Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
+			VideoModelPrices: VideoModelPrices{
+				"seedance-2.0": {Price720P: &group720P},
+			},
+		},
+	}
+
+	err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				Model: "seedance-2.0", VideoCount: 1,
+				VideoResolution: VideoBillingResolution720P, VideoDurationSeconds: 15,
+			},
+			APIKey: apiKey, User: apiKey.User,
+			Account: &Account{ID: 3706, Platform: PlatformSeedance},
+		},
+		TaskID: "per-request-user-price", RequestedModel: "seedance-2.0",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, user720P, usageRepo.lastLog.TotalCost, 1e-12)
 }
 
 func TestRecordSeedanceUsage_UserVideoPriceOverridesGroupPricePerResolution(t *testing.T) {
@@ -184,9 +267,10 @@ func TestCalculateOpenAIVideoCost_GrokIgnoresSeedanceModelPriceMatrix(t *testing
 	apiKey := &APIKey{
 		GroupID: &groupID,
 		Group: &Group{
-			ID:             groupID,
-			Platform:       PlatformGrok,
-			VideoPrice720P: &groupPrice720P,
+			ID:               groupID,
+			Platform:         PlatformGrok,
+			VideoPrice720P:   &groupPrice720P,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
 			VideoModelPrices: VideoModelPrices{
 				"grok-imagine-video": {Price720P: &dirtyMatrixPrice720P},
 			},

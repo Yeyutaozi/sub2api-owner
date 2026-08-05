@@ -1165,6 +1165,7 @@
           >
             <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
+            <option value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>

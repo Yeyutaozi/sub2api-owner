@@ -1,4 +1,4 @@
-import type { VideoModelPrice, VideoModelPrices } from "@/types";
+import type { VideoBillingUnit, VideoModelPrice, VideoModelPrices } from "@/types";
 
 export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "seedance-2.0",
@@ -6,6 +6,8 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "seedance-2.0-mini",
   "sd2-mx933",
   "sd2-mx933-fast",
+  "sd-2.0-mx933",
+  "sd-2.5-mx",
 ] as const;
 
 export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const;
@@ -32,6 +34,8 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "seedance-2.0-mini": ["480p", "720p"],
   "sd2-mx933": ["480p", "720p"],
   "sd2-mx933-fast": ["480p", "720p"],
+  "sd-2.0-mx933": ["480p", "720p"],
+  "sd-2.5-mx": ["720p"],
   "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
   "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
   "happy-horse-1.1": ["720p", "1080p"],
@@ -90,6 +94,17 @@ export type VideoModelPriceRowValidationError =
 export const supportsVideoModelPricingPlatform = (
   platform: string,
 ): boolean => platform === "seedance" || platform === "ltx" || platform === "happyhorse";
+
+export const supportsPerRequestVideoBilling = (platform: string): boolean =>
+  platform === "seedance";
+
+export const normalizeVideoBillingUnitForPlatform = (
+  platform: string,
+  billingUnit: VideoBillingUnit | null | undefined,
+): VideoBillingUnit =>
+  supportsPerRequestVideoBilling(platform) && billingUnit === "per_request"
+    ? "per_request"
+    : "per_second";
 
 export const videoModelPricePlaceholder = (platform: string): string =>
   videoModelsForPricingPlatform(platform)[0] ?? "video-model";

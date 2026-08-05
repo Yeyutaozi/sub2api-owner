@@ -183,10 +183,17 @@ const seedanceHuiquModels = [
   'sd2-mx933-fast'
 ]
 
-const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels]
+const seedanceXimeiModels = [
+  'sd-2.0-mx933',
+  'sd-2.5-mx'
+]
+
+const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels]
 
 export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider): string[] {
-  return [...(provider === 'huiqu' ? seedanceHuiquModels : seedanceFFLinkModels)]
+  if (provider === 'huiqu') return [...seedanceHuiquModels]
+  if (provider === 'ximei') return [...seedanceXimeiModels]
+  return [...seedanceFFLinkModels]
 }
 
 const ltxModels = ['ltx-2.3-pro', 'ltx-2.3-fast']
@@ -357,6 +364,8 @@ const grokPresetMappings = [
 const seedancePresetMappings = [
   { label: 'MX933', from: 'sd2-mx933', to: 'sd2-mx933', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'MX933 Fast', from: 'sd2-mx933-fast', to: 'sd2-mx933-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'Ximei SD 2.0 MX933', from: 'sd-2.0-mx933', to: 'sd-2.0-mx933', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Ximei SD 2.5 MX', from: 'sd-2.5-mx', to: 'sd-2.5-mx', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Legacy Fast alias', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]

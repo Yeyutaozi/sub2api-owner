@@ -21,9 +21,10 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSeedanceVideoModelPrices(t *te
 			Status: StatusActive,
 		},
 		Group: &Group{
-			ID:       groupID,
-			Platform: PlatformSeedance,
-			Status:   StatusActive,
+			ID:               groupID,
+			Platform:         PlatformSeedance,
+			Status:           StatusActive,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
 			VideoModelPrices: VideoModelPrices{
 				"seedance-2.0": {Price720P: &pro720P},
 			},
@@ -35,10 +36,12 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSeedanceVideoModelPrices(t *te
 	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
 	require.NotNil(t, snapshot.Group)
 	require.Equal(t, apiKey.Group.VideoModelPrices, snapshot.Group.VideoModelPrices)
+	require.Equal(t, VideoBillingUnitPerRequest, snapshot.Group.VideoBillingUnit)
 
 	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
 	require.NotNil(t, roundTrip.Group)
 	require.Equal(t, apiKey.Group.VideoModelPrices, roundTrip.Group.VideoModelPrices)
+	require.Equal(t, VideoBillingUnitPerRequest, roundTrip.Group.VideoBillingUnit)
 
 	snapshotCard := snapshot.Group.VideoModelPrices["seedance-2.0"]
 	*snapshotCard.Price720P = 9.99
@@ -56,8 +59,9 @@ func TestAPIKeyService_SnapshotIgnoresVideoModelPricesForOtherPlatforms(t *testi
 		GroupID: &groupID,
 		User:    &User{ID: 2},
 		Group: &Group{
-			ID:       groupID,
-			Platform: PlatformGrok,
+			ID:               groupID,
+			Platform:         PlatformGrok,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
 			VideoModelPrices: VideoModelPrices{
 				"grok-imagine-video": {Price720P: &dirtyPrice},
 			},
@@ -66,18 +70,20 @@ func TestAPIKeyService_SnapshotIgnoresVideoModelPricesForOtherPlatforms(t *testi
 
 	require.NotNil(t, snapshot.Group)
 	require.Empty(t, snapshot.Group.VideoModelPrices)
+	require.Equal(t, VideoBillingUnitPerSecond, snapshot.Group.VideoBillingUnit)
 
 	snapshot.Group.VideoModelPrices = VideoModelPrices{
 		"grok-imagine-video": {Price720P: &dirtyPrice},
 	}
 	roundTrip := svc.snapshotToAPIKey("grok-round-trip", snapshot)
 	require.Empty(t, roundTrip.Group.VideoModelPrices)
+	require.Equal(t, VideoBillingUnitPerSecond, roundTrip.Group.VideoBillingUnit)
 }
 
 func TestAPIKeyService_RejectsV15AuthSnapshotForExistingPlatforms(t *testing.T) {
 	groupID := int64(803)
 	svc := &APIKeyService{}
-	require.Equal(t, 18, apiKeyAuthSnapshotVersion)
+	require.Equal(t, 19, apiKeyAuthSnapshotVersion)
 
 	apiKey, ok, err := svc.applyAuthCacheEntry("existing-grok-key", &APIKeyAuthCacheEntry{
 		Snapshot: &APIKeyAuthSnapshot{

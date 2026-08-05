@@ -25,6 +25,8 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		"seedance-2.0-mini",
 		SeedanceMX933Model,
 		SeedanceMX933FastModel,
+		SeedanceXimeiSD20Model,
+		SeedanceXimeiSD25Model,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 }
 
@@ -402,7 +404,7 @@ func TestBuildSeedanceOfficialTaskResponse(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, "vidjob_123", response["id"])
-	require.Equal(t, "succeeded", response["status"])
+	require.Equal(t, "completed", response["status"])
 	require.Equal(t, "seedance-2.0", response["model"])
 	require.EqualValues(t, 8, response["duration"])
 	require.NotContains(t, response, "ratio")
@@ -417,6 +419,8 @@ func TestMapSeedanceTaskStatus(t *testing.T) {
 	require.Equal(t, "succeeded", MapSeedanceTaskStatus("completed"))
 	require.Equal(t, "failed", MapSeedanceTaskStatus("failed"))
 	require.Equal(t, "cancelled", MapSeedanceTaskStatus("canceled"))
+	require.Equal(t, "completed", MapSeedancePublicTaskStatus("succeeded"))
+	require.Equal(t, "completed", MapSeedancePublicTaskStatus("completed"))
 }
 
 func TestSeedanceUsageRequestID(t *testing.T) {
@@ -717,6 +721,23 @@ func TestSeedanceTaskBindingPersistsAndBackfillsCache(t *testing.T) {
 	require.Equal(t, int64(4), legacyAccountID)
 }
 
+func TestSeedanceTaskBindingKeepsPublicAndUpstreamJobIDsSeparate(t *testing.T) {
+	groupID := int64(3)
+	repo := &seedanceTaskBindingRepoStub{}
+	service := &OpenAIGatewayService{usageLogRepo: repo}
+
+	err := service.BindSeedanceTaskAccountWithFallback(
+		context.Background(), &groupID,
+		"vidjob_public_ximei", "cstask_private_ximei",
+		1, 2, 4, SeedanceXimeiSD20Model,
+		"", nil, "",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, repo.saved)
+	require.Equal(t, "vidjob_public_ximei", repo.saved.JobID)
+	require.Equal(t, "cstask_private_ximei", repo.saved.UpstreamJobID)
+}
+
 func TestListOwnedSeedanceJobsAggregatesBoundAccounts(t *testing.T) {
 	groupID := int64(30)
 	createdAt := time.Date(2026, 8, 3, 8, 0, 0, 0, time.UTC)
@@ -812,4 +833,38 @@ func TestListOwnedSeedanceJobsFailsClosedForEditedHuiquAccounts(t *testing.T) {
 	require.Equal(t, "unknown", jobs[1]["status"])
 	require.Equal(t, "running", jobs[2]["status"])
 	require.Equal(t, []int64{303}, upstream.accountIDs)
+}
+
+func TestListOwnedSeedanceJobsMapsSucceededXimeiTaskToCompletedWhileAccountPaused(t *testing.T) {
+	groupID := int64(32)
+	repo := &seedanceTaskBindingRepoStub{bindings: []SeedanceTaskBinding{{
+		UserID: 10, APIKeyID: 20, GroupID: groupID, AccountID: 404,
+		JobID: "vidjob_public_ximei", UpstreamJobID: "cstask_private_ximei", Model: SeedanceXimeiSD20Model,
+	}}}
+	account := &Account{
+		ID: 404, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Status: StatusDisabled, Schedulable: false, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":        "secret",
+			"video_provider": VideoProviderXimei,
+		},
+		GroupIDs: []int64{groupID},
+	}
+	upstream := &seedanceIndexedHTTPUpstreamStub{bodies: map[int64]string{
+		404: `{"status":"succeeded","task_id":"cstask_private_ximei","provider_route":"kele_pool","content":{"video_url":"https://private.example/result.mp4"}}`,
+	}}
+	gateway := &OpenAIGatewayService{
+		accountRepo:  &seedanceAccountRepoStub{accounts: map[int64]*Account{account.ID: account}},
+		usageLogRepo: repo, cfg: &config.Config{}, httpUpstream: upstream,
+	}
+
+	jobs, err := gateway.ListOwnedSeedanceJobs(context.Background(), &groupID, 10, 20, 1, "completed")
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Equal(t, "vidjob_public_ximei", jobs[0]["job_id"])
+	require.Equal(t, "completed", jobs[0]["status"])
+	encoded, err := json.Marshal(jobs[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "cstask_private_ximei")
+	require.Equal(t, []int64{account.ID}, upstream.accountIDs)
 }

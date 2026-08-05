@@ -1458,6 +1458,9 @@ func (a *Account) GetSeedanceBaseURL() string {
 	if a.IsHuiquVideo() {
 		return DefaultHuiquVideoBaseURL
 	}
+	if a.IsXimeiVideo() {
+		return DefaultXimeiVideoBaseURL
+	}
 	return DefaultSeedanceBaseURL
 }
 

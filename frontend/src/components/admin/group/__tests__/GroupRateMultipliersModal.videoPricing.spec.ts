@@ -203,4 +203,31 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
       },
     ])
   })
+
+  it('shows Seedance per-request units for per-user price overrides', async () => {
+    apiMocks.getGroupRateMultipliers.mockResolvedValue([
+      {
+        user_id: 12,
+        user_name: 'Request User',
+        user_email: 'request@example.com',
+        user_notes: '',
+        user_status: 'active',
+        rate_multiplier: null,
+        video_model_prices: { 'sd-2.0-mx933': { '480p': 0.5 } },
+      },
+    ])
+    const group = makeGroup('seedance', {
+      'sd-2.0-mx933': { '480p': 0.4, '720p': 0.6 },
+    })
+    group.video_billing_unit = 'per_request'
+
+    const wrapper = await mountAndOpen(group)
+    const configure = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+    )
+    await configure!.trigger('click')
+
+    expect(wrapper.text()).toContain('admin.groups.videoPricing.priceUnitPerRequest')
+    expect(wrapper.text()).not.toContain('admin.groups.videoPricing.priceUnitPerSecond')
+  })
 })

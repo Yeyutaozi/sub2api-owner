@@ -48,6 +48,52 @@ func TestAdminServiceCreateGroupNormalizesSeedanceVideoModelPrices(t *testing.T)
 	require.Contains(t, group.VideoModelPrices, "seedance-2.0")
 	require.InDelta(t, 0.12, *group.VideoModelPrices["seedance-2.0"].Price480P, 1e-12)
 	require.NotSame(t, prices[" Seedance-2.0 "].Price480P, group.VideoModelPrices["seedance-2.0"].Price480P)
+	require.Equal(t, VideoBillingUnitPerSecond, group.VideoBillingUnit)
+}
+
+func TestAdminServiceCreateGroupValidatesVideoBillingUnit(t *testing.T) {
+	t.Run("Seedance accepts explicit per-request", func(t *testing.T) {
+		repo := &groupRepoStubForAdmin{}
+		svc := &adminServiceImpl{groupRepo: repo}
+
+		group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+			Name: "seedance-per-request", Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, VideoBillingUnitPerRequest, group.VideoBillingUnit)
+	})
+
+	for _, platform := range []string{PlatformGrok, PlatformLTX, PlatformHappyHorse} {
+		t.Run(platform+" rejects per-request", func(t *testing.T) {
+			repo := &groupRepoStubForAdmin{}
+			svc := &adminServiceImpl{groupRepo: repo}
+
+			group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+				Name: platform, Platform: platform, RateMultiplier: 1,
+				VideoBillingUnit: VideoBillingUnitPerRequest,
+			})
+
+			require.Error(t, err)
+			require.Nil(t, group)
+			require.Nil(t, repo.created)
+		})
+	}
+
+	t.Run("invalid unit is rejected", func(t *testing.T) {
+		repo := &groupRepoStubForAdmin{}
+		svc := &adminServiceImpl{groupRepo: repo}
+
+		group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+			Name: "invalid", Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: "per_minute",
+		})
+
+		require.Error(t, err)
+		require.Nil(t, group)
+		require.Nil(t, repo.created)
+	})
 }
 
 func TestAdminServiceCreateGroupClearsVideoModelPricesForOtherPlatforms(t *testing.T) {
@@ -197,7 +243,35 @@ func TestAdminServiceUpdateGroupNormalizesAndClearsSeedanceVideoModelPrices(t *t
 		require.NoError(t, err)
 		require.Equal(t, PlatformGrok, group.Platform)
 		require.Empty(t, group.VideoModelPrices)
+		require.Equal(t, VideoBillingUnitPerSecond, group.VideoBillingUnit)
 		require.Same(t, group.VideoPrice480P, group.GetVideoPriceForModel("any-grok-model", "480p"))
+	})
+}
+
+func TestAdminServiceUpdateGroupPreservesAndValidatesVideoBillingUnit(t *testing.T) {
+	t.Run("omitted unit preserves Seedance per-request", func(t *testing.T) {
+		repo := &groupRepoStubForAdmin{getByID: &Group{
+			ID: 1, Platform: PlatformSeedance, Status: StatusActive,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
+		}}
+		svc := &adminServiceImpl{groupRepo: repo}
+
+		group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{})
+
+		require.NoError(t, err)
+		require.Equal(t, VideoBillingUnitPerRequest, group.VideoBillingUnit)
+	})
+
+	t.Run("non-Seedance rejects explicit per-request", func(t *testing.T) {
+		unit := VideoBillingUnitPerRequest
+		repo := &groupRepoStubForAdmin{getByID: &Group{ID: 1, Platform: PlatformLTX, Status: StatusActive}}
+		svc := &adminServiceImpl{groupRepo: repo}
+
+		group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{VideoBillingUnit: &unit})
+
+		require.Error(t, err)
+		require.Nil(t, group)
+		require.Nil(t, repo.updated)
 	})
 }
 

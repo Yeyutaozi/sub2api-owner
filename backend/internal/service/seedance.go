@@ -139,8 +139,9 @@ type SeedancePublicAudioReference struct {
 }
 
 type SeedancePublicMediaReference struct {
-	URL  string `json:"url"`
-	Type string `json:"type,omitempty"`
+	URL             string  `json:"url"`
+	Type            string  `json:"type,omitempty"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
 type seedanceImageInput struct {
@@ -174,11 +175,13 @@ type SeedanceReferenceImage struct {
 }
 
 type SeedanceReferenceVideo struct {
-	URL string
+	URL             string
+	DurationSeconds float64
 }
 
 type SeedanceReferenceAudio struct {
-	URL string
+	URL             string
+	DurationSeconds float64
 }
 
 // SeedanceStoredMediaReference ties a request media slot to the durable object
@@ -426,7 +429,7 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if info.EndFrameURL != "" && info.StartFrameURL == "" && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
-	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model) {
+	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isSeedanceMixedImageModel(info.Model) {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
@@ -480,7 +483,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 	}
 
 	if imageURL := strings.TrimSpace(request.ImageURL); imageURL != "" {
-		if info.StartFrameURL != "" || info.EndFrameURL != "" || (len(request.Guidances.ImageReference) > 0 && !isHuiquVideoModel(info.Model)) {
+		if info.StartFrameURL != "" || info.EndFrameURL != "" || (len(request.Guidances.ImageReference) > 0 && !isSeedanceMixedImageModel(info.Model)) {
 			return nil, errors.New("image_url cannot be combined with start_frame_url, end_frame_url, or image references")
 		}
 		info.StartFrameURL = imageURL
@@ -501,7 +504,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 				return nil, errors.New("guidances.image_reference.image.url is required")
 			}
 			switch {
-			case (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model):
+			case (info.StartFrameURL != "" || info.EndFrameURL != "") && !isSeedanceMixedImageModel(info.Model):
 				return nil, errors.New("image references cannot be combined with start_frame_url or end_frame_url")
 			}
 			info.References = append(info.References, SeedanceReferenceImage{
@@ -518,7 +521,10 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		if !isSeedanceHTTPImageURL(url) {
 			return nil, errors.New("video reference URL must be an absolute HTTP(S) URL")
 		}
-		info.VideoReferences = append(info.VideoReferences, SeedanceReferenceVideo{URL: url})
+		if item.Video.DurationSeconds < 0 {
+			return nil, errors.New("guidances.video_reference_base.video.duration_seconds must be positive when provided")
+		}
+		info.VideoReferences = append(info.VideoReferences, SeedanceReferenceVideo{URL: url, DurationSeconds: item.Video.DurationSeconds})
 	}
 	for _, item := range request.Guidances.AudioReference {
 		url := strings.TrimSpace(item.Audio.URL)
@@ -528,12 +534,15 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		if !isSeedanceHTTPImageURL(url) {
 			return nil, errors.New("audio reference URL must be an absolute HTTP(S) URL")
 		}
-		info.AudioReferences = append(info.AudioReferences, SeedanceReferenceAudio{URL: url})
+		if item.Audio.DurationSeconds < 0 {
+			return nil, errors.New("guidances.audio_reference.audio.duration_seconds must be positive when provided")
+		}
+		info.AudioReferences = append(info.AudioReferences, SeedanceReferenceAudio{URL: url, DurationSeconds: item.Audio.DurationSeconds})
 	}
 	if info.EndFrameURL != "" && info.StartFrameURL == "" && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
-	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isHuiquVideoModel(info.Model) {
+	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isSeedanceMixedImageModel(info.Model) {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
@@ -1050,7 +1059,13 @@ func (s *OpenAIGatewayService) SeedanceBoundTaskAccountSelection(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	if account == nil || !account.IsFFLinkVideo() || !account.IsSchedulable() || account.GetVideoProvider() == "" || !openAIStickyAccountMatchesGroup(account, &group) {
+	if account == nil || !account.IsFFLinkVideo() || account.GetVideoProvider() == "" || !openAIStickyAccountMatchesGroup(account, &group) {
+		return nil, errors.New("seedance task account is unavailable")
+	}
+	// Ximei account availability controls admission of new tasks only. Existing
+	// task bindings must remain queryable and downloadable after an operator
+	// pauses the account, provided its provider and group ownership are intact.
+	if !account.IsXimeiVideo() && !account.IsSchedulable() {
 		return nil, errors.New("seedance task account is unavailable")
 	}
 	maxConcurrency := account.Concurrency
@@ -1066,17 +1081,28 @@ func (s *OpenAIGatewayService) SeedanceBoundTaskAccountSelection(ctx context.Con
 	if maxWaiting <= 0 {
 		maxWaiting = 100
 	}
-	selection, err := s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+	waitPlan := &AccountWaitPlan{
 		AccountID:      account.ID,
 		MaxConcurrency: maxConcurrency,
 		Timeout:        waitTimeout,
 		MaxWaiting:     maxWaiting,
-	})
+	}
+	var selection *AccountSelectionResult
+	if account.IsXimeiVideo() && !account.IsSchedulable() {
+		// Disabled accounts are intentionally absent from the scheduler snapshot,
+		// so use the repository-backed account for this already-bound task.
+		selection = &AccountSelectionResult{Account: account, WaitPlan: waitPlan}
+	} else {
+		selection, err = s.newSelectionResult(ctx, account, false, nil, waitPlan)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if selection == nil || selection.Account == nil || !selection.Account.IsFFLinkVideo() || !selection.Account.IsSchedulable() ||
+	if selection == nil || selection.Account == nil || !selection.Account.IsFFLinkVideo() ||
 		selection.Account.GetVideoProvider() == "" || !openAIStickyAccountMatchesGroup(selection.Account, &group) {
+		return nil, errors.New("seedance task account is unavailable")
+	}
+	if !selection.Account.IsXimeiVideo() && !selection.Account.IsSchedulable() {
 		return nil, errors.New("seedance task account is unavailable")
 	}
 	return selection, nil
@@ -1185,6 +1211,9 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 		return fallback
 	}
 	if account.IsHuiquVideo() && (!account.IsSchedulable() || !openAIStickyAccountMatchesGroup(account, &binding.GroupID)) {
+		return fallback
+	}
+	if account.IsXimeiVideo() && !openAIStickyAccountMatchesGroup(account, &binding.GroupID) {
 		return fallback
 	}
 	upstreamJobID := strings.TrimSpace(binding.UpstreamJobID)
@@ -1334,6 +1363,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	provider := account.GetVideoProvider()
 	if provider == "" {
 		return nil, fmt.Errorf("account %d has an invalid video_provider", account.ID)
+	}
+	if provider == VideoProviderXimei {
+		return s.forwardXimeiSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
@@ -1564,7 +1596,11 @@ func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, e
 			}
 		}
 		if taskID != "" && allowTask(taskID) {
-			normalizeSeedancePublicJob(job, taskID, IsHuiquSeedanceTaskID(taskID), "")
+			provider := VideoProviderFFLink
+			if IsHuiquSeedanceTaskID(taskID) {
+				provider = VideoProviderHuiqu
+			}
+			normalizeSeedancePublicJob(job, taskID, provider, "")
 			filtered = append(filtered, item)
 		}
 	}
@@ -1589,18 +1625,20 @@ func NormalizeSeedanceJobForRoute(body []byte, taskID, provider, publicModel str
 	if err := json.Unmarshal(body, &job); err != nil {
 		return nil, errors.New("invalid Seedance upstream job response")
 	}
-	normalizeSeedancePublicJob(job, taskID, provider == VideoProviderHuiqu, publicModel)
+	normalizeSeedancePublicJob(job, taskID, provider, publicModel)
 	return json.Marshal(job)
 }
 
-func normalizeSeedancePublicJob(job map[string]any, taskID string, isHuiquTask bool, publicModel string) {
+func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicModel string) {
 	if job == nil || taskID == "" {
 		return
 	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	isOpaqueTask := IsOpaqueSeedanceVideoProvider(provider)
 	statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 	contentPath := statusPath + "/content"
-	if isHuiquTask {
-		sanitizeHuiquSeedanceResponse(job, statusPath, contentPath)
+	if isOpaqueTask {
+		sanitizeOpaqueSeedanceResponse(job, statusPath, contentPath, provider)
 		job["id"] = taskID
 		job["job_id"] = taskID
 		job["task_id"] = taskID
@@ -1609,9 +1647,15 @@ func normalizeSeedancePublicJob(job map[string]any, taskID string, isHuiquTask b
 	if publicModel = PublicSeedanceModelID(publicModel); publicModel != "" {
 		job["model"] = publicModel
 	}
+	if status, ok := job["status"].(string); ok {
+		job["status"] = MapSeedancePublicTaskStatus(status)
+	}
+	if provider == VideoProviderXimei && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+		job["error"] = map[string]any{"message": "Video generation failed"}
+	}
 	synthesizeHuiquResult := func() {
 		status, _ := job["status"].(string)
-		if isHuiquTask && MapSeedanceTaskStatus(status) == "succeeded" {
+		if isOpaqueTask && MapSeedanceTaskStatus(status) == SeedanceTaskStatusSucceeded {
 			job["result"] = map[string]any{"data": []any{map[string]any{
 				"mp4_url":   contentPath,
 				"url":       contentPath,
@@ -1648,6 +1692,77 @@ func normalizeSeedancePublicJob(job map[string]any, taskID string, isHuiquTask b
 func sanitizeHuiquSeedanceResponse(value any, statusPath, contentPath string) bool {
 	_, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath)
 	return keep
+}
+
+func sanitizeOpaqueSeedanceResponse(value any, statusPath, contentPath, provider string) bool {
+	if strings.EqualFold(strings.TrimSpace(provider), VideoProviderXimei) {
+		if _, keep := sanitizeXimeiSeedanceStatusValue(value); !keep {
+			return false
+		}
+		if payload, ok := value.(map[string]any); ok {
+			retainXimeiPublicStatusFields(payload)
+		}
+	}
+	return sanitizeHuiquSeedanceResponse(value, statusPath, contentPath)
+}
+
+func retainXimeiPublicStatusFields(payload map[string]any) {
+	for key := range payload {
+		switch normalizeHuiquResponseKey(key) {
+		case "status", "created_at", "createdat", "updated_at", "updatedat", "completed_at", "completedat",
+			"seed", "resolution", "duration", "seconds", "ratio", "aspect_ratio", "aspectratio":
+			continue
+		default:
+			delete(payload, key)
+		}
+	}
+}
+
+func sanitizeXimeiSeedanceStatusValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if isXimeiSensitiveStatusKey(key) {
+				delete(typed, key)
+				continue
+			}
+			sanitized, keep := sanitizeXimeiSeedanceStatusValue(child)
+			if !keep {
+				delete(typed, key)
+				continue
+			}
+			typed[key] = sanitized
+		}
+		return typed, len(typed) > 0
+	case []any:
+		filtered := make([]any, 0, len(typed))
+		for _, child := range typed {
+			if sanitized, keep := sanitizeXimeiSeedanceStatusValue(child); keep {
+				filtered = append(filtered, sanitized)
+			}
+		}
+		return filtered, len(filtered) > 0
+	case string:
+		value := strings.ToLower(strings.TrimSpace(typed))
+		return typed, !strings.Contains(value, "cstask_") && !ximeiPrivateNamePattern.MatchString(value)
+	default:
+		return value, true
+	}
+}
+
+func isXimeiSensitiveStatusKey(key string) bool {
+	switch normalizeHuiquResponseKey(key) {
+	case "id", "task_id", "taskid", "job_id", "jobid", "request_id", "requestid",
+		"product", "product_id", "productid", "product_name", "productname",
+		"route", "route_id", "routeid", "route_name", "routename", "line", "line_name", "linename",
+		"channel", "channel_id", "channelid", "channel_name", "channelname",
+		"error", "error_message", "errormessage", "failure", "failure_message", "failuremessage",
+		"fail_message", "failmessage", "failure_reason", "failurereason", "fail_reason", "failreason",
+		"reason", "message", "detail", "details":
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeHuiquSeedanceValue(value any, statusPath, contentPath string) (any, bool) {
@@ -1726,7 +1841,7 @@ func isHuiquSensitiveResponseKey(key string) bool {
 	switch normalized {
 	case "authorization", "apikey", "api_key", "accesskey", "access_key", "accesskeyid", "access_key_id",
 		"policy", "signedheaders", "signed_headers", "ossaccesskeyid", "model", "provider", "provider_name",
-		"video_provider", "provider_model", "upstream_model", "mapped_model", "model_mapping", "channel_model":
+		"video_provider", "provider_route", "provider_model", "upstream_model", "mapped_model", "model_mapping", "channel_model":
 		return true
 	default:
 		return false
@@ -1767,17 +1882,19 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 	if err := json.Unmarshal(upstreamBody, &upstream); err != nil {
 		return nil, errors.New("invalid Seedance upstream task response")
 	}
-	isHuiquTask := provider == VideoProviderHuiqu
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	isHuiquTask := IsOpaqueSeedanceVideoProvider(provider)
 	if isHuiquTask {
 		statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 		contentPath := statusPath + "/content"
 		// Normalize the complete upstream object before copying any fields into
 		// the official response. This prevents an unexpected URL or credential
 		// field in metadata from bypassing the small field allowlist below.
-		sanitizeHuiquSeedanceResponse(upstream, statusPath, contentPath)
+		sanitizeOpaqueSeedanceResponse(upstream, statusPath, contentPath, provider)
 	}
 	status, _ := upstream["status"].(string)
-	officialStatus := MapSeedanceTaskStatus(status)
+	internalStatus := MapSeedanceTaskStatus(status)
+	officialStatus := MapSeedancePublicTaskStatus(status)
 	response := map[string]any{"id": taskID, "status": officialStatus}
 	for _, key := range []string{"model", "created_at", "updated_at", "completed_at", "seed", "resolution", "duration", "ratio"} {
 		if value, exists := upstream[key]; exists && value != nil {
@@ -1799,10 +1916,14 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 			}
 		}
 	}
-	if officialStatus == "succeeded" {
+	if internalStatus == SeedanceTaskStatusSucceeded {
 		response["content"] = map[string]any{"video_url": strings.TrimSpace(contentURL)}
 	}
-	if officialStatus == "failed" {
+	if internalStatus == SeedanceTaskStatusFailed {
+		if provider == VideoProviderXimei {
+			response["error"] = map[string]any{"message": "Video generation failed"}
+			return response, nil
+		}
 		if value, exists := upstream["error"]; exists {
 			if isHuiquTask {
 				statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
@@ -1842,6 +1963,14 @@ func MapSeedanceTaskStatus(status string) string {
 		return "cancelled"
 	default:
 		return strings.ToLower(strings.TrimSpace(status))
+	}
+}
+
+func MapSeedancePublicTaskStatus(status string) string {
+	if mapped := MapSeedanceTaskStatus(status); mapped == SeedanceTaskStatusSucceeded {
+		return "completed"
+	} else {
+		return mapped
 	}
 }
 

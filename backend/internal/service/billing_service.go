@@ -1399,13 +1399,15 @@ type ImagePriceConfig struct {
 	Price4K *float64 // 4K 尺寸价格（nil 表示使用默认值）
 }
 
-// VideoPriceConfig 视频生成计费配置。所有价格均为**每秒**单价（USD/s），与 xAI 官方计费口径一致。
+// VideoPriceConfig configures video unit prices. BillingUnit defaults to
+// per_second; Seedance groups may explicitly use per_request.
 type VideoPriceConfig struct {
-	Price480P  *float64 // 480p 每秒价格（nil 表示使用默认值）
-	Price720P  *float64 // 720p 每秒价格（nil 表示使用默认值）
-	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
-	Price1440P *float64 // 1440p 每秒价格（nil 表示使用默认值）
-	Price2160P *float64 // 2160p 每秒价格（nil 表示使用默认值）
+	Price480P   *float64 // 480p unit price (nil uses the model default)
+	Price720P   *float64 // 720p unit price (nil uses the model default)
+	Price1080P  *float64 // 1080p unit price (nil uses the model default)
+	Price1440P  *float64 // 1440p unit price (nil uses the model default)
+	Price2160P  *float64 // 2160p unit price (nil uses the model default)
+	BillingUnit string
 }
 
 const (
@@ -1483,12 +1485,13 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 	}
 }
 
-// CalculateVideoCost 计算视频生成费用（按秒计费，与 xAI 口径一致）。
+// CalculateVideoCost calculates video generation cost. Existing callers use
+// per_second; Seedance may explicitly select per_request in groupConfig.
 // model: 请求的模型名称（用于获取默认价格）
 // resolution: 视频分辨率 "480p", "720p", "1080p"
 // videoCount: 生成的视频数量
 // durationSeconds: 单个视频时长（秒），<=0 时按上游默认时长计
-// groupConfig: 分组配置的每秒价格（可能为 nil，表示使用默认值）
+// groupConfig: group video unit prices and billing unit (nil keeps legacy per-second defaults)
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateVideoCost(model string, resolution string, videoCount int, durationSeconds int, groupConfig *VideoPriceConfig, rateMultiplier float64) *CostBreakdown {
 	if videoCount <= 0 {
@@ -1497,8 +1500,12 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
 	durationSeconds = NormalizeVideoBillingDurationSecondsForModelOrDefault(model, durationSeconds)
 
-	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
-	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)
+	unitPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
+	unitCount := durationSeconds
+	if groupConfig != nil && groupConfig.BillingUnit == VideoBillingUnitPerRequest {
+		unitCount = 1
+	}
+	totalCost := unitPrice * float64(unitCount) * float64(videoCount)
 
 	if rateMultiplier < 0 {
 		rateMultiplier = 0

@@ -367,6 +367,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if err != nil {
 		return nil, err
 	}
+	videoBillingUnit, err := normalizeVideoBillingUnit(platform, input.VideoBillingUnit)
+	if err != nil {
+		return nil, err
+	}
 	webSearchPricePerCall := normalizePrice(input.WebSearchPricePerCall)
 	imageRateMultiplier := 1.0
 	if input.ImageRateMultiplier != nil {
@@ -500,6 +504,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		VideoPrice720P:                  videoPrice720P,
 		VideoPrice1080P:                 videoPrice1080P,
 		VideoModelPrices:                videoModelPrices,
+		VideoBillingUnit:                videoBillingUnit,
 		WebSearchPricePerCall:           webSearchPricePerCall,
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
@@ -775,6 +780,17 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if !IsFFLinkVideoPlatform(group.Platform) {
 		group.VideoModelPrices = VideoModelPrices{}
 	}
+	videoBillingUnit := group.VideoBillingUnit
+	if input.VideoBillingUnit != nil {
+		videoBillingUnit = *input.VideoBillingUnit
+	} else if group.Platform != PlatformSeedance {
+		videoBillingUnit = VideoBillingUnitPerSecond
+	}
+	videoBillingUnit, err = normalizeVideoBillingUnit(group.Platform, videoBillingUnit)
+	if err != nil {
+		return nil, err
+	}
+	group.VideoBillingUnit = videoBillingUnit
 	if input.WebSearchPricePerCall != nil {
 		group.WebSearchPricePerCall = normalizePrice(input.WebSearchPricePerCall)
 	}

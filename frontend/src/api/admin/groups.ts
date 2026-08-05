@@ -395,7 +395,8 @@ export async function batchSetGroupRateMultipliers(
 
 /**
  * Replace all per-user video price overrides for a Seedance, LTX, or HappyHorse group.
- * Prices are absolute USD-per-second values keyed by model and resolution.
+ * Prices are absolute USD values keyed by model and resolution. The group's
+ * video_billing_unit determines whether they apply per second or per request.
  */
 export async function batchSetGroupVideoModelPrices(
   id: number,

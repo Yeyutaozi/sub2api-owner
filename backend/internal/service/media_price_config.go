@@ -31,12 +31,14 @@ func videoPriceConfigFromAPIKeyForModel(apiKey *APIKey, model string) *VideoPric
 		return &VideoPriceConfig{
 			Price480P: price.Price480P, Price720P: price.Price720P, Price1080P: price.Price1080P,
 			Price1440P: price.Price1440P, Price2160P: price.Price2160P,
+			BillingUnit: apiKey.Group.EffectiveVideoBillingUnit(),
 		}
 	}
 	return &VideoPriceConfig{
-		Price480P:  apiKey.Group.VideoPrice480P,
-		Price720P:  apiKey.Group.VideoPrice720P,
-		Price1080P: apiKey.Group.VideoPrice1080P,
+		Price480P:   apiKey.Group.VideoPrice480P,
+		Price720P:   apiKey.Group.VideoPrice720P,
+		Price1080P:  apiKey.Group.VideoPrice1080P,
+		BillingUnit: apiKey.Group.EffectiveVideoBillingUnit(),
 	}
 }
 

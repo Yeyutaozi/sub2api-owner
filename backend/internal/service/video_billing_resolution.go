@@ -52,6 +52,15 @@ func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 
 func NormalizeVideoBillingDurationSecondsForModelOrDefault(model string, durationSeconds int) int {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if model == SeedanceXimeiSD25Model {
+		if durationSeconds <= 0 {
+			return seedanceXimeiSD25DefaultDurationSeconds
+		}
+		if durationSeconds > seedanceXimeiSD25MaxDurationSeconds {
+			return seedanceXimeiSD25MaxDurationSeconds
+		}
+		return durationSeconds
+	}
 	if strings.HasPrefix(model, "ltx-2.3-fast") {
 		if durationSeconds <= 0 {
 			return 6

@@ -185,6 +185,7 @@ func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T)
 	mx933.References = nil
 	mx933.VideoReferences = nil
 	mx933.EndFrameURL = ""
+	mx933.GenerateAudio = true
 	mx933.AudioReferences = make([]SeedanceReferenceAudio, 1)
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(mx933), "reference audio requires")
 
@@ -195,6 +196,7 @@ func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T)
 		DurationSeconds: 10,
 		AspectRatio:     "16:9",
 		StartFrameURL:   "https://media.example/start.png",
+		GenerateAudio:   true,
 		AudioReferences: make([]SeedanceReferenceAudio, 1),
 	}
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(existing), "reference audio requires")
@@ -244,6 +246,7 @@ func mx933RequestInfo(model string) *SeedanceRequestInfo {
 		Resolution:      VideoBillingResolution480P,
 		DurationSeconds: 5,
 		AspectRatio:     "3:2",
+		GenerateAudio:   true,
 		References:      make([]SeedanceReferenceImage, 4),
 		StartFrameURL:   "https://media.example/start.png",
 		EndFrameURL:     "https://media.example/end.png",

@@ -437,6 +437,47 @@ func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSigna
 	require.Len(t, store.deleted, 2)
 }
 
+func TestSeedanceMaterializeImagesArchivesXimeiVideoAndAudio(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	mp4 := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+	wav := []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+	service.httpClient = &http.Client{Transport: seedanceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := mp4
+		contentType := "video/mp4"
+		if strings.HasSuffix(request.URL.Path, ".wav") {
+			body = wav
+			contentType = "audio/wav"
+		}
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{contentType}, "Content-Length": []string{strconv.Itoa(len(body))}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+			ContentLength: int64(len(body)),
+			Request:       request,
+		}, nil
+	})}
+	info := &SeedanceRequestInfo{
+		Model: SeedanceXimeiSD20Model, Prompt: "preserve every reference", Resolution: "480p",
+		DurationSeconds: 5, AspectRatio: "16:9", GenerateAudio: true,
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://93.184.216.34/reference.mp4", DurationSeconds: 5}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://93.184.216.34/reference.wav", DurationSeconds: 5}},
+	}
+
+	materialized, err := service.MaterializeImages(context.Background(), seedanceMediaTestOwner(), info)
+	require.NoError(t, err)
+	require.Len(t, materialized.objects, 2)
+	require.Len(t, store.puts, 2)
+	require.Len(t, info.StoredMedia, 2)
+	require.Equal(t, seedanceStoredMediaVideo, info.StoredMedia[0].Slot)
+	require.Equal(t, seedanceStoredMediaAudio, info.StoredMedia[1].Slot)
+	require.Contains(t, info.VideoReferences[0].URL, "seedance%2Finputs%2Ftask")
+	require.Contains(t, info.AudioReferences[0].URL, "seedance%2Finputs%2Ftask")
+
+	materialized.Cleanup(context.Background())
+	require.Len(t, store.deleted, 2)
+}
+
 func TestSeedanceRefreshFallbackMediaURLsSupportsLegacySnapshotURLs(t *testing.T) {
 	store := newSeedanceMediaMemoryStore()
 	service := NewSeedanceMediaService(store, nil, nil)

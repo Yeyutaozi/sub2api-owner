@@ -477,6 +477,44 @@ func TestSeedanceSettlementSuccessNeverRefunds(t *testing.T) {
 	require.Equal(t, SeedanceRefundStatusNotRequired, h.updates[0].RefundStatus)
 }
 
+func TestSeedanceSettlementCleansXimeiTaskMediaWithoutEnablingFallback(t *testing.T) {
+	binding := seedanceSettlementBinding()
+	binding.Model = SeedanceXimeiSD20Model
+	temporary := SeedanceStoredMediaReference{
+		Slot: seedanceStoredMediaVideo, StorageProvider: "cos", Bucket: "seedance-test",
+		ObjectKey: "agent-artifacts/seedance/inputs/task/2/3/reference.mp4", DeleteAfterSettlement: true,
+	}
+	staged := SeedanceStoredMediaReference{
+		Slot: seedanceStoredMediaAudio, StorageProvider: "cos", Bucket: "seedance-test",
+		ObjectKey: "agent-artifacts/seedance/inputs/staged/2/3/voice.wav",
+	}
+	snapshot, err := SnapshotSeedanceTaskMediaCleanup(&SeedanceRequestInfo{
+		Model: binding.Model, StoredMedia: []SeedanceStoredMediaReference{temporary, staged},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, snapshot)
+	require.NotContains(t, string(snapshot), staged.ObjectKey)
+	binding.RequestSnapshot = snapshot
+
+	h := newSeedanceSettlementHarness(binding)
+	h.inspection = &SeedanceTaskInspection{Status: SeedanceTaskStatusSucceeded}
+	store := newSeedanceMediaMemoryStore()
+	h.worker.media = NewSeedanceMediaService(store, nil, nil)
+
+	h.worker.process(context.Background(), &binding)
+
+	require.Zero(t, h.fallbackCalls)
+	require.Zero(t, h.refundCalls)
+	require.Len(t, h.updates, 1)
+	require.NotNil(t, h.updates[0].SettledAt)
+	require.Equal(t, SeedanceRefundStatusNotRequired, h.updates[0].RefundStatus)
+	require.Equal(t, []AgentArtifactObjectLocation{{
+		StorageProvider: temporary.StorageProvider,
+		Bucket:          temporary.Bucket,
+		ObjectKey:       temporary.ObjectKey,
+	}}, store.deleted)
+}
+
 func TestSeedanceSettlementRetriesTerminalUpdateWhenFallbackMediaCleanupFails(t *testing.T) {
 	binding := seedanceSettlementBinding()
 	binding.Model = "seedance-2.0"

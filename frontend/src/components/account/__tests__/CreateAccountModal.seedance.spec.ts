@@ -37,15 +37,18 @@ describe('CreateAccountModal video platform account types', () => {
     expect(source).toContain('v-model="seedanceVideoProvider"')
     expect(source).toContain('<option value="fflink">')
     expect(source).toContain('<option value="huiqu">')
+    expect(source).toContain('<option value="ximei">')
     expect(source).toContain("const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')")
     expect(source).toContain('credentials.video_provider = seedanceVideoProvider.value')
     expect(source).toContain('apiKeyBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
 
     expect(editSource).toContain('data-testid="edit-seedance-video-provider"')
     expect(editSource).toContain("credentials?.video_provider === 'huiqu'")
+    expect(editSource).toContain("credentials?.video_provider === 'ximei'")
     expect(editSource).toContain('newCredentials.video_provider = seedanceVideoProvider.value')
     expect(editSource).toContain('editBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
     expect(providerSource).toContain("huiqu: 'https://api.bjhuiqu.net'")
+    expect(providerSource).toContain("ximei: 'https://liantongyidong.ximeiedu.org'")
   })
 
   it('requires an explicit model mapping for every video account', () => {

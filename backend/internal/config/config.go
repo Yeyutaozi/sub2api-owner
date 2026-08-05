@@ -1936,6 +1936,9 @@ func setDefaults() {
 		"generativelanguage.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",
+		"liantongyidong.ximeiedu.org",
+		"tdown1.ximeiedu.org",
+		"tdown2.ximeiedu.org",
 	})
 	viper.SetDefault("security.url_allowlist.pricing_hosts", []string{
 		"raw.githubusercontent.com",

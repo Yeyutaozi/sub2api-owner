@@ -1030,12 +1030,26 @@
               t(
                 videoPricingI18nKey(
                   supportsVideoModelPricingPlatform(createForm.platform)
-                    ? "modelDescription"
+                    ? createForm.video_billing_unit === "per_request"
+                      ? "perRequestModelDescription"
+                      : "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
+          <div v-if="createForm.platform === 'seedance'" class="mb-4">
+            <label class="input-label">{{ t(videoPricingI18nKey("billingUnit")) }}</label>
+            <select
+              v-model="createForm.video_billing_unit"
+              class="input"
+              data-testid="create-seedance-video-billing-unit"
+            >
+              <option value="per_second">{{ t(videoPricingI18nKey("perSecond")) }}</option>
+              <option value="per_request">{{ t(videoPricingI18nKey("perRequest")) }}</option>
+            </select>
+            <p class="input-hint">{{ t(videoPricingI18nKey("billingUnitHint")) }}</p>
+          </div>
           <div
             v-if="supportsVideoModelPricingPlatform(createForm.platform)"
             class="mb-4"
@@ -1150,7 +1164,7 @@
                 </div>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '480p')">
-                    <label class="input-label">480p ($/s)</label>
+                    <label class="input-label">480p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_480p"
                       type="number"
@@ -1162,7 +1176,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '720p')">
-                    <label class="input-label">720p ($/s)</label>
+                    <label class="input-label">720p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_720p"
                       type="number"
@@ -1174,7 +1188,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1080p')">
-                    <label class="input-label">1080p ($/s)</label>
+                    <label class="input-label">1080p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_1080p"
                       type="number"
@@ -1186,7 +1200,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1440p')">
-                    <label class="input-label">1440p ($/s)</label>
+                    <label class="input-label">1440p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_1440p"
                       type="number"
@@ -1198,7 +1212,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '2160p')">
-                    <label class="input-label">2160p ($/s)</label>
+                    <label class="input-label">2160p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_2160p"
                       type="number"
@@ -1213,7 +1227,15 @@
               </div>
             </div>
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-              {{ t(videoPricingI18nKey("modelModeHint")) }}
+              {{
+                t(
+                  videoPricingI18nKey(
+                    createForm.video_billing_unit === "per_request"
+                      ? "perRequestModelModeHint"
+                      : "modelModeHint",
+                  ),
+                )
+              }}
             </p>
           </template>
 
@@ -2750,12 +2772,26 @@
               t(
                 videoPricingI18nKey(
                   supportsVideoModelPricingPlatform(editForm.platform)
-                    ? "modelDescription"
+                    ? editForm.video_billing_unit === "per_request"
+                      ? "perRequestModelDescription"
+                      : "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
+          <div v-if="editForm.platform === 'seedance'" class="mb-4">
+            <label class="input-label">{{ t(videoPricingI18nKey("billingUnit")) }}</label>
+            <select
+              v-model="editForm.video_billing_unit"
+              class="input"
+              data-testid="edit-seedance-video-billing-unit"
+            >
+              <option value="per_second">{{ t(videoPricingI18nKey("perSecond")) }}</option>
+              <option value="per_request">{{ t(videoPricingI18nKey("perRequest")) }}</option>
+            </select>
+            <p class="input-hint">{{ t(videoPricingI18nKey("billingUnitHint")) }}</p>
+          </div>
           <div
             v-if="supportsVideoModelPricingPlatform(editForm.platform)"
             class="mb-4"
@@ -2870,7 +2906,7 @@
                 </div>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '480p')">
-                    <label class="input-label">480p ($/s)</label>
+                    <label class="input-label">480p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_480p"
                       type="number"
@@ -2882,7 +2918,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '720p')">
-                    <label class="input-label">720p ($/s)</label>
+                    <label class="input-label">720p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_720p"
                       type="number"
@@ -2894,7 +2930,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1080p')">
-                    <label class="input-label">1080p ($/s)</label>
+                    <label class="input-label">1080p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_1080p"
                       type="number"
@@ -2906,7 +2942,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1440p')">
-                    <label class="input-label">1440p ($/s)</label>
+                    <label class="input-label">1440p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_1440p"
                       type="number"
@@ -2918,7 +2954,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '2160p')">
-                    <label class="input-label">2160p ($/s)</label>
+                    <label class="input-label">2160p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
                     <input
                       v-model.number="row.price_2160p"
                       type="number"
@@ -2933,7 +2969,15 @@
               </div>
             </div>
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-              {{ t(videoPricingI18nKey("modelModeHint")) }}
+              {{
+                t(
+                  videoPricingI18nKey(
+                    editForm.video_billing_unit === "per_request"
+                      ? "perRequestModelModeHint"
+                      : "modelModeHint",
+                  ),
+                )
+              }}
             </p>
           </template>
 
@@ -4389,6 +4433,7 @@ import type {
   CompositeRouteMatchType,
   GroupPlatform,
   SubscriptionType,
+  VideoBillingUnit,
 } from "@/types";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
@@ -4430,6 +4475,7 @@ import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModel
 import {
   createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
+  normalizeVideoBillingUnitForPlatform,
   supportsVideoModelPricingPlatform,
   videoModelPricePlaceholder,
   videoModelSupportsResolution,
@@ -4458,6 +4504,13 @@ import {
 const { t } = useI18n();
 const appStore = useAppStore();
 const onboardingStore = useOnboardingStore();
+
+const videoPriceUnitLabel = (billingUnit: VideoBillingUnit): string =>
+  t(
+    videoPricingI18nKey(
+      billingUnit === "per_request" ? "priceUnitPerRequest" : "priceUnitPerSecond",
+    ),
+  );
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
 // Default hidden columns (hidden on first load / after schema bumps).
@@ -4989,6 +5042,7 @@ const createForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_billing_unit: "per_second" as VideoBillingUnit,
   // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
   web_search_price_per_call: null as number | null,
   // 高峰时段倍率配置
@@ -5339,6 +5393,7 @@ const editForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_billing_unit: "per_second" as VideoBillingUnit,
   // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
   web_search_price_per_call: null as number | null,
   // 高峰时段倍率配置
@@ -5785,6 +5840,7 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
+  createForm.video_billing_unit = "per_second";
   createVideoModelPriceRows.value = createDefaultVideoModelPriceRows("seedance");
   createForm.web_search_price_per_call = null;
   createForm.peak_rate_enabled = false;
@@ -5911,6 +5967,10 @@ const handleCreateGroup = async () => {
           createForm.platform,
           createVideoModelPriceRows.value,
         ),
+      video_billing_unit: normalizeVideoBillingUnitForPlatform(
+        createForm.platform,
+        createForm.video_billing_unit,
+      ),
       reasoning_effort_mappings: reasoningEffortMappingsToAPI(
         createForm.reasoning_effort_mappings,
       ),
@@ -5997,6 +6057,10 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_480p = group.video_price_480p;
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
+  editForm.video_billing_unit = normalizeVideoBillingUnitForPlatform(
+    group.platform,
+    group.video_billing_unit,
+  );
   editVideoModelPriceRows.value =
     supportsVideoModelPricingPlatform(group.platform)
       ? videoModelPricesToRows(group.video_model_prices, group.platform)
@@ -6071,6 +6135,7 @@ const closeEditModal = () => {
   editForm.video_price_480p = null;
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
+  editForm.video_billing_unit = "per_second";
   editVideoModelPriceRows.value = [];
   editForm.web_search_price_per_call = null;
   resetMessagesDispatchFormState(editForm);
@@ -6141,6 +6206,10 @@ const handleUpdateGroup = async () => {
           editForm.platform,
           editVideoModelPriceRows.value,
         ),
+      video_billing_unit: normalizeVideoBillingUnitForPlatform(
+        editForm.platform,
+        editForm.video_billing_unit,
+      ),
       reasoning_effort_mappings: reasoningEffortMappingsToAPI(
         editForm.reasoning_effort_mappings,
       ),
@@ -6485,6 +6554,10 @@ watch(
 watch(
   () => createForm.platform,
   (newVal) => {
+    createForm.video_billing_unit = normalizeVideoBillingUnitForPlatform(
+      newVal,
+      createForm.video_billing_unit,
+    );
     if (supportsVideoModelPricingPlatform(newVal)) {
       createVideoModelPriceRows.value = createDefaultVideoModelPriceRows(newVal);
     }
@@ -6533,6 +6606,10 @@ watch(
 watch(
   () => editForm.platform,
   (newVal, oldVal) => {
+    editForm.video_billing_unit = normalizeVideoBillingUnitForPlatform(
+      newVal,
+      editForm.video_billing_unit,
+    );
     if (newVal !== oldVal) {
       editVideoModelPriceRows.value = supportsVideoModelPricingPlatform(newVal)
         ? editingGroup.value?.platform === newVal

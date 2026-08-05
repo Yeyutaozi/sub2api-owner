@@ -85,8 +85,10 @@ type Group struct {
 	VideoPrice720p *float64 `json:"video_price_720p,omitempty"`
 	// VideoPrice1080p holds the value of the "video_price_1080p" field.
 	VideoPrice1080p *float64 `json:"video_price_1080p,omitempty"`
-	// Requested video model -> resolution-specific per-second prices
+	// Requested video model -> resolution-specific unit prices
 	VideoModelPrices domain.VideoModelPrices `json:"video_model_prices,omitempty"`
+	// Video price unit: per_second or per_request; per_request is Seedance-only
+	VideoBillingUnit string `json:"video_billing_unit,omitempty"`
 	// Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示使用默认价 0.01（官方 $10/1000 次）
 	WebSearchPricePerCall *float64 `json:"web_search_price_per_call,omitempty"`
 	// 是否仅允许 Claude Code 客户端
@@ -239,7 +241,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldVideoBillingUnit, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -481,6 +483,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.VideoModelPrices); err != nil {
 					return fmt.Errorf("unmarshal field video_model_prices: %w", err)
 				}
+			}
+		case group.FieldVideoBillingUnit:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field video_billing_unit", values[i])
+			} else if value.Valid {
+				_m.VideoBillingUnit = value.String
 			}
 		case group.FieldWebSearchPricePerCall:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
@@ -810,6 +818,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("video_model_prices=")
 	builder.WriteString(fmt.Sprintf("%v", _m.VideoModelPrices))
+	builder.WriteString(", ")
+	builder.WriteString("video_billing_unit=")
+	builder.WriteString(_m.VideoBillingUnit)
 	builder.WriteString(", ")
 	if v := _m.WebSearchPricePerCall; v != nil {
 		builder.WriteString("web_search_price_per_call=")
