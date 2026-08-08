@@ -51,6 +51,18 @@
               <p class="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
                 {{ t('creazyCanvas.key.selectOnlyHint') }}
               </p>
+              <div
+                v-if="userBalance != null"
+                class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 dark:border-dark-600"
+              >
+                <span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {{ t('creazyCanvas.key.balance') }}
+                </span>
+                <span class="font-mono text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  {{ formatMoney(userBalance) }}
+                </span>
+                <span class="text-[11px] text-gray-400">{{ t('creazyCanvas.key.balanceHint') }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -105,6 +117,9 @@
               >
                 {{ t('creazyCanvas.catalog.emptyImage') }}
               </p>
+              <div v-if="imageModelCapChips.length" class="cc-cap-row" :aria-label="t('creazyCanvas.form.capsTitle')">
+                <span v-for="(chip, idx) in imageModelCapChips" :key="'img-cap-' + idx" class="cc-cap-chip">{{ chip }}</span>
+              </div>
             </div>
 
             <div class="cc-field">
@@ -153,6 +168,7 @@
                 <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
               </datalist>
               <p class="input-hint">{{ imageSizeHintText }}</p>
+              <p v-if="imageSizeLiveError" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ imageSizeLiveError }}</p>
             </div>
           </div>
 
@@ -225,6 +241,11 @@
               <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
               <span class="cc-create__hint">{{ t('creazyCanvas.form.createSectionHintImage') }}</span>
             </div>
+            <div class="cc-create__meta" aria-live="polite">
+              <span class="cc-create__price">{{ imagePriceEstimateText }}</span>
+              <span class="cc-create__shortcut">{{ t('creazyCanvas.form.submitShortcut') }}</span>
+            </div>
+            <p v-if="draftNotice && activeTab === 'image'" class="cc-create__draft">{{ draftNotice }}</p>
             <button
               type="button"
               class="btn btn-primary cc-submit"
@@ -289,7 +310,7 @@
                 <span v-if="work.created_at" class="text-[11px] text-gray-500">{{ formatDateTime(work.created_at) }}</span>
               </div>
               <p class="mt-2 line-clamp-2 text-sm text-gray-800 dark:text-gray-100">{{ work.prompt || ('#' + work.id) }}</p>
-              <p v-if="work.error_message" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ work.error_message }}</p>
+              <p v-if="workErrorText(work)" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ workErrorText(work) }}</p>
               <div class="mt-3 flex flex-wrap gap-2">
                 <button
                   v-if="canPreviewWork(work)"
@@ -354,6 +375,9 @@
               >
                 {{ t('creazyCanvas.catalog.emptyVideo') }}
               </p>
+              <div v-if="videoModelCapChips.length" class="cc-cap-row" :aria-label="t('creazyCanvas.form.capsTitle')">
+                <span v-for="(chip, idx) in videoModelCapChips" :key="'vid-cap-' + idx" class="cc-cap-chip cc-cap-chip--video">{{ chip }}</span>
+              </div>
             </div>
 
             <div class="cc-params-grid">
@@ -695,6 +719,11 @@
               <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
               <span class="cc-create__hint">{{ t('creazyCanvas.form.createSectionHintVideo') }}</span>
             </div>
+            <div class="cc-create__meta" aria-live="polite">
+              <span class="cc-create__price">{{ videoPriceEstimateText }}</span>
+              <span class="cc-create__shortcut">{{ t('creazyCanvas.form.submitShortcut') }}</span>
+            </div>
+            <p v-if="draftNotice && activeTab === 'video'" class="cc-create__draft">{{ draftNotice }}</p>
             <button
               type="button"
               class="btn btn-primary cc-submit"
@@ -780,7 +809,7 @@
                 <span v-if="work.created_at" class="text-[11px] text-gray-500">{{ formatDateTime(work.created_at) }}</span>
               </div>
               <p class="mt-2 line-clamp-2 text-sm text-gray-800 dark:text-gray-100">{{ work.prompt || ('#' + work.id) }}</p>
-              <p v-if="work.error_message" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ work.error_message }}</p>
+              <p v-if="workErrorText(work)" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ workErrorText(work) }}</p>
               <div class="mt-3 flex flex-wrap gap-2">
                 <button
                   v-if="canPreviewWork(work)"
@@ -860,6 +889,27 @@
                     <option value="canceled">{{ t('creazyCanvas.works.statusLabels.canceled') }}</option>
                   </select>
                 </label>
+                <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                  <span>{{ t('creazyCanvas.works.filterModel') }}</span>
+                  <select
+                    v-model="worksFilterModel"
+                    class="input min-w-[8rem] py-1 text-xs"
+                    :disabled="!selectedKeyId || loadingWorks"
+                  >
+                    <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
+                    <option v-for="m in worksModelOptions" :key="'wm-' + m" :value="m">{{ m }}</option>
+                  </select>
+                </label>
+                <label class="flex min-w-[10rem] flex-1 items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 sm:max-w-[16rem]">
+                  <span class="shrink-0">{{ t('creazyCanvas.works.filterQuery') }}</span>
+                  <input
+                    v-model="worksFilterQuery"
+                    type="search"
+                    class="input w-full min-w-0 py-1 text-xs"
+                    :placeholder="t('creazyCanvas.works.filterQueryPlaceholder')"
+                    :disabled="!selectedKeyId || loadingWorks"
+                  />
+                </label>
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
@@ -914,9 +964,16 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.works.emptyForKeyHint') }}</p>
             </div>
 
+            <div
+              v-else-if="filteredWorks.length === 0"
+              class="flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 text-center dark:border-dark-700 dark:bg-dark-900/40"
+            >
+              <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('creazyCanvas.works.filterEmpty') }}</p>
+            </div>
+
             <div v-else class="space-y-3">
               <article
-                v-for="work in works"
+                v-for="work in filteredWorks"
                 :key="String(work.id)"
                 class="group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md dark:bg-dark-900"
                 :class="workCardClass(work)"
@@ -1026,10 +1083,10 @@
                     </div>
 
                     <p
-                      v-if="work.error_message"
+                      v-if="workErrorText(work)"
                       class="mt-2 line-clamp-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-950/30 dark:text-red-300"
                     >
-                      {{ work.error_message }}
+                      {{ workErrorText(work) }}
                     </p>
                   </div>
 
@@ -1075,6 +1132,52 @@
         </div>
       </section>
     </div>
+    <!-- Floating task tray for concurrent jobs -->
+    <div
+      v-if="showTaskTray"
+      class="cc-task-tray"
+      :class="{ 'cc-task-tray--collapsed': !taskTrayExpanded }"
+      role="complementary"
+      :aria-label="t('creazyCanvas.tasks.trayTitle')"
+    >
+      <div class="cc-task-tray__bar">
+        <button type="button" class="cc-task-tray__toggle" @click="taskTrayExpanded = !taskTrayExpanded">
+          <span class="cc-task-tray__title">
+            {{ t('creazyCanvas.tasks.trayTitle') }}
+            <span v-if="totalRunningJobs" class="cc-task-tray__badge">{{ totalRunningJobs }}</span>
+          </span>
+          <span class="cc-task-tray__hint">{{ t('creazyCanvas.tasks.trayHint') }}</span>
+        </button>
+        <div class="cc-task-tray__actions">
+          <button type="button" class="cc-task-tray__link" @click="openTrayTaskBoard">
+            {{ t('creazyCanvas.tasks.open') }}
+          </button>
+          <button type="button" class="cc-task-tray__dismiss" @click="taskTrayDismissed = true">
+            {{ t('creazyCanvas.tasks.dismiss') }}
+          </button>
+        </div>
+      </div>
+      <div v-if="taskTrayExpanded" class="cc-task-tray__list">
+        <button
+          v-for="work in trayWorks"
+          :key="'tray-' + work.id"
+          type="button"
+          class="cc-task-tray__item"
+          :class="workCardClass(work)"
+          @click="openTrayTaskBoard()"
+        >
+          <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
+            <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
+            {{ workStatusLabel(work.status) }}
+          </span>
+          <span class="cc-task-tray__kind">{{ work.kind || '—' }}</span>
+          <span class="cc-task-tray__model">{{ work.public_model || '—' }}</span>
+          <span class="cc-task-tray__prompt">{{ work.prompt || ('#' + work.id) }}</span>
+        </button>
+        <p v-if="!trayWorks.length" class="cc-task-tray__empty">{{ t('creazyCanvas.tasks.empty') }}</p>
+      </div>
+    </div>
+
     <!-- Media preview lightbox (image/video with sound) -->
     <Teleport to="body">
       <div
@@ -1145,12 +1248,24 @@ import {
   type CreazyWork,
 } from '@/api/creazyCanvas'
 import { keysAPI } from '@/api/keys'
-import { useAppStore } from '@/stores'
+import { useAppStore, useAuthStore } from '@/stores'
+import {
+  buildImageWorkParams,
+  buildVideoWorkParams,
+  pickStringParam,
+  pickStringListParam,
+  isReusableMediaUrl,
+  readCanvasDraft,
+  writeCanvasDraft,
+  gatewayParamFieldKey,
+  type CanvasDraftV1,
+} from './composables/workParams'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 type TabId = 'image' | 'video' | 'works'
 type MediaItem = { name: string; media_url: string; duration_seconds?: number; preview_url?: string }
@@ -1233,6 +1348,13 @@ const works = ref<CreazyWork[]>([])
 const loadingWorks = ref(false)
 const worksFilterKind = ref('')
 const worksFilterStatus = ref('')
+const worksFilterModel = ref('')
+const worksFilterQuery = ref('')
+const taskTrayExpanded = ref(true)
+const taskTrayDismissed = ref(false)
+const draftNotice = ref('')
+let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
+let draftHydrated = false
 const downloadingWorkId = ref('')
 const deletingWorkId = ref('')
 const lastImageTaskId = ref('')
@@ -1386,6 +1508,166 @@ const worksNeedSecretBanner = computed(() => {
   return works.value.some((w) => canPreviewWork(w) && workNeedsSecret(w) && !workCoverUrl(w))
 })
 
+const userBalance = computed(() => {
+  const b = authStore.user?.balance
+  return typeof b === 'number' && Number.isFinite(b) ? b : null
+})
+
+const worksModelOptions = computed(() => {
+  const set = new Set<string>()
+  for (const w of works.value) {
+    const m = String(w.public_model || '').trim()
+    if (m) set.add(m)
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+})
+
+const filteredWorks = computed(() => {
+  let list = works.value.slice()
+  const model = worksFilterModel.value.trim()
+  const q = worksFilterQuery.value.trim().toLowerCase()
+  if (model) {
+    list = list.filter((w) => String(w.public_model || '') === model)
+  }
+  if (q) {
+    list = list.filter((w) => {
+      const hay = [
+        w.prompt,
+        w.public_model,
+        w.status,
+        w.kind,
+        w.error_message,
+        w.gateway_remote_id,
+      ]
+        .map((x) => String(x || '').toLowerCase())
+        .join(' ')
+      return hay.includes(q)
+    })
+  }
+  return list
+})
+
+const totalRunningJobs = computed(
+  () =>
+    activeImageJobs.value +
+    activeVideoJobs.value +
+    works.value.filter((w) => isActiveWorkStatus(w.status)).length,
+)
+
+const trayWorks = computed(() => {
+  const active = works.value.filter((w) => isActiveWorkStatus(w.status))
+  const rest = works.value.filter((w) => !isActiveWorkStatus(w.status))
+  return [...sortTaskWorks(active), ...sortTaskWorks(rest)].slice(0, 12)
+})
+
+const showTaskTray = computed(
+  () =>
+    !taskTrayDismissed.value &&
+    Boolean(selectedKeyId.value) &&
+    (totalRunningJobs.value > 0 || trayWorks.value.some((w) => isActiveWorkStatus(w.status))),
+)
+
+function formatMoney(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return ''
+  const v = Number(n)
+  if (Math.abs(v) >= 100) return v.toFixed(2)
+  if (Math.abs(v) >= 1) return v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+  return v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function pickPrice(prices: Record<string, number | null | undefined> | undefined, keys: string[]): number | null {
+  if (!prices) return null
+  for (const k of keys) {
+    if (!k) continue
+    const v = prices[k]
+    if (v != null && Number.isFinite(Number(v))) return Number(v)
+  }
+  const entries = Object.entries(prices)
+  for (const k of keys) {
+    const hit = entries.find(([ek, ev]) => ek.toLowerCase() === k.toLowerCase() && ev != null)
+    if (hit && hit[1] != null) return Number(hit[1])
+  }
+  return null
+}
+
+function imageBillingTier(size: string): string[] {
+  const s = String(size || '').trim().toLowerCase()
+  const out = [size, s]
+  const m = s.match(/^(\d+)\s*[x×]\s*(\d+)$/i)
+  if (m) {
+    const w = Number(m[1])
+    const h = Number(m[2])
+    const longEdge = Math.max(w, h)
+    if (longEdge >= 3000) out.push('4K', '4k')
+    else if (longEdge >= 1600) out.push('2K', '2k')
+    else out.push('1K', '1k')
+  } else if (s === 'auto') {
+    out.push('1K', '1k')
+  }
+  out.push('1K', '1k')
+  return out
+}
+
+const imagePriceEstimate = computed(() => {
+  const model = selectedImageModel.value
+  if (!model) return null
+  return pickPrice(model.prices as any, imageBillingTier(imageForm.size))
+})
+
+const videoPriceEstimate = computed(() => {
+  const model = selectedVideoModel.value
+  if (!model) return null
+  const res = String(videoForm.resolution || '')
+  return pickPrice(model.prices as any, [res, res.toLowerCase(), res.toUpperCase(), '720p', '1080p'])
+})
+
+const imagePriceEstimateText = computed(() => {
+  const p = imagePriceEstimate.value
+  if (p == null) return t('creazyCanvas.form.priceEstimateUnknown')
+  return t('creazyCanvas.form.priceEstimate', { price: formatMoney(p) })
+})
+
+const videoPriceEstimateText = computed(() => {
+  const p = videoPriceEstimate.value
+  if (p == null) return t('creazyCanvas.form.priceEstimateUnknown')
+  return t('creazyCanvas.form.priceEstimate', { price: formatMoney(p) })
+})
+
+const imageModelCapChips = computed(() => {
+  const m = selectedImageModel.value
+  if (!m) return [] as string[]
+  const chips: string[] = []
+  chips.push(m.async ? t('creazyCanvas.caps.async') : t('creazyCanvas.caps.sync'))
+  if (imageRefSupported.value) {
+    chips.push(t('creazyCanvas.caps.refImages', { n: imageRefMax.value }))
+    if (imageRefRequired.value) chips.push(t('creazyCanvas.caps.refRequired'))
+  } else {
+    chips.push(t('creazyCanvas.caps.noRef'))
+  }
+  chips.push(imageAllowCustomSize.value ? t('creazyCanvas.caps.customSize') : t('creazyCanvas.caps.presetSize'))
+  return chips
+})
+
+const videoModelCapChips = computed(() => {
+  const m = selectedVideoModel.value
+  if (!m) return [] as string[]
+  const chips: string[] = []
+  if (mediaCaps.value.allowGeneratedAudio) {
+    chips.push(
+      mediaCaps.value.forceGeneratedAudio
+        ? t('creazyCanvas.caps.forceAudio')
+        : t('creazyCanvas.caps.audio'),
+    )
+  }
+  if (mediaCaps.value.allowStartFrame) chips.push(t('creazyCanvas.caps.startFrame'))
+  if (mediaCaps.value.allowEndFrame) chips.push(t('creazyCanvas.caps.endFrame'))
+  if (mediaCaps.value.maxImages > 0) chips.push(t('creazyCanvas.caps.refImages', { n: mediaCaps.value.maxImages }))
+  if (mediaCaps.value.maxVideos > 0) chips.push(t('creazyCanvas.caps.refVideo', { n: mediaCaps.value.maxVideos }))
+  if (mediaCaps.value.maxAudios > 0) chips.push(t('creazyCanvas.caps.refAudio', { n: mediaCaps.value.maxAudios }))
+  if (mediaCaps.value.maxTotal > 0) chips.push(t('creazyCanvas.caps.mediaTotal', { n: mediaCaps.value.maxTotal }))
+  return chips
+})
+
 const mediaCaps = computed(() => {
   const m = selectedVideoModel.value
   const modelId = String(m?.id || videoForm.model || '').toLowerCase()
@@ -1495,6 +1777,17 @@ const imageSizeHintText = computed(() => {
   return t('creazyCanvas.form.sizeCustomHintShort')
 })
 
+const imageSizeLiveError = computed(() => {
+  const size = String(imageForm.size || '').trim()
+  if (!size) return ''
+  if (isValidImageSizeInput(size)) return ''
+  // Avoid nagging while the user is still typing a partial WxH value.
+  if (/^\d{1,5}$/.test(size)) return ''
+  if (/^\d{1,5}\s*[xX×*]\s*$/.test(size)) return ''
+  if (/^\d{1,5}\s*[xX×*]\s*\d{1,5}$/.test(size) && !parseImageSizeWxH(size)) return ''
+  return describeImageSizeInvalid(size)
+})
+
 const imageSizePresetValue = computed(() => {
   const size = String(imageForm.size || '').trim()
   if (!size) return imageSizeOptions.value[0] || ''
@@ -1579,6 +1872,83 @@ function isValidImageSizeInput(raw: string): boolean {
     if (short <= 0 || long / short > maxRatio + 1e-9) return false
   }
   return true
+}
+
+/** Field-level size validation message for custom / constrained models. Empty when valid. */
+function describeImageSizeInvalid(raw: string): string {
+  const size = String(raw || '').trim()
+  if (!size) return t('creazyCanvas.form.sizeRequired')
+
+  const model = selectedImageModel.value
+  const presets = imageSizeOptions.value
+  if (presets.some((s) => String(s).toLowerCase() === size.toLowerCase())) return ''
+
+  const allowCustom = Boolean(model?.allow_custom_size)
+  if (!allowCustom) {
+    const list = presets.slice(0, 10).join(', ') || '-'
+    return t('creazyCanvas.form.sizeNotInPresets', { size, presets: list })
+  }
+
+  const constraints = model?.size_constraints || null
+  const aliases = (constraints?.aliases || []).map((a) => String(a).toLowerCase())
+  if (aliases.includes(size.toLowerCase())) return ''
+
+  // Without official constraints: free-form aliases + soft WxH bounds.
+  if (!constraints) {
+    if (/^(auto|1k|2k|4k)$/i.test(size)) return ''
+    const dims = parseImageSizeWxH(size)
+    if (!dims) return t('creazyCanvas.form.sizeFormatInvalid')
+    if (dims.w < 64 || dims.h < 64 || dims.w > 8192 || dims.h > 8192) {
+      return t('creazyCanvas.form.sizeOutOfRange', {
+        size: `${dims.w}x${dims.h}`,
+        min: 64,
+        max: 8192,
+      })
+    }
+    return ''
+  }
+
+  // Constrained models (e.g. gpt-image-2): reject Gemini-style enums unless aliased.
+  if (/^(auto|1k|2k|4k)$/i.test(size)) {
+    const aliasHint = (constraints.aliases || []).join(', ') || t('creazyCanvas.form.sizeCustomOption')
+    return t('creazyCanvas.form.sizeAliasNotSupported', { size, aliases: aliasHint })
+  }
+
+  const dims = parseImageSizeWxH(size)
+  if (!dims) return t('creazyCanvas.form.sizeFormatInvalid')
+  const { w, h } = dims
+  const display = `${w}x${h}`
+  const multiple = Number(constraints.multiple_of || 0)
+  if (multiple > 0 && (w % multiple !== 0 || h % multiple !== 0)) {
+    return t('creazyCanvas.form.sizeNotMultiple', { size: display, multiple })
+  }
+  const maxEdge = Number(constraints.max_edge || 0)
+  if (maxEdge > 0 && (w > maxEdge || h > maxEdge)) {
+    return t('creazyCanvas.form.sizeMaxEdge', {
+      size: display,
+      max: maxEdge,
+      edge: Math.max(w, h),
+    })
+  }
+  const pixels = w * h
+  const minPixels = Number(constraints.min_pixels || 0)
+  const maxPixels = Number(constraints.max_pixels || 0)
+  if (minPixels > 0 && pixels < minPixels) {
+    return t('creazyCanvas.form.sizeMinPixels', { size: display, pixels, min: minPixels })
+  }
+  if (maxPixels > 0 && pixels > maxPixels) {
+    return t('creazyCanvas.form.sizeMaxPixels', { size: display, pixels, max: maxPixels })
+  }
+  const maxRatio = Number(constraints.max_aspect_ratio || 0)
+  if (maxRatio > 0) {
+    const long = Math.max(w, h)
+    const short = Math.min(w, h)
+    if (short <= 0 || long / short > maxRatio + 1e-9) {
+      const ratio = short > 0 ? (long / short).toFixed(2) : '∞'
+      return t('creazyCanvas.form.sizeAspectRatio', { size: display, ratio, max: maxRatio })
+    }
+  }
+  return ''
 }
 
 function canonicalizeImageSizeInput(raw: string): string {
@@ -1689,6 +2059,17 @@ function resolveWorkApiKeySecret(work: CreazyWork): string {
   return ''
 }
 
+function normalizeWorkErrorMessage(status: string | undefined, message?: string | null): string | undefined {
+  const st = String(status || '').toLowerCase()
+  const msg = String(message ?? '').trim()
+  if (st === 'failed' || st === 'error') {
+    return msg || t('creazyCanvas.errors.generateFailed')
+  }
+  // Allow explicit clear on success paths.
+  if (message === '') return ''
+  return message === undefined || message === null ? undefined : msg
+}
+
 async function updateWorkRecord(
   workId: number,
   partial: UpdateCreazyWorkRequest,
@@ -1706,6 +2087,10 @@ async function updateWorkRecord(
           ? sanitizeMediaUrl(partial.object_url) || undefined
           : undefined,
     }
+    if (partial.error_message !== undefined || partial.status) {
+      const normalized = normalizeWorkErrorMessage(partial.status, partial.error_message)
+      if (normalized !== undefined) payload.error_message = normalized
+    }
     // Keep empty string error_message when explicitly clearing.
     if (partial.error_message === '') payload.error_message = ''
     return await updateWork(workId, payload)
@@ -1720,6 +2105,7 @@ async function persistWork(
 ) {
   if (!selectedKeyId.value && !partial.api_key_id) return null
   try {
+    const status = partial.status || 'created'
     const payload: CreateCreazyWorkRequest = {
       api_key_id: partial.api_key_id ?? selectedKeyId.value,
       kind: partial.kind,
@@ -1728,8 +2114,8 @@ async function persistWork(
       params: partial.params || {},
       gateway_type: partial.gateway_type,
       gateway_remote_id: partial.gateway_remote_id || '',
-      status: partial.status || 'created',
-      error_message: partial.error_message,
+      status,
+      error_message: normalizeWorkErrorMessage(status, partial.error_message),
       preview_url: sanitizeMediaUrl(partial.preview_url) || undefined,
       object_url: sanitizeMediaUrl(partial.object_url) || undefined,
       mime_type: partial.mime_type,
@@ -1756,6 +2142,15 @@ function clearWorksPoll() {
   }
 }
 
+function worksPollIntervalMs() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return 12000
+  const busy =
+    activeImageJobs.value > 0 ||
+    activeVideoJobs.value > 0 ||
+    works.value.some((w) => isActiveWorkStatus(w.status))
+  return busy ? 3000 : 4000
+}
+
 function scheduleWorksPoll() {
   clearWorksPoll()
   const hasActive = works.value.some((w) => isActiveWorkStatus(w.status))
@@ -1764,7 +2159,22 @@ function scheduleWorksPoll() {
     worksPollTimer = null
     if (cancelled) return
     void loadWorks({ quiet: true })
-  }, 4000)
+  }, worksPollIntervalMs())
+}
+
+function onVisibilityChange() {
+  if (cancelled) return
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    const hasActive =
+      works.value.some((w) => isActiveWorkStatus(w.status)) ||
+      activeImageJobs.value > 0 ||
+      activeVideoJobs.value > 0
+    if (hasActive) {
+      void loadWorks({ quiet: true })
+    }
+  } else {
+    scheduleWorksPoll()
+  }
 }
 
 /** Independent sleep for concurrent background jobs (do not share pollTimer). */
@@ -1799,16 +2209,80 @@ function workStatusLabel(status?: string) {
 /** §7.3 gateway error mapping — never surface upstream body/stack */
 function mapGatewayError(error: any, fallback?: string): string {
   const status = Number(error?.status || error?.response?.status || 0)
-  const raw = String(
+  const param = String(
+    error?.param ||
+      error?.response?.data?.error?.param ||
+      error?.response?.data?.param ||
+      error?.response?.data?.field ||
+      '',
+  ).trim()
+
+  let raw = String(
     error?.message ||
       error?.response?.data?.error?.message ||
       error?.response?.data?.message ||
       error?.response?.data?.detail ||
       '',
-  )
+  ).trim()
+
+  // Prefer structured body from gateway parse (error.raw) when message is empty/opaque JSON.
+  if (error?.raw && typeof error.raw === 'object') {
+    const body = error.raw as Record<string, any>
+    const nested =
+      (typeof body?.error === 'object' && body.error
+        ? String(body.error.message || body.error.msg || body.error.detail || '')
+        : typeof body?.error === 'string'
+          ? body.error
+          : '') ||
+      String(body?.message || body?.msg || (typeof body?.detail === 'string' ? body.detail : '') || '')
+    if (nested) {
+      const rawIsGeneric =
+        !raw ||
+        /^invalid(\s+parameters?)?$/i.test(raw) ||
+        raw === '参数不合法' ||
+        raw === 'Bad Request' ||
+        raw.startsWith('{')
+      if (rawIsGeneric || nested.length > raw.length) {
+        raw = nested.trim()
+      }
+    }
+    // FastAPI detail array
+    if (Array.isArray(body?.detail) && (!raw || /^invalid/i.test(raw) || raw === '参数不合法')) {
+      const parts = body.detail
+        .map((item: any) => {
+          if (typeof item === 'string') return item
+          if (!item || typeof item !== 'object') return ''
+          const loc = Array.isArray(item.loc) ? item.loc.filter((x: any) => x !== 'body').join('.') : ''
+          const msg = String(item.msg || item.message || '')
+          if (loc && msg) return `${loc}: ${msg}`
+          return msg || loc
+        })
+        .filter(Boolean)
+      if (parts.length) raw = parts.join('; ')
+    }
+  }
+
+  // Drop trailing "(param: x)" duplication; we re-attach via i18n when needed.
+  raw = raw.replace(/\s*\(param:\s*[^)]+\)\s*$/i, '').trim()
+
   const lower = raw.toLowerCase()
   const code = String(error?.code || error?.response?.data?.error?.code || error?.response?.data?.code || '').toLowerCase()
   const blob = `${lower} ${code}`
+
+  const looksUnsafe =
+    blob.includes('traceback') ||
+    blob.includes('stack trace') ||
+    blob.includes('<html') ||
+    blob.includes('<!doctype') ||
+    (blob.includes(' at ') && blob.includes('.go:')) ||
+    (blob.includes(' at ') && blob.includes('.ts:'))
+
+  const isGenericInvalid =
+    !raw ||
+    /^invalid(\s+parameters?)?\.?$/i.test(raw) ||
+    raw === '参数不合法' ||
+    raw === 'Bad Request' ||
+    /^validation\s*error\.?$/i.test(raw)
 
   if (
     blob.includes('moderation') ||
@@ -1827,7 +2301,13 @@ function mapGatewayError(error: any, fallback?: string): string {
   ) {
     return t('creazyCanvas.errors.serviceBusy')
   }
-  if (status === 401 || status === 403 || blob.includes('invalid api key') || blob.includes('unauthorized') || (blob.includes('forbidden') && !blob.includes('upstream'))) {
+  if (
+    status === 401 ||
+    status === 403 ||
+    blob.includes('invalid api key') ||
+    blob.includes('unauthorized') ||
+    (blob.includes('forbidden') && !blob.includes('upstream'))
+  ) {
     return t('creazyCanvas.errors.keyInvalid')
   }
   if (
@@ -1849,10 +2329,39 @@ function mapGatewayError(error: any, fallback?: string): string {
   if (status >= 500 || blob.includes('timeout') || blob.includes('timed out') || blob.includes('gateway timeout')) {
     return t('creazyCanvas.errors.serviceBusy')
   }
+
   if (status === 400) {
-    // keep short field-level hint if already localized/short; strip long raw bodies
-    if (raw && raw.length <= 120 && !(raw.includes('{') || raw.includes('[')) && !blob.includes('stack') && !blob.includes('traceback')) {
-      return raw
+    if (looksUnsafe) {
+      return t('creazyCanvas.errors.invalidParams')
+    }
+    // Allow longer field-level messages (e.g. size constraint explanations).
+    const detail = raw.length > 360 ? raw.slice(0, 360).trim() + '…' : raw
+    if (param && detail && !isGenericInvalid) {
+      const fieldKey = gatewayParamFieldKey(param)
+      const fieldLabel = t(`creazyCanvas.errors.fields.${fieldKey}`)
+      const field = fieldLabel.startsWith('creazyCanvas.') ? param : fieldLabel
+      if (detail.toLowerCase().includes(param.toLowerCase()) || detail.includes(field)) {
+        return detail.length <= 360 ? detail : t('creazyCanvas.errors.invalidParamsDetail', { detail })
+      }
+      return t('creazyCanvas.errors.invalidParamField', { field, detail })
+    }
+    if (param && (isGenericInvalid || !detail)) {
+      const fieldKey = gatewayParamFieldKey(param)
+      const fieldLabel = t(`creazyCanvas.errors.fields.${fieldKey}`)
+      const field = fieldLabel.startsWith('creazyCanvas.') ? param : fieldLabel
+      return t('creazyCanvas.errors.invalidParamField', {
+        field,
+        detail: detail || t('creazyCanvas.errors.invalidParams'),
+      })
+    }
+    if (detail && !isGenericInvalid && !(detail.includes('{') && detail.includes('}')) && !detail.includes('[')) {
+      return detail
+    }
+    if (detail && !isGenericInvalid && detail.length <= 360) {
+      return t('creazyCanvas.errors.invalidParamsDetail', { detail })
+    }
+    if (detail && isGenericInvalid) {
+      return t('creazyCanvas.errors.invalidParams')
     }
     return t('creazyCanvas.errors.invalidParams')
   }
@@ -1874,10 +2383,72 @@ function mapGatewayError(error: any, fallback?: string): string {
     return raw
   }
 
-  if (raw && raw.length <= 120 && !(raw.includes('{') || raw.includes('[')) && !blob.includes('http') && !blob.includes('stack')) {
+  if (
+    raw &&
+    raw.length <= 200 &&
+    !(raw.includes('{') || raw.includes('[')) &&
+    !blob.includes('http') &&
+    !looksUnsafe
+  ) {
     return raw
   }
   return fallback || t('creazyCanvas.errors.generateFailed')
+}
+function mapContentPreviewError(error: any): string {
+  const status = Number(error?.status || error?.response?.status || 0)
+  const reason = String(error?.reason || error?.response?.data?.reason || '').trim()
+  let raw = String(
+    error?.message ||
+      error?.response?.data?.message ||
+      error?.response?.data?.error?.message ||
+      error?.response?.data?.detail ||
+      '',
+  ).trim()
+  if (error?.raw && typeof error.raw === 'object') {
+    const body = error.raw as Record<string, any>
+    const nested =
+      String(body?.message || body?.error?.message || body?.detail || body?.msg || '').trim()
+    if (nested) raw = nested
+  }
+  const unsafe =
+    /traceback|stack trace|<!doctype|<html|\bat\s+\S+\.(go|ts):/i.test(raw)
+  if (raw && !unsafe && raw.length <= 360) {
+    // Prefer backend creazy-canvas content errors as-is (already user-facing Chinese).
+    if (
+      reason.startsWith('CREAZY_CANVAS_') ||
+      raw.includes('预览') ||
+      raw.includes('过期') ||
+      raw.includes('就绪') ||
+      raw.includes('作品') ||
+      raw.includes('上游') ||
+      raw.toLowerCase().includes('service temporarily unavailable') ||
+      raw.toLowerCase().includes('preview')
+    ) {
+      return raw
+    }
+  }
+  if (status === 404) return t('creazyCanvas.works.previewFailedGeneric')
+  const mapped = mapGatewayError(error, t('creazyCanvas.works.previewFailedGeneric'))
+  // Avoid collapsing specific preview failures into pure "busy" without detail.
+  if (
+    mapped === t('creazyCanvas.errors.serviceBusy') &&
+    raw &&
+    !unsafe &&
+    raw.length <= 240 &&
+    !/^request failed with status code/i.test(raw)
+  ) {
+    return raw
+  }
+  return mapped || t('creazyCanvas.works.previewFailedGeneric')
+}
+
+function workErrorText(work?: CreazyWork | null): string {
+  if (!work) return ''
+  const msg = String(work.error_message || '').trim()
+  if (msg) return msg
+  const st = String(work.status || '').toLowerCase()
+  if (st === 'failed' || st === 'error') return t('creazyCanvas.errors.generateFailed')
+  return ''
 }
 
 function workKindClass(kind?: string) {
@@ -2160,6 +2731,7 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
   if (workPreviewUrls[id]) return true
   if (workPreviewLoading[id]) return false
   workPreviewLoading[id] = true
+  let lastError: any = null
   try {
     let url = workStaticMediaUrl(work)
     if (url && !needsAuthForMediaPlayback(url)) {
@@ -2192,11 +2764,13 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
             return true
           }
         } catch (error) {
+          lastError = error
           console.warn('[creazy-canvas] session content preview failed', error)
         }
       }
-    } catch {
-      // ignore download-url fallback
+    } catch (error) {
+      lastError = error
+      // ignore download-url fallback, try content stream below
     }
 
     // Direct JWT content stream (preferred for succeeded gateway works).
@@ -2209,6 +2783,7 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
           return true
         }
       } catch (error) {
+        lastError = error
         console.warn('[creazy-canvas] session content preview failed', error)
       }
     }
@@ -2225,6 +2800,7 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
             return true
           }
         } catch (error) {
+          lastError = error
           console.warn('[creazy-canvas] video preview content failed', error)
         }
       }
@@ -2232,6 +2808,9 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
     if (url && isImageWork(work) && !needsAuthForMediaPlayback(url)) {
       workPreviewUrls[id] = url
       return true
+    }
+    if (lastError) {
+      ;(work as any).__previewError = mapContentPreviewError(lastError)
     }
     return Boolean(workPreviewUrls[id])
   } finally {
@@ -2245,10 +2824,15 @@ async function openWorkPreview(work: CreazyWork) {
     selectedKeyId.value = work.api_key_id
     await loadCatalog()
   }
+  ;(work as any).__previewError = ''
   const ok = await loadWorkPreview(work)
   const url = workPreviewUrl(work) || workCoverUrl(work)
   if (!url) {
-    appStore.showError(t('creazyCanvas.works.previewFailedGeneric'))
+    const detail =
+      String((work as any).__previewError || '').trim() ||
+      (work.error_message ? String(work.error_message) : '') ||
+      t('creazyCanvas.works.previewFailedGeneric')
+    appStore.showError(detail)
     return
   }
   openMediaPreview({ type: isImageWork(work) ? 'image' : 'video', url })
@@ -2867,9 +3451,12 @@ async function generateImage() {
     return
   }
   imageForm.size = canonicalizeImageSizeInput(imageForm.size)
-  if (!isValidImageSizeInput(imageForm.size)) {
-    imageError.value = t('creazyCanvas.form.sizeCustomInvalid')
-    return
+  {
+    const sizeErr = describeImageSizeInvalid(imageForm.size)
+    if (sizeErr) {
+      imageError.value = sizeErr
+      return
+    }
   }
   if (imageRefRequired.value && imageRefs.value.length === 0) {
     imageError.value = t('creazyCanvas.form.imageRefsRequired')
@@ -2902,7 +3489,7 @@ async function generateImage() {
       status: 'running',
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: { size: snapshot.size, n: 1, reference_count: snapshot.refs.length, edit: snapshot.refs.length > 0 },
+      params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
     if (running?.id) runningWorkId = running.id
@@ -2931,7 +3518,7 @@ async function generateImage() {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: { size: snapshot.size, n: 1 },
+          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
           error_message: msg,
         })
       }
@@ -3036,7 +3623,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: { size: snapshot.size, n: 1 },
+          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
           gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
           gateway_remote_id: lastTaskId,
           error_message: msg,
@@ -3062,7 +3649,7 @@ async function runImageLifecycle(opts: {
       status: 'succeeded' as const,
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: { size: snapshot.size, n: 1, result_urls: cleanUrls },
+      params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs, resultUrls: cleanUrls }),
       gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
       gateway_remote_id: lastTaskId,
       preview_url: cleanUrls[0],
@@ -3099,7 +3686,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: { size: snapshot.size, n: 1 },
+          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
           gateway_type: lastGatewayType || undefined,
           gateway_remote_id: lastTaskId || undefined,
           error_message: msg,
@@ -3165,6 +3752,13 @@ async function generateVideo() {
       startFrame.value?.media_url && !isBlobUrl(startFrame.value.media_url)
         ? startFrame.value.media_url
         : '',
+    endFrameUrl:
+      endFrame.value?.media_url && !isBlobUrl(endFrame.value.media_url)
+        ? endFrame.value.media_url
+        : '',
+    refImageUrls: refImages.value.map((x) => x.media_url).filter((u) => u && !isBlobUrl(u)),
+    refVideoUrls: refVideos.value.map((x) => x.media_url).filter((u) => u && !isBlobUrl(u)),
+    refAudioUrls: refAudios.value.map((x) => x.media_url).filter((u) => u && !isBlobUrl(u)),
     keyId: selectedKeyId.value,
   }
   let gatewayAttempted = false
@@ -3181,12 +3775,17 @@ async function generateVideo() {
       videoStatus.value = job.status || 'submitted'
     }
 
-    const baseParams = {
+    const baseParams = buildVideoWorkParams({
       resolution: snapshot.resolution,
       duration: snapshot.duration,
-      aspect_ratio: snapshot.aspectRatio,
-      generate_audio: snapshot.generateAudio || undefined,
-    }
+      aspectRatio: snapshot.aspectRatio,
+      generateAudio: snapshot.generateAudio,
+      startFrame: snapshot.startFrameUrl,
+      endFrame: (snapshot as any).endFrameUrl,
+      refImages: (snapshot as any).refImageUrls || [],
+      refVideos: (snapshot as any).refVideoUrls || [],
+      refAudios: (snapshot as any).refAudioUrls || [],
+    })
 
     if (jobId) {
       const running = await persistWork({
@@ -3248,11 +3847,17 @@ async function generateVideo() {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: {
+          params: buildVideoWorkParams({
             resolution: snapshot.resolution,
             duration: snapshot.duration,
-            aspect_ratio: snapshot.aspectRatio,
-          },
+            aspectRatio: snapshot.aspectRatio,
+            generateAudio: snapshot.generateAudio,
+            startFrame: snapshot.startFrameUrl,
+            endFrame: (snapshot as any).endFrameUrl,
+            refImages: (snapshot as any).refImageUrls || [],
+            refVideos: (snapshot as any).refVideoUrls || [],
+            refAudios: (snapshot as any).refAudioUrls || [],
+          }),
           gateway_type: 'video_job',
           error_message: msg,
         })
@@ -3284,12 +3889,17 @@ async function runVideoLifecycle(opts: {
   let runningWorkId = opts.runningWorkId
   let job = opts.initialJob
   let failedPersisted = false
-  const baseParams = {
+  const baseParams = buildVideoWorkParams({
     resolution: snapshot.resolution,
     duration: snapshot.duration,
-    aspect_ratio: snapshot.aspectRatio,
-    generate_audio: snapshot.generateAudio || undefined,
-  }
+    aspectRatio: snapshot.aspectRatio,
+    generateAudio: snapshot.generateAudio,
+    startFrame: snapshot.startFrameUrl,
+    endFrame: (snapshot as any).endFrameUrl,
+    refImages: (snapshot as any).refImageUrls || [],
+    refVideos: (snapshot as any).refVideoUrls || [],
+    refAudios: (snapshot as any).refAudioUrls || [],
+  })
   try {
     if (jobId) {
       for (let i = 0; i < 150 && !cancelled; i++) {
@@ -3597,39 +4207,166 @@ async function reuseWork(work: CreazyWork) {
   if (work.api_key_id) selectedKeyId.value = work.api_key_id
   const params = (work.params || {}) as Record<string, unknown>
   const kind = (work.kind || '').toLowerCase()
+  const notes: string[] = []
+  let partial = false
+
   if (selectedKeyId.value) {
     await loadCatalog()
   }
+
   if (kind === 'video') {
+    videoError.value = ''
+    videoSaveMessage.value = ''
     videoForm.prompt = work.prompt || ''
-    if (work.public_model && videoModels.value.some((m) => m.id === work.public_model)) {
-      videoForm.model = work.public_model
+
+    const wantedModel = String(work.public_model || '').trim()
+    if (wantedModel && videoModels.value.some((m) => m.id === wantedModel)) {
+      videoForm.model = wantedModel
+    } else if (wantedModel) {
+      notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
+      partial = true
     }
+    // Ensure model/options are synced before applying size-like params
     syncFormModelsFromCatalog()
-    if (params.resolution && videoResolutionOptions.value.includes(String(params.resolution))) {
-      videoForm.resolution = String(params.resolution)
+
+    if (params.resolution != null && String(params.resolution).trim()) {
+      const resolution = String(params.resolution)
+      if (videoResolutionOptions.value.includes(resolution)) {
+        videoForm.resolution = resolution
+      } else {
+        partial = true
+      }
     }
-    if (params.duration != null && videoDurationOptions.value.includes(Number(params.duration))) {
-      videoForm.duration = Number(params.duration)
+    if (params.duration != null && String(params.duration).trim() !== '') {
+      const duration = Number(params.duration)
+      if (videoDurationOptions.value.includes(duration)) {
+        videoForm.duration = duration
+      } else {
+        partial = true
+      }
     }
-    if (params.aspect_ratio && videoAspectOptions.value.includes(String(params.aspect_ratio))) {
-      videoForm.aspectRatio = String(params.aspect_ratio)
+    if (params.aspect_ratio != null && String(params.aspect_ratio).trim()) {
+      const aspect = String(params.aspect_ratio)
+      if (videoAspectOptions.value.includes(aspect)) {
+        videoForm.aspectRatio = aspect
+      } else {
+        partial = true
+      }
     }
     videoForm.generateAudio = Boolean(params.generate_audio) && mediaCaps.value.allowGeneratedAudio
-    switchTab('video')
-  } else {
-    imageForm.prompt = work.prompt || ''
-    if (work.public_model && imageModels.value.some((m) => m.id === work.public_model)) {
-      imageForm.model = work.public_model
+
+    // Restore reusable media (absolute/http only; skip blob/data)
+    let mediaRestored = 0
+    let mediaSkipped = 0
+    const legacyKeys = [
+      'start_frame',
+      'start_frame_url',
+      'end_frame',
+      'end_frame_url',
+      'ref_images',
+      'ref_videos',
+      'ref_audios',
+      'image_refs',
+    ]
+    const hadAnyMediaKey = legacyKeys.some((k) => params[k] != null)
+
+    const sf = pickStringParam(params, 'start_frame', 'start_frame_url', 'first_frame')
+    if (sf) {
+      if (isReusableMediaUrl(sf)) {
+        startFrame.value = { name: 'start-frame', media_url: sf, preview_url: sf }
+        startFrameUrlInput.value = sf
+        mediaRestored++
+      } else {
+        mediaSkipped++
+      }
     }
+    const ef = pickStringParam(params, 'end_frame', 'end_frame_url', 'last_frame')
+    if (ef) {
+      if (isReusableMediaUrl(ef)) {
+        endFrame.value = { name: 'end-frame', media_url: ef, preview_url: ef }
+        mediaRestored++
+      } else {
+        mediaSkipped++
+      }
+    }
+    const rImgs = pickStringListParam(params, 'ref_images', 'reference_images')
+    if (rImgs.length) {
+      refImages.value = rImgs.map((u, i) => ({ name: `ref-image-${i + 1}`, media_url: u, preview_url: u }))
+      mediaRestored += rImgs.length
+    }
+    const rVids = pickStringListParam(params, 'ref_videos', 'reference_videos')
+    if (rVids.length) {
+      refVideos.value = rVids.map((u, i) => ({ name: `ref-video-${i + 1}`, media_url: u }))
+      mediaRestored += rVids.length
+    }
+    const rAuds = pickStringListParam(params, 'ref_audios', 'reference_audios')
+    if (rAuds.length) {
+      refAudios.value = rAuds.map((u, i) => ({ name: `ref-audio-${i + 1}`, media_url: u }))
+      mediaRestored += rAuds.length
+    }
+    if (mediaSkipped) {
+      notes.push(t('creazyCanvas.form.reuseMediaSkipped'))
+      partial = true
+    } else if (!hadAnyMediaKey && !mediaRestored) {
+      notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
+      partial = true
+    }
+
+    switchTab('video')
+
+    if (notes.length) {
+      videoError.value = notes.join('；')
+      videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
+    } else if (partial) {
+      videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
+    } else {
+      videoSaveMessage.value = t('creazyCanvas.form.reuseApplied')
+    }
+  } else {
+    imageError.value = ''
+    imageSaveMessage.value = ''
+    imageForm.prompt = work.prompt || ''
+
+    const wantedModel = String(work.public_model || '').trim()
+    if (wantedModel && imageModels.value.some((m) => m.id === wantedModel)) {
+      imageForm.model = wantedModel
+    } else if (wantedModel) {
+      notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
+      partial = true
+    }
+    // Model must be set before size validation (depends on selectedImageModel)
     syncFormModelsFromCatalog()
-    if (params.size) {
+
+    if (params.size != null && String(params.size).trim()) {
       const size = String(params.size)
       if (imageSizeOptions.value.includes(size) || isValidImageSizeInput(size)) {
         imageForm.size = canonicalizeImageSizeInput(size)
+      } else {
+        const fallback = imageSizeOptions.value[0] || '1024x1024'
+        imageForm.size = fallback
+        notes.push(t('creazyCanvas.form.reuseSizeSkipped', { size, fallback }))
+        partial = true
       }
     }
+
+    const imgRefs = pickStringListParam(params, 'image_refs', 'ref_images', 'reference_images', 'images')
+    if (imgRefs.length) {
+      imageRefs.value = imgRefs.map((u, i) => ({ name: `image-ref-${i + 1}`, media_url: u, preview_url: u }))
+    } else if (params.reference_count || params.edit) {
+      notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
+      partial = true
+    }
+
     switchTab('image')
+
+    if (notes.length) {
+      imageError.value = notes.join('；')
+      imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
+    } else if (partial) {
+      imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
+    } else {
+      imageSaveMessage.value = t('creazyCanvas.form.reuseApplied')
+    }
   }
 }
 
@@ -3660,33 +4397,216 @@ watch(
   },
 )
 
+function collectCanvasDraft(): CanvasDraftV1 {
+  return {
+    v: 1,
+    selectedKeyId: selectedKeyId.value || undefined,
+    activeTab: activeTab.value,
+    image: {
+      prompt: imageForm.prompt,
+      model: imageForm.model,
+      size: imageForm.size,
+      refs: imageRefs.value.map((x) => x.media_url).filter((u) => isReusableMediaUrl(u)),
+    },
+    video: {
+      prompt: videoForm.prompt,
+      model: videoForm.model,
+      resolution: videoForm.resolution,
+      duration: videoForm.duration,
+      aspectRatio: videoForm.aspectRatio,
+      generateAudio: videoForm.generateAudio,
+      startFrame:
+        startFrame.value?.media_url && isReusableMediaUrl(startFrame.value.media_url)
+          ? startFrame.value.media_url
+          : undefined,
+      endFrame:
+        endFrame.value?.media_url && isReusableMediaUrl(endFrame.value.media_url)
+          ? endFrame.value.media_url
+          : undefined,
+      refImages: refImages.value.map((x) => x.media_url).filter((u) => isReusableMediaUrl(u)),
+      refVideos: refVideos.value.map((x) => x.media_url).filter((u) => isReusableMediaUrl(u)),
+      refAudios: refAudios.value.map((x) => x.media_url).filter((u) => isReusableMediaUrl(u)),
+    },
+  }
+}
+
+function scheduleDraftSave() {
+  if (!draftHydrated) return
+  if (draftSaveTimer) clearTimeout(draftSaveTimer)
+  draftSaveTimer = setTimeout(() => {
+    draftSaveTimer = null
+    writeCanvasDraft(collectCanvasDraft())
+  }, 400)
+}
+
+function applyCanvasDraft(draft: CanvasDraftV1) {
+  if (draft.selectedKeyId && keys.value.some((k) => k.id === draft.selectedKeyId)) {
+    selectedKeyId.value = draft.selectedKeyId
+  }
+  if (draft.image) {
+    if (draft.image.prompt != null) imageForm.prompt = draft.image.prompt
+    if (draft.image.model) imageForm.model = draft.image.model
+    if (draft.image.size) imageForm.size = draft.image.size
+    if (draft.image.refs?.length) {
+      imageRefs.value = draft.image.refs
+        .filter((u) => isReusableMediaUrl(u))
+        .map((u, i) => ({ name: `draft-ref-${i + 1}`, media_url: u, preview_url: u }))
+    }
+  }
+  if (draft.video) {
+    if (draft.video.prompt != null) videoForm.prompt = draft.video.prompt
+    if (draft.video.model) videoForm.model = draft.video.model
+    if (draft.video.resolution) videoForm.resolution = draft.video.resolution
+    if (draft.video.duration != null) videoForm.duration = Number(draft.video.duration)
+    if (draft.video.aspectRatio) videoForm.aspectRatio = draft.video.aspectRatio
+    if (draft.video.generateAudio != null) videoForm.generateAudio = Boolean(draft.video.generateAudio)
+    if (draft.video.startFrame && isReusableMediaUrl(draft.video.startFrame)) {
+      startFrame.value = {
+        name: 'draft-start',
+        media_url: draft.video.startFrame,
+        preview_url: draft.video.startFrame,
+      }
+      startFrameUrlInput.value = draft.video.startFrame
+    }
+    if (draft.video.endFrame && isReusableMediaUrl(draft.video.endFrame)) {
+      endFrame.value = {
+        name: 'draft-end',
+        media_url: draft.video.endFrame,
+        preview_url: draft.video.endFrame,
+      }
+    }
+    if (draft.video.refImages?.length) {
+      refImages.value = draft.video.refImages
+        .filter((u) => isReusableMediaUrl(u))
+        .map((u, i) => ({ name: `draft-img-${i + 1}`, media_url: u, preview_url: u }))
+    }
+    if (draft.video.refVideos?.length) {
+      refVideos.value = draft.video.refVideos
+        .filter((u) => isReusableMediaUrl(u))
+        .map((u, i) => ({ name: `draft-vid-${i + 1}`, media_url: u }))
+    }
+    if (draft.video.refAudios?.length) {
+      refAudios.value = draft.video.refAudios
+        .filter((u) => isReusableMediaUrl(u))
+        .map((u, i) => ({ name: `draft-aud-${i + 1}`, media_url: u }))
+    }
+  }
+  draftNotice.value = t('creazyCanvas.form.draftRestored')
+  window.setTimeout(() => {
+    if (draftNotice.value === t('creazyCanvas.form.draftRestored')) {
+      draftNotice.value = ''
+    }
+  }, 6000)
+}
+
+
+function onCanvasKeydown(ev: KeyboardEvent) {
+  if (ev.key === 'Escape' && mediaPreview.value) {
+    closeMediaPreview()
+    return
+  }
+  const isSubmit = (ev.ctrlKey || ev.metaKey) && ev.key === 'Enter'
+  if (!isSubmit) return
+  ev.preventDefault()
+  if (activeTab.value === 'image') {
+    void generateImage()
+  } else if (activeTab.value === 'video') {
+    void generateVideo()
+  }
+}
+
+function openTrayTaskBoard() {
+  taskTrayExpanded.value = true
+  if (activeTab.value === 'works') {
+    void loadWorks()
+    return
+  }
+  const running = trayWorks.value.find((w) => isActiveWorkStatus(w.status))
+  if (running && (running.kind || '').toLowerCase() === 'video') {
+    switchTab('video')
+  } else {
+    switchTab('image')
+  }
+}
+
+watch(totalRunningJobs, (n, prev) => {
+  if (n > Number(prev || 0)) {
+    taskTrayDismissed.value = false
+    taskTrayExpanded.value = true
+  }
+})
+
 onMounted(async () => {
   activeTab.value = resolveTabFromRoute()
   if (route.path === '/creazy-canvas') {
     router.replace('/creazy-canvas/image')
   }
   await loadKeys()
+  const draft = readCanvasDraft()
+  if (draft) {
+    applyCanvasDraft(draft)
+    if (draft.selectedKeyId && selectedKeyId.value === draft.selectedKeyId) {
+      await loadCatalog()
+      syncFormModelsFromCatalog()
+    }
+  }
+  draftHydrated = true
 })
 
-function onPreviewKeydown(ev: KeyboardEvent) {
-  if (ev.key === 'Escape' && mediaPreview.value) {
-    closeMediaPreview()
-  }
-}
+watch(
+  () => [
+    selectedKeyId.value,
+    activeTab.value,
+    imageForm.prompt,
+    imageForm.model,
+    imageForm.size,
+    imageRefs.value.map((x) => x.media_url).join('|'),
+    videoForm.prompt,
+    videoForm.model,
+    videoForm.resolution,
+    videoForm.duration,
+    videoForm.aspectRatio,
+    videoForm.generateAudio,
+    startFrame.value?.media_url,
+    endFrame.value?.media_url,
+    refImages.value.map((x) => x.media_url).join('|'),
+    refVideos.value.map((x) => x.media_url).join('|'),
+    refAudios.value.map((x) => x.media_url).join('|'),
+  ],
+  () => scheduleDraftSave(),
+)
 
 onMounted(() => {
-  window.addEventListener('keydown', onPreviewKeydown)
+  window.addEventListener('keydown', onCanvasKeydown)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('beforeunload', () => {
+    try {
+      writeCanvasDraft(collectCanvasDraft())
+    } catch {
+      /* ignore */
+    }
+  })
 })
 
 onBeforeUnmount(() => {
   cancelled = true
   clearPoll()
   clearWorksPoll()
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
+  }
+  try {
+    writeCanvasDraft(collectCanvasDraft())
+  } catch {
+    /* ignore */
+  }
   closeMediaPreview()
   clearVideoResultPlayback()
   for (const u of workPreviewBlobUrls) revokeBlobUrl(u)
   workPreviewBlobUrls.clear()
-  window.removeEventListener('keydown', onPreviewKeydown)
+  window.removeEventListener('keydown', onCanvasKeydown)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
 
@@ -3889,18 +4809,6 @@ select.cc-control {
   padding-right: 2rem;
 }
 
-.cc-params-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-}
-
-@media (min-width: 640px) {
-  .cc-params-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    align-items: start;
-  }
-}
 
 .cc-chip-row {
   display: flex;
@@ -4012,4 +4920,301 @@ select.cc-control {
   background:
     linear-gradient(180deg, rgb(17 24 39 / 1), rgb(15 23 42 / 0.92));
 }
+
+.cc-create__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.cc-create__price {
+  font-weight: 600;
+  color: rgb(5 150 105 / 1);
+}
+
+:global(.dark) .cc-create__price {
+  color: rgb(52 211 153 / 1);
+}
+
+.cc-create__shortcut {
+  color: rgb(107 114 128 / 1);
+}
+
+:global(.dark) .cc-create__shortcut {
+  color: rgb(156 163 175 / 1);
+}
+
+.cc-create__draft {
+  margin: 0;
+  border-radius: 0.65rem;
+  border: 1px solid rgb(191 219 254 / 1);
+  background: rgb(239 246 255 / 0.9);
+  padding: 0.45rem 0.65rem;
+  font-size: 0.75rem;
+  color: rgb(29 78 216 / 1);
+}
+
+:global(.dark) .cc-create__draft {
+  border-color: rgb(30 64 175 / 0.55);
+  background: rgb(23 37 84 / 0.55);
+  color: rgb(147 197 253 / 1);
+}
+
+.cc-cap-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
+.cc-cap-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgb(199 210 254 / 1);
+  background: rgb(238 242 255 / 0.9);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: rgb(67 56 202 / 1);
+  line-height: 1.35;
+}
+
+:global(.dark) .cc-cap-chip {
+  border-color: rgb(67 56 202 / 0.45);
+  background: rgb(49 46 129 / 0.35);
+  color: rgb(199 210 254 / 1);
+}
+
+.cc-cap-chip--video {
+  border-color: rgb(221 214 254 / 1);
+  background: rgb(245 243 255 / 0.95);
+  color: rgb(109 40 217 / 1);
+}
+
+:global(.dark) .cc-cap-chip--video {
+  border-color: rgb(91 33 182 / 0.5);
+  background: rgb(76 29 149 / 0.35);
+  color: rgb(221 214 254 / 1);
+}
+
+.cc-params-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.85rem 0.9rem;
+  align-items: start;
+}
+
+@media (min-width: 640px) {
+  .cc-params-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.cc-params-grid > .cc-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cc-params-grid .cc-control,
+.cc-params-grid select.cc-control {
+  width: 100%;
+  min-height: 2.5rem;
+}
+
+.cc-task-tray {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 90;
+  width: min(22rem, calc(100vw - 1.5rem));
+  border-radius: 1rem;
+  border: 1px solid rgb(226 232 240 / 1);
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 18px 40px rgb(15 23 42 / 0.16);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+:global(.dark) .cc-task-tray {
+  border-color: rgb(51 65 85 / 1);
+  background: rgb(15 23 42 / 0.94);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45);
+}
+
+.cc-task-tray--collapsed {
+  width: min(16rem, calc(100vw - 1.5rem));
+}
+
+.cc-task-tray__bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem 0.55rem;
+  border-bottom: 1px solid rgb(241 245 249 / 1);
+}
+
+:global(.dark) .cc-task-tray__bar {
+  border-bottom-color: rgb(30 41 59 / 1);
+}
+
+.cc-task-tray__toggle {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cc-task-tray__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: rgb(15 23 42 / 1);
+}
+
+:global(.dark) .cc-task-tray__title {
+  color: rgb(248 250 252 / 1);
+}
+
+.cc-task-tray__badge {
+  display: inline-flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgb(79 70 229 / 1);
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0 0.35rem;
+}
+
+.cc-task-tray__hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: rgb(100 116 139 / 1);
+}
+
+.cc-task-tray__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.cc-task-tray__link,
+.cc-task-tray__dismiss {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.cc-task-tray__link {
+  color: rgb(79 70 229 / 1);
+  font-weight: 600;
+}
+
+.cc-task-tray__dismiss {
+  color: rgb(148 163 184 / 1);
+}
+
+.cc-task-tray__list {
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cc-task-tray__item {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 0.2rem 0.45rem;
+  width: 100%;
+  text-align: left;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(226 232 240 / 0.9);
+  background: rgb(248 250 252 / 0.85);
+  padding: 0.5rem 0.55rem;
+  cursor: pointer;
+}
+
+:global(.dark) .cc-task-tray__item {
+  border-color: rgb(51 65 85 / 0.9);
+  background: rgb(15 23 42 / 0.65);
+}
+
+.cc-task-tray__item .badge {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cc-task-tray__kind {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgb(100 116 139 / 1);
+  align-self: center;
+}
+
+.cc-task-tray__model {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: rgb(67 56 202 / 1);
+  align-self: center;
+}
+
+:global(.dark) .cc-task-tray__model {
+  color: rgb(165 180 252 / 1);
+}
+
+.cc-task-tray__prompt {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: rgb(51 65 85 / 1);
+}
+
+:global(.dark) .cc-task-tray__prompt {
+  color: rgb(203 213 225 / 1);
+}
+
+.cc-task-tray__empty {
+  margin: 0;
+  padding: 0.75rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgb(148 163 184 / 1);
+}
+
 </style>

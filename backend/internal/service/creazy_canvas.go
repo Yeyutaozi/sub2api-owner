@@ -1121,6 +1121,121 @@ func creazyCanvasImageSizePolicy(platform, modelID string) (sizes []string, allo
 	}
 }
 
+// DescribeCreazyCanvasImageSizeInvalid returns a concrete reason when size is invalid.
+// Empty string means the size is accepted by ValidateCreazyCanvasImageSize.
+func DescribeCreazyCanvasImageSizeInvalid(model *CreazyCanvasImageModel, raw string) string {
+	if ValidateCreazyCanvasImageSize(model, raw) {
+		return ""
+	}
+	if model == nil {
+		return "model is required"
+	}
+	size := strings.TrimSpace(raw)
+	if size == "" {
+		return "size is required"
+	}
+	for _, s := range model.Sizes {
+		if strings.EqualFold(strings.TrimSpace(s), size) {
+			return ""
+		}
+	}
+	if !model.AllowCustomSize {
+		presets := make([]string, 0, len(model.Sizes))
+		for _, s := range model.Sizes {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				presets = append(presets, s)
+			}
+		}
+		if len(presets) > 8 {
+			presets = presets[:8]
+		}
+		if len(presets) == 0 {
+			return fmt.Sprintf("size %q is not supported by this model", size)
+		}
+		return fmt.Sprintf("size %q is not supported by this model; allowed: %s", size, strings.Join(presets, ", "))
+	}
+	c := model.SizeConstraints
+	if c != nil {
+		for _, alias := range c.Aliases {
+			if strings.EqualFold(strings.TrimSpace(alias), size) {
+				return ""
+			}
+		}
+	} else {
+		switch strings.ToLower(size) {
+		case "auto", "1k", "2k", "4k":
+			return ""
+		}
+	}
+	w, h, ok := parseImageBillingDimensions(size)
+	if !ok {
+		w, h, ok = parseCreazyCanvasImageDimensions(size)
+	}
+	if !ok {
+		return fmt.Sprintf("invalid size format %q; use WxH (e.g. 1536x864) or a supported preset", size)
+	}
+	display := fmt.Sprintf("%dx%d", w, h)
+	if c == nil {
+		if w < 64 || h < 64 || w > 8192 || h > 8192 {
+			return fmt.Sprintf("size %s is out of range (64-8192px per edge)", display)
+		}
+		return fmt.Sprintf("size %s is invalid", display)
+	}
+	if c.MultipleOf > 0 && (w%c.MultipleOf != 0 || h%c.MultipleOf != 0) {
+		return fmt.Sprintf("size %s is invalid: width and height must be multiples of %d", display, c.MultipleOf)
+	}
+	if c.MaxEdge > 0 && (w > c.MaxEdge || h > c.MaxEdge) {
+		edge := w
+		if h > edge {
+			edge = h
+		}
+		return fmt.Sprintf("size %s is invalid: max edge is %dpx (got %dpx)", display, c.MaxEdge, edge)
+	}
+	pixels := int64(w) * int64(h)
+	if c.MinPixels > 0 && pixels < c.MinPixels {
+		return fmt.Sprintf("size %s is invalid: total pixels %d is below the minimum %d", display, pixels, c.MinPixels)
+	}
+	if c.MaxPixels > 0 && pixels > c.MaxPixels {
+		return fmt.Sprintf("size %s is invalid: total pixels %d exceeds the maximum %d", display, pixels, c.MaxPixels)
+	}
+	if c.MaxAspectRatio > 0 {
+		long, short := w, h
+		if h > w {
+			long, short = h, w
+		}
+		if short <= 0 {
+			return fmt.Sprintf("size %s is invalid: aspect ratio cannot be computed", display)
+		}
+		ratio := float64(long) / float64(short)
+		if ratio > c.MaxAspectRatio+1e-9 {
+			return fmt.Sprintf("size %s is invalid: aspect ratio %.2f exceeds %.0f:1", display, ratio, c.MaxAspectRatio)
+		}
+	}
+	return fmt.Sprintf("size %s is invalid", display)
+}
+
+// DescribeImageSizeInvalidForGateway returns a concrete size error for public image models.
+// Empty size is not validated here (defaults may be applied later). Empty return means accept.
+func DescribeImageSizeInvalidForGateway(platform, modelID, size string) string {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return ""
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return ""
+	}
+	sizes, allowCustom, constraints := creazyCanvasImageSizePolicy(platform, modelID)
+	model := &CreazyCanvasImageModel{
+		ID:              modelID,
+		Sizes:           sizes,
+		AllowCustomSize: allowCustom,
+		SizeConstraints: constraints,
+	}
+	return DescribeCreazyCanvasImageSizeInvalid(model, size)
+}
+
 // ValidateCreazyCanvasImageSize checks size against a catalog model policy.
 func ValidateCreazyCanvasImageSize(model *CreazyCanvasImageModel, raw string) bool {
 	if model == nil {

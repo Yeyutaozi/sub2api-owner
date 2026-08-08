@@ -95,6 +95,20 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		zap.String("img_size", parsed.Size),
 	)
 
+	// Return concrete size constraint errors (e.g. gpt-image-2 pixel/aspect limits) before upstream.
+	if apiKey.Group != nil {
+		if sizeMsg := service.DescribeImageSizeInvalidForGateway(apiKey.Group.Platform, clientRequestModel, parsed.Size); sizeMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": sizeMsg,
+					"param":   "size",
+				},
+			})
+			return
+		}
+	}
+
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return

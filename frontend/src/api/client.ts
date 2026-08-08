@@ -132,8 +132,26 @@ apiClient.interceptors.response.use(
 
     // Handle common errors
     if (error.response) {
-      const { status, data } = error.response
+      const { status } = error.response
+      let data: unknown = error.response.data
       const url = String(error.config?.url || '')
+
+      // responseType: 'blob' keeps JSON error envelopes as Blob — parse so callers get message/reason.
+      if (typeof Blob !== 'undefined' && data instanceof Blob) {
+        try {
+          const textBody = await data.text()
+          const trimmed = textBody.trim()
+          if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            data = JSON.parse(trimmed)
+          } else if (trimmed) {
+            data = { message: trimmed.slice(0, 500) }
+          } else {
+            data = {}
+          }
+        } catch {
+          data = {}
+        }
+      }
 
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
       const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>

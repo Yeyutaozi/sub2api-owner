@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Creazy 画布 API
  * - 元数据 / 作品列表走登录 JWT（/creazy-canvas/*）
  * - 生图 / 生视频走用户 API Key 直调网关（/v1/images/*、/v1/videos/*）
@@ -232,22 +232,77 @@ export interface VideoJob {
 
 // ==================== Helpers ====================
 
+export function extractGatewayErrorMessage(body: any): { message: string; code?: unknown; param?: string } {
+  if (!body || typeof body !== 'object') {
+    return { message: '' }
+  }
+  const err = body.error
+  let message = ''
+  let code: unknown = body.code
+  let param = ''
+
+  if (typeof err === 'string') {
+    message = err
+  } else if (err && typeof err === 'object') {
+    message = String(err.message || err.msg || err.detail || err.error || '')
+    code = err.code || err.type || code
+    param = String(err.param || err.field || err.property || '')
+  }
+
+  if (!message && typeof body.message === 'string') message = body.message
+  if (!message && typeof body.msg === 'string') message = body.msg
+  if (!message && typeof body.detail === 'string') message = body.detail
+  if (!param) param = String(body.param || body.field || '')
+
+  // FastAPI / array detail: [{loc, msg, type}]
+  if (!message && Array.isArray(body.detail)) {
+    const parts = body.detail
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+        const loc = Array.isArray(item.loc) ? item.loc.filter((x: any) => x !== 'body').join('.') : ''
+        const msg = String(item.msg || item.message || '')
+        if (loc && msg) return `${loc}: ${msg}`
+        return msg || loc
+      })
+      .filter(Boolean)
+    message = parts.join('; ')
+  }
+
+  // errors: [{field, message}]
+  if (!message && Array.isArray(body.errors)) {
+    const parts = body.errors
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+        const field = String(item.field || item.param || item.path || '')
+        const msg = String(item.message || item.msg || '')
+        if (field && msg) return `${field}: ${msg}`
+        return msg || field
+      })
+      .filter(Boolean)
+    message = parts.join('; ')
+  }
+
+  if (param && message && !message.toLowerCase().includes(String(param).toLowerCase())) {
+    message = `${message} (param: ${param})`
+  } else if (param && !message) {
+    message = `Invalid parameter: ${param}`
+  }
+
+  return { message: String(message || '').trim(), code, param: param || undefined }
+}
+
 async function parseGatewayError(response: Response): Promise<Error> {
   try {
     const body = await response.json()
-    // Prefer structured error; never attach full raw body as UI message
-    const message =
-      body?.error?.message ||
-      body?.message ||
-      body?.detail ||
-      body?.error ||
-      response.statusText ||
-      `HTTP ${response.status}`
+    const extracted = extractGatewayErrorMessage(body)
+    const message = extracted.message || response.statusText || `HTTP ${response.status}`
     const error = new Error(typeof message === 'string' ? message : `HTTP ${response.status}`)
-    const extra = error as Error & { code?: unknown; status?: number; raw?: unknown }
-    extra.code = body?.error?.code || body?.code || response.status
+    const extra = error as Error & { code?: unknown; status?: number; raw?: unknown; param?: string }
+    extra.code = extracted.code || body?.error?.code || body?.code || response.status
     extra.status = response.status
-    // Keep raw for optional server logs only — UI must use mapGatewayError
+    extra.param = extracted.param
     extra.raw = body
     return error
   } catch {
@@ -256,7 +311,6 @@ async function parseGatewayError(response: Response): Promise<Error> {
     return error
   }
 }
-
 function authHeaders(apiKey: string, extra?: HeadersInit): HeadersInit {
   return {
     Authorization: `Bearer ${apiKey}`,
@@ -362,30 +416,58 @@ export async function getWorkDownloadURL(id: number | string): Promise<CreazyDow
 
 /** JWT session content stream — no user API key secret required for succeeded works. */
 export async function getWorkContentBlob(id: number | string): Promise<string> {
-  const response = await apiClient.get<Blob>(
-    `/creazy-canvas/works/${encodeURIComponent(String(id))}/content`,
-    {
-      responseType: 'blob',
-      timeout: 10 * 60 * 1000,
-      // Allow following signed upstream redirects when backend 302s.
-      maxRedirects: 5,
-      // Do not transform; keep binary.
-      transformResponse: [(d: unknown) => d],
-    } as any,
-  )
-  const blob = response.data
-  // If server returned JSON envelope (rare inline data URL), try parse.
-  if (blob && typeof blob === 'object' && (blob as any).type && String((blob as any).type).includes('application/json')) {
-    const text = await (blob as Blob).text()
-    try {
-      const json = JSON.parse(text)
-      if (json?.url) return String(json.url)
-      if (json?.data?.url) return String(json.data.url)
-    } catch {
-      // fall through to blob URL
+  try {
+    const response = await apiClient.get<Blob>(
+      `/creazy-canvas/works/${encodeURIComponent(String(id))}/content`,
+      {
+        responseType: 'blob',
+        timeout: 10 * 60 * 1000,
+        // Allow following signed upstream redirects when backend 302s.
+        maxRedirects: 5,
+        // Do not transform; keep binary.
+        transformResponse: [(d: unknown) => d],
+      } as any,
+    )
+    const blob = response.data as Blob
+    const contentType = blob && typeof blob === 'object' ? String((blob as any).type || '') : ''
+    // JSON envelope (inline data URL / metadata) or accidental JSON body.
+    if (contentType.includes('application/json') || contentType.includes('text/')) {
+      const textBody = await blob.text()
+      try {
+        const json = JSON.parse(textBody)
+        if (json?.url) return String(json.url)
+        if (json?.data?.url) return String(json.data.url)
+        // Non-zero envelope that slipped through as 2xx
+        if (json && typeof json === 'object' && Number(json.code) > 0) {
+          const err = new Error(String(json.message || json.detail || `HTTP content error`)) as Error & {
+            status?: number
+            code?: unknown
+            reason?: string
+            raw?: unknown
+          }
+          err.status = Number(json.code) || response.status
+          err.code = json.code
+          err.reason = String(json.reason || '')
+          err.raw = json
+          throw err
+        }
+      } catch (e) {
+        if (e instanceof Error && (e as any).status) throw e
+        // fall through to blob URL only for non-JSON
+      }
+      // If content-type said json but parse failed / no url, don't create garbage blob URL.
+      if (contentType.includes('application/json')) {
+        throw Object.assign(new Error('预览返回了无法解析的内容'), { status: response.status || 502 })
+      }
     }
+    return URL.createObjectURL(blob)
+  } catch (error: any) {
+    // Normalize interceptor / axios errors for UI mapping.
+    if (error && typeof error === 'object' && (error.message || error.reason || error.status)) {
+      throw error
+    }
+    throw error
   }
-  return URL.createObjectURL(blob as Blob)
 }
 
 // ==================== Gateway APIs (API Key Bearer) ====================

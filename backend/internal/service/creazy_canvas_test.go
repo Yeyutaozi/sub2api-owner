@@ -431,6 +431,29 @@ func TestValidateCreazyCanvasImageSizeGPTImage2(t *testing.T) {
 	require.False(t, ValidateCreazyCanvasImageSize(img1, "2048x2048"))
 }
 
+
+func TestDescribeCreazyCanvasImageSizeInvalidGPTImage2(t *testing.T) {
+	model := &CreazyCanvasImageModel{
+		ID:              "gpt-image-2",
+		Sizes:           []string{"1024x1024", "1536x1024", "1024x1536", "auto"},
+		AllowCustomSize: true,
+		SizeConstraints: &CreazyCanvasImageSizeConstraints{
+			MultipleOf:      16,
+			MaxEdge:         3840,
+			MinPixels:       655360,
+			MaxPixels:       8294400,
+			MaxAspectRatio:  3,
+		},
+	}
+	require.Equal(t, "", DescribeCreazyCanvasImageSizeInvalid(model, "1024x1024"))
+	msg := DescribeCreazyCanvasImageSizeInvalid(model, "1000x1000")
+	require.Contains(t, msg, "multiples of 16")
+	msg = DescribeCreazyCanvasImageSizeInvalid(model, "64x64")
+	require.Contains(t, msg, "minimum")
+	msg = DescribeCreazyCanvasImageSizeInvalid(model, "not-a-size")
+	require.Contains(t, msg, "invalid size format")
+}
+
 func TestBuildCreazyCanvasObjectKeyPrefix(t *testing.T) {
 	key := buildCreazyCanvasObjectKey(&CreazyCanvasWork{UserID: 7, ID: 3, Kind: "video"}, "out.mp4")
 	require.True(t, strings.HasPrefix(key, "creazy-canvas/7/video/3/"))
@@ -474,4 +497,16 @@ func TestCreazyCanvasDownloadRejectsExpired(t *testing.T) {
 	stored.ExpiresAt = time.Now().Add(-time.Hour)
 	_, err = svc.GetDownloadURL(context.Background(), 1, work.ID)
 	require.Error(t, err)
+}
+
+
+func TestDescribeImageSizeInvalidForGateway(t *testing.T) {
+	// valid
+	require.Equal(t, "", DescribeImageSizeInvalidForGateway("openai", "gpt-image-2", "1024x1024"))
+	// empty size ignored
+	require.Equal(t, "", DescribeImageSizeInvalidForGateway("openai", "gpt-image-2", ""))
+	// multiple-of / pixels
+	msg := DescribeImageSizeInvalidForGateway("openai", "gpt-image-2", "1000x1000")
+	require.NotEmpty(t, msg)
+	require.Contains(t, msg, "size")
 }
