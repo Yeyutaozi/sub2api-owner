@@ -312,7 +312,18 @@ func TestCreazyCanvasImageCatalogByPlatform(t *testing.T) {
 	require.Contains(t, models[0].Sizes, "1024x1024")
 	require.True(t, models[0].Async)
 	require.Equal(t, 1, models[0].MaxN)
-	require.False(t, models[0].SupportsReference)
+	require.True(t, models[0].SupportsReference)
+	require.Equal(t, 1, models[0].MaxReferenceImages)
+	// edit models require a reference image
+	var edit *CreazyCanvasImageModel
+	for i := range models {
+		if strings.Contains(models[i].ID, "edit") {
+			edit = &models[i]
+			break
+		}
+	}
+	require.NotNil(t, edit)
+	require.True(t, edit.RequireReference)
 	require.NotNil(t, models[0].Prices["1K"])
 
 	group.Platform = PlatformGemini
@@ -321,6 +332,103 @@ func TestCreazyCanvasImageCatalogByPlatform(t *testing.T) {
 
 	group.AllowImageGeneration = false
 	require.Empty(t, buildCreazyCanvasImageModels(group))
+}
+
+func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
+	price := 0.02
+	group := &Group{
+		ID:                   9,
+		Platform:             PlatformOpenAI,
+		AllowCreazyCanvas:    true,
+		AllowImageGeneration: true,
+		ImagePrice1K:         &price,
+		ImagePrice2K:         &price,
+		ImagePrice4K:         &price,
+	}
+	models := buildCreazyCanvasImageModels(group)
+	require.NotEmpty(t, models)
+
+	var img2, img1 *CreazyCanvasImageModel
+	for i := range models {
+		switch models[i].ID {
+		case "gpt-image-2":
+			img2 = &models[i]
+		case "gpt-image-1":
+			img1 = &models[i]
+		}
+	}
+	require.NotNil(t, img2)
+	require.NotNil(t, img1)
+
+	// gpt-image-2: free-form with official constraints + 2K/4K presets.
+	require.True(t, img2.AllowCustomSize)
+	require.NotNil(t, img2.SizeConstraints)
+	require.Equal(t, 3840, img2.SizeConstraints.MaxEdge)
+	require.Equal(t, 16, img2.SizeConstraints.MultipleOf)
+	require.Equal(t, 3.0, img2.SizeConstraints.MaxAspectRatio)
+	require.EqualValues(t, 655360, img2.SizeConstraints.MinPixels)
+	require.EqualValues(t, 8294400, img2.SizeConstraints.MaxPixels)
+	require.Contains(t, img2.Sizes, "2048x2048")
+	require.Contains(t, img2.Sizes, "3840x2160")
+	require.Contains(t, img2.Sizes, "auto")
+
+	// gpt-image-1: presets only.
+	require.False(t, img1.AllowCustomSize)
+	require.Nil(t, img1.SizeConstraints)
+	require.Contains(t, img1.Sizes, "1024x1024")
+	require.Contains(t, img1.Sizes, "auto")
+	require.NotContains(t, img1.Sizes, "3840x2160")
+}
+
+func TestValidateCreazyCanvasImageSizeGPTImage2(t *testing.T) {
+	model := &CreazyCanvasImageModel{
+		ID:              "gpt-image-2",
+		Sizes:           []string{"1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160", "auto"},
+		AllowCustomSize: true,
+		SizeConstraints: &CreazyCanvasImageSizeConstraints{
+			MaxEdge:        3840,
+			MultipleOf:     16,
+			MaxAspectRatio: 3,
+			MinPixels:      655360,
+			MaxPixels:      8294400,
+			Aliases:        []string{"auto"},
+		},
+	}
+
+	valid := []string{
+		"1024x1024",
+		"1536x864", // 16 multiple, pixels/ratio ok
+		"3840x2160",
+		"auto",
+		"AUTO",
+	}
+	for _, size := range valid {
+		require.Truef(t, ValidateCreazyCanvasImageSize(model, size), "expected valid: %s", size)
+	}
+
+	invalid := []string{
+		"1000x1000", // not multiple of 16
+		"64x64",     // below min pixels
+		"5000x5000", // over max edge and pixels
+		"3840x960",  // 4:1 > 3:1
+		"1K",        // not an openai free-form alias for gpt-image-2
+		"2K",
+		"",
+	}
+	for _, size := range invalid {
+		require.Falsef(t, ValidateCreazyCanvasImageSize(model, size), "expected invalid: %s", size)
+	}
+
+	// gpt-image-1 rejects free-form even if geometrically valid.
+	img1 := &CreazyCanvasImageModel{
+		ID:              "gpt-image-1",
+		Sizes:           []string{"1024x1024", "1536x1024", "1024x1536", "auto"},
+		AllowCustomSize: false,
+	}
+	require.True(t, ValidateCreazyCanvasImageSize(img1, "1024x1024"))
+	require.True(t, ValidateCreazyCanvasImageSize(img1, "auto"))
+	require.False(t, ValidateCreazyCanvasImageSize(img1, "1536x864"))
+	require.False(t, ValidateCreazyCanvasImageSize(img1, "2048x2048"))
 }
 
 func TestBuildCreazyCanvasObjectKeyPrefix(t *testing.T) {

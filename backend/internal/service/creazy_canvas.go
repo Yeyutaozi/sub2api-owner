@@ -169,14 +169,36 @@ type CreazyCanvasVideoModel struct {
 	PromptLimit int `json:"prompt_limit"`
 }
 
+// CreazyCanvasImageSizeConstraints describes free-form WxH rules for a model
+// (OpenAI gpt-image-2 style). Gateway billing still uses max-edge tiers separately.
+type CreazyCanvasImageSizeConstraints struct {
+	// MaxEdge is the max length of either side in pixels (gpt-image-2: 3840).
+	MaxEdge int `json:"max_edge,omitempty"`
+	// MultipleOf requires both sides to be divisible by this value (gpt-image-2: 16).
+	MultipleOf int `json:"multiple_of,omitempty"`
+	// MaxAspectRatio is long:short upper bound (gpt-image-2: 3).
+	MaxAspectRatio float64 `json:"max_aspect_ratio,omitempty"`
+	// MinPixels / MaxPixels bound total width*height (gpt-image-2: 655360..8294400).
+	MinPixels int64 `json:"min_pixels,omitempty"`
+	MaxPixels int64 `json:"max_pixels,omitempty"`
+	// Aliases are non-WxH free-form tokens accepted when custom size is allowed (e.g. auto).
+	Aliases []string `json:"aliases,omitempty"`
+}
+
 type CreazyCanvasImageModel struct {
-	ID                string              `json:"id"`
-	Name              string              `json:"name,omitempty"`
-	Sizes             []string            `json:"sizes"`
-	Prices            map[string]*float64 `json:"prices"`
-	Async             bool                `json:"async"`
-	MaxN              int                 `json:"max_n"`
-	SupportsReference bool                `json:"supports_reference"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name,omitempty"`
+	Sizes              []string            `json:"sizes"`
+	// AllowCustomSize marks free-form sizes beyond Sizes (WxH and/or SizeConstraints.Aliases).
+	// Gateway bills by max-edge tier via ClassifyImageBillingTier.
+	AllowCustomSize    bool                             `json:"allow_custom_size"`
+	SizeConstraints    *CreazyCanvasImageSizeConstraints `json:"size_constraints,omitempty"`
+	Prices             map[string]*float64              `json:"prices"`
+	Async              bool                             `json:"async"`
+	MaxN               int                              `json:"max_n"`
+	SupportsReference  bool                             `json:"supports_reference"`
+	MaxReferenceImages int                              `json:"max_reference_images,omitempty"`
+	RequireReference   bool                             `json:"require_reference,omitempty"`
 }
 
 type CreazyCanvasDownloadURL struct {
@@ -948,6 +970,10 @@ func creazyCanvasKeyInfoFromAPIKey(apiKey *APIKey) (CreazyCanvasKeyInfo, bool) {
 		if !apiKey.Group.AllowCreazyCanvas {
 			return CreazyCanvasKeyInfo{}, false
 		}
+		// Only expose keys whose group can actually generate images and/or videos.
+		if !groupHasCreazyGenerationCapability(apiKey.Group) {
+			return CreazyCanvasKeyInfo{}, false
+		}
 		info.GroupName = apiKey.Group.Name
 		info.Platform = apiKey.Group.Platform
 		info.AllowCreazyCanvas = apiKey.Group.AllowCreazyCanvas
@@ -1016,29 +1042,217 @@ func buildCreazyCanvasImageModels(group *Group) []CreazyCanvasImageModel {
 	if group == nil || !group.AllowImageGeneration {
 		return []CreazyCanvasImageModel{}
 	}
-	sizes := creazyCanvasImageSizesForPlatform(group.Platform)
-	prices := map[string]*float64{}
-	for _, size := range sizes {
-		tier := creazyCanvasImageSizeTier(size)
-		prices[size] = group.GetImagePrice(tier)
-	}
-	prices["1K"] = group.GetImagePrice("1K")
-	prices["2K"] = group.GetImagePrice("2K")
-	prices["4K"] = group.GetImagePrice("4K")
 	modelIDs := defaultCreazyCanvasImageModels(group.Platform)
 	out := make([]CreazyCanvasImageModel, 0, len(modelIDs))
 	for _, id := range modelIDs {
+		sizes, allowCustom, constraints := creazyCanvasImageSizePolicy(group.Platform, id)
+		prices := map[string]*float64{}
+		for _, size := range sizes {
+			tier := creazyCanvasImageSizeTier(size)
+			prices[size] = group.GetImagePrice(tier)
+		}
+		// Always surface billing-tier keys for UI estimates.
+		prices["1K"] = group.GetImagePrice("1K")
+		prices["2K"] = group.GetImagePrice("2K")
+		prices["4K"] = group.GetImagePrice("4K")
+		supportsRef, maxRefs, requireRef := creazyCanvasImageReferenceCapability(group.Platform, id)
 		out = append(out, CreazyCanvasImageModel{
-			ID:                id,
-			Name:              id,
-			Sizes:             append([]string(nil), sizes...),
-			Prices:            prices,
-			Async:             true,
-			MaxN:              1,
-			SupportsReference: false,
+			ID:                 id,
+			Name:               id,
+			Sizes:              sizes,
+			AllowCustomSize:    allowCustom,
+			SizeConstraints:    constraints,
+			Prices:             prices,
+			Async:              true,
+			MaxN:               1,
+			SupportsReference:  supportsRef,
+			MaxReferenceImages: maxRefs,
+			RequireReference:   requireRef,
 		})
 	}
 	return out
+}
+
+// creazyCanvasImageSizePolicy returns suggested presets, whether free-form size is
+// allowed, and official geometric constraints (when applicable).
+//
+// OpenAI gpt-image-2 free-form size rules (Image generation guide):
+//   - max edge <= 3840
+//   - both edges multiples of 16
+//   - long:short <= 3:1
+//   - total pixels in [655360, 8294400]
+// gpt-image-1 only accepts fixed presets (+ auto), not arbitrary WxH.
+func creazyCanvasImageSizePolicy(platform, modelID string) (sizes []string, allowCustom bool, constraints *CreazyCanvasImageSizeConstraints) {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	switch platform {
+	case PlatformOpenAI:
+		switch {
+		case strings.HasPrefix(id, "gpt-image-2"):
+			sizes = []string{
+				"1024x1024", "1536x1024", "1024x1536",
+				"2048x2048", "2048x1152", "1152x2048",
+				"3840x2160", "2160x3840",
+				"auto",
+			}
+			allowCustom = true
+			constraints = &CreazyCanvasImageSizeConstraints{
+				MaxEdge:        3840,
+				MultipleOf:     16,
+				MaxAspectRatio: 3,
+				MinPixels:      655360,
+				MaxPixels:      8294400,
+				Aliases:        []string{"auto"},
+			}
+			return sizes, allowCustom, constraints
+		case strings.HasPrefix(id, "gpt-image-1"):
+			// gpt-image-1 / 1.5 family: fixed presets only.
+			return []string{"1024x1024", "1536x1024", "1024x1536", "auto"}, false, nil
+		default:
+			return creazyCanvasImageSizesForPlatform(platform), false, nil
+		}
+	case PlatformGrok:
+		// Grok image sizes are preset-only in canvas catalog.
+		return []string{"1024x1024", "1536x1024", "1024x1536"}, false, nil
+	case PlatformGemini, PlatformAntigravity:
+		// Gemini image_size enum style.
+		return []string{"1K", "2K", "4K"}, false, nil
+	default:
+		return creazyCanvasImageSizesForPlatform(platform), true, nil
+	}
+}
+
+// ValidateCreazyCanvasImageSize checks size against a catalog model policy.
+func ValidateCreazyCanvasImageSize(model *CreazyCanvasImageModel, raw string) bool {
+	if model == nil {
+		return false
+	}
+	size := strings.TrimSpace(raw)
+	if size == "" {
+		return false
+	}
+	for _, s := range model.Sizes {
+		if strings.EqualFold(strings.TrimSpace(s), size) {
+			return true
+		}
+	}
+	if !model.AllowCustomSize {
+		return false
+	}
+	c := model.SizeConstraints
+	if c != nil {
+		for _, alias := range c.Aliases {
+			if strings.EqualFold(strings.TrimSpace(alias), size) {
+				return true
+			}
+		}
+	} else {
+		// Loose legacy free-form: aliases + simple WxH bounds.
+		switch strings.ToLower(size) {
+		case "auto", "1k", "2k", "4k":
+			return true
+		}
+	}
+	w, h, ok := parseImageBillingDimensions(size)
+	if !ok {
+		w, h, ok = parseCreazyCanvasImageDimensions(size)
+	}
+	if !ok {
+		return false
+	}
+	if c == nil {
+		return w >= 64 && h >= 64 && w <= 8192 && h <= 8192
+	}
+	if c.MultipleOf > 0 {
+		if w%c.MultipleOf != 0 || h%c.MultipleOf != 0 {
+			return false
+		}
+	}
+	if c.MaxEdge > 0 && (w > c.MaxEdge || h > c.MaxEdge) {
+		return false
+	}
+	pixels := int64(w) * int64(h)
+	if c.MinPixels > 0 && pixels < c.MinPixels {
+		return false
+	}
+	if c.MaxPixels > 0 && pixels > c.MaxPixels {
+		return false
+	}
+	if c.MaxAspectRatio > 0 {
+		long, short := w, h
+		if h > w {
+			long, short = h, w
+		}
+		if short <= 0 {
+			return false
+		}
+		if float64(long)/float64(short) > c.MaxAspectRatio+1e-9 {
+			return false
+		}
+	}
+	return true
+}
+
+func parseCreazyCanvasImageDimensions(size string) (int, int, bool) {
+	s := strings.TrimSpace(strings.ToLower(size))
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "×", "x")
+	s = strings.ReplaceAll(s, "*", "x")
+	parts := strings.Split(s, "x")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	w, errW := strconv.Atoi(parts[0])
+	h, errH := strconv.Atoi(parts[1])
+	if errW != nil || errH != nil || w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// creazyCanvasImageReferenceCapability reports whether a public image model accepts
+// reference images via /v1/images/edits (or generations for platforms that accept both).
+func creazyCanvasImageReferenceCapability(platform, modelID string) (supports bool, maxRefs int, require bool) {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	switch platform {
+	case PlatformOpenAI, PlatformGrok, PlatformGemini, PlatformAntigravity:
+		supports = true
+	default:
+		// Unknown image platforms still allowed if catalog listed them.
+		supports = id != ""
+	}
+	if !supports {
+		return false, 0, false
+	}
+	require = strings.Contains(id, "edit") || strings.HasSuffix(id, "-edit")
+	switch platform {
+	case PlatformGemini, PlatformAntigravity:
+		maxRefs = 4
+	case PlatformOpenAI:
+		maxRefs = 4
+	case PlatformGrok:
+		maxRefs = 1
+	default:
+		maxRefs = 1
+	}
+	if require && maxRefs < 1 {
+		maxRefs = 1
+	}
+	return supports, maxRefs, require
+}
+
+// groupHasCreazyGenerationCapability reports whether the group can power canvas
+// image and/or video generation (not merely allow_creazy_canvas).
+func groupHasCreazyGenerationCapability(group *Group) bool {
+	if group == nil {
+		return false
+	}
+	if group.AllowImageGeneration && len(defaultCreazyCanvasImageModels(group.Platform)) > 0 {
+		return true
+	}
+	if len(buildCreazyCanvasVideoModels(group)) > 0 {
+		return true
+	}
+	return false
 }
 
 func creazyCanvasImageSizesForPlatform(platform string) []string {
@@ -1053,15 +1267,15 @@ func creazyCanvasImageSizesForPlatform(platform string) []string {
 }
 
 func creazyCanvasImageSizeTier(size string) string {
+	if tier, ok := ClassifyImageBillingTier(size); ok {
+		return tier
+	}
 	s := strings.TrimSpace(strings.ToUpper(size))
 	switch s {
 	case "1K", "2K", "4K":
 		return s
 	}
-	if strings.Contains(size, "1536") || strings.Contains(size, "1792") {
-		return "2K"
-	}
-	return "1K"
+	return ImageBillingSize1K
 }
 
 func defaultCreazyCanvasImageModels(platform string) []string {

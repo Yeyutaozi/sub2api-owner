@@ -1,66 +1,68 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl space-y-5">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 class="text-2xl font-semibold tracking-normal text-gray-950 dark:text-white">
-            {{ t('creazyCanvas.title') }}
-          </h1>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {{ t('creazyCanvas.subtitle') }}
-          </p>
-        </div>
-        <div class="w-full sm:w-96 space-y-2">
-          <div>
-            <label class="input-label">{{ t('creazyCanvas.key.label') }}</label>
-            <select
-              v-model.number="selectedKeyId"
-              class="input"
-              :disabled="loadingKeys"
-              @change="onKeyChange"
-            >
-              <option :value="0">
-                {{ loadingKeys ? t('creazyCanvas.key.loading') : t('creazyCanvas.key.placeholder') }}
-              </option>
-              <option v-for="item in keys" :key="item.id" :value="item.id">
-                {{ keyLabel(item) }}
-              </option>
-            </select>
-            <p v-if="!loadingKeys && keys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
-              {{ t('creazyCanvas.key.empty') }}
+    <div class="mx-auto max-w-6xl space-y-6">
+      <div class="cc-hero rounded-2xl border border-gray-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/60 p-5 shadow-sm dark:border-dark-700 dark:from-dark-900 dark:via-dark-900 dark:to-indigo-950/20 sm:p-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="min-w-0">
+            <div class="inline-flex items-center gap-2 rounded-full bg-indigo-100/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+              Creazy Canvas
+            </div>
+            <h1 class="mt-2 text-2xl font-semibold tracking-tight text-gray-950 dark:text-white">
+              {{ t('creazyCanvas.title') }}
+            </h1>
+            <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {{ t('creazyCanvas.subtitle') }}
             </p>
           </div>
-          <div v-if="selectedKeyId" class="rounded-xl border border-gray-200 bg-gray-50/80 p-3 dark:border-dark-700 dark:bg-dark-900/40">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                :class="keyReadyChipClass"
+          <div class="w-full space-y-2 lg:max-w-md">
+            <div>
+              <label class="input-label">{{ t('creazyCanvas.key.label') }}</label>
+              <select
+                v-model.number="selectedKeyId"
+                class="input"
+                :disabled="loadingKeys"
+                @change="onKeyChange"
               >
-                <span class="h-1.5 w-1.5 rounded-full" :class="keyReadyDotClass" />
-                {{ keyReadyLabel }}
-              </span>
-              <span class="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                {{ selectedKeyLabel }}
-              </span>
+                <option :value="0">
+                  {{ loadingKeys ? t('creazyCanvas.key.loading') : t('creazyCanvas.key.placeholder') }}
+                </option>
+                <option v-for="item in keys" :key="item.id" :value="item.id">
+                  {{ keyLabel(item) }}
+                </option>
+              </select>
+              <p class="input-hint">{{ t('creazyCanvas.key.capabilityHint') }}</p>
+              <p v-if="!loadingKeys && keys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
+                {{ t('creazyCanvas.key.empty') }}
+              </p>
             </div>
-            <p class="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              {{ t('creazyCanvas.key.selectOnlyHint') }}
-            </p>
+            <div v-if="selectedKeyId" class="rounded-xl border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur dark:border-dark-600 dark:bg-dark-800/70">
+              <div class="flex flex-wrap items-center gap-2">
+                <span
+                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                  :class="keyReadyChipClass"
+                >
+                  <span class="h-1.5 w-1.5 rounded-full" :class="keyReadyDotClass" />
+                  {{ keyReadyLabel }}
+                </span>
+                <span class="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                  {{ selectedKeyLabel }}
+                </span>
+              </div>
+              <p class="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('creazyCanvas.key.selectOnlyHint') }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-2 dark:border-dark-700">
+      <div class="cc-tabs">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
-          class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-          :class="
-            activeTab === tab.id
-              ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-              : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-800'
-          "
+          class="cc-tab"
+          :class="{ 'cc-tab--active': activeTab === tab.id }"
           @click="switchTab(tab.id)"
         >
           {{ tab.label }}
@@ -69,67 +71,182 @@
 
       <!-- Image -->
       <section v-if="activeTab === 'image'" class="grid gap-5 lg:grid-cols-2">
-        <div class="card space-y-4 p-5">
-          <div>
-            <label class="input-label">{{ t('creazyCanvas.form.prompt') }}</label>
+        <div class="card cc-form-card space-y-5 p-5 sm:p-6">
+          <div class="cc-field">
+            <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <textarea
               v-model="imageForm.prompt"
               rows="5"
-              class="input"
+              class="input cc-textarea"
               :placeholder="t('creazyCanvas.form.promptPlaceholder')"
             />
           </div>
-          <div class="rounded-xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/90 to-white p-3 dark:border-indigo-900/50 dark:from-indigo-950/30 dark:to-dark-900">
-            <div class="mb-2 flex items-center gap-2">
-              <span class="inline-flex h-6 items-center rounded-md bg-indigo-600 px-2 text-[11px] font-semibold uppercase tracking-wide text-white">
-                {{ t('creazyCanvas.form.model') }}
-              </span>
-              <span v-if="imageForm.model" class="truncate text-xs font-medium text-indigo-700 dark:text-indigo-300">
+          <div class="cc-panel cc-panel--image">
+            <div class="cc-panel__head">
+              <span class="cc-panel__badge cc-panel__badge--image">{{ t('creazyCanvas.form.paramsSection') }}</span>
+              <span v-if="imageForm.model" class="cc-panel__meta">
                 {{ selectedImageModel?.name || imageForm.model }}
               </span>
             </div>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <select v-model="imageForm.model" class="input border-indigo-200 focus:border-indigo-400 dark:border-indigo-800" :disabled="loadingCatalog">
-                  <option value="">{{ loadingCatalog ? t('creazyCanvas.catalog.loading') : '—' }}</option>
-                  <option v-for="m in imageModels" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
-                </select>
-                <p
-                  v-if="!loadingCatalog && selectedKeyId && imageModels.length === 0"
-                  class="input-hint text-amber-600 dark:text-amber-400"
+
+            <div class="cc-field">
+              <label class="cc-label">{{ t('creazyCanvas.form.model') }}</label>
+              <select
+                v-model="imageForm.model"
+                class="input cc-control border-indigo-200 focus:border-indigo-400 dark:border-indigo-800"
+                :disabled="loadingCatalog"
+              >
+                <option value="">{{ loadingCatalog ? t('creazyCanvas.catalog.loading') : t('creazyCanvas.form.selectPlaceholder') }}</option>
+                <option v-for="m in imageModels" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
+              </select>
+              <p
+                v-if="!loadingCatalog && selectedKeyId && imageModels.length === 0"
+                class="input-hint text-amber-600 dark:text-amber-400"
+              >
+                {{ t('creazyCanvas.catalog.emptyImage') }}
+              </p>
+            </div>
+
+            <div class="cc-field">
+              <div class="cc-label-row">
+                <label class="cc-label">{{ t('creazyCanvas.form.size') }}</label>
+                <span class="cc-size-current font-mono">{{ imageForm.size || '—' }}</span>
+              </div>
+              <div class="cc-chip-row" role="listbox" :aria-label="t('creazyCanvas.form.size')">
+                <button
+                  v-for="s in imageSizeOptions"
+                  :key="'size-chip-' + s"
+                  type="button"
+                  role="option"
+                  class="cc-chip"
+                  :class="{ 'cc-chip--active': imageSizePresetValue === s }"
+                  :aria-selected="imageSizePresetValue === s"
+                  @click="selectImageSizePreset(s)"
                 >
-                  {{ t('creazyCanvas.catalog.emptyImage') }}
-                </p>
+                  {{ s }}
+                </button>
+                <button
+                  v-if="imageAllowCustomSize"
+                  type="button"
+                  role="option"
+                  class="cc-chip"
+                  :class="{ 'cc-chip--active': imageSizePresetValue === '__custom__' }"
+                  :aria-selected="imageSizePresetValue === '__custom__'"
+                  @click="focusImageSizeCustom"
+                >
+                  {{ t('creazyCanvas.form.sizeCustomOption') }}
+                </button>
               </div>
-              <div>
-                <label class="input-label">{{ t('creazyCanvas.form.size') }}</label>
-                <select v-model="imageForm.size" class="input">
-                  <option v-for="s in imageSizeOptions" :key="s" :value="s">{{ s }}</option>
-                </select>
-              </div>
+              <input
+                v-if="imageAllowCustomSize"
+                ref="imageSizeCustomInput"
+                v-model="imageForm.size"
+                type="text"
+                class="input cc-control font-mono text-sm"
+                :placeholder="t('creazyCanvas.form.sizeCustomPlaceholder')"
+                list="creazy-canvas-image-sizes"
+                spellcheck="false"
+                autocomplete="off"
+                @blur="normalizeImageSizeInput"
+              />
+              <datalist v-if="imageAllowCustomSize" id="creazy-canvas-image-sizes">
+                <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
+              </datalist>
+              <p class="input-hint">{{ imageSizeHintText }}</p>
             </div>
           </div>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
-            @click="generateImage"
+
+          <div
+            v-if="imageRefSupported"
+            class="cc-media-panel rounded-xl border border-dashed border-indigo-300/80 bg-white/70 p-4 dark:border-indigo-800 dark:bg-dark-900/40"
           >
-            <Icon v-if="submittingImage" name="refresh" size="sm" class="mr-2 animate-spin" />
-            {{ submittingImage ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
-          </button>
-          <p v-if="imageRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
-            {{ t('creazyCanvas.tasks.runningCount', { n: imageRunningCount }) }}
-          </p>
-          <p v-if="imageError" class="text-sm text-red-600 dark:text-red-400">{{ imageError }}</p>
-          <p v-if="imageSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ imageSaveMessage }}</p>
+            <label class="input-label flex items-center justify-between gap-2">
+              <span>
+                {{ t('creazyCanvas.form.imageRefs') }}
+                ({{ imageRefs.length }}/{{ imageRefMax }})
+                <span v-if="imageRefRequired" class="ml-1 text-rose-500">*</span>
+              </span>
+              <button
+                v-if="imageRefs.length"
+                type="button"
+                class="text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-400"
+                :disabled="!!uploadingImageRef"
+                @click="clearImageRefs"
+              >
+                {{ t('creazyCanvas.form.clearAll') }}
+              </button>
+            </label>
+            <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ imageRefRequired ? t('creazyCanvas.form.imageRefsRequiredHint') : t('creazyCanvas.form.imageRefsHint') }}
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                ref="imageRefInput"
+                type="file"
+                accept="image/*"
+                multiple
+                class="hidden"
+                @change="onPickImageRefs"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!!uploadingImageRef || !selectedKeyId || imageRefs.length >= imageRefMax"
+                @click="openImageRefPicker"
+              >
+                {{ uploadingImageRef ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.uploadImage') }}
+              </button>
+              <span v-if="uploadingImageRef" class="text-xs text-gray-500">{{ imageRefUploadLabel }}</span>
+            </div>
+            <ul v-if="imageRefs.length" class="mt-3 grid gap-2 sm:grid-cols-2">
+              <li
+                v-for="(item, idx) in imageRefs"
+                :key="'img-ref-' + idx + item.media_url"
+                class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2 dark:border-dark-700 dark:bg-dark-900"
+              >
+                <img
+                  :src="item.preview_url || item.media_url"
+                  alt=""
+                  class="h-12 w-12 rounded object-cover"
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{{ item.name }}</p>
+                  <p class="truncate text-[11px] text-gray-400">{{ item.media_url }}</p>
+                </div>
+                <button type="button" class="text-xs text-rose-600 hover:underline" @click="removeImageRef(idx)">
+                  {{ t('creazyCanvas.form.remove') }}
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="cc-create">
+            <div class="cc-create__head">
+              <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
+              <span class="cc-create__hint">{{ t('creazyCanvas.form.createSectionHintImage') }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary cc-submit"
+              :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
+              @click="generateImage"
+            >
+              <Icon v-if="submittingImage" name="refresh" size="sm" class="mr-2 animate-spin" />
+              {{ submittingImage ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
+            </button>
+            <p v-if="imageRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
+              {{ t('creazyCanvas.tasks.runningCount', { n: imageRunningCount }) }}
+            </p>
+            <p v-if="imageError" class="text-sm text-red-600 dark:text-red-400">{{ imageError }}</p>
+            <p v-if="imageSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ imageSaveMessage }}</p>
+          </div>
         </div>
 
-        <div class="card space-y-4 p-5">
+        <div class="card cc-board-card space-y-4 p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
-              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+              <h2 class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
+              <p class="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="() => loadWorks()">
               {{ t('creazyCanvas.works.refresh') }}
@@ -203,53 +320,58 @@
 
       <!-- Video -->
       <section v-else-if="activeTab === 'video'" class="grid gap-5 lg:grid-cols-2">
-        <div class="card space-y-4 p-5">
-          <div>
-            <label class="input-label">{{ t('creazyCanvas.form.prompt') }}</label>
+        <div class="card cc-form-card space-y-5 p-5 sm:p-6">
+          <div class="cc-field">
+            <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <textarea
               v-model="videoForm.prompt"
               rows="5"
-              class="input"
+              class="input cc-textarea"
               :placeholder="t('creazyCanvas.form.promptPlaceholder')"
             />
           </div>
-          <div class="rounded-xl border border-violet-200/80 bg-gradient-to-br from-violet-50/90 to-white p-3 dark:border-violet-900/50 dark:from-violet-950/30 dark:to-dark-900">
-            <div class="mb-2 flex items-center gap-2">
-              <span class="inline-flex h-6 items-center rounded-md bg-violet-600 px-2 text-[11px] font-semibold uppercase tracking-wide text-white">
-                {{ t('creazyCanvas.form.model') }}
-              </span>
-              <span v-if="videoForm.model" class="truncate text-xs font-medium text-violet-700 dark:text-violet-300">
+          <div class="cc-panel cc-panel--video">
+            <div class="cc-panel__head">
+              <span class="cc-panel__badge cc-panel__badge--video">{{ t('creazyCanvas.form.paramsSection') }}</span>
+              <span v-if="videoForm.model" class="cc-panel__meta">
                 {{ selectedVideoModel?.name || videoForm.model }}
               </span>
             </div>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <select v-model="videoForm.model" class="input border-violet-200 focus:border-violet-400 dark:border-violet-800" :disabled="loadingCatalog">
-                  <option value="">{{ loadingCatalog ? t('creazyCanvas.catalog.loading') : '—' }}</option>
-                  <option v-for="m in videoModels" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
-                </select>
-                <p
-                  v-if="!loadingCatalog && selectedKeyId && videoModels.length === 0"
-                  class="input-hint text-amber-600 dark:text-amber-400"
-                >
-                  {{ t('creazyCanvas.catalog.emptyVideo') }}
-                </p>
-              </div>
-              <div>
-                <label class="input-label">{{ t('creazyCanvas.form.resolution') }}</label>
-                <select v-model="videoForm.resolution" class="input">
+
+            <div class="cc-field">
+              <label class="cc-label">{{ t('creazyCanvas.form.model') }}</label>
+              <select
+                v-model="videoForm.model"
+                class="input cc-control border-violet-200 focus:border-violet-400 dark:border-violet-800"
+                :disabled="loadingCatalog"
+              >
+                <option value="">{{ loadingCatalog ? t('creazyCanvas.catalog.loading') : t('creazyCanvas.form.selectPlaceholder') }}</option>
+                <option v-for="m in videoModels" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
+              </select>
+              <p
+                v-if="!loadingCatalog && selectedKeyId && videoModels.length === 0"
+                class="input-hint text-amber-600 dark:text-amber-400"
+              >
+                {{ t('creazyCanvas.catalog.emptyVideo') }}
+              </p>
+            </div>
+
+            <div class="cc-params-grid">
+              <div class="cc-field">
+                <label class="cc-label">{{ t('creazyCanvas.form.resolution') }}</label>
+                <select v-model="videoForm.resolution" class="input cc-control">
                   <option v-for="r in videoResolutionOptions" :key="r" :value="r">{{ r }}</option>
                 </select>
               </div>
-              <div>
-                <label class="input-label">{{ t('creazyCanvas.form.duration') }}</label>
-                <select v-model.number="videoForm.duration" class="input">
+              <div class="cc-field">
+                <label class="cc-label">{{ t('creazyCanvas.form.duration') }}</label>
+                <select v-model.number="videoForm.duration" class="input cc-control">
                   <option v-for="d in videoDurationOptions" :key="d" :value="d">{{ d }}</option>
                 </select>
               </div>
-              <div>
-                <label class="input-label">{{ t('creazyCanvas.form.aspectRatio') }}</label>
-                <select v-model="videoForm.aspectRatio" class="input">
+              <div class="cc-field">
+                <label class="cc-label">{{ t('creazyCanvas.form.aspectRatio') }}</label>
+                <select v-model="videoForm.aspectRatio" class="input cc-control">
                   <option v-for="a in videoAspectOptions" :key="a" :value="a">{{ a }}</option>
                 </select>
               </div>
@@ -568,30 +690,36 @@
             </div>
           </div>
 
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="submittingVideo || !!uploadingMedia || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
-            @click="generateVideo"
-          >
-            <Icon v-if="submittingVideo" name="refresh" size="sm" class="mr-2 animate-spin" />
-            {{ submittingVideo ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
-          </button>
-          <p v-if="videoRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
-            {{ t('creazyCanvas.tasks.runningCount', { n: videoRunningCount }) }}
-          </p>
-          <p v-if="videoStatus" class="text-sm text-gray-600 dark:text-gray-300">
-            {{ t('creazyCanvas.result.status') }}: {{ videoStatus }}
-          </p>
-          <p v-if="videoError" class="text-sm text-red-600 dark:text-red-400">{{ videoError }}</p>
-          <p v-if="videoSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ videoSaveMessage }}</p>
+          <div class="cc-create">
+            <div class="cc-create__head">
+              <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
+              <span class="cc-create__hint">{{ t('creazyCanvas.form.createSectionHintVideo') }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary cc-submit"
+              :disabled="submittingVideo || !!uploadingMedia || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
+              @click="generateVideo"
+            >
+              <Icon v-if="submittingVideo" name="refresh" size="sm" class="mr-2 animate-spin" />
+              {{ submittingVideo ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
+            </button>
+            <p v-if="videoRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
+              {{ t('creazyCanvas.tasks.runningCount', { n: videoRunningCount }) }}
+            </p>
+            <p v-if="videoStatus" class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t('creazyCanvas.result.status') }}: {{ videoStatus }}
+            </p>
+            <p v-if="videoError" class="text-sm text-red-600 dark:text-red-400">{{ videoError }}</p>
+            <p v-if="videoSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ videoSaveMessage }}</p>
+          </div>
         </div>
 
-        <div class="card space-y-4 p-5">
+        <div class="card cc-board-card space-y-4 p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
-              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+              <h2 class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
+              <p class="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="() => loadWorks()">
               {{ t('creazyCanvas.works.refresh') }}
@@ -997,6 +1125,7 @@ import {
   updateWork,
   deleteWork,
   generateImage as gatewayGenerateImage,
+  type ImageGenerationRequest,
   generateVideo as gatewayGenerateVideo,
   getCatalog,
   getImageTask,
@@ -1061,6 +1190,11 @@ const startFrame = ref<MediaItem | null>(null)
 const startFrameUrlInput = ref('')
 const endFrame = ref<MediaItem | null>(null)
 const refImages = ref<MediaItem[]>([])
+const imageRefs = ref<MediaItem[]>([])
+const imageRefInput = ref<HTMLInputElement | null>(null)
+const imageSizeCustomInput = ref<HTMLInputElement | null>(null)
+const uploadingImageRef = ref(false)
+const imageRefUploadLabel = ref('')
 const refVideos = ref<MediaItem[]>([])
 const refAudios = ref<MediaItem[]>([])
 const uploadingMedia = ref('')
@@ -1117,6 +1251,33 @@ const DEFAULT_ASPECT_RATIOS = ['16:9', '9:16', '1:1']
 const imageModels = computed<CreazyCanvasImageModel[]>(() => catalog.value?.image_models || [])
 const videoModels = computed<CreazyCanvasVideoModel[]>(() => catalog.value?.video_models || [])
 const selectedImageModel = computed(() => imageModels.value.find((m) => m.id === imageForm.model))
+const imageRefSupported = computed(() => {
+  const m = selectedImageModel.value
+  if (!m) return false
+  if (m.supports_reference) return true
+  return Number(m.max_reference_images || 0) > 0
+})
+const imageRefMax = computed(() => {
+  const m = selectedImageModel.value
+  const n = Number(m?.max_reference_images || 0)
+  if (n > 0) return n
+  return imageRefSupported.value ? 1 : 0
+})
+const imageRefRequired = computed(() => Boolean(selectedImageModel.value?.require_reference))
+
+watch(
+  () => [imageForm.model, imageRefSupported.value, imageRefMax.value] as const,
+  () => {
+    if (!imageRefSupported.value) {
+      clearImageRefs()
+      return
+    }
+    while (imageRefs.value.length > imageRefMax.value) {
+      removeImageRef(imageRefs.value.length - 1)
+    }
+  },
+)
+
 const selectedVideoModel = computed(() => videoModels.value.find((m) => m.id === videoForm.model))
 const hasKeySecret = computed(() => {
   const id = selectedKeyId.value
@@ -1300,7 +1461,10 @@ function syncFormModelsFromCatalog() {
     videoForm.model = ''
   }
   if (imageSizeOptions.value.length && !imageSizeOptions.value.includes(imageForm.size)) {
-    imageForm.size = imageSizeOptions.value[0]
+    // Keep valid custom sizes (WxH / 1K-4K); only fall back when empty/invalid.
+    if (!isValidImageSizeInput(imageForm.size)) {
+      imageForm.size = imageSizeOptions.value[0]
+    }
   }
   if (videoResolutionOptions.value.length && !videoResolutionOptions.value.includes(videoForm.resolution)) {
     videoForm.resolution = videoResolutionOptions.value[0]
@@ -1317,6 +1481,115 @@ const imageSizeOptions = computed(() => {
   const fromModel = selectedImageModel.value?.sizes
   return fromModel?.length ? fromModel : DEFAULT_IMAGE_SIZES
 })
+
+const imageAllowCustomSize = computed(() => Boolean(selectedImageModel.value?.allow_custom_size))
+
+const imageSizeHintText = computed(() => {
+  if (!imageAllowCustomSize.value) {
+    return t('creazyCanvas.form.sizePresetOnlyHint')
+  }
+  const c = selectedImageModel.value?.size_constraints
+  if (c?.max_edge && c?.multiple_of) {
+    return t('creazyCanvas.form.sizeCustomHintShort')
+  }
+  return t('creazyCanvas.form.sizeCustomHintShort')
+})
+
+const imageSizePresetValue = computed(() => {
+  const size = String(imageForm.size || '').trim()
+  if (!size) return imageSizeOptions.value[0] || ''
+  if (imageSizeOptions.value.includes(size)) return size
+  return '__custom__'
+})
+
+function selectImageSizePreset(size: string) {
+  imageForm.size = size
+}
+
+function focusImageSizeCustom() {
+  // Mark as custom by leaving freeform value; focus the text field for editing.
+  if (imageSizeOptions.value.includes(String(imageForm.size || '').trim())) {
+    // Keep current size text so user can tweak from a known preset.
+  } else if (!String(imageForm.size || '').trim()) {
+    imageForm.size = imageSizeOptions.value[0] || '1024x1024'
+  }
+  requestAnimationFrame(() => {
+    imageSizeCustomInput.value?.focus()
+    imageSizeCustomInput.value?.select()
+  })
+}
+
+function normalizeImageSizeInput() {
+  const raw = String(imageForm.size || '').trim()
+  imageForm.size = raw ? canonicalizeImageSizeInput(raw) : raw
+}
+
+function parseImageSizeWxH(raw: string): { w: number; h: number } | null {
+  const size = String(raw || '').trim()
+  // Accept x / X / × as separators.
+  const m = size.match(/^(\d{2,5})\s*[xX×]\s*(\d{2,5})$/)
+  if (!m) return null
+  const w = Number(m[1])
+  const h = Number(m[2])
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null
+  return { w, h }
+}
+
+function isValidImageSizeInput(raw: string): boolean {
+  const size = String(raw || '').trim()
+  if (!size) return false
+
+  const model = selectedImageModel.value
+  const presets = imageSizeOptions.value
+  if (presets.some((s) => String(s).toLowerCase() === size.toLowerCase())) return true
+
+  const allowCustom = Boolean(model?.allow_custom_size)
+  if (!allowCustom) return false
+
+  const constraints = model?.size_constraints || null
+  const aliases = (constraints?.aliases || []).map((a) => String(a).toLowerCase())
+  if (aliases.includes(size.toLowerCase())) return true
+
+  // Without official constraints: keep legacy free-form aliases + soft WxH bounds.
+  if (!constraints) {
+    if (/^(auto|1k|2k|4k)$/i.test(size)) return true
+    const dims = parseImageSizeWxH(size)
+    if (!dims) return false
+    return dims.w >= 64 && dims.h >= 64 && dims.w <= 8192 && dims.h <= 8192
+  }
+
+  // Official geometric constraints (gpt-image-2).
+  // Note: 1K/2K/4K are Gemini-style enums, not accepted as free-form for OpenAI.
+  const dims = parseImageSizeWxH(size)
+  if (!dims) return false
+  const { w, h } = dims
+  const multiple = Number(constraints.multiple_of || 0)
+  if (multiple > 0 && (w % multiple !== 0 || h % multiple !== 0)) return false
+  const maxEdge = Number(constraints.max_edge || 0)
+  if (maxEdge > 0 && (w > maxEdge || h > maxEdge)) return false
+  const pixels = w * h
+  const minPixels = Number(constraints.min_pixels || 0)
+  const maxPixels = Number(constraints.max_pixels || 0)
+  if (minPixels > 0 && pixels < minPixels) return false
+  if (maxPixels > 0 && pixels > maxPixels) return false
+  const maxRatio = Number(constraints.max_aspect_ratio || 0)
+  if (maxRatio > 0) {
+    const long = Math.max(w, h)
+    const short = Math.min(w, h)
+    if (short <= 0 || long / short > maxRatio + 1e-9) return false
+  }
+  return true
+}
+
+function canonicalizeImageSizeInput(raw: string): string {
+  const size = String(raw || '').trim()
+  if (!size) return size
+  if (/^auto$/i.test(size)) return 'auto'
+  if (/^(1k|2k|4k)$/i.test(size)) return size.toUpperCase()
+  const dims = parseImageSizeWxH(size)
+  if (!dims) return size
+  return `${dims.w}x${dims.h}`
+}
 
 const videoResolutionOptions = computed(() => {
   const fromModel = selectedVideoModel.value?.resolutions
@@ -2018,6 +2291,62 @@ function clearRefImages() {
   refImages.value = []
 }
 
+function clearImageRefs() {
+  for (const item of imageRefs.value) revokePreviewUrl(item)
+  imageRefs.value = []
+}
+
+function openImageRefPicker() {
+  if (!imageRefSupported.value || !!uploadingImageRef.value) return
+  if (imageRefs.value.length >= imageRefMax.value) return
+  imageRefInput.value?.click()
+}
+
+function removeImageRef(idx: number) {
+  const [item] = imageRefs.value.splice(idx, 1)
+  if (item) revokePreviewUrl(item)
+}
+
+async function onPickImageRefs(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (!files.length) return
+  if (!imageRefSupported.value) {
+    imageError.value = t('creazyCanvas.form.imageRefsUnsupported')
+    return
+  }
+  const room = Math.max(0, imageRefMax.value - imageRefs.value.length)
+  if (room <= 0) {
+    imageError.value = t('creazyCanvas.form.imagesExceeded', { max: imageRefMax.value })
+    return
+  }
+  const batch = files.slice(0, room)
+  uploadingImageRef.value = true
+  imageRefUploadLabel.value = t('creazyCanvas.form.uploadingProgress', { done: 0, total: batch.length })
+  imageError.value = ''
+  try {
+    for (let i = 0; i < batch.length; i++) {
+      const file = batch[i]
+      const media_url = await uploadPickedFile(file, 'image')
+      const preview_url = URL.createObjectURL(file)
+      imageRefs.value.push({ name: file.name, media_url, preview_url })
+      imageRefUploadLabel.value = t('creazyCanvas.form.uploadingProgress', {
+        done: i + 1,
+        total: batch.length,
+      })
+    }
+    if (files.length > room) {
+      imageError.value = t('creazyCanvas.form.imagesExceeded', { max: imageRefMax.value })
+    }
+  } catch (error: any) {
+    imageError.value = mapGatewayError(error)
+  } finally {
+    uploadingImageRef.value = false
+    imageRefUploadLabel.value = ''
+  }
+}
+
 function removeRefImage(idx: number) {
   const [item] = refImages.value.splice(idx, 1)
   revokePreviewUrl(item)
@@ -2486,6 +2815,7 @@ async function onKeyChange() {
   videoSaveMessage.value = ''
   lastImageTaskId.value = ''
   lastImageGatewayType.value = ''
+  clearImageRefs()
   resetVideoMedia()
   works.value = []
   if (selectedKeyId.value) {
@@ -2536,6 +2866,19 @@ async function generateImage() {
     imageError.value = t('creazyCanvas.errors.selectModel')
     return
   }
+  imageForm.size = canonicalizeImageSizeInput(imageForm.size)
+  if (!isValidImageSizeInput(imageForm.size)) {
+    imageError.value = t('creazyCanvas.form.sizeCustomInvalid')
+    return
+  }
+  if (imageRefRequired.value && imageRefs.value.length === 0) {
+    imageError.value = t('creazyCanvas.form.imageRefsRequired')
+    return
+  }
+  if (imageRefs.value.length > imageRefMax.value) {
+    imageError.value = t('creazyCanvas.form.imagesExceeded', { max: imageRefMax.value })
+    return
+  }
 
   submittingImage.value = true
   const snapshot = {
@@ -2544,6 +2887,7 @@ async function generateImage() {
     size: imageForm.size,
     preferAsync: Boolean(selectedImageModel.value?.async),
     keyId: selectedKeyId.value,
+    refs: imageRefs.value.map((item) => item.media_url).filter(Boolean),
   }
   let gatewayAttempted = false
   let runningWorkId: number | null = null
@@ -2558,7 +2902,7 @@ async function generateImage() {
       status: 'running',
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: { size: snapshot.size, n: 1 },
+      params: { size: snapshot.size, n: 1, reference_count: snapshot.refs.length, edit: snapshot.refs.length > 0 },
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
     if (running?.id) runningWorkId = running.id
@@ -2599,7 +2943,7 @@ async function generateImage() {
 
 async function runImageLifecycle(opts: {
   apiKey: string
-  snapshot: { model: string; prompt: string; size: string; preferAsync: boolean; keyId: number }
+  snapshot: { model: string; prompt: string; size: string; preferAsync: boolean; keyId: number; refs: string[] }
   runningWorkId: number | null
 }) {
   const { apiKey, snapshot } = opts
@@ -2608,16 +2952,22 @@ async function runImageLifecycle(opts: {
   let lastGatewayType: 'image_task' | 'image_sync' | '' = ''
   let lastTaskId = ''
   try {
-    const imagePayload = {
+    const useEdit = snapshot.refs.length > 0
+    const imagePayload: ImageGenerationRequest = {
       model: snapshot.model,
       prompt: snapshot.prompt,
       size: snapshot.size,
       n: 1,
     }
+    if (useEdit) {
+      imagePayload.images = snapshot.refs.map((url) => ({ image_url: url }))
+      // Grok-compatible alias
+      imagePayload.reference_images = snapshot.refs.map((url) => ({ image_url: url }))
+    }
     let usedAsync = snapshot.preferAsync
     let response: any
     try {
-      response = await gatewayGenerateImage(apiKey, imagePayload, { async: snapshot.preferAsync })
+      response = await gatewayGenerateImage(apiKey, imagePayload, { async: snapshot.preferAsync, edit: useEdit })
     } catch (asyncErr: any) {
       const status = Number(asyncErr?.status || 0)
       const msg = String(asyncErr?.message || asyncErr?.code || '')
@@ -2627,7 +2977,7 @@ async function runImageLifecycle(opts: {
           /async.*not enabled|not_found_error|model not found|unknown model/i.test(msg))
       if (!asyncUnavailable) throw asyncErr
       usedAsync = false
-      response = await gatewayGenerateImage(apiKey, imagePayload, { async: false })
+      response = await gatewayGenerateImage(apiKey, imagePayload, { async: false, edit: useEdit })
     }
 
     let urls = extractImageUrls(response)
@@ -3273,8 +3623,11 @@ async function reuseWork(work: CreazyWork) {
       imageForm.model = work.public_model
     }
     syncFormModelsFromCatalog()
-    if (params.size && imageSizeOptions.value.includes(String(params.size))) {
-      imageForm.size = String(params.size)
+    if (params.size) {
+      const size = String(params.size)
+      if (imageSizeOptions.value.includes(size) || isValidImageSizeInput(size)) {
+        imageForm.size = canonicalizeImageSizeInput(size)
+      }
     }
     switchTab('image')
   }
@@ -3337,4 +3690,326 @@ onBeforeUnmount(() => {
 })
 </script>
 
+<style scoped>
+.cc-hero {
+  position: relative;
+  overflow: hidden;
+}
 
+.cc-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -40% auto;
+  width: 280px;
+  height: 280px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.18), transparent 70%);
+  pointer-events: none;
+}
+
+.cc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  padding: 0.375rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgb(229 231 235 / 1);
+  background: rgb(255 255 255 / 1);
+}
+
+:global(.dark) .cc-tabs {
+  border-color: rgb(55 65 81 / 1);
+  background: rgb(17 24 39 / 1);
+}
+
+.cc-tab {
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(75 85 99 / 1);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:global(.dark) .cc-tab {
+  color: rgb(209 213 219 / 1);
+}
+
+.cc-tab:hover {
+  background: rgb(243 244 246 / 1);
+}
+
+:global(.dark) .cc-tab:hover {
+  background: rgb(31 41 55 / 1);
+}
+
+.cc-tab--active {
+  background: rgb(79 70 229 / 1);
+  color: white;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+:global(.dark) .cc-tab--active {
+  background: rgb(99 102 241 / 1);
+  color: white;
+}
+
+.cc-form-card {
+  border-radius: 1rem;
+}
+
+.cc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-radius: 0.9rem;
+  padding: 1rem;
+  border: 1px solid transparent;
+}
+
+.cc-panel--image {
+  border-color: rgb(199 210 254 / 0.9);
+  background: linear-gradient(160deg, rgb(238 242 255 / 0.95), rgb(255 255 255 / 0.98) 55%);
+}
+
+:global(.dark) .cc-panel--image {
+  border-color: rgb(49 46 129 / 0.55);
+  background: linear-gradient(160deg, rgb(30 27 75 / 0.35), rgb(17 24 39 / 0.9) 60%);
+}
+
+.cc-panel--video {
+  border-color: rgb(221 214 254 / 0.95);
+  background: linear-gradient(160deg, rgb(245 243 255 / 0.95), rgb(255 255 255 / 0.98) 55%);
+}
+
+:global(.dark) .cc-panel--video {
+  border-color: rgb(76 29 149 / 0.55);
+  background: linear-gradient(160deg, rgb(46 16 101 / 0.3), rgb(17 24 39 / 0.9) 60%);
+}
+
+.cc-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.cc-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  border-radius: 0.375rem;
+  padding: 0 0.5rem;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: white;
+  flex-shrink: 0;
+}
+
+.cc-panel__badge--image {
+  background: rgb(79 70 229 / 1);
+}
+
+.cc-panel__badge--video {
+  background: rgb(124 58 237 / 1);
+}
+
+.cc-panel__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(67 56 202 / 1);
+}
+
+:global(.dark) .cc-panel__meta {
+  color: rgb(196 181 253 / 1);
+}
+
+.cc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.cc-label {
+  display: block;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: rgb(55 65 81 / 1);
+}
+
+:global(.dark) .cc-label {
+  color: rgb(209 213 219 / 1);
+}
+
+.cc-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cc-size-current {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(79 70 229 / 1);
+}
+
+:global(.dark) .cc-size-current {
+  color: rgb(165 180 252 / 1);
+}
+
+.cc-control {
+  height: 2.625rem;
+  min-height: 2.625rem;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 2.5rem;
+}
+
+select.cc-control {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgb(107 114 128) 50%),
+    linear-gradient(135deg, rgb(107 114 128) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 11px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+.cc-params-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .cc-params-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.cc-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cc-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(199 210 254 / 1);
+  background: rgb(255 255 255 / 0.9);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(67 56 202 / 1);
+  transition: all 0.15s ease;
+}
+
+:global(.dark) .cc-chip {
+  border-color: rgb(67 56 202 / 0.6);
+  background: rgb(17 24 39 / 0.7);
+  color: rgb(199 210 254 / 1);
+}
+
+.cc-chip:hover {
+  border-color: rgb(129 140 248 / 1);
+  background: rgb(238 242 255 / 1);
+}
+
+:global(.dark) .cc-chip:hover {
+  background: rgb(49 46 129 / 0.35);
+}
+
+.cc-chip--active {
+  border-color: transparent;
+  background: rgb(79 70 229 / 1);
+  color: white;
+  box-shadow: 0 1px 2px rgb(79 70 229 / 0.35);
+}
+
+:global(.dark) .cc-chip--active {
+  background: rgb(99 102 241 / 1);
+  color: white;
+}
+
+.cc-media-panel {
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.cc-create {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding-top: 0.25rem;
+}
+
+.cc-create__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.cc-create__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: rgb(31 41 55 / 1);
+}
+
+:global(.dark) .cc-create__title {
+  color: rgb(243 244 246 / 1);
+}
+
+.cc-create__hint {
+  font-size: 0.75rem;
+  color: rgb(107 114 128 / 1);
+}
+
+:global(.dark) .cc-create__hint {
+  color: rgb(156 163 175 / 1);
+}
+
+.cc-submit {
+  width: 100%;
+  justify-content: center;
+  min-height: 2.75rem;
+  border-radius: 0.85rem;
+  font-weight: 600;
+}
+
+.cc-textarea {
+  min-height: 8.5rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.cc-board-card {
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 1), rgb(248 250 252 / 0.95));
+}
+
+:global(.dark) .cc-board-card {
+  background:
+    linear-gradient(180deg, rgb(17 24 39 / 1), rgb(15 23 42 / 0.92));
+}
+</style>

@@ -21,14 +21,33 @@ export interface CreazyCanvasKey {
   allow_image_generation?: boolean
 }
 
+export interface CreazyCanvasImageSizeConstraints {
+  /** Max single-edge length in px (gpt-image-2: 3840). */
+  max_edge?: number
+  /** Both edges must be multiples of this (gpt-image-2: 16). */
+  multiple_of?: number
+  /** long:short upper bound (gpt-image-2: 3). */
+  max_aspect_ratio?: number
+  /** Total pixel lower bound (gpt-image-2: 655360). */
+  min_pixels?: number
+  /** Total pixel upper bound (gpt-image-2: 8294400). */
+  max_pixels?: number
+  /** Non-WxH free-form aliases when custom size is allowed (e.g. auto). */
+  aliases?: string[]
+}
+
 export interface CreazyCanvasImageModel {
   id: string
   name?: string
   sizes?: string[]
+  allow_custom_size?: boolean
+  size_constraints?: CreazyCanvasImageSizeConstraints | null
   prices?: Record<string, number | null | undefined>
   async?: boolean
   max_n?: number
   supports_reference?: boolean
+  max_reference_images?: number
+  require_reference?: boolean
   [key: string]: unknown
 }
 
@@ -374,9 +393,16 @@ export async function getWorkContentBlob(id: number | string): Promise<string> {
 export async function generateImage(
   apiKey: string,
   payload: ImageGenerationRequest,
-  options?: { async?: boolean },
+  options?: { async?: boolean; edit?: boolean },
 ): Promise<ImageGenerationResponse> {
-  const path = options?.async ? '/v1/images/generations/async' : '/v1/images/generations'
+  const edit = Boolean(options?.edit)
+  const path = edit
+    ? options?.async
+      ? '/v1/images/edits/async'
+      : '/v1/images/edits'
+    : options?.async
+      ? '/v1/images/generations/async'
+      : '/v1/images/generations'
   const response = await fetch(buildGatewayUrl(path), {
     method: 'POST',
     headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }),
