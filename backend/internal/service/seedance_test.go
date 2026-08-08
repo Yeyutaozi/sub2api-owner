@@ -581,12 +581,19 @@ func TestBuildSeedanceOfficialTaskResponse(t *testing.T) {
 
 func TestMapSeedanceTaskStatus(t *testing.T) {
 	require.Equal(t, "queued", MapSeedanceTaskStatus("pending"))
+	require.Equal(t, "queued", MapSeedanceTaskStatus("submitted"))
 	require.Equal(t, "running", MapSeedanceTaskStatus("settling"))
+	require.Equal(t, "running", MapSeedanceTaskStatus("in_progress"))
+	require.Equal(t, "running", MapSeedanceTaskStatus("IN_PROGRESS"))
 	require.Equal(t, "succeeded", MapSeedanceTaskStatus("completed"))
+	require.Equal(t, "succeeded", MapSeedanceTaskStatus("finished"))
+	require.Equal(t, "succeeded", MapSeedanceTaskStatus("done"))
 	require.Equal(t, "failed", MapSeedanceTaskStatus("failed"))
 	require.Equal(t, "cancelled", MapSeedanceTaskStatus("canceled"))
 	require.Equal(t, "completed", MapSeedancePublicTaskStatus("succeeded"))
 	require.Equal(t, "completed", MapSeedancePublicTaskStatus("completed"))
+	require.Equal(t, "running", MapSeedancePublicTaskStatus("in_progress"))
+	require.Equal(t, "completed", MapSeedancePublicTaskStatus("finished"))
 }
 
 func TestSeedanceUsageRequestID(t *testing.T) {

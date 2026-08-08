@@ -1327,6 +1327,7 @@ const generatingImage = ref(false)
 const generatingVideo = ref(false)
 const activeImageJobs = ref(0)
 const activeVideoJobs = ref(0)
+const resumingVideoWorkIds = new Set<number>()
 const imageError = ref('')
 const videoError = ref('')
 const imageResultUrls = ref<string[]>([])
@@ -1438,7 +1439,19 @@ const keyReadyDotClass = computed(() => {
 
 function isActiveWorkStatus(status?: string) {
   const s = String(status || '').toLowerCase()
-  return s === 'created' || s === 'queued' || s === 'running' || s === 'pending' || s === 'processing'
+  return (
+    s === 'created' ||
+    s === 'queued' ||
+    s === 'running' ||
+    s === 'pending' ||
+    s === 'processing' ||
+    s === 'settling' ||
+    s === 'in_progress' ||
+    s === 'inprogress' ||
+    s === 'generating' ||
+    s === 'working' ||
+    s === 'submitted'
+  )
 }
 
 function sortTaskWorks(list: CreazyWork[]) {
@@ -2178,6 +2191,7 @@ function scheduleWorksPoll() {
   clearWorksPoll()
   const hasActive = works.value.some((w) => isActiveWorkStatus(w.status))
   if (!hasActive && activeImageJobs.value <= 0 && activeVideoJobs.value <= 0) return
+  if (hasActive) void resumeOrphanedVideoWorks()
   worksPollTimer = setTimeout(() => {
     worksPollTimer = null
     if (cancelled) return
@@ -3454,7 +3468,28 @@ function isTerminalImageStatus(status?: string) {
 
 function isTerminalVideoStatus(status?: string) {
   const s = (status || '').toLowerCase()
-  return ['succeeded', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled'].includes(s)
+  return ['succeeded', 'completed', 'success', 'finished', 'done', 'complete', 'failed', 'error', 'cancelled', 'canceled'].includes(s)
+}
+
+function isFailedVideoStatus(status?: string) {
+  const s = (status || '').toLowerCase()
+  return ['failed', 'error', 'cancelled', 'canceled'].includes(s)
+}
+
+function isSucceededVideoStatus(status?: string) {
+  return isTerminalVideoStatus(status) && !isFailedVideoStatus(status)
+}
+
+/** Normalize gateway/work status labels for UI consistency across providers. */
+function normalizeGatewayVideoStatus(status?: string): string {
+  const s = String(status || '').toLowerCase().trim()
+  if (!s) return ''
+  if (['pending', 'queued', 'submitted', 'created'].includes(s)) return 'queued'
+  if (['running', 'processing', 'settling', 'in_progress', 'inprogress', 'generating', 'working'].includes(s)) return 'running'
+  if (['completed', 'succeeded', 'success', 'finished', 'done', 'complete'].includes(s)) return 'completed'
+  if (['failed', 'error'].includes(s)) return 'failed'
+  if (['canceled', 'cancelled'].includes(s)) return 'cancelled'
+  return s
 }
 
 async function generateImage() {
@@ -3727,12 +3762,19 @@ function extractVideoUrl(job: any): string {
   return (
     job?.video_url ||
     job?.content_url ||
+    job?.download_url ||
+    job?.content?.video_url ||
+    job?.content?.download_url ||
+    job?.content?.url ||
     job?.url ||
     job?.result?.url ||
     job?.result?.content_url ||
+    job?.result?.video_url ||
+    job?.result?.download_url ||
     job?.result?.data?.[0]?.url ||
     job?.result?.data?.[0]?.mp4_url ||
     job?.result?.data?.[0]?.local_url ||
+    job?.result?.data?.[0]?.download_url ||
     ''
   )
 }
@@ -3846,6 +3888,7 @@ async function generateVideo() {
     activeVideoJobs.value += 1
     generatingVideo.value = activeVideoJobs.value > 0
 
+    if (runningWorkId) resumingVideoWorkIds.add(runningWorkId)
     void runVideoLifecycle({
       apiKey,
       snapshot,
@@ -3891,6 +3934,104 @@ async function generateVideo() {
   }
 }
 
+
+async function resumeOrphanedVideoWorks() {
+  if (cancelled) return
+  const candidates = works.value.filter((w) => {
+    if ((w.kind || '').toLowerCase() !== 'video') return false
+    if (!isActiveWorkStatus(w.status)) return false
+    if (!w.gateway_remote_id) return false
+    if (!w.id || resumingVideoWorkIds.has(w.id)) return false
+    return true
+  })
+  for (const work of candidates.slice(0, 5)) {
+    const workId = Number(work.id)
+    const jobId = String(work.gateway_remote_id || '')
+    const keyId = Number(work.api_key_id || 0)
+    if (!workId || !jobId || !keyId) continue
+    resumingVideoWorkIds.add(workId)
+    void (async () => {
+      try {
+        await ensureKeySecret(keyId)
+        const apiKey = resolveApiKeySecret(keyId)
+        if (!apiKey) return
+        let job: any = null
+        for (let i = 0; i < 120 && !cancelled; i++) {
+          job = await getVideoJob(apiKey, jobId)
+          const st = normalizeGatewayVideoStatus(job?.status) || String(job?.status || '').toLowerCase()
+          if (isTerminalVideoStatus(st)) break
+          if (i % 4 === 3) {
+            await updateWorkRecord(workId, {
+              status: st === 'queued' || st === 'created' || st === 'submitted' ? 'queued' : 'running',
+              gateway_remote_id: jobId,
+            })
+            void loadWorks({ quiet: true })
+          }
+          await sleepMs(3000)
+        }
+        if (!job) return
+        const st = normalizeGatewayVideoStatus(job.status) || String(job.status || '').toLowerCase()
+        if (isSucceededVideoStatus(st)) {
+          const contentPath = '/v1/videos/jobs/' + jobId + '/content'
+          const extracted = extractVideoUrl(job) || contentPath
+          const storedUrl =
+            (extracted && !isBlobUrl(extracted) && !needsAuthForMediaPlayback(extracted) ? extracted : '') ||
+            contentPath
+          await updateWorkRecord(workId, {
+            status: 'succeeded',
+            gateway_type: 'video_job',
+            gateway_remote_id: jobId,
+            object_url: storedUrl,
+            preview_url: storedUrl,
+            mime_type: 'video/mp4',
+            error_message: '',
+            params: {
+              ...(work.params || {}),
+              result_urls: [storedUrl],
+            },
+          })
+          // Flip board status immediately; preview download can take long for H3.
+          void loadWorks({ quiet: true })
+          // best-effort preview (non-blocking)
+          void (async () => {
+            try {
+              const resolved = await resolvePlayableVideoUrl(apiKey, jobId, extracted)
+              if (resolved.playable) {
+                if (isBlobUrl(resolved.playable)) workPreviewBlobUrls.add(resolved.playable)
+                workPreviewUrls[String(workId)] = resolved.playable
+              }
+            } catch {
+              /* ignore */
+            }
+          })()
+          return
+        }
+        if (isFailedVideoStatus(st)) {
+          const err =
+            typeof job.error === 'string'
+              ? job.error
+              : job.error && typeof job.error === 'object'
+                ? job.error.message
+                : ''
+          await updateWorkRecord(workId, {
+            status: 'failed',
+            gateway_remote_id: jobId,
+            error_message: mapGatewayError(
+              { message: err || '', status: 0 },
+              err || t('creazyCanvas.result.failed') + ': ' + (job.status || 'unknown'),
+            ),
+          })
+          void loadWorks({ quiet: true })
+        }
+      } catch (error) {
+        console.warn('[creazy-canvas] resume video work failed', workId, error)
+      } finally {
+        resumingVideoWorkIds.delete(workId)
+      }
+    })()
+  }
+}
+
 async function runVideoLifecycle(opts: {
   apiKey: string
   snapshot: {
@@ -3926,17 +4067,19 @@ async function runVideoLifecycle(opts: {
   try {
     if (jobId) {
       for (let i = 0; i < 150 && !cancelled; i++) {
-        if (isTerminalVideoStatus(job.status)) break
+        const normalized = normalizeGatewayVideoStatus(job.status)
+        if (isTerminalVideoStatus(normalized || job.status)) break
         await sleepMs(3000)
         job = await getVideoJob(apiKey, jobId)
+        const stRaw = String(job.status || '')
+        const st = normalizeGatewayVideoStatus(stRaw) || stRaw.toLowerCase()
         if (selectedKeyId.value === snapshot.keyId) {
-          videoStatus.value = job.status || videoStatus.value
+          videoStatus.value = st || videoStatus.value
         }
-        const st = String(job.status || '').toLowerCase()
-        if (runningWorkId && (st === 'queued' || st === 'running' || st === 'created' || st === 'processing')) {
+        if (runningWorkId && isActiveWorkStatus(st) && !isTerminalVideoStatus(st)) {
           if (i % 5 === 4) {
             await updateWorkRecord(runningWorkId, {
-              status: st === 'queued' || st === 'created' ? st : 'running',
+              status: st === 'queued' || st === 'created' || st === 'submitted' ? 'queued' : 'running',
               gateway_remote_id: jobId,
             })
           }
@@ -3945,25 +4088,92 @@ async function runVideoLifecycle(opts: {
       }
     }
 
-    const extracted = extractVideoUrl(job)
-    const failedStatus = ['failed', 'error', 'cancelled', 'canceled'].includes((job.status || '').toLowerCase())
-    const timedOut = Boolean(jobId && !isTerminalVideoStatus(job.status) && !failedStatus)
-    let playable = ''
-    let persist = extracted
-    if (jobId && isTerminalVideoStatus(job.status) && !failedStatus) {
-      const resolved = await resolvePlayableVideoUrl(apiKey, jobId, extracted)
-      playable = resolved.playable
-      persist = resolved.persist || extracted
-    } else if (extracted) {
-      playable = extracted
-      persist = extracted
-    }
-    const url = playable
+    const terminalStatus = normalizeGatewayVideoStatus(job.status) || String(job.status || '').toLowerCase()
+    const failedStatus = isFailedVideoStatus(terminalStatus)
+    const succeededStatus = isSucceededVideoStatus(terminalStatus)
+    const timedOut = Boolean(jobId && !isTerminalVideoStatus(terminalStatus) && !failedStatus)
+    const contentPath = jobId ? '/v1/videos/jobs/' + jobId + '/content' : ''
+    const extracted = extractVideoUrl(job) || (succeededStatus ? contentPath : '')
+    const posterUrl = snapshot.startFrameUrl || ''
 
-    if (!url) {
+    // Mark work terminal ASAP — do not wait for full MP4 blob download (H3 1440p can be large).
+    if (succeededStatus) {
+      const storedUrl =
+        (extracted && !isBlobUrl(extracted) && !needsAuthForMediaPlayback(extracted) ? extracted : '') ||
+        contentPath ||
+        extracted
+      const successPayload = {
+        status: 'succeeded' as const,
+        public_model: snapshot.model,
+        prompt: snapshot.prompt,
+        params: {
+          ...baseParams,
+          result_urls: storedUrl ? [storedUrl] : [],
+          poster_url: posterUrl || undefined,
+          start_frame_url: posterUrl || undefined,
+        },
+        gateway_type: 'video_job' as const,
+        gateway_remote_id: jobId,
+        preview_url: posterUrl || storedUrl,
+        object_url: storedUrl,
+        mime_type: 'video/mp4',
+        error_message: '',
+      }
+      let saved: CreazyWork | null = null
+      if (runningWorkId) {
+        saved = await updateWorkRecord(runningWorkId, successPayload)
+      }
+      if (!saved) {
+        saved = await persistWork({
+          kind: 'video',
+          api_key_id: snapshot.keyId,
+          ...successPayload,
+        })
+      }
+      if (selectedKeyId.value === snapshot.keyId) {
+        videoStatus.value = 'completed'
+        videoSaveMessage.value = t('creazyCanvas.result.autoSaved')
+      }
+      // Prefer poster immediately so task board leaves "running" without waiting for MP4 blob.
+      if (saved?.id && posterUrl && !needsAuthForMediaPlayback(posterUrl) && !workPreviewUrls[String(saved.id)]) {
+        workPreviewUrls[String(saved.id)] = posterUrl
+      }
+      void loadWorks({ quiet: true })
+
+      // Resolve playable preview after status flip (best-effort, non-blocking).
+      // H3 1440p content download can take a long time; do not keep work "active" for it.
+      const savedId = saved?.id
+      void (async () => {
+        let playable = ''
+        let persist = storedUrl
+        try {
+          const resolved = await resolvePlayableVideoUrl(apiKey, jobId, extracted)
+          playable = resolved.playable
+          persist = resolved.persist || storedUrl
+        } catch {
+          playable = extracted && !needsAuthForMediaPlayback(extracted) ? extracted : ''
+        }
+        if (selectedKeyId.value === snapshot.keyId && (playable || persist)) {
+          setVideoResultPlayback(playable || persist, persist)
+        }
+        if (savedId) {
+          const playableUrl =
+            selectedKeyId.value === snapshot.keyId ? videoResultUrl.value : playable || persist
+          if (playableUrl) {
+            if (isBlobUrl(playableUrl)) workPreviewBlobUrls.add(playableUrl)
+            workPreviewUrls[String(savedId)] = playableUrl
+          } else if (posterUrl && !needsAuthForMediaPlayback(posterUrl)) {
+            workPreviewUrls[String(savedId)] = posterUrl
+          }
+        }
+      })()
+      return
+    }
+
+    if (!extracted && !contentPath) {
       if (timedOut && jobId) {
         if (selectedKeyId.value === snapshot.keyId) {
-          videoStatus.value = job.status || 'running'
+          videoStatus.value = terminalStatus || 'running'
           videoSaveMessage.value = t('creazyCanvas.result.autoSaved')
           videoError.value = t('creazyCanvas.errors.serviceBusy')
         }
@@ -4010,55 +4220,58 @@ async function runVideoLifecycle(opts: {
       throw new Error(msg)
     }
 
-    if (selectedKeyId.value === snapshot.keyId) {
-      setVideoResultPlayback(url, persist)
-      videoSaveMessage.value = t('creazyCanvas.result.autoSaved')
+    // Failed terminal (or unknown non-timeout) path
+    if (failedStatus || !timedOut) {
+      const err =
+        typeof job.error === 'string'
+          ? job.error
+          : job.error && typeof job.error === 'object'
+            ? job.error.message
+            : ''
+      const msg = mapGatewayError(
+        { message: err || '', status: 0 },
+        err || (t('creazyCanvas.result.failed') + ': ' + (job.status || 'unknown')),
+      )
+      if (runningWorkId) {
+        await updateWorkRecord(runningWorkId, {
+          status: 'failed',
+          gateway_remote_id: jobId || undefined,
+          error_message: msg,
+        })
+      } else {
+        await persistWork({
+          kind: 'video',
+          api_key_id: snapshot.keyId,
+          status: 'failed',
+          public_model: snapshot.model,
+          prompt: snapshot.prompt,
+          params: baseParams,
+          gateway_type: 'video_job',
+          gateway_remote_id: jobId,
+          error_message: msg,
+        })
+      }
+      failedPersisted = true
+      throw new Error(msg)
     }
 
-    const storedUrl =
-      (persist && !isBlobUrl(persist) ? persist : '') ||
-      (jobId ? '/v1/videos/jobs/' + jobId + '/content' : '') ||
-      url
-    const posterUrl = snapshot.startFrameUrl || ''
-    const successPayload = {
-      status: 'succeeded' as const,
-      public_model: snapshot.model,
-      prompt: snapshot.prompt,
-      params: {
-        ...baseParams,
-        result_urls: [storedUrl],
-        poster_url: posterUrl || undefined,
-        start_frame_url: posterUrl || undefined,
-      },
-      gateway_type: 'video_job' as const,
-      gateway_remote_id: jobId,
-      preview_url: posterUrl || storedUrl,
-      object_url: storedUrl,
-      mime_type: 'video/mp4',
-      error_message: '',
-    }
-    let saved: CreazyWork | null = null
-    if (runningWorkId) {
-      saved = await updateWorkRecord(runningWorkId, successPayload)
-    }
-    if (!saved) {
-      saved = await persistWork({
-        kind: 'video',
-        api_key_id: snapshot.keyId,
-        ...successPayload,
-      })
-    }
-    if (saved?.id) {
-      const playableUrl =
-        selectedKeyId.value === snapshot.keyId ? videoResultUrl.value : url
-      if (playableUrl) {
-        if (isBlobUrl(playableUrl)) workPreviewBlobUrls.add(playableUrl)
-        workPreviewUrls[String(saved.id)] = playableUrl
-      } else if (posterUrl && !needsAuthForMediaPlayback(posterUrl)) {
-        workPreviewUrls[String(saved.id)] = posterUrl
+    // Still running after poll budget
+    if (timedOut && jobId) {
+      if (selectedKeyId.value === snapshot.keyId) {
+        videoStatus.value = terminalStatus || 'running'
+        videoSaveMessage.value = t('creazyCanvas.result.autoSaved')
+        videoError.value = t('creazyCanvas.errors.serviceBusy')
       }
+      if (runningWorkId) {
+        await updateWorkRecord(runningWorkId, {
+          status: 'running',
+          gateway_remote_id: jobId,
+          error_message: '',
+        })
+      }
+      void loadWorks({ quiet: true })
+      return
     }
-    void loadWorks({ quiet: true })
   } catch (error: any) {
     const msg = mapGatewayError(error)
     if (selectedKeyId.value === snapshot.keyId) {
@@ -4088,6 +4301,7 @@ async function runVideoLifecycle(opts: {
       void loadWorks({ quiet: true })
     }
   } finally {
+    if (runningWorkId) resumingVideoWorkIds.delete(runningWorkId)
     activeVideoJobs.value = Math.max(0, activeVideoJobs.value - 1)
     generatingVideo.value = activeVideoJobs.value > 0
     if (selectedKeyId.value === snapshot.keyId) {

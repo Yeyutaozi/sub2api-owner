@@ -2075,11 +2075,11 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 
 func MapSeedanceTaskStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "pending", "queued":
+	case "pending", "queued", "submitted", "created":
 		return "queued"
-	case "running", "processing", "settling":
+	case "running", "processing", "settling", "in_progress", "inprogress", "generating", "working":
 		return "running"
-	case "completed", "succeeded", "success":
+	case "completed", "succeeded", "success", "finished", "done", "complete":
 		return "succeeded"
 	case "failed", "error":
 		return "failed"
