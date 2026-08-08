@@ -20,6 +20,7 @@ const allNullQuotas: DefaultPlatformQuotasMap = {
   seedance: { daily: null, weekly: null, monthly: null },
   ltx: { daily: null, weekly: null, monthly: null },
   happyhorse: { daily: null, weekly: null, monthly: null },
+  minimax: { daily: null, weekly: null, monthly: null },
 }
 
 describe("admin settings auth source defaults helpers", () => {
@@ -246,11 +247,12 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.seedance).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.ltx).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.happyhorse).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.minimax).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
   it("无参数时返回全 9 平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(Object.keys(result)).toHaveLength(9);
+    expect(Object.keys(result)).toHaveLength(10);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }
@@ -298,7 +300,7 @@ describe("sanitizePlatformQuotasMap", () => {
 
   it("缺失平台填充为全 null", () => {
     const result = sanitizePlatformQuotasMap({});
-    expect(Object.keys(result)).toHaveLength(9);
+    expect(Object.keys(result)).toHaveLength(10);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }

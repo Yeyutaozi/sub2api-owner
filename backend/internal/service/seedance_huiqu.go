@@ -28,6 +28,10 @@ const (
 	SeedanceMX933LegacyModel     = "sd2-mx933-720-1s"
 	SeedanceMX933LegacyFastModel = "sd2-mx933-720-fast-1s"
 
+	// Public MiniMax H3 model id for Huiqu. Upstream keeps the fixed provider name.
+	SeedanceMiniMaxH3Model         = "minimax-h3"
+	SeedanceMiniMaxH3UpstreamModel = "MiniMax-H3-933-1440P-GF"
+
 	DefaultHuiquVideoBaseURL = "https://api.bjhuiqu.net"
 
 	huiquVideoCreatePath   = "/v1/videos/generations"
@@ -45,6 +49,9 @@ var huiquVideoModels = map[string]struct{}{
 	SeedanceMX933FastModel:       {},
 	SeedanceMX933LegacyModel:     {},
 	SeedanceMX933LegacyFastModel: {},
+	SeedanceMiniMaxH3Model:       {},
+	// Accept the provider-facing model name when accounts map 1:1.
+	"minimax-h3-933-1440p-gf": {},
 }
 
 func isHuiquVideoModel(model string) bool {
@@ -54,6 +61,33 @@ func isHuiquVideoModel(model string) bool {
 
 func IsHuiquVideoModel(model string) bool {
 	return isHuiquVideoModel(model)
+}
+
+func isHuiquMiniMaxH3Model(model string) bool {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case SeedanceMiniMaxH3Model, "minimax-h3-933-1440p-gf", strings.ToLower(SeedanceMiniMaxH3UpstreamModel):
+		return true
+	default:
+		return false
+	}
+}
+
+func isHuiquMiniMaxH3DurationSupported(duration int) bool {
+	return duration >= 5 && duration <= 15
+}
+
+func huiquMiniMaxH3SizeFor(aspectRatio string) string {
+	switch strings.ToLower(strings.TrimSpace(aspectRatio)) {
+	case "9:16":
+		return "1440x2560"
+	default:
+		// Docs advertise 16:9 / 9:16; default the 16:9 QHD tier from the H3 example.
+		return "2560x1440"
+	}
+}
+
+func huiquMiniMaxH3UpstreamResolution() string {
+	return "1440P"
 }
 
 func isSeedanceDurationSupported(duration int) bool {
@@ -105,6 +139,10 @@ func PublicSeedanceModelID(model string) string {
 		"sd2-mx933-720-fast-10s",
 		"sd2-mx933-720-fast-15s":
 		return SeedanceMX933FastModel
+	case SeedanceMiniMaxH3Model,
+		"minimax-h3-933-1440p-gf",
+		strings.ToLower(SeedanceMiniMaxH3UpstreamModel):
+		return SeedanceMiniMaxH3Model
 	default:
 		return trimmed
 	}
@@ -113,8 +151,16 @@ func PublicSeedanceModelID(model string) string {
 // huiquUpstreamModelFor resolves a public MX933 model to the fixed-duration
 // provider model. Legacy -1s bindings with non-standard durations are passed
 // through only so already-created fallback tasks remain recoverable.
+// MiniMax H3 keeps a single upstream model name and accepts 5-15 second
+// durations as arbitrary integers.
 func huiquUpstreamModelFor(model string, duration int) (string, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if isHuiquMiniMaxH3Model(model) {
+		if !isHuiquMiniMaxH3DurationSupported(duration) {
+			return "", fmt.Errorf("duration %d is not supported by model %s", duration, model)
+		}
+		return SeedanceMiniMaxH3UpstreamModel, nil
+	}
 	if isLegacyHuiquVariableDurationModel(model) && !isSeedanceDurationSupported(duration) {
 		if duration >= 1 && duration <= 15 {
 			return model, nil
@@ -141,12 +187,24 @@ func IsHuiquSeedanceTaskID(taskID string) bool {
 func normalizeVideoProvider(platform, provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
+		// MiniMax product line defaults to huiqu today; seedance/ltx/happyhorse keep fflink.
+		if platform == PlatformMiniMax {
+			return VideoProviderHuiqu, nil
+		}
 		return VideoProviderFFLink, nil
 	}
 	switch provider {
 	case VideoProviderFFLink:
+		if platform == PlatformMiniMax {
+			return "", fmt.Errorf("video provider %s is not supported by the minimax platform", provider)
+		}
 		return provider, nil
-	case VideoProviderHuiqu, VideoProviderXimei:
+	case VideoProviderHuiqu:
+		if platform != PlatformSeedance && platform != PlatformMiniMax {
+			return "", fmt.Errorf("video provider %s is only supported by the seedance or minimax platforms", provider)
+		}
+		return provider, nil
+	case VideoProviderXimei:
 		if platform != PlatformSeedance {
 			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
 		}
@@ -157,17 +215,45 @@ func normalizeVideoProvider(platform, provider string) (string, error) {
 }
 
 func videoProviderSupportsModel(provider, model string) bool {
+	return videoProviderSupportsModelForPlatform("", provider, model)
+}
+
+// videoProviderSupportsModelForPlatform keeps product platforms (seedance vs minimax)
+// isolated while allowing the same upstream channel (e.g. huiqu) to host both.
+func videoProviderSupportsModelForPlatform(platform, provider, model string) bool {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
-		provider = VideoProviderFFLink
+		if platform == PlatformMiniMax {
+			provider = VideoProviderHuiqu
+		} else {
+			provider = VideoProviderFFLink
+		}
 	}
-	if provider == VideoProviderHuiqu {
-		return isHuiquVideoModel(model)
+	switch provider {
+	case VideoProviderHuiqu:
+		if !isHuiquVideoModel(model) {
+			return false
+		}
+		isH3 := isHuiquMiniMaxH3Model(model)
+		switch platform {
+		case PlatformMiniMax:
+			return isH3
+		case PlatformSeedance:
+			return !isH3
+		case "":
+			// Legacy callers without platform context accept all huiqu models.
+			return true
+		default:
+			return false
+		}
+	case VideoProviderXimei:
+		return (platform == PlatformSeedance || platform == "") && isXimeiVideoModel(model)
+	default: // fflink and future non-opaque providers
+		if platform == PlatformMiniMax {
+			return false
+		}
+		return !isHuiquVideoModel(model) && !isXimeiVideoModel(model)
 	}
-	if provider == VideoProviderXimei {
-		return isXimeiVideoModel(model)
-	}
-	return !isHuiquVideoModel(model) && !isXimeiVideoModel(model)
 }
 
 func (a *Account) GetVideoProvider() string {
@@ -182,7 +268,7 @@ func (a *Account) GetVideoProvider() string {
 }
 
 func (a *Account) IsHuiquVideo() bool {
-	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderHuiqu
+	return a != nil && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderHuiqu && (a.IsSeedance() || a.IsMiniMax())
 }
 
 func publicSeedanceTaskID(provider, upstreamTaskID string) (string, error) {
@@ -240,6 +326,19 @@ func (i *SeedanceRequestInfo) HuiquUpstreamBody(upstreamModel string) ([]byte, e
 	}
 	if i.HasReferenceMedia() {
 		return nil, errors.New("Huiqu reference media requires multipart/form-data")
+	}
+	if isHuiquMiniMaxH3Model(i.Model) || strings.EqualFold(strings.TrimSpace(upstreamModel), SeedanceMiniMaxH3UpstreamModel) {
+		body := map[string]any{
+			"model":        strings.TrimSpace(upstreamModel),
+			"prompt":       i.Prompt,
+			"seconds":      i.DurationSeconds,
+			"aspect_ratio": i.AspectRatio,
+			"resolution":   huiquMiniMaxH3UpstreamResolution(),
+			"size":         huiquMiniMaxH3SizeFor(i.AspectRatio),
+			// H3 always emits native audio; omit false to avoid upstream unsupported_parameter.
+			"audio":        true,
+		}
+		return json.Marshal(body)
 	}
 	body := map[string]any{
 		"model":          strings.TrimSpace(upstreamModel),
@@ -511,13 +610,26 @@ func buildHuiquMultipartBody(info *SeedanceRequestInfo, upstreamModel string) (*
 	}()
 
 	writer := multipart.NewWriter(tmp)
+	isH3 := isHuiquMiniMaxH3Model(info.Model) || strings.EqualFold(strings.TrimSpace(upstreamModel), SeedanceMiniMaxH3UpstreamModel)
+	resolution := info.Resolution
+	audioField := "generate_audio"
+	audioEnabled := info.GenerateAudio
+	if isH3 {
+		resolution = huiquMiniMaxH3UpstreamResolution()
+		audioField = "audio"
+		// H3 always emits native audio; upstream rejects audio=false.
+		audioEnabled = true
+	}
 	fields := []struct{ name, value string }{
 		{"model", strings.TrimSpace(upstreamModel)},
 		{"prompt", info.Prompt},
 		{"seconds", strconv.Itoa(info.DurationSeconds)},
 		{"aspect_ratio", info.AspectRatio},
-		{"resolution", info.Resolution},
-		{"generate_audio", strconv.FormatBool(info.GenerateAudio)},
+		{"resolution", resolution},
+		{audioField, strconv.FormatBool(audioEnabled)},
+	}
+	if isH3 {
+		fields = append(fields, struct{ name, value string }{"size", huiquMiniMaxH3SizeFor(info.AspectRatio)})
 	}
 	for _, field := range fields {
 		if err := writer.WriteField(field.name, field.value); err != nil {
@@ -541,28 +653,40 @@ func buildHuiquMultipartBody(info *SeedanceRequestInfo, upstreamModel string) (*
 		_, err = io.Copy(part, source)
 		return err
 	}
+	firstFrameField := "first_frame"
+	lastFrameField := "last_frame"
+	imageField := "images"
+	audioRefField := "audios"
+	if isH3 {
+		firstFrameField = "start_frame"
+		lastFrameField = "end_frame"
+		imageField = "reference_images"
+		audioRefField = "audio_reference"
+	}
 	if info.HuiquMedia.FirstFrame != nil {
-		if err := writeFile("first_frame", *info.HuiquMedia.FirstFrame); err != nil {
+		if err := writeFile(firstFrameField, *info.HuiquMedia.FirstFrame); err != nil {
 			return nil, err
 		}
 	}
 	if info.HuiquMedia.LastFrame != nil {
-		if err := writeFile("last_frame", *info.HuiquMedia.LastFrame); err != nil {
+		if err := writeFile(lastFrameField, *info.HuiquMedia.LastFrame); err != nil {
 			return nil, err
 		}
 	}
 	for _, media := range info.HuiquMedia.Images {
-		if err := writeFile("images", media); err != nil {
+		if err := writeFile(imageField, media); err != nil {
 			return nil, err
 		}
 	}
-	for _, media := range info.HuiquMedia.Videos {
-		if err := writeFile("videos", media); err != nil {
-			return nil, err
+	if !isH3 {
+		for _, media := range info.HuiquMedia.Videos {
+			if err := writeFile("videos", media); err != nil {
+				return nil, err
+			}
 		}
 	}
 	for _, media := range info.HuiquMedia.Audios {
-		if err := writeFile("audios", media); err != nil {
+		if err := writeFile(audioRefField, media); err != nil {
 			return nil, err
 		}
 	}

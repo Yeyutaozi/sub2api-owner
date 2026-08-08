@@ -694,6 +694,36 @@
           </div>
         </div>
 
+        <!-- Creazy 画布准入（默认开启） -->
+        <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-400">
+          <h4 class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.creazyCanvas.title") }}
+          </h4>
+          <div class="flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.creazyCanvas.allow")
+            }}</label>
+            <button
+              type="button"
+              @click="createForm.allow_creazy_canvas = !createForm.allow_creazy_canvas"
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                createForm.allow_creazy_canvas
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="createForm.allow_creazy_canvas ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.creazyCanvas.hint") }}
+          </p>
+        </div>
+
         <!-- Subscription Configuration -->
         <div class="mt-4 border-t pt-4">
           <div>
@@ -2429,6 +2459,36 @@
               }}
             </span>
           </div>
+        </div>
+
+        <!-- Creazy 画布准入（默认开启） -->
+        <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-400">
+          <h4 class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.creazyCanvas.title") }}
+          </h4>
+          <div class="flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.creazyCanvas.allow")
+            }}</label>
+            <button
+              type="button"
+              @click="editForm.allow_creazy_canvas = !editForm.allow_creazy_canvas"
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                editForm.allow_creazy_canvas
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="editForm.allow_creazy_canvas ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.creazyCanvas.hint") }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.status") }}</label>
@@ -4696,6 +4756,8 @@ const platformOptions = computed(() => [
   { value: "seedance", label: "Seedance" },
   { value: "ltx", label: "LTX" },
   { value: "happyhorse", label: "HappyHorse" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "grokimagine", label: "GrokImagine" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -4710,6 +4772,8 @@ const platformFilterOptions = computed(() => [
   { value: "seedance", label: "Seedance" },
   { value: "ltx", label: "LTX" },
   { value: "happyhorse", label: "HappyHorse" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "grokimagine", label: "GrokImagine" },
   { value: "composite", label: "Composite" },
 ]);
 
@@ -5057,6 +5121,8 @@ const createForm = reactive({
   // OpenAI-compatible Messages 调度配置
   allow_messages_dispatch: false,
   allow_live: false,
+  // Creazy 画布网页准入（默认开启）
+  allow_creazy_canvas: true,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
@@ -5408,6 +5474,8 @@ const editForm = reactive({
   // OpenAI-compatible Messages 调度配置
   allow_messages_dispatch: false,
   allow_live: false,
+  // Creazy 画布网页准入（默认开启）
+  allow_creazy_canvas: true,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
@@ -5852,6 +5920,7 @@ const closeCreateModal = () => {
   createForm.fallback_group_id_on_invalid_request = null;
   resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
+  createForm.allow_creazy_canvas = true;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
@@ -6081,6 +6150,7 @@ const handleEdit = async (group: AdminGroup) => {
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
+  editForm.allow_creazy_canvas = group.allow_creazy_canvas ?? true;
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
@@ -6140,6 +6210,7 @@ const closeEditModal = () => {
   editForm.web_search_price_per_call = null;
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
+  editForm.allow_creazy_canvas = true;
   resetModelsListState(editModelsListState);
 };
 

@@ -204,6 +204,10 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 		return PlatformLTX
 	case PlatformHappyHorse:
 		return PlatformHappyHorse
+	case PlatformMiniMax:
+		return PlatformMiniMax
+	case PlatformGrokImagine:
+		return PlatformGrokImagine
 	default:
 		return PlatformOpenAI
 	}

@@ -99,12 +99,15 @@ func TestMX933RequestValidation(t *testing.T) {
 			tooManyAudioReferences.AudioReferences = append(tooManyAudioReferences.AudioReferences, SeedanceReferenceAudio{})
 			require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooManyAudioReferences), "at most 3 reference audio files")
 
-			audioWithoutVisualReference := mx933RequestInfo(model)
-			audioWithoutVisualReference.References = nil
-			audioWithoutVisualReference.StartFrameURL = ""
-			audioWithoutVisualReference.EndFrameURL = ""
-			audioWithoutVisualReference.VideoReferences = nil
-			require.ErrorContains(t, validateFFLinkVideoRequestInfo(audioWithoutVisualReference), "reference audio requires")
+			// 参考音频可单独上传
+			audioOnly := mx933RequestInfo(model)
+			audioOnly.References = nil
+			audioOnly.StartFrameURL = ""
+			audioOnly.EndFrameURL = ""
+			audioOnly.VideoReferences = nil
+			audioOnly.GenerateAudio = true
+			audioOnly.AudioReferences = make([]SeedanceReferenceAudio, 1)
+			require.NoError(t, validateFFLinkVideoRequestInfo(audioOnly))
 		})
 	}
 }
@@ -180,26 +183,26 @@ func TestMX933TotalMediaLimit(t *testing.T) {
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooMany), "at most 12 total reference media files")
 }
 
-func TestMX933AudioReferenceKeepsExistingSeedanceVisualRequirement(t *testing.T) {
+func TestAudioReferenceCanStandAlone(t *testing.T) {
 	mx933 := mx933RequestInfo(SeedanceMX933Model)
 	mx933.References = nil
 	mx933.VideoReferences = nil
+	mx933.StartFrameURL = ""
 	mx933.EndFrameURL = ""
 	mx933.GenerateAudio = true
 	mx933.AudioReferences = make([]SeedanceReferenceAudio, 1)
-	require.ErrorContains(t, validateFFLinkVideoRequestInfo(mx933), "reference audio requires")
+	require.NoError(t, validateFFLinkVideoRequestInfo(mx933))
 
 	existing := &SeedanceRequestInfo{
 		Model:           "seedance-2.0",
-		Prompt:          "Keep the existing FFLink validation behavior",
+		Prompt:          "audio only is allowed",
 		Resolution:      VideoBillingResolution720P,
 		DurationSeconds: 10,
 		AspectRatio:     "16:9",
-		StartFrameURL:   "https://media.example/start.png",
 		GenerateAudio:   true,
 		AudioReferences: make([]SeedanceReferenceAudio, 1),
 	}
-	require.ErrorContains(t, validateFFLinkVideoRequestInfo(existing), "reference audio requires")
+	require.NoError(t, validateFFLinkVideoRequestInfo(existing))
 }
 
 func TestMX933PromptLimitAndDefaults(t *testing.T) {

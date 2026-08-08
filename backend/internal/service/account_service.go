@@ -508,7 +508,7 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 		return nil
 	case PlatformGLM:
 		return ValidateGLMAccountConfiguration(account.Platform, account.Type, account.Credentials)
-	case PlatformSeedance, PlatformLTX, PlatformHappyHorse:
+	case PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformMiniMax, PlatformGrokImagine:
 		return ValidateSeedanceAccountConfiguration(account.Platform, account.Type, account.Credentials)
 	default:
 		return fmt.Errorf("unsupported platform: %s", account.Platform)

@@ -580,7 +580,7 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
 		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformGLM, PlatformSeedance, PlatformLTX, PlatformHappyHorse:
+		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformGLM, PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformMiniMax, PlatformGrokImagine:
 			addPlatformGroups(account.Platform, accountGroupIDs)
 		case PlatformAntigravity:
 			// 批量更新可能刚关闭 mixed_scheduling，仍需清理两个兼容平台的旧快照。
@@ -796,7 +796,7 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 }
 
 func schedulerSnapshotPlatforms() []string {
-	return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformGLM, PlatformSeedance, PlatformLTX, PlatformHappyHorse}
+	return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformGLM, PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformMiniMax, PlatformGrokImagine}
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。

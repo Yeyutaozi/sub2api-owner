@@ -91,6 +91,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(html).toContain('seedance')
     expect(html).toContain('ltx')
     expect(html).toContain('happyhorse')
+    expect(html).toContain('minimax')
   })
 
   it('已有数据正确填充 limit input', async () => {
@@ -102,8 +103,8 @@ describe('UserPlatformQuotaModal', () => {
     })
     const w = await mountAndOpen()
     const inputs = w.findAll('input[type=number]')
-    // 9 platforms x 3 windows = 27 inputs
-    expect(inputs.length).toBe(27)
+    // 10 platforms x 3 windows = 30 inputs
+    expect(inputs.length).toBe(30)
     // 第一个 input 是 anthropic.daily = 10
     expect((inputs[0].element as HTMLInputElement).value).toBe('10')
   })
@@ -125,13 +126,14 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledTimes(1)
     const [uid, payload] = apiMocks.updatePlatformQuotas.mock.calls[0]
     expect(uid).toBe(99)
-    expect(payload).toHaveLength(9) // 9 platforms always submitted
+    expect(payload).toHaveLength(10) // 10 platforms always submitted
     const openai = payload.find((p: any) => p.platform === 'openai')
     expect(openai.weekly_limit_usd).toBe(20)
     expect(payload.some((p: any) => p.platform === 'glm')).toBe(true)
     expect(payload.some((p: any) => p.platform === 'seedance')).toBe(true)
     expect(payload.some((p: any) => p.platform === 'ltx')).toBe(true)
     expect(payload.some((p: any) => p.platform === 'happyhorse')).toBe(true)
+    expect(payload.some((p: any) => p.platform === 'minimax')).toBe(true)
   })
 
   it('全部清空把所有 limit 置 null（确认通过）', async () => {

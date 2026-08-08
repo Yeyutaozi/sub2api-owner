@@ -198,6 +198,7 @@ func ProvideHandlers(
 	batchImageHandler *BatchImageHandler,
 	tokenRewardHandler *TokenRewardHandler,
 	agentRunHandler *AgentRunHandler,
+	creazyCanvasHandler *CreazyCanvasHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -224,6 +225,7 @@ func ProvideHandlers(
 		BatchImage:       batchImageHandler,
 		TokenReward:      tokenRewardHandler,
 		AgentRun:         agentRunHandler,
+		CreazyCanvas:     creazyCanvasHandler,
 	}
 }
 
@@ -251,6 +253,7 @@ var ProviderSet = wire.NewSet(
 	ProvideBatchImageHandler,
 	NewTokenRewardHandler,
 	NewAgentRunHandler,
+	NewCreazyCanvasHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

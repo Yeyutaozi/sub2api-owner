@@ -641,6 +641,20 @@ func (_c *GroupCreate) SetNillableAllowLive(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetAllowCreazyCanvas sets the "allow_creazy_canvas" field.
+func (_c *GroupCreate) SetAllowCreazyCanvas(v bool) *GroupCreate {
+	_c.mutation.SetAllowCreazyCanvas(v)
+	return _c
+}
+
+// SetNillableAllowCreazyCanvas sets the "allow_creazy_canvas" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAllowCreazyCanvas(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetAllowCreazyCanvas(*v)
+	}
+	return _c
+}
+
 // SetRequireOauthOnly sets the "require_oauth_only" field.
 func (_c *GroupCreate) SetRequireOauthOnly(v bool) *GroupCreate {
 	_c.mutation.SetRequireOauthOnly(v)
@@ -994,6 +1008,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultAllowLive
 		_c.mutation.SetAllowLive(v)
 	}
+	if _, ok := _c.mutation.AllowCreazyCanvas(); !ok {
+		v := group.DefaultAllowCreazyCanvas
+		_c.mutation.SetAllowCreazyCanvas(v)
+	}
 	if _, ok := _c.mutation.RequireOauthOnly(); !ok {
 		v := group.DefaultRequireOauthOnly
 		_c.mutation.SetRequireOauthOnly(v)
@@ -1160,6 +1178,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.AllowLive(); !ok {
 		return &ValidationError{Name: "allow_live", err: errors.New(`ent: missing required field "Group.allow_live"`)}
+	}
+	if _, ok := _c.mutation.AllowCreazyCanvas(); !ok {
+		return &ValidationError{Name: "allow_creazy_canvas", err: errors.New(`ent: missing required field "Group.allow_creazy_canvas"`)}
 	}
 	if _, ok := _c.mutation.RequireOauthOnly(); !ok {
 		return &ValidationError{Name: "require_oauth_only", err: errors.New(`ent: missing required field "Group.require_oauth_only"`)}
@@ -1405,6 +1426,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowLive(); ok {
 		_spec.SetField(group.FieldAllowLive, field.TypeBool, value)
 		_node.AllowLive = value
+	}
+	if value, ok := _c.mutation.AllowCreazyCanvas(); ok {
+		_spec.SetField(group.FieldAllowCreazyCanvas, field.TypeBool, value)
+		_node.AllowCreazyCanvas = value
 	}
 	if value, ok := _c.mutation.RequireOauthOnly(); ok {
 		_spec.SetField(group.FieldRequireOauthOnly, field.TypeBool, value)
@@ -2329,6 +2354,18 @@ func (u *GroupUpsert) SetAllowLive(v bool) *GroupUpsert {
 // UpdateAllowLive sets the "allow_live" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateAllowLive() *GroupUpsert {
 	u.SetExcluded(group.FieldAllowLive)
+	return u
+}
+
+// SetAllowCreazyCanvas sets the "allow_creazy_canvas" field.
+func (u *GroupUpsert) SetAllowCreazyCanvas(v bool) *GroupUpsert {
+	u.Set(group.FieldAllowCreazyCanvas, v)
+	return u
+}
+
+// UpdateAllowCreazyCanvas sets the "allow_creazy_canvas" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAllowCreazyCanvas() *GroupUpsert {
+	u.SetExcluded(group.FieldAllowCreazyCanvas)
 	return u
 }
 
@@ -3340,6 +3377,20 @@ func (u *GroupUpsertOne) SetAllowLive(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateAllowLive() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowLive()
+	})
+}
+
+// SetAllowCreazyCanvas sets the "allow_creazy_canvas" field.
+func (u *GroupUpsertOne) SetAllowCreazyCanvas(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowCreazyCanvas(v)
+	})
+}
+
+// UpdateAllowCreazyCanvas sets the "allow_creazy_canvas" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAllowCreazyCanvas() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowCreazyCanvas()
 	})
 }
 
@@ -4534,6 +4585,20 @@ func (u *GroupUpsertBulk) SetAllowLive(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateAllowLive() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowLive()
+	})
+}
+
+// SetAllowCreazyCanvas sets the "allow_creazy_canvas" field.
+func (u *GroupUpsertBulk) SetAllowCreazyCanvas(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowCreazyCanvas(v)
+	})
+}
+
+// UpdateAllowCreazyCanvas sets the "allow_creazy_canvas" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAllowCreazyCanvas() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowCreazyCanvas()
 	})
 }
 

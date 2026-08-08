@@ -71,7 +71,7 @@ func TestXimeiProductMappingUsesModelAndResolution(t *testing.T) {
 	}{
 		{SeedanceXimeiSD20Model, VideoBillingResolution480P, "kele_pool", ximeiDurationParameter},
 		{SeedanceXimeiSD20Model, VideoBillingResolution720P, "tc_pool", ximeiDurationPrompt},
-		{SeedanceXimeiSD25Model, VideoBillingResolution720P, "fenda_pool", ximeiDurationParameter},
+		{SeedanceXimeiSD25Model, VideoBillingResolution720P, "nangua_pool", ximeiDurationParameter},
 	}
 	for _, test := range tests {
 		product, err := ximeiVideoProductFor(test.model, test.resolution)
@@ -115,16 +115,17 @@ func TestBuildXimeiRequestCompilesRouteFramesDurationAndMedia(t *testing.T) {
 	require.Equal(t, "auto", payload["duration"])
 	require.Equal(t, "9:16", payload["aspect_ratio"])
 	require.Equal(t, true, payload["generate_audio"])
+	// 参考图在前，首尾帧追加到末尾
 	require.Equal(t, []any{
+		"https://media.example/product.png",
 		"https://media.example/start.png",
 		"https://media.example/end.png",
-		"https://media.example/product.png",
 	}, payload["image_urls"])
 	prompt := payload["prompt"].(string)
 	require.Contains(t, prompt, "严格为 10 秒")
-	require.Contains(t, prompt, "@Image1 是首帧")
-	require.Contains(t, prompt, "@Image2 是尾帧")
-	require.Contains(t, prompt, "@Image3 是普通图片参考")
+	require.Contains(t, prompt, "@Image1 是普通图片参考")
+	require.Contains(t, prompt, "@Image2 是首帧")
+	require.Contains(t, prompt, "@Image3 是尾帧")
 	require.Contains(t, prompt, "@Audio1")
 	require.Contains(t, prompt, "@Video1")
 	require.EqualValues(t, 6.25, payload["video_urls"].([]any)[0].(map[string]any)["durationSeconds"])
@@ -190,10 +191,10 @@ func TestBuildXimeiParameterizedRequestWritesExactDurationString(t *testing.T) {
 		route      string
 	}{
 		{"SD 2.0 480p 5 seconds", SeedanceXimeiSD20Model, VideoBillingResolution480P, 5, "kele_pool"},
-		{"SD 2.5 720p 5 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 5, "fenda_pool"},
-		{"SD 2.5 720p 10 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 10, "fenda_pool"},
-		{"SD 2.5 720p 15 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 15, "fenda_pool"},
-		{"SD 2.5 720p 30 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 30, "fenda_pool"},
+		{"SD 2.5 720p 5 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 5, "nangua_pool"},
+		{"SD 2.5 720p 10 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 10, "nangua_pool"},
+		{"SD 2.5 720p 15 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 15, "nangua_pool"},
+		{"SD 2.5 720p 30 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 30, "nangua_pool"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, route, err := buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
@@ -575,13 +576,14 @@ func TestNormalizeXimeiResponseRemovesProviderDetails(t *testing.T) {
 		"status":"succeeded",
 		"provider_route":"tc_pool",
 		"content":{"video_url":"https://private.example/result.mp4"},
-		"data":{"id":"cstask_nested_id","job_id":"cstask_nested_job","task_id":"cstask_nested_task","product":"fenda_pool","note":"ximei tc_pool internal"}
+		"data":{"id":"cstask_nested_id","job_id":"cstask_nested_job","task_id":"cstask_nested_task","product":"nangua_pool","legacy_product":"fenda_pool","note":"ximei tc_pool internal"}
 	}`)
 	normalized, err := NormalizeSeedanceJobForRoute(body, "vidjob_public", VideoProviderXimei, SeedanceXimeiSD20Model)
 	require.NoError(t, err)
 	require.Contains(t, string(normalized), `"status":"completed"`)
 	require.NotContains(t, string(normalized), "tc_pool")
 	require.NotContains(t, string(normalized), "fenda_pool")
+	require.NotContains(t, string(normalized), "nangua_pool")
 	require.NotContains(t, string(normalized), "ximei")
 	require.NotContains(t, string(normalized), "cstask_")
 	require.NotContains(t, string(normalized), "private.example")
@@ -633,4 +635,50 @@ func TestBuildXimeiEndpointURLAcceptsOriginOrAPIV3Base(t *testing.T) {
 		"https://provider.example/api/v3/contents/generations/tasks",
 		buildXimeiEndpointURL("https://provider.example/api/v3", ximeiVideoCreatePath),
 	)
+}
+
+
+func TestXimeiNanguaPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
+	product, err := ximeiVideoProductFor(SeedanceXimeiSD25Model, VideoBillingResolution720P)
+	require.NoError(t, err)
+	require.Equal(t, "nangua_pool", product.Route)
+	require.Equal(t, 30, product.MaxImages)
+	require.Equal(t, 10, product.MaxVideos)
+	require.Equal(t, 10, product.MaxAudios)
+
+	refs := make([]SeedanceReferenceImage, 0, 30)
+	for i := 0; i < 30; i++ {
+		refs = append(refs, SeedanceReferenceImage{URL: fmt.Sprintf("https://media.example/ref-%02d.png", i)})
+	}
+	videos := make([]SeedanceReferenceVideo, 0, 10)
+	for i := 0; i < 10; i++ {
+		videos = append(videos, SeedanceReferenceVideo{URL: fmt.Sprintf("https://media.example/v-%02d.mp4", i), DurationSeconds: 1})
+	}
+	audios := make([]SeedanceReferenceAudio, 0, 10)
+	for i := 0; i < 10; i++ {
+		audios = append(audios, SeedanceReferenceAudio{URL: fmt.Sprintf("https://media.example/a-%02d.mp3", i), DurationSeconds: 1})
+	}
+
+	valid := &SeedanceRequestInfo{
+		Model: SeedanceXimeiSD25Model, Prompt: "safe product demonstration",
+		Resolution: VideoBillingResolution720P, DurationSeconds: 5, AspectRatio: "16:9",
+		GenerateAudio: true, References: refs, VideoReferences: videos, AudioReferences: audios,
+	}
+	require.NoError(t, validateXimeiReferenceDurations(valid, product))
+	require.NoError(t, validateFFLinkVideoRequestInfo(valid))
+
+	tooManyImages := *valid
+	tooManyImages.References = append(append([]SeedanceReferenceImage{}, refs...), SeedanceReferenceImage{URL: "https://media.example/overflow.png"})
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyImages, product), "at most 30 images")
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyImages), "at most 30 reference images")
+
+	tooManyVideos := *valid
+	tooManyVideos.VideoReferences = append(append([]SeedanceReferenceVideo{}, videos...), SeedanceReferenceVideo{URL: "https://media.example/overflow.mp4", DurationSeconds: 1})
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyVideos, product), "at most 10 reference videos")
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyVideos), "at most 10 reference videos")
+
+	tooManyAudios := *valid
+	tooManyAudios.AudioReferences = append(append([]SeedanceReferenceAudio{}, audios...), SeedanceReferenceAudio{URL: "https://media.example/overflow.mp3", DurationSeconds: 1})
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyAudios, product), "at most 10 reference audio files")
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyAudios), "at most 10 reference audio files")
 }

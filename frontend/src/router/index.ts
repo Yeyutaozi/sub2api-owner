@@ -229,6 +229,54 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/creazy-canvas',
+    name: 'CreazyCanvas',
+    component: () => import('@/views/user/creazy-canvas/CreazyCanvasView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creazy Canvas',
+      titleKey: 'creazyCanvasPage.title',
+      descriptionKey: 'creazyCanvasPage.description'
+    }
+  },
+  {
+    path: '/creazy-canvas/image',
+    name: 'CreazyCanvasImage',
+    component: () => import('@/views/user/creazy-canvas/CreazyCanvasView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creazy Canvas Image',
+      titleKey: 'creazyCanvasPage.title',
+      descriptionKey: 'creazyCanvasPage.description'
+    }
+  },
+  {
+    path: '/creazy-canvas/video',
+    name: 'CreazyCanvasVideo',
+    component: () => import('@/views/user/creazy-canvas/CreazyCanvasView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creazy Canvas Video',
+      titleKey: 'creazyCanvasPage.title',
+      descriptionKey: 'creazyCanvasPage.description'
+    }
+  },
+  {
+    path: '/creazy-canvas/works',
+    name: 'CreazyCanvasWorks',
+    component: () => import('@/views/user/creazy-canvas/CreazyCanvasView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creazy Canvas Works',
+      titleKey: 'creazyCanvasPage.title',
+      descriptionKey: 'creazyCanvasPage.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),

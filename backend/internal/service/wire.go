@@ -799,6 +799,8 @@ var ProviderSet = wire.NewSet(
 	NewAgentModelProxyGatewayCaller,
 	wire.Bind(new(ModelProxyGatewayCaller), new(*AgentModelProxyGatewayCaller)),
 	ProvideAgentRunService,
+	wire.Bind(new(CreazyCanvasAPIKeyService), new(*APIKeyService)),
+	NewCreazyCanvasService,
 )
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。

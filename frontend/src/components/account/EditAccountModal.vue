@@ -28,7 +28,7 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div v-if="account.platform === 'seedance'">
+        <div v-if="account.platform === 'seedance' || account.platform === 'minimax'">
           <label class="input-label">{{ t('admin.accounts.videoProvider.title') }}</label>
           <select
             v-model="seedanceVideoProvider"
@@ -36,9 +36,9 @@
             data-testid="edit-seedance-video-provider"
             @change="handleSeedanceVideoProviderChange"
           >
-            <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
+            <option v-if="account.platform === 'seedance'" value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
-            <option value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
+            <option v-if="account.platform === 'seedance'" value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
@@ -59,9 +59,9 @@
                       ? 'https://api.x.ai/v1'
                       : account.platform === 'glm'
                         ? 'https://open.bigmodel.cn/api/paas/v4'
-                      : account.platform === 'seedance'
+                      : account.platform === 'seedance' || account.platform === 'minimax'
                         ? seedanceProviderBaseUrl
-                      : account.platform === 'ltx' || account.platform === 'happyhorse'
+                      : account.platform === 'ltx' || account.platform === 'happyhorse' || account.platform === 'grokimagine'
                         ? 'https://api.fflink.top'
                       : 'https://api.anthropic.com'
             "
@@ -94,7 +94,7 @@
                       ? 'xai-...'
                       : account.platform === 'glm'
                         ? 'sk-...'
-                      : account.platform === 'seedance' || account.platform === 'ltx' || account.platform === 'happyhorse'
+                      : account.platform === 'seedance' || account.platform === 'ltx' || account.platform === 'happyhorse' || account.platform === 'minimax' || account.platform === 'grokimagine'
                         ? 'Sub2API Key'
                       : 'sk-ant-...'
             "
@@ -2700,11 +2700,13 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   getSeedanceModelsByVideoProvider,
+  getModelsByPlatform,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
 import {
   getSeedanceVideoProviderBaseUrl,
+  getMiniMaxVideoProviderBaseUrl,
   type SeedanceVideoProvider
 } from '@/utils/videoAccountProviders'
 
@@ -2738,14 +2740,16 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok' || props.account.platform === 'glm' || props.account.platform === 'seedance' || props.account.platform === 'ltx' || props.account.platform === 'happyhorse') return ''
+  if (props.account.platform === 'grok' || props.account.platform === 'glm' || props.account.platform === 'seedance' || props.account.platform === 'ltx' || props.account.platform === 'happyhorse' || props.account.platform === 'minimax' || props.account.platform === 'grokimagine') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const isVideoAccountPlatform = computed(() =>
   props.account?.platform === 'seedance' ||
   props.account?.platform === 'ltx' ||
-  props.account?.platform === 'happyhorse'
+  props.account?.platform === 'happyhorse' ||
+  props.account?.platform === 'minimax' ||
+  props.account?.platform === 'grokimagine'
 )
 
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
@@ -2776,6 +2780,10 @@ const seedanceProviderBaseUrl = computed(() =>
 const seedanceProviderModels = computed(() =>
   props.account?.platform === 'seedance'
     ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+    : props.account?.platform === 'minimax'
+      ? getModelsByPlatform('minimax')
+    : props.account?.platform === 'grokimagine'
+      ? getModelsByPlatform('grokimagine')
     : undefined
 )
 // Bedrock credentials
@@ -3210,8 +3218,8 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'glm') return 'https://open.bigmodel.cn/api/paas/v4'
-  if (props.account?.platform === 'seedance') return seedanceProviderBaseUrl.value
-  if (props.account?.platform === 'ltx' || props.account?.platform === 'happyhorse') return 'https://api.fflink.top'
+  if (props.account?.platform === 'seedance' || props.account?.platform === 'minimax') return seedanceProviderBaseUrl.value
+  if (props.account?.platform === 'ltx' || props.account?.platform === 'happyhorse' || props.account?.platform === 'grokimagine') return 'https://api.fflink.top'
   return 'https://api.anthropic.com'
 })
 
@@ -3365,14 +3373,19 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
-  seedanceVideoProvider.value =
-    newAccount.platform !== 'seedance'
-      ? 'fflink'
-      : credentials?.video_provider === 'ximei'
+  if (newAccount.platform === 'minimax') {
+    seedanceVideoProvider.value =
+      credentials?.video_provider === 'huiqu' ? 'huiqu' : 'huiqu'
+  } else if (newAccount.platform === 'seedance') {
+    seedanceVideoProvider.value =
+      credentials?.video_provider === 'ximei'
         ? 'ximei'
         : credentials?.video_provider === 'huiqu'
           ? 'huiqu'
           : 'fflink'
+  } else {
+    seedanceVideoProvider.value = 'fflink'
+  }
   initialSeedanceVideoProvider.value = seedanceVideoProvider.value
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
@@ -3590,9 +3603,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance'
+            : newAccount.platform === 'seedance' || newAccount.platform === 'minimax'
               ? seedanceProviderBaseUrl.value
-            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
+            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse' || newAccount.platform === 'grokimagine'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
@@ -3600,7 +3613,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     // Load model mappings and detect mode. Existing MX933 accounts may still use fixed execution IDs.
     const rawModelMapping = credentials.model_mapping as Record<string, unknown> | undefined
     loadModelRestrictionFromMapping(
-      newAccount.platform === 'seedance' && seedanceVideoProvider.value === 'huiqu'
+      (newAccount.platform === 'seedance' || newAccount.platform === 'minimax') && seedanceVideoProvider.value === 'huiqu'
         ? normalizeHuiquSeedanceModelMapping(rawModelMapping)
         : rawModelMapping
     )
@@ -3672,9 +3685,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : newAccount.platform === 'glm'
               ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance'
+            : newAccount.platform === 'seedance' || newAccount.platform === 'minimax'
               ? seedanceProviderBaseUrl.value
-            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse'
+            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse' || newAccount.platform === 'grokimagine'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
@@ -3722,14 +3735,20 @@ watch(
 
 // Model mapping helpers
 const handleSeedanceVideoProviderChange = () => {
-  if (props.account?.platform !== 'seedance') return
-  editBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
+  if (props.account?.platform !== 'seedance' && props.account?.platform !== 'minimax') return
+  editBaseUrl.value =
+    props.account?.platform === 'minimax'
+      ? getMiniMaxVideoProviderBaseUrl('huiqu')
+      : getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
   if (seedanceVideoProvider.value !== initialSeedanceVideoProvider.value) {
     // API keys are provider-specific. Never carry a masked key from the old
     // provider into an account switched to a different upstream.
     editApiKey.value = ''
   }
-  const providerModels = getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+  const providerModels =
+    props.account?.platform === 'minimax'
+      ? getModelsByPlatform('minimax')
+      : getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
   if (modelRestrictionMode.value === 'whitelist') {
     allowedModels.value = providerModels
     modelMappings.value = []
@@ -4226,7 +4245,7 @@ const handleSubmit = async () => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
-      if (props.account.platform === 'seedance') {
+      if (props.account.platform === 'seedance' || props.account.platform === 'minimax') {
         newCredentials.video_provider = seedanceVideoProvider.value
       }
 
@@ -4236,7 +4255,7 @@ const handleSubmit = async () => {
       // 若后端尚未升级（无 credentials_status），回退读旧结构 currentCredentials.api_key。
       // 两者都无才报错。
       const hasExistingApiKey =
-        (props.account.platform === 'seedance' &&
+        ((props.account.platform === 'seedance' || props.account.platform === 'minimax') &&
           seedanceVideoProvider.value !== initialSeedanceVideoProvider.value)
           ? false
           : props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)

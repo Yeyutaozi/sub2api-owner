@@ -880,6 +880,8 @@ export default {
         seedance: 'Seedance',
         ltx: 'LTX',
         happyhorse: 'HappyHorse',
+        minimax: 'MiniMax',
+        grokimagine: 'GrokImagine',
         composite: 'Composite',
       },
       saving: '保存中...',

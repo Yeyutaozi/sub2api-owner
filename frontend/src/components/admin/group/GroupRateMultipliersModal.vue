@@ -384,6 +384,8 @@ const platformColorClass = computed(() => {
     case 'seedance': return 'text-rose-700 dark:text-rose-400'
     case 'ltx': return 'text-cyan-700 dark:text-cyan-300'
     case 'happyhorse': return 'text-amber-700 dark:text-amber-300'
+    case 'minimax': return 'text-fuchsia-700 dark:text-fuchsia-300'
+    case 'grokimagine': return 'text-violet-700 dark:text-violet-300'
     default: return 'text-blue-700 dark:text-blue-400'
   }
 })

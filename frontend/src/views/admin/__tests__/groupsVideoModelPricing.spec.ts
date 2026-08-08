@@ -18,6 +18,7 @@ describe("video model pricing form conversion", () => {
     expect(supportsVideoModelPricingPlatform("seedance")).toBe(true);
     expect(supportsVideoModelPricingPlatform("ltx")).toBe(true);
     expect(supportsVideoModelPricingPlatform("happyhorse")).toBe(true);
+    expect(supportsVideoModelPricingPlatform("minimax")).toBe(true);
     for (const platform of ["grok", "openai", "gemini", "antigravity", "anthropic"]) {
       expect(supportsVideoModelPricingPlatform(platform)).toBe(false);
     }
@@ -40,9 +41,13 @@ describe("video model pricing form conversion", () => {
     expect(createDefaultVideoModelPriceRows("happyhorse")).toEqual([
       createVideoModelPriceRow("happy-horse-1.1"),
     ]);
+    expect(createDefaultVideoModelPriceRows("minimax")).toEqual([
+      createVideoModelPriceRow("minimax-h3"),
+    ]);
     expect(videoModelPricePlaceholder("seedance")).toBe("seedance-2.0");
     expect(videoModelPricePlaceholder("ltx")).toBe("ltx-2.3-pro");
     expect(videoModelPricePlaceholder("happyhorse")).toBe("happy-horse-1.1");
+    expect(videoModelPricePlaceholder("minimax")).toBe("minimax-h3");
   });
 
   it("matches each platform model's supported pricing resolutions", () => {
@@ -70,6 +75,9 @@ describe("video model pricing form conversion", () => {
       "1440p",
       "2160p",
     ]);
+    expect(supportedResolutionsForVideoModel("minimax", "minimax-h3")).toEqual([
+      "1440p",
+    ]);
     expect(supportedResolutionsForVideoModel("happyhorse", "happy-horse-1.1")).toEqual([
       "720p",
       "1080p",
@@ -83,7 +91,7 @@ describe("video model pricing form conversion", () => {
     expect(normalizeVideoBillingUnitForPlatform("seedance", undefined)).toBe(
       "per_second",
     );
-    for (const platform of ["ltx", "happyhorse", "grok", "openai"]) {
+    for (const platform of ["ltx", "happyhorse", "minimax", "grok", "openai"]) {
       expect(normalizeVideoBillingUnitForPlatform(platform, "per_request")).toBe(
         "per_second",
       );

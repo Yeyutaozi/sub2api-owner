@@ -70,10 +70,10 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 	}
 	if mapping := stringMappingFromRaw(credentials["model_mapping"]); len(mapping) > 0 {
 		for requestedModel, upstreamModel := range mapping {
-			if !videoProviderSupportsModel(provider, requestedModel) || !videoProviderSupportsModel(provider, upstreamModel) {
+			if !videoProviderSupportsModelForPlatform(platform, provider, requestedModel) || !videoProviderSupportsModelForPlatform(platform, provider, upstreamModel) {
 				return infraerrors.BadRequest(
 					"VIDEO_PROVIDER_MODEL_MISMATCH",
-					fmt.Sprintf("model %s is not supported by video provider %s", requestedModel, provider),
+					fmt.Sprintf("model %s is not supported by video provider %s on platform %s", requestedModel, provider, platform),
 				)
 			}
 		}
@@ -542,9 +542,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 	if info.EndFrameURL != "" && info.StartFrameURL == "" && !isHuiquVideoModel(info.Model) {
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
-	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isSeedanceMixedImageModel(info.Model) {
-		return nil, errors.New("reference images cannot be combined with first/last frames")
-	}
+	// 首尾帧与参考图允许同时使用
 	if err := validateFFLinkVideoRequestInfo(info); err != nil {
 		return nil, err
 	}
@@ -677,6 +675,118 @@ func validateSeedanceAspectRatio(ratio string) error {
 	}
 }
 
+// seedanceUserMediaReferencePattern 匹配用户提示词中的媒体编号引用。
+// 支持 @Image1 / image1 / Image2 / @Audio1 / video3 等写法。
+// 用户一旦占用这些编号，平台不得再写「@ImageN 是某某角色」，否则会双重定义。
+var seedanceUserMediaReferencePattern = regexp.MustCompile(`(?i)(?:@)?(?:image|audio|video)[1-9][0-9]*\b`)
+
+// seedanceImageSlot 描述一张图片在 Ximei image_urls 中的序号与角色。
+// Ximei 无 start_frame_url/end_frame_url，顺序为：
+//  1. 普通参考图按上传顺序占 @Image1 起
+//  2. 首帧追加到数组末尾（若有）
+//  3. 尾帧再追加到数组最后（若有）
+// 提示词按实际 Index 动态注入，而不是写死 @Image1=首帧。
+type seedanceImageSlot struct {
+	Index int    // 1-based @ImageN
+	Role  string // start_frame | end_frame | reference
+	URL   string
+}
+
+// ximeiOrderedImageSlots 返回 Ximei 图片槽位：参考图 → 首帧 → 尾帧。
+// 首尾帧挂在末尾，参考图编号从 @Image1 起，符合用户对“参考图编号”的直觉。
+func ximeiOrderedImageSlots(info *SeedanceRequestInfo) []seedanceImageSlot {
+	if info == nil {
+		return nil
+	}
+	slots := make([]seedanceImageSlot, 0, len(info.References)+2)
+	index := 1
+	for _, reference := range info.References {
+		url := strings.TrimSpace(reference.URL)
+		if url == "" {
+			continue
+		}
+		slots = append(slots, seedanceImageSlot{Index: index, Role: "reference", URL: url})
+		index++
+	}
+	if url := strings.TrimSpace(info.StartFrameURL); url != "" {
+		slots = append(slots, seedanceImageSlot{Index: index, Role: "start_frame", URL: url})
+		index++
+	}
+	if url := strings.TrimSpace(info.EndFrameURL); url != "" {
+		slots = append(slots, seedanceImageSlot{Index: index, Role: "end_frame", URL: url})
+	}
+	return slots
+}
+
+// promptHasUserMediaReferences 判断用户是否已在提示词中手写媒体编号引用。
+func promptHasUserMediaReferences(prompt string) bool {
+	return seedanceUserMediaReferencePattern.MatchString(prompt)
+}
+
+// enhanceSeedancePromptWithFrameHints 返回官方/FFLink 等结构化上游使用的 prompt。
+// 这些上游已有 start_frame_url / end_frame_url / guidances，禁止再做 @Image 提示词注入。
+func enhanceSeedancePromptWithFrameHints(info *SeedanceRequestInfo) string {
+	if info == nil {
+		return ""
+	}
+	return strings.TrimSpace(info.Prompt)
+}
+
+// composeSeedancePromptWithMediaHints 仅供 Ximei：按 image_urls 实际序号动态注入角色说明。
+// 官方/FFLink 不得调用此函数拼最终 prompt。
+//
+// 两档策略：
+//  1. 用户未写 imageN/@ImageN：按 ximeiOrderedImageSlots 的实际 Index 注入
+//  2. 用户已写 imageN/@ImageN：不写「@ImageN 是…」，但仍注入无编号首尾约束
+func composeSeedancePromptWithMediaHints(info *SeedanceRequestInfo) string {
+	if info == nil {
+		return ""
+	}
+	prompt := strings.TrimSpace(info.Prompt)
+	userOwnsNumbers := promptHasUserMediaReferences(prompt)
+	constraints := make([]string, 0, 8)
+	slots := ximeiOrderedImageSlots(info)
+
+	if userOwnsNumbers {
+		// 用户已占用编号：不得再写 @ImageN 角色映射，但首尾帧必须继续生效。
+		hasStart := strings.TrimSpace(info.StartFrameURL) != ""
+		hasEnd := strings.TrimSpace(info.EndFrameURL) != ""
+		if hasStart {
+			constraints = append(constraints, "- 已上传的首帧图：严格作为开场构图与主体身份，必须从该画面开始，不得跳切到无关构图。")
+		}
+		if hasEnd {
+			constraints = append(constraints, "- 已上传的尾帧图：连续运动并自然收束到该构图和最终站位，禁止跳切。")
+		}
+	} else {
+		for _, slot := range slots {
+			switch slot.Role {
+			case "start_frame":
+				constraints = append(constraints, fmt.Sprintf("- @Image%d 是首帧：严格保持其人物身份、构图和初始站位，并从该画面开始。", slot.Index))
+			case "end_frame":
+				constraints = append(constraints, fmt.Sprintf("- @Image%d 是尾帧：连续运动并自然收束到该构图和最终站位，禁止跳切。", slot.Index))
+			default:
+				constraints = append(constraints, fmt.Sprintf("- @Image%d 是普通图片参考，保持其中可识别的主体、物件或场景特征。", slot.Index))
+			}
+		}
+		for index := range info.AudioReferences {
+			constraints = append(constraints, fmt.Sprintf("- @Audio%d 是声音参考；按用户提示保留其音色、语言内容或节奏特征。", index+1))
+		}
+		for index := range info.VideoReferences {
+			constraints = append(constraints, fmt.Sprintf("- @Video%d 是动作与运镜参考；保持连续性，不直接复制无关人物身份。", index+1))
+		}
+	}
+
+	if len(constraints) == 0 {
+		return prompt
+	}
+	injection := "[平台参考约束，请严格执行]\n" + strings.Join(constraints, "\n")
+	if prompt == "" {
+		return injection
+	}
+	return prompt + "\n\n" + injection
+}
+
+
 func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error) {
 	if i == nil {
 		return nil, errors.New("seedance request info is required")
@@ -684,7 +794,7 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	audioEnabled := i.GenerateAudio || len(i.AudioReferences) > 0
 	body := map[string]any{
 		"model":      strings.TrimSpace(upstreamModel),
-		"prompt":     i.Prompt,
+		"prompt":     enhanceSeedancePromptWithFrameHints(i),
 		"resolution": i.Resolution,
 		"duration":   i.DurationSeconds,
 		"audio":      audioEnabled,
@@ -695,20 +805,8 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	if i.PromptEnhance != nil {
 		body["prompt_enhance"] = i.PromptEnhance
 	}
-	if len(i.References) > 0 {
-		references := make([]map[string]any, 0, len(i.References))
-		for order, reference := range i.References {
-			if !isSeedanceHTTPImageURL(reference.URL) {
-				return nil, errors.New("inline/reference image must be uploaded before forwarding")
-			}
-			references = append(references, map[string]any{
-				"image":    map[string]any{"url": reference.URL, "type": "UPLOADED"},
-				"strength": reference.Strength,
-				"order":    order,
-			})
-		}
-		body["guidances"] = map[string]any{"image_reference": references}
-	} else if i.EndFrameURL != "" {
+	// 首尾帧与参考图可同时转发
+	if i.EndFrameURL != "" {
 		if !isSeedanceHTTPImageURL(i.StartFrameURL) || !isSeedanceHTTPImageURL(i.EndFrameURL) {
 			return nil, errors.New("inline first/last frame must be uploaded before forwarding")
 		}
@@ -718,11 +816,30 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 		if !isSeedanceHTTPImageURL(i.StartFrameURL) {
 			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
 		}
-		if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && (profile.Platform == PlatformLTX || profile.Platform == PlatformHappyHorse) {
+		// 有参考图时统一走 start_frame_url，避免 image_url 与 guidances 冲突
+		if len(i.References) > 0 {
+			body["start_frame_url"] = i.StartFrameURL
+		} else if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && (profile.Platform == PlatformLTX || profile.Platform == PlatformHappyHorse || profile.Platform == PlatformGrokImagine || profile.RequireStartFrame) {
 			body["start_frame_url"] = i.StartFrameURL
 		} else {
 			body["image_url"] = i.StartFrameURL
 		}
+	}
+	if len(i.References) > 0 {
+		// 官方/FFLink：首尾帧走专用字段，参考图 order 从 0 起按上传顺序递增。
+		// prompt 不注入 @ImageN；order 仅服务上游 guidances。
+		references := make([]map[string]any, 0, len(i.References))
+		for idx, reference := range i.References {
+			if !isSeedanceHTTPImageURL(reference.URL) {
+				return nil, errors.New("inline/reference image must be uploaded before forwarding")
+			}
+			references = append(references, map[string]any{
+				"image":    map[string]any{"url": reference.URL, "type": "UPLOADED"},
+				"strength": reference.Strength,
+				"order":    idx,
+			})
+		}
+		body["guidances"] = map[string]any{"image_reference": references}
 	}
 	if len(i.VideoReferences) > 0 || len(i.AudioReferences) > 0 {
 		guidances, _ := body["guidances"].(map[string]any)
@@ -1390,7 +1507,11 @@ func (s *OpenAIGatewayService) forwardSeedance(
 			}
 		}
 		if provider == VideoProviderHuiqu {
+			// MiniMax H3 uses the real /v1/videos create path; MX933 stays on /v1/videos/generations.
 			path = huiquVideoCreatePath
+			if isHuiquMiniMaxH3Model(mappedModel) || isHuiquMiniMaxH3Model(requestModel) {
+				path = huiquVideoTaskPath
+			}
 			if requestInfo.HasReferenceMedia() {
 				multipartBody, err = buildHuiquMultipartBody(requestInfo, upstreamModel)
 				if err == nil {

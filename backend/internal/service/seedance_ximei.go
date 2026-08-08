@@ -56,10 +56,13 @@ type ximeiVideoProduct struct {
 	DurationMode          ximeiDurationMode
 	MaxAudioSeconds       float64
 	MaxVideoSeconds       float64
+	MaxImages             int
+	MaxVideos             int
+	MaxAudios             int
 	RequireMediaDurations bool
 }
 
-var ximeiPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:ximei|canseedream|liantongyidong|ximeiedu|kele_pool|tc_pool|fenda_pool)\b`)
+var ximeiPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:ximei|canseedream|liantongyidong|ximeiedu|kele_pool|tc_pool|fenda_pool|nangua_pool)\b`)
 
 type ximeiTimedMedia struct {
 	URL             string  `json:"url"`
@@ -93,6 +96,11 @@ func IsXimeiVideoModel(model string) bool {
 }
 
 func isSeedanceMixedImageModel(model string) bool {
+	// 所有 seedance 系模型均允许首尾帧与参考图同时使用。
+	profile, ok := ffLinkVideoModelProfileFor(model)
+	if ok && profile.Platform == PlatformSeedance {
+		return true
+	}
 	return isHuiquVideoModel(model) || isXimeiVideoModel(model)
 }
 
@@ -129,7 +137,9 @@ func ximeiVideoProductFor(model, resolution string) (ximeiVideoProduct, error) {
 	case SeedanceXimeiSD25Model:
 		if resolution == VideoBillingResolution720P {
 			return ximeiVideoProduct{
-				Route: "fenda_pool", Resolution: resolution, DurationMode: ximeiDurationParameter,
+				Route: "nangua_pool", Resolution: resolution, DurationMode: ximeiDurationParameter,
+				// nangua_pool explicitly supports up to 30 image / 10 video / 10 audio references.
+				MaxImages: 30, MaxVideos: 10, MaxAudios: 10,
 				RequireMediaDurations: true,
 			}, nil
 		}
@@ -187,25 +197,39 @@ func isXimeiVideoDurationSupported(model string, duration int) bool {
 }
 
 func ximeiImageURLs(info *SeedanceRequestInfo) []string {
-	if info == nil {
+	// 与提示词 @ImageN 同一顺序：参考图 → 首帧 → 尾帧。
+	// 首尾帧追加在数组末尾，提示词按实际下标动态注入（如 1 张参考图时首帧=@Image2）。
+	slots := ximeiOrderedImageSlots(info)
+	if len(slots) == 0 {
 		return nil
 	}
-	images := make([]string, 0, len(info.References)+2)
-	if value := strings.TrimSpace(info.StartFrameURL); value != "" {
-		images = append(images, value)
-	}
-	if value := strings.TrimSpace(info.EndFrameURL); value != "" {
-		images = append(images, value)
-	}
-	for _, reference := range info.References {
-		if value := strings.TrimSpace(reference.URL); value != "" {
-			images = append(images, value)
-		}
+	images := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		images = append(images, slot.URL)
 	}
 	return images
 }
 
 func validateXimeiReferenceDurations(info *SeedanceRequestInfo, product ximeiVideoProduct) error {
+	if product.MaxImages > 0 {
+		imageCount := len(info.References)
+		if strings.TrimSpace(info.StartFrameURL) != "" {
+			imageCount++
+		}
+		if strings.TrimSpace(info.EndFrameURL) != "" {
+			imageCount++
+		}
+		if imageCount > product.MaxImages {
+			return fmt.Errorf("model %s supports at most %d images including reference images and first/last frames", info.Model, product.MaxImages)
+		}
+	}
+	if product.MaxVideos > 0 && len(info.VideoReferences) > product.MaxVideos {
+		return fmt.Errorf("model %s supports at most %d reference videos", info.Model, product.MaxVideos)
+	}
+	if product.MaxAudios > 0 && len(info.AudioReferences) > product.MaxAudios {
+		return fmt.Errorf("model %s supports at most %d reference audio files", info.Model, product.MaxAudios)
+	}
+
 	var totalVideo float64
 	for index, media := range info.VideoReferences {
 		if product.RequireMediaDurations && media.DurationSeconds <= 0 {
@@ -233,29 +257,18 @@ func compileXimeiPrompt(info *SeedanceRequestInfo) string {
 	if info == nil {
 		return ""
 	}
-	constraints := []string{
-		fmt.Sprintf("- 生成视频的总时长必须严格为 %d 秒，动作在规定时长内完整结束。", info.DurationSeconds),
+	// 按 image_urls 实际序号动态注入；用户占用编号时不写 @ImageN 映射。
+	base := composeSeedancePromptWithMediaHints(info)
+	// ximei 额外要求严格时长约束
+	durationHint := fmt.Sprintf("- 生成视频的总时长必须严格为 %d 秒，动作在规定时长内完整结束。", info.DurationSeconds)
+	if strings.Contains(base, "[平台参考约束，请严格执行]") {
+		return strings.Replace(base, "[平台参考约束，请严格执行]\n", "[平台参考约束，请严格执行]\n"+durationHint+"\n", 1)
 	}
-	imageIndex := 1
-	if strings.TrimSpace(info.StartFrameURL) != "" {
-		constraints = append(constraints, fmt.Sprintf("- @Image%d 是首帧：严格保持其人物身份、构图和初始站位，并从该画面开始。", imageIndex))
-		imageIndex++
+	prompt := strings.TrimSpace(base)
+	if prompt == "" {
+		return "[平台参考约束，请严格执行]\n" + durationHint
 	}
-	if strings.TrimSpace(info.EndFrameURL) != "" {
-		constraints = append(constraints, fmt.Sprintf("- @Image%d 是尾帧：连续运动并自然收束到该构图和最终站位，禁止跳切。", imageIndex))
-		imageIndex++
-	}
-	for range info.References {
-		constraints = append(constraints, fmt.Sprintf("- @Image%d 是普通图片参考，保持其中可识别的主体、物件或场景特征。", imageIndex))
-		imageIndex++
-	}
-	for index := range info.AudioReferences {
-		constraints = append(constraints, fmt.Sprintf("- @Audio%d 是声音参考；按用户提示保留其音色、语言内容或节奏特征。", index+1))
-	}
-	for index := range info.VideoReferences {
-		constraints = append(constraints, fmt.Sprintf("- @Video%d 是动作与运镜参考；保持连续性，不直接复制无关人物身份。", index+1))
-	}
-	return strings.TrimSpace(info.Prompt) + "\n\n[平台参考约束，请严格执行]\n" + strings.Join(constraints, "\n")
+	return prompt + "\n\n[平台参考约束，请严格执行]\n" + durationHint
 }
 
 func (s *OpenAIGatewayService) forwardXimeiSeedance(

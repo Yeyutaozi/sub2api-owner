@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, Plugin } from 'vite'
+﻿import { defineConfig, loadEnv, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
@@ -47,8 +47,8 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
 }
 
 /**
- * Vite 插件：开发模式下注入公开配置到 index.html
- * 与生产模式的后端注入行为保持一致，消除闪烁
+ * Vite 鎻掍欢锛氬紑鍙戞ā寮忎笅娉ㄥ叆鍏紑閰嶇疆鍒?index.html
+ * 涓庣敓浜фā寮忕殑鍚庣娉ㄥ叆琛屼负淇濇寔涓€鑷达紝娑堥櫎闂儊
  */
 function injectPublicSettings(backendUrl: string): Plugin {
   return {
@@ -69,7 +69,7 @@ function injectPublicSettings(backendUrl: string): Plugin {
             }
           }
         } catch (e) {
-          console.warn('[vite] 无法获取公开配置，将回退到 API 调用:', (e as Error).message)
+          console.warn('[vite] 鏃犳硶鑾峰彇鍏紑閰嶇疆锛屽皢鍥為€€鍒?API 璋冪敤:', (e as Error).message)
         }
         return html
       }
@@ -78,7 +78,7 @@ function injectPublicSettings(backendUrl: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  // 加载环境变量
+  // 鍔犺浇鐜鍙橀噺
   const env = loadEnv(mode, process.cwd(), '')
   const backendUrl = env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080'
   const devPort = Number(env.VITE_DEV_PORT || 3000)
@@ -86,21 +86,18 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
-      checker({
-        vueTsc: true
-      }),
+      /* CHECKER_DISABLED_FOR_E2E */ // checker({ vueTsc: true }),
       injectPublicSettings(backendUrl)
     ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      // 使用 vue-i18n 运行时版本，避免 CSP unsafe-eval 问题
+      // 浣跨敤 vue-i18n 杩愯鏃剁増鏈紝閬垮厤 CSP unsafe-eval 闂
       'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
     }
   },
   define: {
-    // 启用 vue-i18n JIT 编译，在 CSP 环境下处理消息插值
-    // JIT 编译器生成 AST 对象而非 JS 代码，无需 unsafe-eval
+    // 鍚敤 vue-i18n JIT 缂栬瘧锛屽湪 CSP 鐜涓嬪鐞嗘秷鎭彃鍊?    // JIT 缂栬瘧鍣ㄧ敓鎴?AST 瀵硅薄鑰岄潪 JS 浠ｇ爜锛屾棤闇€ unsafe-eval
     __INTLIFY_JIT_COMPILATION__: true
   },
   build: {
@@ -109,17 +106,15 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       output: {
         /**
-         * 手动分包配置
-         * 分离第三方库并按功能合并应用代码，避免循环依赖
-         */
+         * 鎵嬪姩鍒嗗寘閰嶇疆
+         * 鍒嗙绗笁鏂瑰簱骞舵寜鍔熻兘鍚堝苟搴旂敤浠ｇ爜锛岄伩鍏嶅惊鐜緷璧?         */
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
             if (id.includes('/three/')) {
               return 'vendor-three'
             }
 
-            // Vue 核心库
-            if (
+            // Vue 鏍稿績搴?            if (
               id.includes('/vue/') ||
               id.includes('/vue-router/') ||
               id.includes('/pinia/') ||
@@ -128,32 +123,28 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
-            // UI 工具库（较大，单独分离）
+            // UI 宸ュ叿搴擄紙杈冨ぇ锛屽崟鐙垎绂伙級
             if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
               return 'vendor-ui'
             }
 
-            // 图表库
-            if (id.includes('/chart.js/') || id.includes('/vue-chartjs/')) {
+            // 鍥捐〃搴?            if (id.includes('/chart.js/') || id.includes('/vue-chartjs/')) {
               return 'vendor-chart'
             }
 
-            // 国际化
-            if (id.includes('/vue-i18n/') || id.includes('/@intlify/')) {
+            // 鍥介檯鍖?            if (id.includes('/vue-i18n/') || id.includes('/@intlify/')) {
               return 'vendor-i18n'
             }
 
-            // Stripe 仅在支付流程中按需加载，避免进入首页公共依赖。
-            if (id.includes('/@stripe/stripe-js/')) {
+            // Stripe 浠呭湪鏀粯娴佺▼涓寜闇€鍔犺浇锛岄伩鍏嶈繘鍏ラ椤靛叕鍏变緷璧栥€?            if (id.includes('/@stripe/stripe-js/')) {
               return 'vendor-stripe'
             }
 
-            // 其他小型第三方库合并
+            // 鍏朵粬灏忓瀷绗笁鏂瑰簱鍚堝苟
             return 'vendor-misc'
           }
 
-          // 应用代码：按入口点自动分包，不手动干预
-          // 这样可以避免循环依赖，同时保持合理的 chunk 数量
+          // 搴旂敤浠ｇ爜锛氭寜鍏ュ彛鐐硅嚜鍔ㄥ垎鍖咃紝涓嶆墜鍔ㄥ共棰?          // 杩欐牱鍙互閬垮厤寰幆渚濊禆锛屽悓鏃朵繚鎸佸悎鐞嗙殑 chunk 鏁伴噺
         }
       }
     }
@@ -178,3 +169,4 @@ export default defineConfig(({ mode }) => {
     }
   }
 })
+

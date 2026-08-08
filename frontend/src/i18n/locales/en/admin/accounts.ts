@@ -108,6 +108,8 @@ export default {
         seedance: 'Seedance',
         ltx: 'LTX',
         happyhorse: 'HappyHorse',
+        minimax: 'MiniMax',
+        grokimagine: 'GrokImagine',
       },
       types: {
         oauth: 'OAuth',

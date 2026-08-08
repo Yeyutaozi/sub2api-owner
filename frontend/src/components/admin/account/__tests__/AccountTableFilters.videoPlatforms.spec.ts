@@ -33,5 +33,6 @@ describe('AccountTableFilters video platforms', () => {
     expect(wrapper.text()).toContain('Seedance')
     expect(wrapper.text()).toContain('LTX')
     expect(wrapper.text()).toContain('HappyHorse')
+    expect(wrapper.text()).toContain('MiniMax')
   })
 })

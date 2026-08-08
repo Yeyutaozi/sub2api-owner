@@ -19,6 +19,7 @@ describe('GroupBadge video platforms', () => {
   it.each([
     ['ltx', 'bg-cyan-50'],
     ['happyhorse', 'bg-amber-50'],
+    ['minimax', 'bg-fuchsia-50'],
   ] as const)('uses a dedicated %s group style', (platform, expectedClass) => {
     const wrapper = mount(GroupBadge, {
       props: {

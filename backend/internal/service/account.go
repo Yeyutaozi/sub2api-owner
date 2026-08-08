@@ -291,6 +291,14 @@ func (a *Account) IsHappyHorse() bool {
 	return a != nil && a.Platform == PlatformHappyHorse
 }
 
+func (a *Account) IsMiniMax() bool {
+	return a != nil && a.Platform == PlatformMiniMax
+}
+
+func (a *Account) IsGrokImagine() bool {
+	return a != nil && a.Platform == PlatformGrokImagine
+}
+
 func (a *Account) IsFFLinkVideo() bool {
 	return a != nil && IsFFLinkVideoPlatform(a.Platform)
 }
@@ -823,7 +831,7 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsFFLinkVideo() {
 		provider := a.GetVideoProvider()
-		if provider == "" || !videoProviderSupportsModel(provider, requestedModel) {
+		if provider == "" || !videoProviderSupportsModelForPlatform(a.Platform, provider, requestedModel) {
 			return false
 		}
 	}

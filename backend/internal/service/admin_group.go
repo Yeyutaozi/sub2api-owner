@@ -251,6 +251,10 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return DefaultGLMModelIDs()
 	case PlatformSeedance:
 		return FFLinkVideoModelIDsForPlatform(PlatformSeedance)
+	case PlatformMiniMax:
+		return FFLinkVideoModelIDsForPlatform(PlatformMiniMax)
+	case PlatformGrokImagine:
+		return FFLinkVideoModelIDsForPlatform(PlatformGrokImagine)
 	case PlatformLTX:
 		return FFLinkVideoModelIDsForPlatform(PlatformLTX)
 	case PlatformHappyHorse:
@@ -267,9 +271,10 @@ func defaultModelsListCandidateIDs(platform string) []string {
 }
 
 func defaultAllowImageGenerationForPlatform(platform string) bool {
-	// Grok image and video generation routes share the legacy image-generation gate.
-	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
+	// Grok image/video and FFLink video platforms share the legacy image-generation gate
+	// used by media routes (including Seedance/MiniMax video generation).
+	// Older clients send the false zero value, so these groups must default enabled.
+	return platform == PlatformGrok || IsFFLinkVideoPlatform(platform)
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
@@ -441,6 +446,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	allowCreazyCanvas := true
+	if input.AllowCreazyCanvas != nil {
+		allowCreazyCanvas = *input.AllowCreazyCanvas
+	}
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -487,6 +496,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		MonthlyLimitUSD:                 monthlyLimit,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
+		AllowCreazyCanvas:               allowCreazyCanvas,
 		ImageRateIndependent:            input.ImageRateIndependent,
 		ImageRateMultiplier:             imageRateMultiplier,
 		BatchImageDiscountMultiplier:    batchImageDiscountMultiplier,
@@ -693,6 +703,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.AllowBatchImageGeneration != nil {
 		group.AllowBatchImageGeneration = *input.AllowBatchImageGeneration
+	}
+	if input.AllowCreazyCanvas != nil {
+		group.AllowCreazyCanvas = *input.AllowCreazyCanvas
 	}
 	if !group.AllowImageGeneration || group.Platform != PlatformGemini {
 		group.AllowBatchImageGeneration = false
@@ -1043,7 +1056,7 @@ func (s *adminServiceImpl) BatchSetGroupVideoModelPrices(ctx context.Context, gr
 		return err
 	}
 	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
-		return infraerrors.BadRequest("VIDEO_PRICE_OVERRIDES_UNSUPPORTED", "per-user video prices require a Seedance, LTX, or HappyHorse group")
+		return infraerrors.BadRequest("VIDEO_PRICE_OVERRIDES_UNSUPPORTED", "per-user video prices require a Seedance, LTX, HappyHorse, or MiniMax group")
 	}
 	normalized := make([]GroupVideoModelPricesInput, 0, len(entries))
 	seenUserIDs := make(map[int64]struct{}, len(entries))

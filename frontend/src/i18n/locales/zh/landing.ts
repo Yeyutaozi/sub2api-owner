@@ -3,6 +3,10 @@ export default {
     title: '图片批量生成',
     description: '一次提交多条提示词，任务完成后可统一下载图片结果'
   },
+  creazyCanvasPage: {
+    title: 'Creazy 画布',
+    description: '用自己的 API Key 生图 / 生视频，结果进入私有作品库'
+  },
   // Home Page
   home: {
     viewOnGithub: '在 GitHub 上查看',

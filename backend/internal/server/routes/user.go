@@ -117,6 +117,19 @@ func RegisterUserRoutes(
 			agentArtifacts.GET("/:id/preview-url", h.AgentRun.GetArtifactPreviewURL)
 		}
 
+		creazyCanvas := authenticated.Group("/creazy-canvas")
+		{
+			creazyCanvas.GET("/keys", h.CreazyCanvas.ListKeys)
+			creazyCanvas.GET("/catalog", h.CreazyCanvas.Catalog)
+			creazyCanvas.GET("/works", h.CreazyCanvas.ListWorks)
+			creazyCanvas.POST("/works", h.CreazyCanvas.CreateWork)
+			creazyCanvas.PATCH("/works/:id", h.CreazyCanvas.UpdateWork)
+			creazyCanvas.GET("/works/:id", h.CreazyCanvas.GetWork)
+			creazyCanvas.DELETE("/works/:id", h.CreazyCanvas.DeleteWork)
+			creazyCanvas.GET("/works/:id/download-url", h.CreazyCanvas.GetDownloadURL)
+			creazyCanvas.GET("/works/:id/content", h.CreazyCanvas.GetWorkContent)
+		}
+
 		groups := authenticated.Group("/groups")
 		{
 			groups.GET("/available", h.APIKey.GetAvailableGroups)

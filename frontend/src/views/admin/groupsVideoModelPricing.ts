@@ -14,6 +14,10 @@ export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const
 
 export const DEFAULT_HAPPYHORSE_VIDEO_MODELS = ["happy-horse-1.1"] as const;
 
+export const DEFAULT_MINIMAX_VIDEO_MODELS = ["minimax-h3"] as const;
+
+export const DEFAULT_GROKIMAGINE_VIDEO_MODELS = ["grok-imagine-1.5"] as const;
+
 export const VIDEO_MODEL_PRICE_RESOLUTIONS = [
   "480p",
   "720p",
@@ -39,6 +43,8 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
   "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
   "happy-horse-1.1": ["720p", "1080p"],
+  "minimax-h3": ["1440p"],
+  "grok-imagine-1.5": ["720p"],
 };
 
 export const videoModelsForPricingPlatform = (
@@ -48,6 +54,10 @@ export const videoModelsForPricingPlatform = (
     ? DEFAULT_HAPPYHORSE_VIDEO_MODELS
     : platform === "ltx"
     ? DEFAULT_LTX_VIDEO_MODELS
+    : platform === "minimax"
+      ? DEFAULT_MINIMAX_VIDEO_MODELS
+    : platform === "grokimagine"
+      ? DEFAULT_GROKIMAGINE_VIDEO_MODELS
     : platform === "seedance"
       ? DEFAULT_SEEDANCE_VIDEO_MODELS
       : [];
@@ -65,6 +75,10 @@ export const supportedResolutionsForVideoModel = (
     ? ["1080p", "1440p", "2160p"]
     : platform === "happyhorse"
       ? ["720p", "1080p"]
+    : platform === "minimax"
+      ? ["1440p"]
+    : platform === "grokimagine"
+      ? ["720p"]
     : ["480p", "720p", "1080p"];
 };
 
@@ -93,7 +107,7 @@ export type VideoModelPriceRowValidationError =
 
 export const supportsVideoModelPricingPlatform = (
   platform: string,
-): boolean => platform === "seedance" || platform === "ltx" || platform === "happyhorse";
+): boolean => platform === "seedance" || platform === "ltx" || platform === "happyhorse" || platform === "minimax" || platform === "grokimagine";
 
 export const supportsPerRequestVideoBilling = (platform: string): boolean =>
   platform === "seedance";

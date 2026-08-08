@@ -71,6 +71,7 @@ type Handlers struct {
 	BatchImage       *BatchImageHandler
 	TokenReward      *TokenRewardHandler
 	AgentRun         *AgentRunHandler
+	CreazyCanvas     *CreazyCanvasHandler
 }
 
 // BuildInfo contains build-time information

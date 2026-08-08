@@ -215,6 +215,34 @@
             <PlatformIcon platform="happyhorse" size="sm" />
             HappyHorse
           </button>
+          <button
+            type="button"
+            data-testid="account-platform-minimax"
+            @click="form.platform = 'minimax'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'minimax'
+                ? 'bg-white text-fuchsia-700 shadow-sm dark:bg-dark-600 dark:text-fuchsia-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="minimax" size="sm" />
+            MiniMax
+          </button>
+<button
+            type="button"
+            data-testid="account-platform-grokimagine"
+            @click="form.platform = 'grokimagine'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'grokimagine'
+                ? 'bg-white text-fuchsia-700 shadow-sm dark:bg-dark-600 dark:text-fuchsia-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="grokimagine" size="sm" />
+            GrokImagine
+          </button>
         </div>
       </div>
 
@@ -1155,7 +1183,7 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
-        <div v-if="form.platform === 'seedance'">
+        <div v-if="form.platform === 'seedance' || form.platform === 'minimax'">
           <label class="input-label">{{ t('admin.accounts.videoProvider.title') }}</label>
           <select
             v-model="seedanceVideoProvider"
@@ -1163,9 +1191,9 @@
             data-testid="create-seedance-video-provider"
             @change="handleSeedanceVideoProviderChange"
           >
-            <option value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
+            <option v-if="form.platform === 'seedance'" value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
-            <option value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
+            <option v-if="form.platform === 'seedance'" value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
@@ -1184,9 +1212,9 @@
                     ? 'https://api.x.ai/v1'
                     : form.platform === 'glm'
                       ? 'https://open.bigmodel.cn/api/paas/v4'
-                    : form.platform === 'seedance'
+                    : form.platform === 'seedance' || form.platform === 'minimax'
                       ? seedanceProviderBaseUrl
-                    : form.platform === 'ltx' || form.platform === 'happyhorse'
+                    : form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'grokimagine'
                       ? 'https://api.fflink.top'
                     : 'https://api.anthropic.com'
             "
@@ -1214,7 +1242,7 @@
                     ? 'xai-...'
                     : form.platform === 'glm'
                       ? 'sk-...'
-                    : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse'
+                    : form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine'
                       ? 'Sub2API Key'
                     : 'sk-ant-...'
             "
@@ -3703,21 +3731,23 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse') return ''
+  if (form.platform === 'grok' || form.platform === 'glm' || form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
 const isVideoAccountPlatform = computed(() =>
   form.platform === 'seedance' ||
   form.platform === 'ltx' ||
-  form.platform === 'happyhorse'
+  form.platform === 'happyhorse' ||
+  form.platform === 'minimax' ||
+  form.platform === 'grokimagine'
 )
 
 interface Props {
@@ -3805,6 +3835,10 @@ const upstreamBillingAutoProbeEnabled = ref(true)
 const seedanceProviderModels = computed(() =>
   form.platform === 'seedance'
     ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
+    : form.platform === 'minimax'
+      ? getModelsByPlatform('minimax')
+    : form.platform === 'grokimagine'
+      ? getModelsByPlatform('grokimagine')
     : undefined
 )
 
@@ -4272,7 +4306,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'glm') {
+    if (form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine' || form.platform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
       return
@@ -4302,7 +4336,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
-    seedanceVideoProvider.value = 'fflink'
+    seedanceVideoProvider.value = form.platform === 'minimax' ? 'huiqu' : 'fflink'
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
       (newPlatform === 'openai')
@@ -4315,14 +4349,16 @@ watch(
               ? 'https://open.bigmodel.cn/api/paas/v4'
             : newPlatform === 'seedance'
               ? getSeedanceVideoProviderBaseUrl('fflink')
-            : newPlatform === 'ltx' || newPlatform === 'happyhorse'
+            : newPlatform === 'minimax'
+              ? getSeedanceVideoProviderBaseUrl('huiqu')
+            : newPlatform === 'ltx' || newPlatform === 'happyhorse' || newPlatform === 'grokimagine'
               ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'happyhorse' || newPlatform === 'glm') {
+    if (newPlatform === 'seedance' || newPlatform === 'ltx' || newPlatform === 'happyhorse' || newPlatform === 'grokimagine' || newPlatform === 'minimax' || newPlatform === 'glm') {
       accountCategory.value = 'apikey'
       form.type = 'apikey'
     } else if (newPlatform === 'antigravity') {
@@ -5220,9 +5256,9 @@ const handleSubmit = async () => {
           ? 'https://api.x.ai/v1'
           : form.platform === 'glm'
             ? 'https://open.bigmodel.cn/api/paas/v4'
-          : form.platform === 'seedance'
+          : form.platform === 'seedance' || form.platform === 'minimax'
             ? seedanceProviderBaseUrl.value
-          : form.platform === 'ltx' || form.platform === 'happyhorse'
+          : form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'grokimagine'
             ? 'https://api.fflink.top'
             : 'https://api.anthropic.com'
 
@@ -5239,7 +5275,7 @@ const handleSubmit = async () => {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
   }
-  if (form.platform === 'seedance') {
+  if (form.platform === 'seedance' || form.platform === 'minimax') {
     credentials.video_provider = seedanceVideoProvider.value
   }
   if (form.platform === 'gemini') {

@@ -27,6 +27,8 @@ const (
 	PlatformSeedance    = "seedance"
 	PlatformLTX         = "ltx"
 	PlatformHappyHorse  = "happyhorse"
+	PlatformMiniMax     = "minimax"
+	PlatformGrokImagine = "grokimagine"
 	PlatformComposite   = "composite"
 )
 

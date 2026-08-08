@@ -105,6 +105,7 @@ var ProviderSet = wire.NewSet(
 	NewAgentWorkerHostRepository,
 	NewAgentAppRepository,
 	NewAgentRunRepository,
+	NewCreazyCanvasWorkRepository,
 	NewUserPlatformQuotaRepository,     // T14: user × platform quota
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
 

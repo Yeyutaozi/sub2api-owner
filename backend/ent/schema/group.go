@@ -209,6 +209,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("allow_live").
 			Default(false).
 			Comment("是否允许此 OpenAI 分组访问 Live 接口"),
+		field.Bool("allow_creazy_canvas").
+			Default(true).
+			Comment("是否允许该分组的 Key 在 Creazy 画布网页使用；默认 true，不影响 /v1 API"),
 		field.Bool("require_oauth_only").
 			Default(false).
 			Comment("仅允许非 apikey 类型账号关联到此分组"),

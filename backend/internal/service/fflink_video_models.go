@@ -22,6 +22,7 @@ type ffLinkVideoModelProfile struct {
 	MaxAudioReferences  int
 	MaxTotalMedia       int
 	AllowStartFrame     bool
+	RequireStartFrame   bool
 	AllowEndFrame       bool
 	AllowGeneratedAudio bool
 	PromptEnhanceMode   string
@@ -33,7 +34,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
-		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1, MaxTotalMedia: 8,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, resolution string) bool {
 			return isSeedanceDurationSupported(duration) && !(resolution == VideoBillingResolution1080P && duration > 12)
@@ -43,7 +44,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
-		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1, MaxTotalMedia: 8,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
@@ -51,7 +52,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "1:1", "9:16"),
-		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1,
+		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1, MaxTotalMedia: 8,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
 	},
@@ -90,6 +91,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 12,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
 		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
+	},
+	SeedanceMiniMaxH3Model: {
+		Platform: PlatformMiniMax, DefaultResolution: VideoBillingResolution1440P, DefaultDuration: 8,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution1440P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16"),
+		PromptLimit:         5000, MaxImageReferences: 5, MaxTotalImages: 5, MaxVideoReferences: 0, MaxAudioReferences: 3, MaxTotalMedia: 8,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return isHuiquMiniMaxH3DurationSupported(duration) },
 	},
 	SeedanceXimeiSD20Model: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
@@ -130,6 +139,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		MaxImageReferences: 9, AllowStartFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 3 && duration <= 15 },
 	},
+	"grok-imagine-1.5": {
+		Platform: PlatformGrokImagine, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 6,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16"),
+		PromptLimit:         2500, MaxImageReferences: 0, MaxVideoReferences: 0, MaxAudioReferences: 0,
+		AllowStartFrame: true, RequireStartFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "enum",
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 3 && duration <= 15 },
+	},
 }
 
 func resolutionSet(values ...string) map[string]struct{} {
@@ -165,10 +182,16 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			SeedanceXimeiSD20Model,
 			SeedanceXimeiSD25Model,
 		}
+	case PlatformMiniMax:
+		return []string{
+			SeedanceMiniMaxH3Model,
+		}
 	case PlatformLTX:
 		return []string{"ltx-2.3-pro", "ltx-2.3-fast"}
 	case PlatformHappyHorse:
 		return []string{"happy-horse-1.1"}
+	case PlatformGrokImagine:
+		return []string{"grok-imagine-1.5"}
 	default:
 		return nil
 	}
@@ -264,8 +287,15 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	if !profile.AllowStartFrame && info.StartFrameURL != "" {
 		return fmt.Errorf("model %s does not support a first frame", info.Model)
 	}
+	if profile.RequireStartFrame && strings.TrimSpace(info.StartFrameURL) == "" {
+		return fmt.Errorf("start frame is required by %s", info.Model)
+	}
 	if !profile.AllowEndFrame && info.EndFrameURL != "" {
 		return fmt.Errorf("model %s does not support a last frame", info.Model)
+	}
+	// Gateway contract: end frame always depends on start frame (pair not required).
+	if strings.TrimSpace(info.EndFrameURL) != "" && strings.TrimSpace(info.StartFrameURL) == "" {
+		return fmt.Errorf("a first frame is required when a last frame is provided")
 	}
 	if !profile.AllowGeneratedAudio && info.GenerateAudio {
 		return fmt.Errorf("model %s does not support generated audio", info.Model)
@@ -273,9 +303,28 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	if len(info.AudioReferences) > 0 && !info.GenerateAudio {
 		return fmt.Errorf("audio=true is required when guidances.audio_reference is provided")
 	}
-	if len(info.AudioReferences) > 0 && len(info.References) == 0 && len(info.VideoReferences) == 0 {
-		return fmt.Errorf("reference audio requires at least one reference image or reference video")
+	if isHuiquMiniMaxH3Model(info.Model) {
+		// Upstream hailuo-03/H3 always generates native audio and rejects audio=false.
+		info.GenerateAudio = true
+		hasStart := strings.TrimSpace(info.StartFrameURL) != ""
+		hasEnd := strings.TrimSpace(info.EndFrameURL) != ""
+		hasFrames := hasStart || hasEnd
+		hasImageRefs := len(info.References) > 0
+		hasAudioRefs := len(info.AudioReferences) > 0
+		if len(info.VideoReferences) > 0 {
+			return fmt.Errorf("model %s does not support reference videos", info.Model)
+		}
+		if hasEnd && !hasStart {
+			return fmt.Errorf("model %s requires a first frame when a last frame is provided", info.Model)
+		}
+		if hasFrames && (hasImageRefs || hasAudioRefs) {
+			return fmt.Errorf("model %s first/last frames cannot be combined with reference images or audio", info.Model)
+		}
+		if hasAudioRefs && !hasImageRefs {
+			return fmt.Errorf("model %s requires reference images when audio_reference is provided", info.Model)
+		}
 	}
+	// 参考音频可单独上传，不再强制搭配参考图/视频。
 	if isXimeiVideoModel(info.Model) {
 		product, err := ximeiVideoProductFor(info.Model, info.Resolution)
 		if err != nil {

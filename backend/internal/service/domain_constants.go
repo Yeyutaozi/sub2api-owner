@@ -47,6 +47,8 @@ const (
 	PlatformSeedance    = domain.PlatformSeedance
 	PlatformLTX         = domain.PlatformLTX
 	PlatformHappyHorse  = domain.PlatformHappyHorse
+	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformGrokImagine = domain.PlatformGrokImagine
 	PlatformComposite   = domain.PlatformComposite
 )
 
@@ -63,10 +65,12 @@ var AllowedQuotaPlatforms = []string{
 	PlatformSeedance,
 	PlatformLTX,
 	PlatformHappyHorse,
+	PlatformMiniMax,
+	PlatformGrokImagine,
 }
 
 func IsFFLinkVideoPlatform(platform string) bool {
-	return platform == PlatformSeedance || platform == PlatformLTX || platform == PlatformHappyHorse
+	return platform == PlatformSeedance || platform == PlatformLTX || platform == PlatformHappyHorse || platform == PlatformMiniMax || platform == PlatformGrokImagine
 }
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。

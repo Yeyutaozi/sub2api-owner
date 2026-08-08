@@ -65,6 +65,7 @@ describe('UserPlatformQuotaCell', () => {
           item({ platform: 'anthropic', daily_limit_usd: 10 }),
           item({ platform: 'openai', daily_usage_usd: 9 }),
           item({ platform: 'happyhorse', daily_limit_usd: 30 }),
+          item({ platform: 'minimax', daily_limit_usd: 40 }),
           item({ platform: 'ltx', daily_limit_usd: 20 }),
         ],
       },
@@ -72,6 +73,7 @@ describe('UserPlatformQuotaCell', () => {
     const text = w.text()
     expect(text.indexOf('anthropic')).toBeLessThan(text.indexOf('gemini'))
     expect(text.indexOf('ltx')).toBeLessThan(text.indexOf('happyhorse'))
+    expect(text.indexOf('happyhorse')).toBeLessThan(text.indexOf('minimax'))
     expect(text).not.toContain('openai')
   })
 })

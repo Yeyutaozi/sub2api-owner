@@ -8,7 +8,7 @@ import (
 
 func TestSchedulerSnapshotPlatformsIncludesAllCanonicalPlatformsExactlyOnce(t *testing.T) {
 	platforms := schedulerSnapshotPlatforms()
-	require.Len(t, platforms, 9)
+	require.Len(t, platforms, 10)
 	require.ElementsMatch(t, []string{
 		PlatformAnthropic,
 		PlatformGemini,
@@ -19,5 +19,6 @@ func TestSchedulerSnapshotPlatformsIncludesAllCanonicalPlatformsExactlyOnce(t *t
 		PlatformSeedance,
 		PlatformLTX,
 		PlatformHappyHorse,
+		PlatformMiniMax,
 	}, platforms[:])
 }

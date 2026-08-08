@@ -183,6 +183,10 @@ const seedanceHuiquModels = [
   'sd2-mx933-fast'
 ]
 
+const minimaxVideoModels = [
+  'minimax-h3'
+]
+
 const seedanceXimeiModels = [
   'sd-2.0-mx933',
   'sd-2.5-mx'
@@ -199,6 +203,10 @@ export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider
 const ltxModels = ['ltx-2.3-pro', 'ltx-2.3-fast']
 
 const happyHorseModels = ['happy-horse-1.1']
+
+const grokImagineVideoModels = [
+  'grok-imagine-1.5'
+]
 
 // Cohere
 const cohereModels = [
@@ -232,12 +240,13 @@ const doubaoModels = [
   'doubao-1.5-pro-vision-32k', 'doubao-1.5-thinking-pro'
 ]
 
-// MiniMax
-const minimaxModels = [
+// MiniMax chat aliases (legacy whitelist helper; account platform minimax is video)
+const minimaxChatModels = [
   'abab6.5-chat', 'abab6.5s-chat', 'abab6.5s-chat-pro',
   'abab6-chat',
   'abab5.5-chat', 'abab5.5s-chat'
 ]
+const minimaxModels = minimaxVideoModels
 
 // 百度 文心
 const baiduModels = [
@@ -288,6 +297,8 @@ const allModelsList: string[] = [
   ...moonshotModels,
   ...doubaoModels,
   ...minimaxModels,
+  ...grokImagineVideoModels,
+  ...minimaxChatModels,
   ...baiduModels,
   ...sparkModels,
   ...hunyuanModels,
@@ -479,11 +490,13 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'seedance': return seedanceModels
     case 'ltx': return ltxModels
     case 'happyhorse': return happyHorseModels
+    case 'minimax': return minimaxVideoModels
+    case 'grokimagine': return grokImagineVideoModels
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot': return moonshotModels
     case 'doubao': return doubaoModels
-    case 'minimax': return minimaxModels
+    case 'minimax-chat': return minimaxChatModels
     case 'baidu': return baiduModels
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
@@ -505,6 +518,9 @@ export function getPresetMappingsByPlatform(platform: string) {
   ]
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'seedance') return seedancePresetMappings
+  if (platform === 'minimax') return [
+    { label: 'MiniMax H3', from: 'minimax-h3', to: 'minimax-h3', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' }
+  ]
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings

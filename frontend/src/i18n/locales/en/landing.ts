@@ -3,6 +3,10 @@ export default {
     title: 'Batch Image Generation',
     description: 'Submit multiple prompts in one job and download the generated images when complete'
   },
+  creazyCanvasPage: {
+    title: 'Creazy Canvas',
+    description: 'Generate images and videos with your own API keys; results go to a private works library'
+  },
   // Home Page
   home: {
     viewOnGithub: 'View on GitHub',

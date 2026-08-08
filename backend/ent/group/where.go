@@ -270,6 +270,11 @@ func AllowLive(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAllowLive, v))
 }
 
+// AllowCreazyCanvas applies equality check predicate on the "allow_creazy_canvas" field. It's identical to AllowCreazyCanvasEQ.
+func AllowCreazyCanvas(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAllowCreazyCanvas, v))
+}
+
 // RequireOauthOnly applies equality check predicate on the "require_oauth_only" field. It's identical to RequireOauthOnlyEQ.
 func RequireOauthOnly(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRequireOauthOnly, v))
@@ -2068,6 +2073,16 @@ func AllowLiveEQ(v bool) predicate.Group {
 // AllowLiveNEQ applies the NEQ predicate on the "allow_live" field.
 func AllowLiveNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldAllowLive, v))
+}
+
+// AllowCreazyCanvasEQ applies the EQ predicate on the "allow_creazy_canvas" field.
+func AllowCreazyCanvasEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAllowCreazyCanvas, v))
+}
+
+// AllowCreazyCanvasNEQ applies the NEQ predicate on the "allow_creazy_canvas" field.
+func AllowCreazyCanvasNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAllowCreazyCanvas, v))
 }
 
 // RequireOauthOnlyEQ applies the EQ predicate on the "require_oauth_only" field.

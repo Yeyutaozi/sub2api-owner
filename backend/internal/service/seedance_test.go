@@ -28,6 +28,7 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		SeedanceXimeiSD20Model,
 		SeedanceXimeiSD25Model,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
+	require.Equal(t, []string{SeedanceMiniMaxH3Model}, defaultModelsListCandidateIDs(PlatformMiniMax))
 }
 
 func TestSeedanceIndexedJobFallbackHidesLegacyMX933Model(t *testing.T) {
@@ -384,8 +385,8 @@ func TestParseSeedanceVideoGenerationRequestPublicGuidances(t *testing.T) {
 	require.NotContains(t, audioRefs[0].(map[string]any), "order")
 }
 
-func TestParseSeedanceCreateRequestRejectsMixedImageModes(t *testing.T) {
-	_, err := ParseSeedanceCreateRequest([]byte(`{
+func TestParseSeedanceCreateRequestAllowsMixedImageModes(t *testing.T) {
+	info, err := ParseSeedanceCreateRequest([]byte(`{
 		"model":"seedance-2.0",
 		"content":[
 			{"type":"text","text":"Animate"},
@@ -393,7 +394,171 @@ func TestParseSeedanceCreateRequestRejectsMixedImageModes(t *testing.T) {
 			{"type":"image_url","image_url":{"url":"https://example.com/ref.png","role":"reference_image"}}
 		]
 	}`))
-	require.EqualError(t, err, "reference images cannot be combined with first/last frames")
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/start.png", info.StartFrameURL)
+	require.Len(t, info.References, 1)
+	require.Equal(t, "https://example.com/ref.png", info.References[0].URL)
+}
+
+func TestEnhanceSeedancePromptWithFrameHints(t *testing.T) {
+	// 官方/FFLink：无论有无首尾帧，都不注入，原样返回用户 prompt
+	require.Equal(t, "hello", enhanceSeedancePromptWithFrameHints(&SeedanceRequestInfo{
+		Model: "seedance-2.0", Prompt: "hello",
+	}))
+	got := enhanceSeedancePromptWithFrameHints(&SeedanceRequestInfo{
+		Model:         "seedance-2.0",
+		Prompt:        "城市夜景",
+		StartFrameURL: "https://example.com/s.png",
+		EndFrameURL:   "https://example.com/e.png",
+		References:    []SeedanceReferenceImage{{URL: "https://example.com/r.png"}},
+	})
+	require.Equal(t, "城市夜景", got)
+	require.NotContains(t, got, "@Image1")
+	require.NotContains(t, got, "[平台参考约束，请严格执行]")
+
+	// 用户手写 image1 也不改写
+	userPrompt := "让 image1 作为主角缓缓转身"
+	got2 := enhanceSeedancePromptWithFrameHints(&SeedanceRequestInfo{
+		Model:         "seedance-2.0",
+		Prompt:        userPrompt,
+		StartFrameURL: "https://example.com/s.png",
+	})
+	require.Equal(t, userPrompt, got2)
+}
+
+func TestComposeSeedancePromptKeepsFramesWithoutNumberRemap(t *testing.T) {
+	// compose 仅供 Ximei 使用；用户占用编号时不重定义 @ImageN，但保留无编号首尾约束
+	info := &SeedanceRequestInfo{
+		Prompt:        "video1 的运镜，audio1 的音色",
+		StartFrameURL: "https://example.com/s.png",
+		EndFrameURL:   "https://example.com/e.png",
+		VideoReferences: []SeedanceReferenceVideo{
+			{URL: "https://example.com/v.mp4"},
+		},
+		AudioReferences: []SeedanceReferenceAudio{
+			{URL: "https://example.com/a.wav"},
+		},
+	}
+	got := composeSeedancePromptWithMediaHints(info)
+	require.Contains(t, got, "video1 的运镜，audio1 的音色")
+	require.NotContains(t, got, "@Video1")
+	require.NotContains(t, got, "@Audio1")
+	require.NotContains(t, got, "@Image1 是首帧")
+	require.Contains(t, got, "已上传的首帧图")
+	require.Contains(t, got, "已上传的尾帧图")
+}
+
+func TestXimeiOrderedImageSlotsAppendFramesAtEnd(t *testing.T) {
+	// 参考图在前，首尾帧挂末尾；Index 随数组实际位置动态变化
+	withManyRefs := &SeedanceRequestInfo{
+		StartFrameURL: "https://example.com/start.png",
+		EndFrameURL:   "https://example.com/end.png",
+		References: []SeedanceReferenceImage{
+			{URL: "https://example.com/r1.png"},
+			{URL: "https://example.com/r2.png"},
+			{URL: "https://example.com/r3.png"},
+		},
+	}
+	slots := ximeiOrderedImageSlots(withManyRefs)
+	require.Len(t, slots, 5)
+	require.Equal(t, "reference", slots[0].Role)
+	require.Equal(t, 1, slots[0].Index)
+	require.Equal(t, "reference", slots[2].Role)
+	require.Equal(t, 3, slots[2].Index)
+	require.Equal(t, "start_frame", slots[3].Role)
+	require.Equal(t, 4, slots[3].Index)
+	require.Equal(t, "end_frame", slots[4].Role)
+	require.Equal(t, 5, slots[4].Index)
+
+	// 少一张参考图时，首尾帧序号前移，但仍在末尾
+	withFewerRefs := &SeedanceRequestInfo{
+		StartFrameURL: "https://example.com/start.png",
+		EndFrameURL:   "https://example.com/end.png",
+		References:    []SeedanceReferenceImage{{URL: "https://example.com/r1.png"}},
+	}
+	slots2 := ximeiOrderedImageSlots(withFewerRefs)
+	require.Equal(t, "reference", slots2[0].Role)
+	require.Equal(t, 1, slots2[0].Index)
+	require.Equal(t, "start_frame", slots2[1].Role)
+	require.Equal(t, 2, slots2[1].Index)
+	require.Equal(t, "end_frame", slots2[2].Role)
+	require.Equal(t, 3, slots2[2].Index)
+
+	// 仅首帧 + 参考图：参考图占前号，首帧在末尾
+	startOnly := &SeedanceRequestInfo{
+		StartFrameURL: "https://example.com/start.png",
+		References: []SeedanceReferenceImage{
+			{URL: "https://example.com/r1.png"},
+			{URL: "https://example.com/r2.png"},
+		},
+	}
+	slots3 := ximeiOrderedImageSlots(startOnly)
+	require.Equal(t, "reference", slots3[0].Role)
+	require.Equal(t, 1, slots3[0].Index)
+	require.Equal(t, "reference", slots3[1].Role)
+	require.Equal(t, 2, slots3[1].Index)
+	require.Equal(t, "start_frame", slots3[2].Role)
+	require.Equal(t, 3, slots3[2].Index)
+
+	// 无参考图仅首尾帧：@Image1=首帧，@Image2=尾帧
+	framesOnly := &SeedanceRequestInfo{
+		StartFrameURL: "https://example.com/start.png",
+		EndFrameURL:   "https://example.com/end.png",
+	}
+	slots4 := ximeiOrderedImageSlots(framesOnly)
+	require.Equal(t, "start_frame", slots4[0].Role)
+	require.Equal(t, 1, slots4[0].Index)
+	require.Equal(t, "end_frame", slots4[1].Role)
+	require.Equal(t, 2, slots4[1].Index)
+
+	// image_urls 与槽位顺序一致
+	urls := ximeiImageURLs(withManyRefs)
+	require.Equal(t, []string{
+		"https://example.com/r1.png",
+		"https://example.com/r2.png",
+		"https://example.com/r3.png",
+		"https://example.com/start.png",
+		"https://example.com/end.png",
+	}, urls)
+
+	// 动态注入：1 张参考 + 首尾 → @Image1 参考，@Image2 首帧，@Image3 尾帧
+	prompt := composeSeedancePromptWithMediaHints(withFewerRefs)
+	require.Contains(t, prompt, "@Image1 是普通图片参考")
+	require.Contains(t, prompt, "@Image2 是首帧")
+	require.Contains(t, prompt, "@Image3 是尾帧")
+}
+
+func TestUpstreamBodyReferenceOrderStartsFromZero(t *testing.T) {
+	info := &SeedanceRequestInfo{
+		Model:           "seedance-2.0",
+		Prompt:          "test",
+		Resolution:      VideoBillingResolution720P,
+		DurationSeconds: 5,
+		AspectRatio:     "16:9",
+		StartFrameURL:   "https://example.com/start.png",
+		EndFrameURL:     "https://example.com/end.png",
+		References: []SeedanceReferenceImage{
+			{URL: "https://example.com/r1.png", Strength: "MID"},
+			{URL: "https://example.com/r2.png", Strength: "MID"},
+		},
+	}
+	body, err := info.UpstreamBody("seedance-2.0")
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "https://example.com/start.png", payload["start_frame_url"])
+	require.Equal(t, "https://example.com/end.png", payload["end_frame_url"])
+	guidances := payload["guidances"].(map[string]any)
+	refs := guidances["image_reference"].([]any)
+	require.Len(t, refs, 2)
+	// 官方参考图 order 从 0 起，与首尾帧字段解耦
+	require.EqualValues(t, 0, refs[0].(map[string]any)["order"])
+	require.EqualValues(t, 1, refs[1].(map[string]any)["order"])
+	// 官方/FFLink：prompt 不注入
+	prompt := payload["prompt"].(string)
+	require.Equal(t, "test", prompt)
+	require.NotContains(t, prompt, "@Image1")
+	require.NotContains(t, prompt, "[平台参考约束，请严格执行]")
 }
 
 func TestBuildSeedanceOfficialTaskResponse(t *testing.T) {

@@ -1,4 +1,4 @@
-package admin
+﻿package admin
 
 import (
 	"bytes"
@@ -26,7 +26,7 @@ type GroupHandler struct {
 	groupCapacityService *service.GroupCapacityService
 }
 
-// GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
+// GetLiveCapability 杩斿洖褰撳墠鏈嶅姟绔槸鍚﹀叿澶囩敓鎴?Live attestation 鐨勮繍琛岀幆澧冦€?
 func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
 	err := liveattestation.NewProvider().Check(c.Request.Context())
 	result := gin.H{"supported": err == nil}
@@ -98,16 +98,18 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse composite"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse minimax grokimagine composite"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
 	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
-	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	// 鍥剧墖鐢熸垚璁¤垂閰嶇疆锛坅ntigravity 鍜?gemini 骞冲彴浣跨敤锛岃礋鏁拌〃绀烘竻闄ら厤缃級
 	AllowImageGeneration            bool                     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                     `json:"allow_batch_image_generation"`
+	// nil = 榛樿寮€鏀?Creazy 鐢诲竷
+	AllowCreazyCanvas               *bool                    `json:"allow_creazy_canvas"`
 	ImageRateIndependent            bool                     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier    *float64                 `json:"batch_image_discount_multiplier"`
@@ -130,13 +132,13 @@ type CreateGroupRequest struct {
 	ClaudeCodeOnly                  bool                     `json:"claude_code_only"`
 	FallbackGroupID                 *int64                   `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                   `json:"fallback_group_id_on_invalid_request"`
-	// 模型路由配置（仅 anthropic 平台使用）
+	// 妯″瀷璺敱閰嶇疆锛堜粎 anthropic 骞冲彴浣跨敤锛?
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
-	// 支持的模型系列（仅 antigravity 平台使用）
+	// 鏀寔鐨勬ā鍨嬬郴鍒楋紙浠?antigravity 骞冲彴浣跨敤锛?
 	SupportedModelScopes []string `json:"supported_model_scopes"`
-	// OpenAI Messages 调度配置（仅 openai 平台使用）
+	// OpenAI Messages 璋冨害閰嶇疆锛堜粎 openai 骞冲彴浣跨敤锛?
 	AllowMessagesDispatch       bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   bool                                      `json:"allow_live"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
@@ -144,13 +146,13 @@ type CreateGroupRequest struct {
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            service.GroupModelsListConfig             `json:"models_list_config"`
-	// 分组 RPM 上限（0 = 不限制）
+	// 鍒嗙粍 RPM 涓婇檺锛? = 涓嶉檺鍒讹級
 	RPMLimit int `json:"rpm_limit"`
-	// OpenAI/Codex 请求推理强度上限，空字符串表示不限制。
+	// OpenAI/Codex 璇锋眰鎺ㄧ悊寮哄害涓婇檺锛岀┖瀛楃涓茶〃绀轰笉闄愬埗銆?
 	MaxReasoningEffort string `json:"max_reasoning_effort"`
-	// OpenAI/Codex 推理强度精确映射。
+	// OpenAI/Codex 鎺ㄧ悊寮哄害绮剧‘鏄犲皠銆?
 	ReasoningEffortMappings []service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
-	// 从指定分组复制账号（创建后自动绑定）
+	// 浠庢寚瀹氬垎缁勫鍒惰处鍙凤紙鍒涘缓鍚庤嚜鍔ㄧ粦瀹氾級
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 
@@ -158,7 +160,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse composite"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse minimax grokimagine composite"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -166,9 +168,10 @@ type UpdateGroupRequest struct {
 	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
 	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
-	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	// 鍥剧墖鐢熸垚璁¤垂閰嶇疆锛坅ntigravity 鍜?gemini 骞冲彴浣跨敤锛岃礋鏁拌〃绀烘竻闄ら厤缃級
 	AllowImageGeneration            *bool                     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       *bool                     `json:"allow_batch_image_generation"`
+	AllowCreazyCanvas               *bool                     `json:"allow_creazy_canvas"`
 	ImageRateIndependent            *bool                     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                  `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier    *float64                  `json:"batch_image_discount_multiplier"`
@@ -191,13 +194,13 @@ type UpdateGroupRequest struct {
 	ClaudeCodeOnly                  *bool                     `json:"claude_code_only"`
 	FallbackGroupID                 *int64                    `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                    `json:"fallback_group_id_on_invalid_request"`
-	// 模型路由配置（仅 anthropic 平台使用）
+	// 妯″瀷璺敱閰嶇疆锛堜粎 anthropic 骞冲彴浣跨敤锛?
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
-	// 支持的模型系列（仅 antigravity 平台使用）
+	// 鏀寔鐨勬ā鍨嬬郴鍒楋紙浠?antigravity 骞冲彴浣跨敤锛?
 	SupportedModelScopes *[]string `json:"supported_model_scopes"`
-	// OpenAI Messages 调度配置（仅 openai 平台使用）
+	// OpenAI Messages 璋冨害閰嶇疆锛堜粎 openai 骞冲彴浣跨敤锛?
 	AllowMessagesDispatch       *bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   *bool                                      `json:"allow_live"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
@@ -205,13 +208,13 @@ type UpdateGroupRequest struct {
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            *service.GroupModelsListConfig             `json:"models_list_config"`
-	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
+	// 鍒嗙粍 RPM 涓婇檺锛? = 涓嶉檺鍒讹級锛沶il 琛ㄧず鏈彁渚涗笉鏀瑰姩
 	RPMLimit *int `json:"rpm_limit"`
-	// OpenAI/Codex 请求推理强度上限；空字符串清除，nil 不修改。
+	// OpenAI/Codex 璇锋眰鎺ㄧ悊寮哄害涓婇檺锛涚┖瀛楃涓叉竻闄わ紝nil 涓嶄慨鏀广€?
 	MaxReasoningEffort *string `json:"max_reasoning_effort"`
-	// nil 不修改，空数组清空，非空数组替换。
+	// nil 涓嶄慨鏀癸紝绌烘暟缁勬竻绌猴紝闈炵┖鏁扮粍鏇挎崲銆?
 	ReasoningEffortMappings *[]service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
-	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
+	// 浠庢寚瀹氬垎缁勫鍒惰处鍙凤紙鍚屾鎿嶄綔锛氬厛娓呯┖褰撳墠鍒嗙粍鐨勮处鍙风粦瀹氾紝鍐嶇粦瀹氭簮鍒嗙粍鐨勮处鍙凤級
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 
@@ -238,7 +241,7 @@ func (h *GroupHandler) List(c *gin.Context) {
 	platform := c.Query("platform")
 	status := c.Query("status")
 	search := c.Query("search")
-	// 标准化和验证 search 参数
+	// 鏍囧噯鍖栧拰楠岃瘉 search 鍙傛暟
 	search = strings.TrimSpace(search)
 	if len(search) > 100 {
 		search = search[:100]
@@ -491,6 +494,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		AllowCreazyCanvas:               req.AllowCreazyCanvas,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
@@ -612,6 +616,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		AllowCreazyCanvas:               req.AllowCreazyCanvas,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
