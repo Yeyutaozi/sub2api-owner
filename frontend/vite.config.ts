@@ -1,4 +1,4 @@
-﻿import { defineConfig, loadEnv, Plugin } from 'vite'
+import { defineConfig, loadEnv, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
@@ -47,8 +47,8 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
 }
 
 /**
- * Vite 鎻掍欢锛氬紑鍙戞ā寮忎笅娉ㄥ叆鍏紑閰嶇疆鍒?index.html
- * 涓庣敓浜фā寮忕殑鍚庣娉ㄥ叆琛屼负淇濇寔涓€鑷达紝娑堥櫎闂儊
+ * Vite plugin: inject public settings into index.html in dev mode.
+ * Keep behavior consistent with production backend injection to avoid flash.
  */
 function injectPublicSettings(backendUrl: string): Plugin {
   return {
@@ -69,7 +69,7 @@ function injectPublicSettings(backendUrl: string): Plugin {
             }
           }
         } catch (e) {
-          console.warn('[vite] 鏃犳硶鑾峰彇鍏紑閰嶇疆锛屽皢鍥為€€鍒?API 璋冪敤:', (e as Error).message)
+          console.warn('[vite] failed to fetch public settings, fallback to API:', (e as Error).message)
         }
         return html
       }
@@ -78,7 +78,6 @@ function injectPublicSettings(backendUrl: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  // 鍔犺浇鐜鍙橀噺
   const env = loadEnv(mode, process.cwd(), '')
   const backendUrl = env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080'
   const devPort = Number(env.VITE_DEV_PORT || 3000)
@@ -89,66 +88,73 @@ export default defineConfig(({ mode }) => {
       /* CHECKER_DISABLED_FOR_E2E */ // checker({ vueTsc: true }),
       injectPublicSettings(backendUrl)
     ],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      // 浣跨敤 vue-i18n 杩愯鏃剁増鏈紝閬垮厤 CSP unsafe-eval 闂
-      'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
-    }
-  },
-  define: {
-    // 鍚敤 vue-i18n JIT 缂栬瘧锛屽湪 CSP 鐜涓嬪鐞嗘秷鎭彃鍊?    // JIT 缂栬瘧鍣ㄧ敓鎴?AST 瀵硅薄鑰岄潪 JS 浠ｇ爜锛屾棤闇€ unsafe-eval
-    __INTLIFY_JIT_COMPILATION__: true
-  },
-  build: {
-    outDir: '../backend/internal/web/dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        /**
-         * 鎵嬪姩鍒嗗寘閰嶇疆
-         * 鍒嗙绗笁鏂瑰簱骞舵寜鍔熻兘鍚堝苟搴旂敤浠ｇ爜锛岄伩鍏嶅惊鐜緷璧?         */
-        manualChunks(id: string) {
-          if (id.includes('node_modules')) {
-            if (id.includes('/three/')) {
-              return 'vendor-three'
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        // Use vue-i18n runtime build to avoid CSP unsafe-eval issues
+        'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
+      }
+    },
+    define: {
+      // Enable vue-i18n JIT compilation for CSP environments.
+      // JIT compiler emits AST objects instead of JS code (no unsafe-eval).
+      __INTLIFY_JIT_COMPILATION__: true
+    },
+    build: {
+      outDir: '../backend/internal/web/dist',
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          /**
+           * Manual chunk split:
+           * separate third-party libs and merge app code carefully to avoid circular deps.
+           */
+          manualChunks(id: string) {
+            if (id.includes('node_modules')) {
+              if (id.includes('/three/')) {
+                return 'vendor-three'
+              }
+
+              // Vue core
+              if (
+                id.includes('/vue/') ||
+                id.includes('/vue-router/') ||
+                id.includes('/pinia/') ||
+                id.includes('/@vue/')
+              ) {
+                return 'vendor-vue'
+              }
+
+              // Larger UI utility libs
+              if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
+                return 'vendor-ui'
+              }
+
+              // Chart libs
+              if (id.includes('/chart.js/') || id.includes('/vue-chartjs/')) {
+                return 'vendor-chart'
+              }
+
+              // i18n
+              if (id.includes('/vue-i18n/') || id.includes('/@intlify/')) {
+                return 'vendor-i18n'
+              }
+
+              // Stripe is only needed in payment flows; keep it out of shared entry chunks.
+              if (id.includes('/@stripe/stripe-js/')) {
+                return 'vendor-stripe'
+              }
+
+              // Other small third-party packages
+              return 'vendor-misc'
             }
 
-            // Vue 鏍稿績搴?            if (
-              id.includes('/vue/') ||
-              id.includes('/vue-router/') ||
-              id.includes('/pinia/') ||
-              id.includes('/@vue/')
-            ) {
-              return 'vendor-vue'
-            }
-
-            // UI 宸ュ叿搴擄紙杈冨ぇ锛屽崟鐙垎绂伙級
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
-              return 'vendor-ui'
-            }
-
-            // 鍥捐〃搴?            if (id.includes('/chart.js/') || id.includes('/vue-chartjs/')) {
-              return 'vendor-chart'
-            }
-
-            // 鍥介檯鍖?            if (id.includes('/vue-i18n/') || id.includes('/@intlify/')) {
-              return 'vendor-i18n'
-            }
-
-            // Stripe 浠呭湪鏀粯娴佺▼涓寜闇€鍔犺浇锛岄伩鍏嶈繘鍏ラ椤靛叕鍏变緷璧栥€?            if (id.includes('/@stripe/stripe-js/')) {
-              return 'vendor-stripe'
-            }
-
-            // 鍏朵粬灏忓瀷绗笁鏂瑰簱鍚堝苟
-            return 'vendor-misc'
+            // App code: let Rollup split by entry automatically.
+            // This avoids circular dependency issues while keeping chunk count reasonable.
           }
-
-          // 搴旂敤浠ｇ爜锛氭寜鍏ュ彛鐐硅嚜鍔ㄥ垎鍖咃紝涓嶆墜鍔ㄥ共棰?          // 杩欐牱鍙互閬垮厤寰幆渚濊禆锛屽悓鏃朵繚鎸佸悎鐞嗙殑 chunk 鏁伴噺
         }
       }
-    }
-  },
+    },
     server: {
       host: '0.0.0.0',
       port: devPort,
@@ -169,4 +175,3 @@ export default defineConfig(({ mode }) => {
     }
   }
 })
-
