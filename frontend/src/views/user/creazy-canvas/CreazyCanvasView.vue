@@ -1614,11 +1614,25 @@ const imagePriceEstimate = computed(() => {
   return pickPrice(model.prices as any, imageBillingTier(imageForm.size))
 })
 
-const videoPriceEstimate = computed(() => {
+const videoUnitPriceEstimate = computed(() => {
   const model = selectedVideoModel.value
   if (!model) return null
   const res = String(videoForm.resolution || '')
-  return pickPrice(model.prices as any, [res, res.toLowerCase(), res.toUpperCase(), '720p', '1080p'])
+  return pickPrice(model.prices as any, [res, res.toLowerCase(), res.toUpperCase(), '720p', '1080p', '1440p', '1440P'])
+})
+
+const videoPriceEstimate = computed(() => {
+  const unit = videoUnitPriceEstimate.value
+  if (unit == null) return null
+  const model = selectedVideoModel.value
+  const billingUnit = String(model?.billing_unit || 'per_second').toLowerCase()
+  if (billingUnit === 'per_request' || billingUnit === 'per-request' || billingUnit === 'request') {
+    return unit
+  }
+  // Default video billing is per generated second.
+  const duration = Number(videoForm.duration || 0)
+  if (!Number.isFinite(duration) || duration <= 0) return unit
+  return unit * duration
 })
 
 const imagePriceEstimateText = computed(() => {
@@ -1630,7 +1644,16 @@ const imagePriceEstimateText = computed(() => {
 const videoPriceEstimateText = computed(() => {
   const p = videoPriceEstimate.value
   if (p == null) return t('creazyCanvas.form.priceEstimateUnknown')
-  return t('creazyCanvas.form.priceEstimate', { price: formatMoney(p) })
+  const model = selectedVideoModel.value
+  const billingUnit = String(model?.billing_unit || 'per_second').toLowerCase()
+  const isPerRequest = billingUnit === 'per_request' || billingUnit === 'per-request' || billingUnit === 'request'
+  if (isPerRequest) {
+    return t('creazyCanvas.form.priceEstimatePerRequest', { price: formatMoney(p) })
+  }
+  return t('creazyCanvas.form.priceEstimatePerSecond', {
+    price: formatMoney(p),
+    seconds: Number(videoForm.duration || 0) || '-',
+  })
 })
 
 const imageModelCapChips = computed(() => {

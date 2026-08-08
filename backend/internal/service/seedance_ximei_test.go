@@ -33,6 +33,7 @@ func TestXimeiVideoProviderRoutesOnlySupportedModels(t *testing.T) {
 	require.Equal(t, DefaultXimeiVideoBaseURL, account.GetSeedanceBaseURL())
 	require.True(t, account.IsModelSupported(SeedanceXimeiSD20Model))
 	require.True(t, account.IsModelSupported(SeedanceXimeiSD25Model))
+	require.True(t, account.IsModelSupported(SeedanceXimeiSD25UnofficialModel))
 	require.False(t, account.IsModelSupported("seedance-2.0"))
 	require.False(t, account.IsModelSupported(SeedanceMX933Model))
 
@@ -49,6 +50,7 @@ func TestValidateXimeiVideoAccountConfiguration(t *testing.T) {
 		"model_mapping": map[string]any{
 			SeedanceXimeiSD20Model: SeedanceXimeiSD20Model,
 			SeedanceXimeiSD25Model: SeedanceXimeiSD25Model,
+			SeedanceXimeiSD25UnofficialModel: SeedanceXimeiSD25UnofficialModel,
 		},
 	}))
 	require.Error(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeOAuth, map[string]any{
@@ -72,6 +74,7 @@ func TestXimeiProductMappingUsesModelAndResolution(t *testing.T) {
 		{SeedanceXimeiSD20Model, VideoBillingResolution480P, "kele_pool", ximeiDurationParameter},
 		{SeedanceXimeiSD20Model, VideoBillingResolution720P, "tc_pool", ximeiDurationPrompt},
 		{SeedanceXimeiSD25Model, VideoBillingResolution720P, "nangua_pool", ximeiDurationParameter},
+		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, "lajiao_pool", ximeiDurationParameter},
 	}
 	for _, test := range tests {
 		product, err := ximeiVideoProductFor(test.model, test.resolution)
@@ -84,6 +87,8 @@ func TestXimeiProductMappingUsesModelAndResolution(t *testing.T) {
 		{SeedanceXimeiSD20Model, VideoBillingResolution1080P},
 		{SeedanceXimeiSD25Model, VideoBillingResolution480P},
 		{SeedanceXimeiSD25Model, VideoBillingResolution1080P},
+		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution480P},
+		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution1080P},
 	} {
 		_, err := ximeiVideoProductFor(test.model, test.resolution)
 		require.Error(t, err)
@@ -195,6 +200,8 @@ func TestBuildXimeiParameterizedRequestWritesExactDurationString(t *testing.T) {
 		{"SD 2.5 720p 10 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 10, "nangua_pool"},
 		{"SD 2.5 720p 15 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 15, "nangua_pool"},
 		{"SD 2.5 720p 30 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 30, "nangua_pool"},
+		{"SD 2.5 unofficial 720p 5 seconds", SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, 5, "lajiao_pool"},
+		{"SD 2.5 unofficial 720p 30 seconds", SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, 30, "lajiao_pool"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, route, err := buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
@@ -646,6 +653,15 @@ func TestXimeiNanguaPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
 	require.Equal(t, 10, product.MaxVideos)
 	require.Equal(t, 10, product.MaxAudios)
 
+	productUnofficial, err := ximeiVideoProductFor(SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P)
+	require.NoError(t, err)
+	require.Equal(t, "lajiao_pool", productUnofficial.Route)
+	require.Equal(t, 30, productUnofficial.MaxImages)
+	require.Equal(t, 10, productUnofficial.MaxVideos)
+	require.Equal(t, 10, productUnofficial.MaxAudios)
+	require.Equal(t, 30.0, productUnofficial.MaxAudioSeconds)
+	require.Equal(t, 30.0, productUnofficial.MaxVideoSeconds)
+
 	refs := make([]SeedanceReferenceImage, 0, 30)
 	for i := 0; i < 30; i++ {
 		refs = append(refs, SeedanceReferenceImage{URL: fmt.Sprintf("https://media.example/ref-%02d.png", i)})
@@ -681,4 +697,28 @@ func TestXimeiNanguaPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
 	tooManyAudios.AudioReferences = append(append([]SeedanceReferenceAudio{}, audios...), SeedanceReferenceAudio{URL: "https://media.example/overflow.mp3", DurationSeconds: 1})
 	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyAudios, product), "at most 10 reference audio files")
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyAudios), "at most 10 reference audio files")
+}
+
+
+func TestBuildXimeiSD25UnofficialRequestUsesLajiaoPool(t *testing.T) {
+	body, route, err := buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
+		Model: SeedanceXimeiSD25UnofficialModel, Prompt: "safe product demonstration",
+		Resolution: VideoBillingResolution720P, DurationSeconds: 30, AspectRatio: "16:9", GenerateAudio: true,
+		References: []SeedanceReferenceImage{{URL: "https://example.com/ref.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/ref.mp4", DurationSeconds: 4}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/ref.mp3", DurationSeconds: 3}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "lajiao_pool", route)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "video", payload["model"])
+	require.Equal(t, "lajiao_pool", payload["provider_route"])
+	require.Equal(t, "30", payload["duration"])
+	require.Equal(t, "16:9", payload["aspect_ratio"])
+	require.Equal(t, true, payload["generate_audio"])
+	require.NotEmpty(t, payload["image_urls"])
+	require.NotEmpty(t, payload["video_urls"])
+	require.NotEmpty(t, payload["audio_urls"])
 }

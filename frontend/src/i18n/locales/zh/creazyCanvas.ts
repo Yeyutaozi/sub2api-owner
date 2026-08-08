@@ -69,6 +69,8 @@ export default {
       draftRestored: '已恢复上次未提交的草稿',
       submitShortcut: '快捷键：Ctrl/⌘ + Enter 提交',
       priceEstimate: '预估费用约 {price}',
+      priceEstimatePerSecond: '预估费用约 {price}（{seconds} 秒 · 按秒计费）',
+      priceEstimatePerRequest: '预估费用约 {price}（按次计费）',
       priceEstimateUnknown: '暂无预估价（以实际扣费为准）',
       capsTitle: '模型能力',
       resolution: '分辨率',

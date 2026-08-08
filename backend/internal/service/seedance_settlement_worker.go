@@ -394,7 +394,9 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 		return seedanceSettlementFallbackRetry, err
 	}
 	if requestInfo.HasReferenceMedia() {
-		requestInfo.HuiquMedia, err = w.media.PrepareHuiquMedia(fallbackCtx, requestInfo)
+		requestInfo.HuiquMedia, err = w.media.PrepareHuiquMedia(fallbackCtx, SeedanceMediaOwner{
+			UserID: binding.UserID, APIKeyID: binding.APIKeyID, GroupID: binding.GroupID,
+		}, requestInfo)
 		if err != nil {
 			releaseClaim()
 			return seedanceSettlementFallbackRetry, err

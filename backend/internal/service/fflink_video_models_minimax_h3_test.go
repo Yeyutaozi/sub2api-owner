@@ -5,10 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
-	"mime"
-	"mime/multipart"
 	"strings"
 	"testing"
 
@@ -17,7 +14,7 @@ import (
 )
 
 func TestMiniMaxH3ModelProfileAndCatalog(t *testing.T) {
-	models := FFLinkVideoModelIDsForPlatform(PlatformSeedance)
+	models := FFLinkVideoModelIDsForPlatform(PlatformMiniMax)
 	require.Contains(t, models, SeedanceMiniMaxH3Model)
 	require.True(t, isHuiquVideoModel(SeedanceMiniMaxH3Model))
 	require.True(t, isHuiquMiniMaxH3Model(SeedanceMiniMaxH3UpstreamModel))
@@ -90,7 +87,7 @@ func TestMiniMaxH3TextRequestBodyUsesAudioAndSize(t *testing.T) {
 	require.Contains(t, string(body), `"size":"1440x2560"`)
 }
 
-func TestMiniMaxH3MultipartUsesDocumentedFieldNames(t *testing.T) {
+func TestMiniMaxH3JSONUsesDocumentedReferenceFieldNames(t *testing.T) {
 	image := huiquTestMediaFile(t, "reference.png", "image/png", []byte("image-bytes"))
 	audio := huiquTestMediaFile(t, "voice.wav", "audio/wav", []byte("audio-bytes"))
 	request := &SeedanceRequestInfo{
@@ -100,6 +97,8 @@ func TestMiniMaxH3MultipartUsesDocumentedFieldNames(t *testing.T) {
 		DurationSeconds: 7,
 		AspectRatio:     "9:16",
 		GenerateAudio:   true,
+		// Mark request as having reference media so body builder includes them.
+		References: []SeedanceReferenceImage{{URL: "https://example.invalid/ref.png"}},
 		HuiquMedia: &SeedanceHuiquPreparedMedia{
 			Images: []SeedanceHuiquMediaFile{image},
 			Audios: []SeedanceHuiquMediaFile{audio},
@@ -107,41 +106,35 @@ func TestMiniMaxH3MultipartUsesDocumentedFieldNames(t *testing.T) {
 	}
 	upstreamModel, err := huiquUpstreamModelFor(request.Model, request.DurationSeconds)
 	require.NoError(t, err)
-	body, err := buildHuiquMultipartBody(request, upstreamModel)
+	raw, err := request.HuiquUpstreamBody(upstreamModel)
 	require.NoError(t, err)
-	defer body.Close()
 
-	mediaType, params, err := mime.ParseMediaType(body.ContentType)
-	require.NoError(t, err)
-	require.Equal(t, "multipart/form-data", mediaType)
-	reader := multipart.NewReader(body.File, params["boundary"])
-	values := map[string][]string{}
-	for {
-		part, nextErr := reader.NextPart()
-		if nextErr == io.EOF {
-			break
-		}
-		require.NoError(t, nextErr)
-		payload, readErr := io.ReadAll(part)
-		require.NoError(t, readErr)
-		values[part.FormName()] = append(values[part.FormName()], string(payload))
-	}
-	require.Equal(t, []string{SeedanceMiniMaxH3UpstreamModel}, values["model"])
-	require.Equal(t, []string{"7"}, values["seconds"])
-	require.Equal(t, []string{"1440P"}, values["resolution"])
-	require.Equal(t, []string{"1440x2560"}, values["size"])
-	require.Equal(t, []string{"true"}, values["audio"])
-	require.Equal(t, []string{"image-bytes"}, values["reference_images"])
-	require.Equal(t, []string{"audio-bytes"}, values["audio_reference"])
-	require.NotContains(t, values, "generate_audio")
-	require.NotContains(t, values, "images")
-	require.NotContains(t, values, "audios")
-	require.NotContains(t, values, "videos")
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(raw, &body))
+	require.Equal(t, SeedanceMiniMaxH3UpstreamModel, body["model"])
+	require.EqualValues(t, 7, body["seconds"])
+	require.Equal(t, "1440P", body["resolution"])
+	require.Equal(t, "1440x2560", body["size"])
+	require.Equal(t, true, body["audio"])
+	require.NotContains(t, body, "generate_audio")
+	require.NotContains(t, body, "images")
+	require.NotContains(t, body, "audios")
+	require.NotContains(t, body, "videos")
+
+	images, ok := body["reference_images"].([]any)
+	require.True(t, ok)
+	require.Len(t, images, 1)
+	require.True(t, strings.HasPrefix(images[0].(string), "data:image/png;base64,"))
+
+	audios, ok := body["audio_reference"].([]any)
+	require.True(t, ok)
+	require.Len(t, audios, 1)
+	require.True(t, strings.HasPrefix(audios[0].(string), "data:audio/wav;base64,"))
 }
 
-func TestMiniMaxH3MultipartStartEndFrames(t *testing.T) {
+func TestMiniMaxH3JSONStartEndFrames(t *testing.T) {
 	start := huiquTestMediaFile(t, "start.png", "image/png", []byte("start-bytes"))
-	end := huiquTestMediaFile(t, "end.png", "image/png", []byte("end-bytes"))
+	endFrame := huiquTestMediaFile(t, "end.png", "image/png", []byte("end-bytes"))
 	request := &SeedanceRequestInfo{
 		Model:           SeedanceMiniMaxH3Model,
 		Prompt:          "Interpolate between frames",
@@ -149,34 +142,52 @@ func TestMiniMaxH3MultipartStartEndFrames(t *testing.T) {
 		DurationSeconds: 6,
 		AspectRatio:     "16:9",
 		GenerateAudio:   false,
+		StartFrameURL:   "https://example.invalid/start.png",
+		EndFrameURL:     "https://example.invalid/end.png",
 		HuiquMedia: &SeedanceHuiquPreparedMedia{
 			FirstFrame: &start,
-			LastFrame:  &end,
+			LastFrame:  &endFrame,
 		},
 	}
-	body, err := buildHuiquMultipartBody(request, SeedanceMiniMaxH3UpstreamModel)
+	raw, err := request.HuiquUpstreamBody(SeedanceMiniMaxH3UpstreamModel)
 	require.NoError(t, err)
-	defer body.Close()
 
-	_, params, err := mime.ParseMediaType(body.ContentType)
-	require.NoError(t, err)
-	reader := multipart.NewReader(body.File, params["boundary"])
-	values := map[string][]string{}
-	for {
-		part, nextErr := reader.NextPart()
-		if nextErr == io.EOF {
-			break
-		}
-		require.NoError(t, nextErr)
-		payload, readErr := io.ReadAll(part)
-		require.NoError(t, readErr)
-		values[part.FormName()] = append(values[part.FormName()], string(payload))
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(raw, &body))
+	require.True(t, strings.HasPrefix(body["start_frame"].(string), "data:image/png;base64,"))
+	require.True(t, strings.HasPrefix(body["end_frame"].(string), "data:image/png;base64,"))
+	require.NotContains(t, body, "first_frame")
+	require.NotContains(t, body, "last_frame")
+	require.Equal(t, true, body["audio"])
+}
+
+func TestForwardHuiquMiniMaxH3ReferenceMediaUsesJSONNotMultipart(t *testing.T) {
+	upstream := &huiquCapturingUpstream{reply: `{"id":"task_h3_ref","status":"queued"}`}
+	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 42, Platform: PlatformMiniMax, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "hq-secret",
+			"video_provider": VideoProviderHuiqu,
+		},
 	}
-	require.Equal(t, []string{"start-bytes"}, values["start_frame"])
-	require.Equal(t, []string{"end-bytes"}, values["end_frame"])
-	require.NotContains(t, values, "first_frame")
-	require.NotContains(t, values, "last_frame")
-	require.Equal(t, []string{"true"}, values["audio"])
+	start := huiquTestMediaFile(t, "start.png", "image/png", []byte("start-bytes"))
+	request := &SeedanceRequestInfo{
+		Model: SeedanceMiniMaxH3Model, Prompt: "from first frame",
+		Resolution: VideoBillingResolution1440P, DurationSeconds: 5, AspectRatio: "16:9",
+		StartFrameURL: "https://example.invalid/start.png",
+		HuiquMedia:    &SeedanceHuiquPreparedMedia{FirstFrame: &start},
+	}
+	response, err := service.ForwardSeedance(context.Background(), nil, account, http.MethodPost, "", request)
+	require.NoError(t, err)
+	require.Equal(t, "hqv1_task_h3_ref", response.Result.ResponseID)
+	require.Equal(t, "application/json", upstream.request.Header.Get("Content-Type"))
+	require.NotContains(t, upstream.request.Header.Get("Content-Type"), "multipart")
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(upstream.body, &body))
+	require.Equal(t, SeedanceMiniMaxH3UpstreamModel, body["model"])
+	require.True(t, strings.HasPrefix(body["start_frame"].(string), "data:image/png;base64,"))
 }
 
 func TestMiniMaxH3ForcesNativeAudio(t *testing.T) {
@@ -220,7 +231,7 @@ func TestMiniMaxH3RequestValidationModes(t *testing.T) {
 		Model: SeedanceMiniMaxH3Model, Prompt: "x", DurationSeconds: 8,
 		EndFrameURL: "https://media.example/end.png",
 	}
-	require.ErrorContains(t, validateFFLinkVideoRequestInfo(endOnly), "requires a first frame")
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(endOnly), "a first frame is required when a last frame is provided")
 
 	mixed := &SeedanceRequestInfo{
 		Model: SeedanceMiniMaxH3Model, Prompt: "x", DurationSeconds: 8,

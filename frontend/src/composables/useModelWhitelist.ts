@@ -189,7 +189,8 @@ const minimaxVideoModels = [
 
 const seedanceXimeiModels = [
   'sd-2.0-mx933',
-  'sd-2.5-mx'
+  'sd-2.5-mx',
+  'sd-2.5-mx-2000'
 ]
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels]

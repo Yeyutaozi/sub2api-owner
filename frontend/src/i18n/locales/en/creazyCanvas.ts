@@ -69,6 +69,8 @@ export default {
       draftRestored: 'Restored your unfinished draft',
       submitShortcut: 'Shortcut: Ctrl/⌘ + Enter to submit',
       priceEstimate: 'Estimated cost ~ {price}',
+      priceEstimatePerSecond: 'Estimated cost ~ {price} ({seconds}s · per second)',
+      priceEstimatePerRequest: 'Estimated cost ~ {price} (per request)',
       priceEstimateUnknown: 'No estimate available (final charge may differ)',
       capsTitle: 'Model capabilities',
       resolution: 'Resolution',

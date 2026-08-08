@@ -34,7 +34,8 @@ describe('useModelWhitelist', () => {
       'sd2-mx933',
       'sd2-mx933-fast',
       'sd-2.0-mx933',
-      'sd-2.5-mx'
+      'sd-2.5-mx',
+      'sd-2.5-mx-2000'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -43,6 +44,7 @@ describe('useModelWhitelist', () => {
       { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
       { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
       { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
+      { from: 'sd-2.5-mx-2000', to: 'sd-2.5-mx-2000' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
@@ -59,7 +61,8 @@ describe('useModelWhitelist', () => {
     ])
     expect(getSeedanceModelsByVideoProvider('ximei')).toEqual([
       'sd-2.0-mx933',
-      'sd-2.5-mx'
+      'sd-2.5-mx',
+      'sd-2.5-mx-2000'
     ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')

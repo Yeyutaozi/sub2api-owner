@@ -26,6 +26,8 @@ const (
 
 	SeedanceXimeiSD20Model = "sd-2.0-mx933"
 	SeedanceXimeiSD25Model = "sd-2.5-mx"
+	// Unofficial / non-official Ximei channel for Seedance 2.5 style generation.
+	SeedanceXimeiSD25UnofficialModel = "sd-2.5-mx-2000"
 
 	seedanceXimeiSD25DefaultDurationSeconds = 5
 	seedanceXimeiSD25MaxDurationSeconds     = 30
@@ -62,7 +64,7 @@ type ximeiVideoProduct struct {
 	RequireMediaDurations bool
 }
 
-var ximeiPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:ximei|canseedream|liantongyidong|ximeiedu|kele_pool|tc_pool|fenda_pool|nangua_pool)\b`)
+var ximeiPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:ximei|canseedream|liantongyidong|ximeiedu|kele_pool|tc_pool|fenda_pool|nangua_pool|lajiao_pool)\b`)
 
 type ximeiTimedMedia struct {
 	URL             string  `json:"url"`
@@ -84,7 +86,7 @@ type ximeiVideoCreateRequest struct {
 
 func isXimeiVideoModel(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
-	case SeedanceXimeiSD20Model, SeedanceXimeiSD25Model:
+	case SeedanceXimeiSD20Model, SeedanceXimeiSD25Model, SeedanceXimeiSD25UnofficialModel:
 		return true
 	default:
 		return false
@@ -138,8 +140,22 @@ func ximeiVideoProductFor(model, resolution string) (ximeiVideoProduct, error) {
 		if resolution == VideoBillingResolution720P {
 			return ximeiVideoProduct{
 				Route: "nangua_pool", Resolution: resolution, DurationMode: ximeiDurationParameter,
-				// nangua_pool explicitly supports up to 30 image / 10 video / 10 audio references.
+				// Official Seedance 2.5 channel on Ximei (nangua_pool).
+				// Supports up to 30 image / 10 video / 10 audio references (50 total), 30s media.
 				MaxImages: 30, MaxVideos: 10, MaxAudios: 10,
+				MaxAudioSeconds: 30, MaxVideoSeconds: 30,
+				RequireMediaDurations: true,
+			}, nil
+		}
+	case SeedanceXimeiSD25UnofficialModel:
+		if resolution == VideoBillingResolution720P {
+			return ximeiVideoProduct{
+				Route: "lajiao_pool", Resolution: resolution, DurationMode: ximeiDurationParameter,
+				// Unofficial Seedance 2.5 channel on Ximei (lajiao_pool / chili full).
+				// Upstream health: maxImages=30, maxVideos=10, maxAudio=10, maxAssets=50,
+				// maxAudioSeconds=30, maxVideoSeconds=30; platform exposes duration 5/10/15/30.
+				MaxImages: 30, MaxVideos: 10, MaxAudios: 10,
+				MaxAudioSeconds: 30, MaxVideoSeconds: 30,
 				RequireMediaDurations: true,
 			}, nil
 		}
@@ -190,10 +206,12 @@ func buildXimeiVideoCreateRequest(info *SeedanceRequestInfo) ([]byte, string, er
 }
 
 func isXimeiVideoDurationSupported(model string, duration int) bool {
-	if strings.EqualFold(strings.TrimSpace(model), SeedanceXimeiSD25Model) {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case SeedanceXimeiSD25Model, SeedanceXimeiSD25UnofficialModel:
 		return isSeedanceDurationSupported(duration) || duration == seedanceXimeiSD25MaxDurationSeconds
+	default:
+		return isSeedanceDurationSupported(duration)
 	}
-	return isSeedanceDurationSupported(duration)
 }
 
 func ximeiImageURLs(info *SeedanceRequestInfo) []string {

@@ -69,6 +69,9 @@ describe("video model pricing form conversion", () => {
     ]);
     expect(supportedResolutionsForVideoModel("seedance", "sd-2.5-mx")).toEqual([
       "720p",
+    ])
+    expect(supportedResolutionsForVideoModel("seedance", "sd-2.5-mx-2000")).toEqual([
+      "720p",
     ]);
     expect(supportedResolutionsForVideoModel("ltx", "ltx-2.3-fast")).toEqual([
       "1080p",

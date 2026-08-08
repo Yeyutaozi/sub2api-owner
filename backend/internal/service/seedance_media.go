@@ -643,6 +643,17 @@ func (s *SeedanceMediaService) materializeReferenceMedia(
 		if mediaKind != "image" {
 			return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_url", "video and audio references must use HTTP(S) URLs or managed uploads")
 		}
+		// Huiqu models re-embed reference media locally (JSON data URLs for H3 /
+		// multipart file parts for MX933). Keep validated data URIs as-is so image
+		// generation does not require object storage just to round-trip bytes the
+		// gateway will re-encode before calling upstream. Private COS uploads remain
+		// the primary canvas path when managed storage is configured.
+		if directHTTP {
+			if _, _, err := splitSeedanceImageDataURI(source); err != nil {
+				return seedanceMaterializedReference{}, infraerrors.BadRequest("invalid_media_url", err.Error())
+			}
+			return seedanceMaterializedReference{url: source}, nil
+		}
 		upload, err := s.UploadDataURI(ctx, owner, source, false)
 		if err != nil {
 			return seedanceMaterializedReference{}, err
@@ -1216,7 +1227,7 @@ func (s *SeedanceMediaService) fetchAndStoreReferenceMedia(
 	if mediaKind == "audio" {
 		limit = huiquMaxAudioBytes
 	}
-	downloaded, err := s.downloadHuiquMedia(ctx, source, mediaKind, "fallback-"+mediaKind, 0, limit)
+	downloaded, err := s.downloadHuiquMedia(ctx, owner, nil, source, mediaKind, "fallback-"+mediaKind, 0, "", limit)
 	if err != nil {
 		return nil, err
 	}

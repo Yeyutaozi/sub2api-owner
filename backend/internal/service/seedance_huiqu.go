@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -324,10 +325,17 @@ func (i *SeedanceRequestInfo) HuiquUpstreamBody(upstreamModel string) ([]byte, e
 	if i == nil {
 		return nil, errors.New("seedance request info is required")
 	}
+	isH3 := isHuiquMiniMaxH3Model(i.Model) || strings.EqualFold(strings.TrimSpace(upstreamModel), SeedanceMiniMaxH3UpstreamModel)
+	// MiniMax H3 on Huiqu/NewAPI only accepts application/json. Multipart bodies are
+	// mis-parsed as JSON and fail with: invalid character '-' in numeric literal.
+	// Reference media must be embedded as data URLs (or public URLs) inside JSON.
 	if i.HasReferenceMedia() {
+		if isH3 {
+			return i.buildHuiquMiniMaxH3JSONBody(upstreamModel)
+		}
 		return nil, errors.New("Huiqu reference media requires multipart/form-data")
 	}
-	if isHuiquMiniMaxH3Model(i.Model) || strings.EqualFold(strings.TrimSpace(upstreamModel), SeedanceMiniMaxH3UpstreamModel) {
+	if isH3 {
 		body := map[string]any{
 			"model":        strings.TrimSpace(upstreamModel),
 			"prompt":       i.Prompt,
@@ -347,6 +355,81 @@ func (i *SeedanceRequestInfo) HuiquUpstreamBody(upstreamModel string) ([]byte, e
 		"aspect_ratio":   i.AspectRatio,
 		"resolution":     i.Resolution,
 		"generate_audio": i.GenerateAudio,
+	}
+	return json.Marshal(body)
+}
+
+func huiquMediaFileDataURL(media SeedanceHuiquMediaFile) (string, error) {
+	if strings.TrimSpace(media.Path) == "" {
+		return "", errors.New("huiqu media path is required")
+	}
+	raw, err := os.ReadFile(media.Path)
+	if err != nil {
+		return "", err
+	}
+	contentType := strings.TrimSpace(media.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(raw), nil
+}
+
+// buildHuiquMiniMaxH3JSONBody builds the documented H3 JSON payload including
+// start_frame / end_frame / reference_images / audio_reference as data URLs.
+func (i *SeedanceRequestInfo) buildHuiquMiniMaxH3JSONBody(upstreamModel string) ([]byte, error) {
+	if i == nil {
+		return nil, errors.New("seedance request info is required")
+	}
+	if i.HuiquMedia == nil {
+		return nil, errors.New("Huiqu MiniMax H3 reference media is not prepared")
+	}
+	body := map[string]any{
+		"model":        strings.TrimSpace(upstreamModel),
+		"prompt":       i.Prompt,
+		"seconds":      i.DurationSeconds,
+		"aspect_ratio": i.AspectRatio,
+		"resolution":   huiquMiniMaxH3UpstreamResolution(),
+		"size":         huiquMiniMaxH3SizeFor(i.AspectRatio),
+		"audio":        true,
+	}
+	if i.HuiquMedia.FirstFrame != nil {
+		dataURL, err := huiquMediaFileDataURL(*i.HuiquMedia.FirstFrame)
+		if err != nil {
+			return nil, fmt.Errorf("encode start_frame: %w", err)
+		}
+		body["start_frame"] = dataURL
+	}
+	if i.HuiquMedia.LastFrame != nil {
+		dataURL, err := huiquMediaFileDataURL(*i.HuiquMedia.LastFrame)
+		if err != nil {
+			return nil, fmt.Errorf("encode end_frame: %w", err)
+		}
+		body["end_frame"] = dataURL
+	}
+	if len(i.HuiquMedia.Images) > 0 {
+		images := make([]string, 0, len(i.HuiquMedia.Images))
+		for idx, media := range i.HuiquMedia.Images {
+			dataURL, err := huiquMediaFileDataURL(media)
+			if err != nil {
+				return nil, fmt.Errorf("encode reference_images[%d]: %w", idx, err)
+			}
+			images = append(images, dataURL)
+		}
+		body["reference_images"] = images
+	}
+	if len(i.HuiquMedia.Audios) > 0 {
+		audios := make([]string, 0, len(i.HuiquMedia.Audios))
+		for idx, media := range i.HuiquMedia.Audios {
+			dataURL, err := huiquMediaFileDataURL(media)
+			if err != nil {
+				return nil, fmt.Errorf("encode audio_reference[%d]: %w", idx, err)
+			}
+			audios = append(audios, dataURL)
+		}
+		body["audio_reference"] = audios
+	}
+	if len(i.HuiquMedia.Videos) > 0 {
+		return nil, errors.New("MiniMax H3 does not support video references")
 	}
 	return json.Marshal(body)
 }
@@ -379,7 +462,12 @@ func (m *SeedanceHuiquPreparedMedia) Cleanup() {
 	m.paths = nil
 }
 
-func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, info *SeedanceRequestInfo) (*SeedanceHuiquPreparedMedia, error) {
+// PrepareHuiquMedia materializes reference media into local temp files so Huiqu
+// payloads can embed them. MiniMax H3 embeds data URLs in JSON (upstream cannot
+// fetch private COS URLs); MX933 still uses multipart file parts.
+// Prefer reading from project COS / managed uploads; only fall back to HTTP for
+// already-presigned object URLs that our backend can reach.
+func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, owner SeedanceMediaOwner, info *SeedanceRequestInfo) (*SeedanceHuiquPreparedMedia, error) {
 	if s == nil || info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
 	}
@@ -395,7 +483,7 @@ func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, info *Seed
 	var totalBytes int64
 	var videoBytes int64
 	mediaCount := 0
-	download := func(source, kind, label string, index int) (*SeedanceHuiquMediaFile, error) {
+	download := func(source, kind, label string, index int, slot string) (*SeedanceHuiquMediaFile, error) {
 		limit := huiquMaxImageBytes
 		switch kind {
 		case "video":
@@ -403,7 +491,7 @@ func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, info *Seed
 		case "audio":
 			limit = huiquMaxAudioBytes
 		}
-		file, err := s.downloadHuiquMedia(ctx, source, kind, label, index, limit)
+		file, err := s.downloadHuiquMedia(ctx, owner, info, source, kind, label, index, slot, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -420,40 +508,40 @@ func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, info *Seed
 			return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", "reference videos must not exceed 50,000,000 bytes in total")
 		}
 		if totalBytes > huiquMaxRequestBytes {
-			return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "request_too_large", "Huiqu multipart media must not exceed 384 MiB")
+			return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "request_too_large", "Huiqu reference media must not exceed 384 MiB")
 		}
 		return file, nil
 	}
 
 	var err error
 	if strings.TrimSpace(info.StartFrameURL) != "" {
-		prepared.FirstFrame, err = download(info.StartFrameURL, "image", "first-frame", 0)
+		prepared.FirstFrame, err = download(info.StartFrameURL, "image", "first-frame", 0, "start_frame")
 		if err != nil {
 			return fail(err)
 		}
 	}
 	if strings.TrimSpace(info.EndFrameURL) != "" {
-		prepared.LastFrame, err = download(info.EndFrameURL, "image", "last-frame", 0)
+		prepared.LastFrame, err = download(info.EndFrameURL, "image", "last-frame", 0, "end_frame")
 		if err != nil {
 			return fail(err)
 		}
 	}
 	for index, reference := range info.References {
-		file, fileErr := download(reference.URL, "image", "image", index+1)
+		file, fileErr := download(reference.URL, "image", "image", index, "image_reference")
 		if fileErr != nil {
 			return fail(fileErr)
 		}
 		prepared.Images = append(prepared.Images, *file)
 	}
 	for index, reference := range info.VideoReferences {
-		file, fileErr := download(reference.URL, "video", "video", index+1)
+		file, fileErr := download(reference.URL, "video", "video", index, "video_reference")
 		if fileErr != nil {
 			return fail(fileErr)
 		}
 		prepared.Videos = append(prepared.Videos, *file)
 	}
 	for index, reference := range info.AudioReferences {
-		file, fileErr := download(reference.URL, "audio", "audio", index+1)
+		file, fileErr := download(reference.URL, "audio", "audio", index, "audio_reference")
 		if fileErr != nil {
 			return fail(fileErr)
 		}
@@ -462,36 +550,97 @@ func (s *SeedanceMediaService) PrepareHuiquMedia(ctx context.Context, info *Seed
 	return prepared, nil
 }
 
+func (s *SeedanceMediaService) storedMediaLocation(info *SeedanceRequestInfo, slot string, index int) (AgentArtifactObjectLocation, bool) {
+	if info == nil {
+		return AgentArtifactObjectLocation{}, false
+	}
+	for _, item := range info.StoredMedia {
+		if !strings.EqualFold(strings.TrimSpace(item.Slot), strings.TrimSpace(slot)) {
+			continue
+		}
+		if item.Index != index {
+			continue
+		}
+		if strings.TrimSpace(item.ObjectKey) == "" {
+			continue
+		}
+		return AgentArtifactObjectLocation{
+			StorageProvider: item.StorageProvider,
+			Bucket:          item.Bucket,
+			ObjectKey:       item.ObjectKey,
+		}, true
+	}
+	return AgentArtifactObjectLocation{}, false
+}
+
 func (s *SeedanceMediaService) downloadHuiquMedia(
 	ctx context.Context,
+	owner SeedanceMediaOwner,
+	info *SeedanceRequestInfo,
 	source, kind, label string,
 	index int,
+	slot string,
 	limit int64,
 ) (*SeedanceHuiquMediaFile, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil, infraerrors.BadRequest("invalid_media_url", "reference media URL is required")
+	}
+
+	// 1) data URI already embedded by the client.
+	if strings.HasPrefix(strings.ToLower(source), "data:") {
+		return s.materializeHuiquDataURI(source, kind, label, index, limit)
+	}
+
+	// 2) Durable COS object tracked during MaterializeImages.
+	if location, ok := s.storedMediaLocation(info, slot, index); ok {
+		if file, err := s.readHuiquMediaFromLocation(ctx, location, kind, label, index, limit); err == nil {
+			return file, nil
+		}
+		// Fall through if the stored pointer is stale.
+	}
+
+	// 3) Managed upload URL (project COS behind /v1/videos/uploads/:id).
+	if uploadID := managedSeedanceUploadID(source); uploadID != "" && validSeedanceMediaOwner(owner) {
+		record, err := s.loadManagedUpload(ctx, owner, uploadID)
+		if err != nil {
+			return nil, err
+		}
+		return s.readHuiquMediaFromLocation(ctx, record.location(), kind, label, index, limit)
+	}
+
+	// 4) Own project COS URL recovered from the absolute media URL.
+	if location, ok := s.seedanceObjectLocationFromOwnURL(owner, source); ok {
+		if file, err := s.readHuiquMediaFromLocation(ctx, location, kind, label, index, limit); err == nil {
+			return file, nil
+		}
+	}
+
+	// 5) Presigned COS / remote HTTPS URL that this backend can fetch.
+	// Upstream providers never receive this URL for H3 (embedded as data URL instead).
 	validated, err := validateSeedanceMediaRemoteURL(source)
 	if err != nil {
 		return nil, infraerrors.BadRequest("invalid_media_url", err.Error())
 	}
-	fetchCtx, cancel := context.WithTimeout(ctx, huiquMediaFetchTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, validated, nil)
+	return s.downloadHuiquMediaHTTP(ctx, validated, kind, label, index, limit)
+}
+
+func (s *SeedanceMediaService) materializeHuiquDataURI(source, kind, label string, index int, limit int64) (*SeedanceHuiquMediaFile, error) {
+	if kind != "image" {
+		return nil, infraerrors.BadRequest("invalid_media_url", "only image data URIs are supported for Huiqu media preparation")
+	}
+	mediaType, encoded, err := splitSeedanceImageDataURI(source)
 	if err != nil {
-		return nil, infraerrors.BadRequest("invalid_media_url", "reference media URL is invalid")
+		return nil, infraerrors.BadRequest("invalid_media_url", err.Error())
 	}
-	req.Header.Set("Accept-Encoding", "identity")
-	client := s.httpClient
-	if client == nil {
-		client = newSeedanceMediaHTTPClient()
-	}
-	resp, err := client.Do(req)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", "failed to download reference media").WithCause(err)
+		return nil, infraerrors.BadRequest("invalid_media_url", "image data URI base64 payload is invalid")
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", fmt.Sprintf("reference media returned HTTP %d", resp.StatusCode))
+	if int64(len(raw)) == 0 {
+		return nil, infraerrors.BadRequest("invalid_media", "reference media must not be empty")
 	}
-	if resp.ContentLength > limit {
+	if int64(len(raw)) > limit {
 		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", fmt.Sprintf("reference %s exceeds the upstream size limit", kind))
 	}
 	tmp, err := os.CreateTemp(seedanceTempDirectory(), "huiqu-media-*")
@@ -506,7 +655,112 @@ func (s *SeedanceMediaService) downloadHuiquMedia(
 			_ = os.Remove(path)
 		}
 	}()
-	written, err := io.Copy(tmp, io.LimitReader(resp.Body, limit+1))
+	if _, err := tmp.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := tmp.Sync(); err != nil {
+		return nil, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	contentType, extension, err := inspectHuiquMedia(tmp, mediaType, label+".bin", kind)
+	if err != nil {
+		return nil, err
+	}
+	filename := label
+	if index > 0 {
+		filename += "-" + strconv.Itoa(index)
+	}
+	filename += "." + extension
+	failed = false
+	return &SeedanceHuiquMediaFile{Path: path, Filename: filename, ContentType: contentType, SizeBytes: int64(len(raw))}, nil
+}
+
+func (s *SeedanceMediaService) readHuiquMediaFromLocation(
+	ctx context.Context,
+	location AgentArtifactObjectLocation,
+	kind, label string,
+	index int,
+	limit int64,
+) (*SeedanceHuiquMediaFile, error) {
+	if strings.TrimSpace(location.ObjectKey) == "" {
+		return nil, infraerrors.ServiceUnavailable("media_storage_error", "Seedance media object location is invalid")
+	}
+	record := seedanceMediaRecord{
+		StorageProvider: location.StorageProvider,
+		Bucket:          location.Bucket,
+		ObjectKey:       location.ObjectKey,
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, huiquMediaFetchTimeout)
+	defer cancel()
+	stream, err := s.openRecord(fetchCtx, record, "")
+	if err != nil {
+		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", "failed to read reference media from project storage").WithCause(err)
+	}
+	if stream == nil || stream.Body == nil {
+		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", "project storage returned empty reference media")
+	}
+	defer func() { _ = stream.Body.Close() }()
+	contentType := ""
+	if stream.Header != nil {
+		contentType = stream.Header.Get("Content-Type")
+	}
+	return s.writeHuiquMediaTemp(stream.Body, contentType, filepath.Base(location.ObjectKey), kind, label, index, limit)
+}
+
+func (s *SeedanceMediaService) downloadHuiquMediaHTTP(
+	ctx context.Context,
+	validated, kind, label string,
+	index int,
+	limit int64,
+) (*SeedanceHuiquMediaFile, error) {
+	fetchCtx, cancel := context.WithTimeout(ctx, huiquMediaFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, validated, nil)
+	if err != nil {
+		return nil, infraerrors.BadRequest("invalid_media_url", "reference media URL is invalid")
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	client := s.httpClient
+	if client == nil {
+		client = newSeedanceMediaHTTPClient()
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", "failed to download reference media from project storage").WithCause(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", fmt.Sprintf("reference media returned HTTP %d", resp.StatusCode))
+	}
+	if resp.ContentLength > limit {
+		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", fmt.Sprintf("reference %s exceeds the upstream size limit", kind))
+	}
+	parsed, _ := url.Parse(validated)
+	originalName := filepath.Base(parsed.Path)
+	return s.writeHuiquMediaTemp(resp.Body, resp.Header.Get("Content-Type"), originalName, kind, label, index, limit)
+}
+
+func (s *SeedanceMediaService) writeHuiquMediaTemp(
+	body io.Reader,
+	declaredType, originalName, kind, label string,
+	index int,
+	limit int64,
+) (*SeedanceHuiquMediaFile, error) {
+	tmp, err := os.CreateTemp(seedanceTempDirectory(), "huiqu-media-*")
+	if err != nil {
+		return nil, err
+	}
+	path := tmp.Name()
+	failed := true
+	defer func() {
+		_ = tmp.Close()
+		if failed {
+			_ = os.Remove(path)
+		}
+	}()
+	written, err := io.Copy(tmp, io.LimitReader(body, limit+1))
 	if err != nil {
 		return nil, infraerrors.New(http.StatusBadGateway, "media_fetch_failed", "failed to read reference media").WithCause(err)
 	}
@@ -516,9 +770,7 @@ func (s *SeedanceMediaService) downloadHuiquMedia(
 	if written > limit {
 		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", fmt.Sprintf("reference %s exceeds the upstream size limit", kind))
 	}
-	parsed, _ := url.Parse(validated)
-	originalName := filepath.Base(parsed.Path)
-	contentType, extension, err := inspectHuiquMedia(tmp, resp.Header.Get("Content-Type"), originalName, kind)
+	contentType, extension, err := inspectHuiquMedia(tmp, declaredType, originalName, kind)
 	if err != nil {
 		return nil, err
 	}

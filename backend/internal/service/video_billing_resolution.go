@@ -52,7 +52,7 @@ func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 
 func NormalizeVideoBillingDurationSecondsForModelOrDefault(model string, durationSeconds int) int {
 	model = strings.ToLower(strings.TrimSpace(model))
-	if model == SeedanceXimeiSD25Model {
+	if model == SeedanceXimeiSD25Model || model == SeedanceXimeiSD25UnofficialModel {
 		if durationSeconds <= 0 {
 			return seedanceXimeiSD25DefaultDurationSeconds
 		}

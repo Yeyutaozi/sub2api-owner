@@ -213,7 +213,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		if account.IsHuiquVideo() && activeRequestInfo.HasReferenceMedia() && activeRequestInfo.HuiquMedia == nil {
-			activeRequestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), activeRequestInfo)
+			activeRequestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), seedanceMediaOwner(apiKey, subject), activeRequestInfo)
 			if err != nil {
 				writeSeedanceMediaError(c, err)
 				return
@@ -1264,7 +1264,7 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 	}
 	defer mediaRelease()
 	if requestInfo.HasReferenceMedia() {
-		requestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), requestInfo)
+		requestInfo.HuiquMedia, err = h.seedanceMediaService.PrepareHuiquMedia(c.Request.Context(), seedanceMediaOwner(apiKey, subject), requestInfo)
 		if err != nil {
 			reqLog.Warn("seedance.fallback_media_prepare_failed", zap.Error(err), zap.String("task_id", publicTaskID))
 			writeError(http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback reference media is temporarily unavailable; retry this task")

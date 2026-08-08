@@ -1509,10 +1509,13 @@ func (s *OpenAIGatewayService) forwardSeedance(
 		if provider == VideoProviderHuiqu {
 			// MiniMax H3 uses the real /v1/videos create path; MX933 stays on /v1/videos/generations.
 			path = huiquVideoCreatePath
-			if isHuiquMiniMaxH3Model(mappedModel) || isHuiquMiniMaxH3Model(requestModel) {
+			isH3 := isHuiquMiniMaxH3Model(mappedModel) || isHuiquMiniMaxH3Model(requestModel)
+			if isH3 {
 				path = huiquVideoTaskPath
 			}
-			if requestInfo.HasReferenceMedia() {
+			// H3 never uses multipart: Huiqu/NewAPI parses create bodies as JSON and
+			// rejects multipart with "invalid character '-' in numeric literal".
+			if requestInfo.HasReferenceMedia() && !isH3 {
 				multipartBody, err = buildHuiquMultipartBody(requestInfo, upstreamModel)
 				if err == nil {
 					requestContentType = multipartBody.ContentType
