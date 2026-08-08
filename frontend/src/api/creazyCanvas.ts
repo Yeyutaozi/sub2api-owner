@@ -359,7 +359,14 @@ export async function listWorks(params?: {
 }): Promise<CreazyWorksListResponse> {
   const { data } = await apiClient.get('/creazy-canvas/works', { params })
   if (data && typeof data === 'object' && Array.isArray((data as CreazyWorksListResponse).items)) {
-    return data as CreazyWorksListResponse
+    const raw = data as CreazyWorksListResponse
+    return {
+      items: raw.items || [],
+      total: Number(raw.total || 0),
+      page: Number(raw.page || params?.page || 1),
+      page_size: Number(raw.page_size || params?.page_size || 20),
+      pages: Number(raw.pages || 0) || undefined,
+    }
   }
   // Paginated envelope variants
   if (data && typeof data === 'object') {

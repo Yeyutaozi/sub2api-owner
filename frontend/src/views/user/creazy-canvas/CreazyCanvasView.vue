@@ -265,11 +265,34 @@
 
         <div class="card cc-board-card space-y-4 p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3">
-            <div>
+            <div class="min-w-0 flex-1">
               <h2 class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
               <p class="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+              <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board mt-2">
+                <span class="cc-pagination__meta">
+                  {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
+                </span>
+                <div class="cc-pagination__actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="loadingWorks || worksPage <= 1"
+                    @click="goToWorksPrevPage($event)"
+                  >
+                    {{ t('creazyCanvas.works.prevPage') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="loadingWorks || worksPage >= worksPages"
+                    @click="goToWorksNextPage($event)"
+                  >
+                    {{ t('creazyCanvas.works.nextPage') }}
+                  </button>
+                </div>
+              </div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="() => loadWorks()">
+            <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
               {{ t('creazyCanvas.works.refresh') }}
             </button>
           </div>
@@ -335,6 +358,30 @@
                 </button>
               </div>
             </article>
+          </div>
+
+          <div v-if="worksTotal > 0" class="cc-pagination">
+            <span class="cc-pagination__meta">
+              {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
+            </span>
+            <div class="cc-pagination__actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage <= 1"
+                @click="goToWorksPrevPage($event)"
+              >
+                {{ t('creazyCanvas.works.prevPage') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage >= worksPages"
+                @click="goToWorksNextPage($event)"
+              >
+                {{ t('creazyCanvas.works.nextPage') }}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -746,11 +793,34 @@
 
         <div class="card cc-board-card space-y-4 p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3">
-            <div>
+            <div class="min-w-0 flex-1">
               <h2 class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">{{ t('creazyCanvas.tasks.title') }}</h2>
               <p class="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+              <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board mt-2">
+                <span class="cc-pagination__meta">
+                  {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
+                </span>
+                <div class="cc-pagination__actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="loadingWorks || worksPage <= 1"
+                    @click="goToWorksPrevPage($event)"
+                  >
+                    {{ t('creazyCanvas.works.prevPage') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="loadingWorks || worksPage >= worksPages"
+                    @click="goToWorksNextPage($event)"
+                  >
+                    {{ t('creazyCanvas.works.nextPage') }}
+                  </button>
+                </div>
+              </div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="() => loadWorks()">
+            <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
               {{ t('creazyCanvas.works.refresh') }}
             </button>
           </div>
@@ -835,6 +905,30 @@
               </div>
             </article>
           </div>
+
+          <div v-if="worksTotal > 0" class="cc-pagination">
+            <span class="cc-pagination__meta">
+              {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
+            </span>
+            <div class="cc-pagination__actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage <= 1"
+                @click="goToWorksPrevPage($event)"
+              >
+                {{ t('creazyCanvas.works.prevPage') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage >= worksPages"
+                @click="goToWorksNextPage($event)"
+              >
+                {{ t('creazyCanvas.works.nextPage') }}
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -864,7 +958,7 @@
                     v-model="worksFilterKind"
                     class="input min-w-[7rem] py-1 text-xs"
                     :disabled="!selectedKeyId || loadingWorks"
-                    @change="() => loadWorks()"
+                    @change="() => reloadWorksFromStart()"
                   >
                     <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
                     <option value="image">{{ t('creazyCanvas.works.image') }}</option>
@@ -877,7 +971,7 @@
                     v-model="worksFilterStatus"
                     class="input min-w-[7rem] py-1 text-xs"
                     :disabled="!selectedKeyId || loadingWorks"
-                    @change="() => loadWorks()"
+                    @change="() => reloadWorksFromStart()"
                   >
                     <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
                     <option value="succeeded">{{ t('creazyCanvas.works.statusLabels.succeeded') }}</option>
@@ -1128,6 +1222,30 @@
                 </div>
               </article>
             </div>
+
+            <div v-if="worksTotal > 0" class="cc-pagination">
+            <span class="cc-pagination__meta">
+              {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
+            </span>
+            <div class="cc-pagination__actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage <= 1"
+                @click="goToWorksPrevPage($event)"
+              >
+                {{ t('creazyCanvas.works.prevPage') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage >= worksPages"
+                @click="goToWorksNextPage($event)"
+              >
+                {{ t('creazyCanvas.works.nextPage') }}
+              </button>
+            </div>
+          </div>
           </div>
         </div>
       </section>
@@ -1351,7 +1469,15 @@ const worksFilterKind = ref('')
 const worksFilterStatus = ref('')
 const worksFilterModel = ref('')
 const worksFilterQuery = ref('')
-const taskTrayExpanded = ref(true)
+const worksPage = ref(1)
+const worksPageSize = ref(10)
+const worksTotal = ref(0)
+const worksPages = ref(1)
+/** Bumped on each works list request; ignore stale responses so poll cannot undo pagination. */
+let worksLoadSeq = 0
+/** Bumped only for non-quiet loads; used to clear loadingWorks even when quiet polls supersede. */
+let worksLoadingSeq = 0
+const taskTrayExpanded = ref(false)
 const taskTrayDismissed = ref(false)
 const draftNotice = ref('')
 let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -1466,13 +1592,13 @@ function sortTaskWorks(list: CreazyWork[]) {
 const imageTaskWorks = computed(() => {
   return sortTaskWorks(
     works.value.filter((w) => (w.kind || '').toLowerCase() !== 'video'),
-  ).slice(0, 30)
+  )
 })
 
 const videoTaskWorks = computed(() => {
   return sortTaskWorks(
     works.value.filter((w) => (w.kind || '').toLowerCase() === 'video'),
-  ).slice(0, 30)
+  )
 })
 
 const imageRunningCount = computed(() => {
@@ -1513,7 +1639,7 @@ const worksStatusSummary = computed(() => {
       dotClass: workStatusDotClass(key),
     })
   }
-  return { total: works.value.length, items }
+  return { total: worksTotal.value || works.value.length, items }
 })
 
 const worksNeedSecretBanner = computed(() => {
@@ -2029,6 +2155,7 @@ function switchTab(tab: TabId) {
   const target =
     tab === 'image' ? '/creazy-canvas/image' : tab === 'video' ? '/creazy-canvas/video' : '/creazy-canvas/works'
   if (route.path !== target) router.replace(target)
+  resetWorksPage()
   void loadWorks({ quiet: tab !== 'works' })
 }
 
@@ -3439,6 +3566,9 @@ async function onKeyChange() {
   clearImageRefs()
   resetVideoMedia()
   works.value = []
+  worksTotal.value = 0
+  worksPages.value = 1
+  resetWorksPage()
   if (selectedKeyId.value) {
     await ensureKeySecret(selectedKeyId.value)
   }
@@ -3551,6 +3681,7 @@ async function generateImage() {
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
     if (running?.id) runningWorkId = running.id
+    resetWorksPage()
     void loadWorks({ quiet: true })
 
     submittingImage.value = false
@@ -3882,6 +4013,7 @@ async function generateVideo() {
       if (running?.id) runningWorkId = running.id
     }
 
+    resetWorksPage()
     void loadWorks({ quiet: true })
     submittingVideo.value = false
     videoSaveMessage.value = t('creazyCanvas.tasks.submitted')
@@ -4312,35 +4444,139 @@ async function runVideoLifecycle(opts: {
 
 
 
-async function loadWorks(opts?: { quiet?: boolean }) {
+function taskBoardPageSize() {
+  return activeTab.value === 'works' ? 12 : 10
+}
+
+function resolveWorksListKind(): string | undefined {
+  if (activeTab.value === 'image') return 'image'
+  if (activeTab.value === 'video') return 'video'
+  const k = String(worksFilterKind.value || '').trim()
+  return k || undefined
+}
+
+function resetWorksPage() {
+  worksPage.value = 1
+}
+
+async function goWorksPage(page: number) {
+  const maxPages = Math.max(1, Number(worksPages.value) || 1)
+  const raw = Number(page)
+  const next = Math.max(1, Math.min(Number.isFinite(raw) ? Math.trunc(raw) : 1, maxPages))
+  // Stop scheduled quiet polls so they cannot race a user page change.
+  clearWorksPoll()
+  worksPage.value = next
+  await loadWorks({ page: next })
+}
+
+function goToWorksPrevPage(ev?: Event) {
+  if (ev) {
+    ev.preventDefault()
+    ev.stopPropagation()
+  }
+  void goWorksPage(Number(worksPage.value || 1) - 1)
+}
+
+function goToWorksNextPage(ev?: Event) {
+  if (ev) {
+    ev.preventDefault()
+    ev.stopPropagation()
+  }
+  void goWorksPage(Number(worksPage.value || 1) + 1)
+}
+
+async function reloadWorksFromStart(opts?: { quiet?: boolean }) {
+  resetWorksPage()
+  await loadWorks({ ...opts, page: 1 })
+}
+
+async function loadWorks(opts?: { quiet?: boolean; page?: number }) {
   if (!selectedKeyId.value) {
     works.value = []
+    worksTotal.value = 0
+    worksPages.value = 1
+    worksPage.value = 1
     loadingWorks.value = false
     clearWorksPoll()
     return
   }
-  if (!opts?.quiet) loadingWorks.value = true
+
+  if (opts?.page != null && Number.isFinite(Number(opts.page))) {
+    worksPage.value = Math.max(1, Math.trunc(Number(opts.page)))
+  }
+
+  const requestedPage = Math.max(1, Number(worksPage.value) || 1)
+  const requestedKeyId = Number(selectedKeyId.value)
+  const requestedKind = resolveWorksListKind()
+  const requestedStatus = activeTab.value === 'works' ? (worksFilterStatus.value || undefined) : undefined
+  const pageSize = taskBoardPageSize()
+  worksPageSize.value = pageSize
+
+  const seq = ++worksLoadSeq
+  const showLoading = !opts?.quiet
+  let loadingToken = 0
+  if (showLoading) {
+    loadingToken = ++worksLoadingSeq
+    loadingWorks.value = true
+  }
+
   try {
-    // On works tab honor filters; on image/video task boards load full key history.
-    const useFilters = activeTab.value === 'works'
     const res = await listWorks({
-      page: 1,
-      page_size: 50,
-      api_key_id: selectedKeyId.value,
-      kind: useFilters ? (worksFilterKind.value || undefined) : undefined,
-      status: useFilters ? (worksFilterStatus.value || undefined) : undefined,
+      page: requestedPage,
+      page_size: pageSize,
+      api_key_id: requestedKeyId,
+      kind: requestedKind,
+      status: requestedStatus,
     })
+    // Drop stale responses: a newer load/poll/page-change already started.
+    if (seq !== worksLoadSeq) return
+    if (Number(selectedKeyId.value) !== requestedKeyId) return
+    // If the user flipped pages after this request started, ignore this payload.
+    if (Number(worksPage.value) !== requestedPage) return
+
     // Defense-in-depth: only keep works for the currently selected key.
     const keyId = Number(selectedKeyId.value)
-    works.value = (res.items || []).filter((w) => Number(w.api_key_id) === keyId)
+    let items = (res.items || []).filter((w) => Number(w.api_key_id) === keyId)
+    // Keep active tasks first within the current page for task boards.
+    if (activeTab.value !== 'works') {
+      items = sortTaskWorks(items)
+    }
+    works.value = items
+    worksTotal.value = Number(res.total || 0)
+    // Keep the page the user asked for; do not let a mismatched server page snap back.
+    worksPage.value = requestedPage
+    worksPageSize.value = Number(res.page_size || pageSize)
+    const pagesFromRes = Number(res.pages || 0)
+    worksPages.value =
+      pagesFromRes > 0
+        ? pagesFromRes
+        : Math.max(1, Math.ceil((worksTotal.value || 0) / Math.max(1, worksPageSize.value)))
+
+    // Beyond last page (deletes / filter) -> clamp and reload.
+    if (worksPage.value > worksPages.value && worksPages.value >= 1) {
+      worksPage.value = worksPages.value
+      await loadWorks({ ...opts, page: worksPage.value })
+      return
+    }
+    // Empty page after deletes / filter changes, step back.
+    if (works.value.length === 0 && worksPage.value > 1 && worksTotal.value > 0) {
+      worksPage.value = Math.min(worksPage.value - 1, worksPages.value)
+      await loadWorks({ ...opts, page: worksPage.value })
+      return
+    }
     void hydrateWorkPreviews(works.value)
-    scheduleWorksPoll()
+    // Only the latest successful load should (re)schedule poll, avoiding overlapping quiet loads.
+    if (seq === worksLoadSeq) scheduleWorksPoll()
   } catch (error: any) {
+    if (seq !== worksLoadSeq) return
     if (!opts?.quiet) {
       appStore.showError(error?.response?.data?.detail || error?.message || t('creazyCanvas.works.loadFailed'))
     }
   } finally {
-    if (!opts?.quiet) loadingWorks.value = false
+    // Clear spinner even if a quiet poll supersedes this user load.
+    if (showLoading && loadingToken === worksLoadingSeq) {
+      loadingWorks.value = false
+    }
   }
 }
 
@@ -4432,7 +4668,13 @@ async function removeWork(work: CreazyWork) {
   try {
     await deleteWork(work.id)
     works.value = works.value.filter((w) => w.id !== work.id)
+    worksTotal.value = Math.max(0, Number(worksTotal.value || 0) - 1)
     appStore.showSuccess(t('creazyCanvas.works.deleted'))
+    if (!works.value.length && worksPage.value > 1) {
+      await goWorksPage(worksPage.value - 1)
+    } else {
+      void loadWorks({ quiet: true })
+    }
   } catch (error: any) {
     appStore.showError(error?.response?.data?.detail || error?.message || t('creazyCanvas.works.deleteFailed'))
   } finally {
@@ -4630,6 +4872,7 @@ watch(
   () => route.path,
   () => {
     activeTab.value = resolveTabFromRoute()
+    resetWorksPage()
     void loadWorks({ quiet: activeTab.value !== 'works' })
   },
 )
@@ -4766,8 +5009,11 @@ function openTrayTaskBoard() {
   }
 }
 
-watch(totalRunningJobs, (n, prev) => {
-  if (n > Number(prev || 0)) {
+// Expand tray only when this browser session submits new jobs (not merely loading historical running works).
+watch([activeImageJobs, activeVideoJobs], ([img, vid], prev) => {
+  const prevImg = Number((prev && prev[0]) || 0)
+  const prevVid = Number((prev && prev[1]) || 0)
+  if (Number(img) > prevImg || Number(vid) > prevVid) {
     taskTrayDismissed.value = false
     taskTrayExpanded.value = true
   }
@@ -5269,13 +5515,15 @@ select.cc-control {
   right: 1rem;
   bottom: 1rem;
   z-index: 90;
-  width: min(22rem, calc(100vw - 1.5rem));
+  width: min(20rem, calc(100vw - 1.5rem));
+  max-height: min(40vh, 18rem);
   border-radius: 1rem;
   border: 1px solid rgb(226 232 240 / 1);
   background: rgb(255 255 255 / 0.96);
   box-shadow: 0 18px 40px rgb(15 23 42 / 0.16);
   backdrop-filter: blur(10px);
   overflow: hidden;
+  pointer-events: auto;
 }
 
 :global(.dark) .cc-task-tray {
@@ -5370,8 +5618,58 @@ select.cc-control {
   color: rgb(148 163 184 / 1);
 }
 
+.cc-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.cc-pagination--inline {
+  padding-top: 0;
+  justify-content: flex-end;
+}
+
+.cc-pagination--board {
+  padding-top: 0;
+  justify-content: flex-start;
+}
+
+.cc-board-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+  max-width: min(100%, 34rem);
+}
+
+/* Keep bottom board content clear of the floating task tray */
+.cc-board-card {
+  padding-bottom: 0.25rem;
+  margin-bottom: 5.5rem;
+}
+
+.cc-pagination__meta {
+  font-size: 0.75rem;
+  color: rgb(100 116 139 / 1);
+}
+
+:global(.dark) .cc-pagination__meta {
+  color: rgb(148 163 184 / 1);
+}
+
+.cc-pagination__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .cc-task-tray__list {
-  max-height: 16rem;
+  max-height: min(28vh, 11rem);
   overflow: auto;
   padding: 0.45rem;
   display: flex;
