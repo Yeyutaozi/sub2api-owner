@@ -101,19 +101,21 @@ func TestParseSeedanceRequestRequiresAudioFlagForAudioReference(t *testing.T) {
 	}
 }
 
-func TestParseXimeiRequestRejectsReservedPromptMediaReferences(t *testing.T) {
+func TestParseXimeiRequestAllowsUserMediaReferences(t *testing.T) {
 	for _, token := range []string{"@Image1", "@audio2", "@VIDEO3"} {
 		t.Run(token, func(t *testing.T) {
 			body := strings.NewReplacer("TOKEN", token).Replace(`{
 				"model":"sd-2.0-mx933",
-				"prompt":"让 TOKEN 中的主体自然转身",
+				"prompt":"keep subject from TOKEN natural turn",
 				"resolution":"480p",
 				"guidances":{
 					"image_reference":[{"image":{"url":"https://media.example/product.png"}}]
 				}
 			}`)
-			_, err := ParseSeedanceVideoGenerationRequest([]byte(body))
-			require.ErrorContains(t, err, "platform-reserved media references")
+			info, err := ParseSeedanceVideoGenerationRequest([]byte(body))
+			require.NoError(t, err)
+			require.NotNil(t, info)
+			require.Contains(t, info.Prompt, token)
 		})
 	}
 }

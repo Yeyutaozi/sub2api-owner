@@ -86,14 +86,55 @@
         <div class="card cc-form-card space-y-5 p-5 sm:p-6">
           <div class="cc-field" :class="{ 'cc-field--error': imageFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
-            <textarea
-              v-model="imageForm.prompt"
-              rows="5"
-              class="input cc-textarea"
-              :class="{ 'cc-input--error': imageFieldErrors.prompt }"
-              :placeholder="t('creazyCanvas.form.promptPlaceholder')"
-              @paste="onPasteMedia($event, 'imageRefs')"
-            />
+            <div class="cc-prompt-wrap">
+              <textarea
+                ref="imagePromptEl"
+                v-model="imageForm.prompt"
+                rows="5"
+                class="input cc-textarea"
+                :class="{ 'cc-input--error': imageFieldErrors.prompt }"
+                :placeholder="t('creazyCanvas.form.promptPlaceholder')"
+                @paste="onPasteMedia($event, 'imageRefs')"
+                @input="onPromptInput('image', $event)"
+                @keydown="onPromptKeydown('image', $event)"
+                @keyup="onPromptInput('image', $event)"
+                @click="onPromptInput('image', $event)"
+                @blur="onPromptBlur"
+              />
+              <div
+                v-if="mention.open && mention.scope === 'image'"
+                class="cc-mention-menu"
+                role="listbox"
+                :aria-label="t('creazyCanvas.form.mentionTitle')"
+                @mousedown.prevent
+              >
+                <div class="cc-mention-menu__head">{{ t('creazyCanvas.form.mentionTitle') }}</div>
+                <button
+                  v-for="(item, mIdx) in mentionFilteredItems"
+                  :key="item.id"
+                  type="button"
+                  class="cc-mention-item"
+                  :class="{ 'cc-mention-item--active': mIdx === mention.index }"
+                  role="option"
+                  :aria-selected="mIdx === mention.index"
+                  @mouseenter="mention.index = mIdx"
+                  @click="insertMention(item)"
+                >
+                  <span class="cc-mention-item__thumb">
+                    <img v-if="item.preview_url" :src="item.preview_url" alt="" />
+                    <span v-else class="cc-mention-item__kind">{{ item.kindLabel }}</span>
+                  </span>
+                  <span class="cc-mention-item__body">
+                    <span class="cc-mention-item__label">{{ item.label }}</span>
+                    <span class="cc-mention-item__token">{{ item.token }}</span>
+                  </span>
+                </button>
+                <div v-if="!mentionFilteredItems.length" class="cc-mention-menu__empty">
+                  {{ mentionAllItems.length ? t('creazyCanvas.form.mentionNoMatch') : t('creazyCanvas.form.mentionEmpty') }}
+                </div>
+              </div>
+            </div>
+            <p class="cc-prompt-hint">{{ t('creazyCanvas.form.mentionHint') }}</p>
             <p v-if="imageFieldErrors.prompt" class="cc-field__error">{{ imageFieldErrors.prompt }}</p>
           </div>
           <div class="cc-panel cc-panel--image">
@@ -247,7 +288,10 @@
                   class="h-12 w-12 rounded object-cover"
                 />
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{{ item.name }}</p>
+                  <div class="flex items-center gap-1.5">
+                    <span class="cc-media-token">@Image{{ idx + 1 }}</span>
+                    <p class="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{{ item.name }}</p>
+                  </div>
                   <p class="truncate text-[11px] text-gray-400">{{ item.media_url }}</p>
                 </div>
                 <button type="button" class="text-xs text-rose-600 hover:underline" @click="removeImageRef(idx)">
@@ -473,14 +517,55 @@
         <div class="card cc-form-card space-y-5 p-5 sm:p-6">
           <div class="cc-field" :class="{ 'cc-field--error': videoFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
-            <textarea
-              v-model="videoForm.prompt"
-              rows="5"
-              class="input cc-textarea"
-              :class="{ 'cc-input--error': videoFieldErrors.prompt }"
-              :placeholder="t('creazyCanvas.form.promptPlaceholder')"
-              @paste="onPasteMedia($event, 'refImages')"
-            />
+            <div class="cc-prompt-wrap">
+              <textarea
+                ref="videoPromptEl"
+                v-model="videoForm.prompt"
+                rows="5"
+                class="input cc-textarea"
+                :class="{ 'cc-input--error': videoFieldErrors.prompt }"
+                :placeholder="t('creazyCanvas.form.promptPlaceholder')"
+                @paste="onPasteMedia($event, 'refImages')"
+                @input="onPromptInput('video', $event)"
+                @keydown="onPromptKeydown('video', $event)"
+                @keyup="onPromptInput('video', $event)"
+                @click="onPromptInput('video', $event)"
+                @blur="onPromptBlur"
+              />
+              <div
+                v-if="mention.open && mention.scope === 'video'"
+                class="cc-mention-menu"
+                role="listbox"
+                :aria-label="t('creazyCanvas.form.mentionTitle')"
+                @mousedown.prevent
+              >
+                <div class="cc-mention-menu__head">{{ t('creazyCanvas.form.mentionTitle') }}</div>
+                <button
+                  v-for="(item, mIdx) in mentionFilteredItems"
+                  :key="item.id"
+                  type="button"
+                  class="cc-mention-item"
+                  :class="{ 'cc-mention-item--active': mIdx === mention.index }"
+                  role="option"
+                  :aria-selected="mIdx === mention.index"
+                  @mouseenter="mention.index = mIdx"
+                  @click="insertMention(item)"
+                >
+                  <span class="cc-mention-item__thumb">
+                    <img v-if="item.preview_url" :src="item.preview_url" alt="" />
+                    <span v-else class="cc-mention-item__kind">{{ item.kindLabel }}</span>
+                  </span>
+                  <span class="cc-mention-item__body">
+                    <span class="cc-mention-item__label">{{ item.label }}</span>
+                    <span class="cc-mention-item__token">{{ item.token }}</span>
+                  </span>
+                </button>
+                <div v-if="!mentionFilteredItems.length" class="cc-mention-menu__empty">
+                  {{ mentionAllItems.length ? t('creazyCanvas.form.mentionNoMatch') : t('creazyCanvas.form.mentionEmpty') }}
+                </div>
+              </div>
+            </div>
+            <p class="cc-prompt-hint">{{ t('creazyCanvas.form.mentionHint') }}</p>
             <p v-if="videoFieldErrors.prompt" class="cc-field__error">{{ videoFieldErrors.prompt }}</p>
           </div>
           <div class="cc-panel cc-panel--video">
@@ -615,6 +700,7 @@
                 >
                   {{ uploadingMedia === 'start' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
                 </button>
+                <span v-if="startFrameToken" class="cc-media-token">{{ startFrameToken }}</span>
                 <span v-if="startFrame?.name" class="text-xs text-gray-600 dark:text-gray-300">{{ startFrame.name }}</span>
                 <button v-if="startFrame" type="button" class="btn btn-secondary btn-sm" @click="clearStartFrame">
                   {{ t('creazyCanvas.form.remove') }}
@@ -658,6 +744,7 @@
                 >
                   {{ uploadingMedia === 'end' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
                 </button>
+                <span v-if="endFrameToken" class="cc-media-token">{{ endFrameToken }}</span>
                 <span v-if="endFrame?.name" class="text-xs text-gray-600 dark:text-gray-300">{{ endFrame.name }}</span>
                 <button v-if="endFrame" type="button" class="btn btn-secondary btn-sm" @click="endFrame = null">
                   {{ t('creazyCanvas.form.remove') }}
@@ -724,7 +811,7 @@
                     <span v-else>IMG</span>
                   </div>
                   <span class="min-w-0 flex-1 truncate" :title="item.name">{{ item.name }}</span>
-                  <span class="shrink-0 text-[10px] text-gray-400">#{{ idx + 1 }}</span>
+                  <span class="cc-media-token shrink-0">@Image{{ idx + 1 }}</span>
                   <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="removeRefImage(idx)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
@@ -787,7 +874,7 @@
                     {{ item.name }}
                     <span class="text-gray-400">({{ item.duration_seconds }}s)</span>
                   </span>
-                  <span class="shrink-0 text-[10px] text-gray-400">#{{ idx + 1 }}</span>
+                  <span class="cc-media-token shrink-0">@Video{{ idx + 1 }}</span>
                   <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="refVideos.splice(idx, 1)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
@@ -851,7 +938,7 @@
                     {{ item.name }}
                     <span class="text-gray-400">({{ item.duration_seconds }}s)</span>
                   </span>
-                  <span class="shrink-0 text-[10px] text-gray-400">#{{ idx + 1 }}</span>
+                  <span class="cc-media-token shrink-0">@Audio{{ idx + 1 }}</span>
                   <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="refAudios.splice(idx, 1)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
@@ -1631,7 +1718,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -1734,6 +1821,217 @@ const endFrameInput = ref<HTMLInputElement | null>(null)
 const refImageInput = ref<HTMLInputElement | null>(null)
 const refVideoInput = ref<HTMLInputElement | null>(null)
 const refAudioInput = ref<HTMLInputElement | null>(null)
+
+type PromptScope = 'image' | 'video'
+type MentionItem = {
+  id: string
+  token: string
+  label: string
+  kind: 'image' | 'video' | 'audio' | 'start' | 'end'
+  kindLabel: string
+  preview_url?: string
+}
+
+const imagePromptEl = ref<HTMLTextAreaElement | null>(null)
+const videoPromptEl = ref<HTMLTextAreaElement | null>(null)
+const mention = reactive({
+  open: false,
+  scope: 'image' as PromptScope,
+  query: '',
+  index: 0,
+  start: 0,
+  end: 0,
+})
+let mentionBlurTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Platform numbering: refs -> start frame -> end frame; video/audio each from 1. */
+const startFrameToken = computed(() => {
+  if (!startFrame.value) return ''
+  return `@Image${refImages.value.length + 1}`
+})
+const endFrameToken = computed(() => {
+  if (!endFrame.value) return ''
+  const n = refImages.value.length + (startFrame.value ? 1 : 0) + 1
+  return `@Image${n}`
+})
+
+function buildImageMentionItems(): MentionItem[] {
+  return imageRefs.value.map((item, i) => {
+    const n = i + 1
+    return {
+      id: `image-ref-${i}`,
+      token: `@Image${n}`,
+      label: t('creazyCanvas.form.mentionRefImage', { n }),
+      kind: 'image' as const,
+      kindLabel: 'IMG',
+      preview_url: item.preview_url || item.media_url,
+    }
+  })
+}
+
+function buildVideoMentionItems(): MentionItem[] {
+  const items: MentionItem[] = []
+  let imgN = 1
+  refImages.value.forEach((item, i) => {
+    items.push({
+      id: `video-ref-img-${i}`,
+      token: `@Image${imgN}`,
+      label: t('creazyCanvas.form.mentionRefImage', { n: imgN }),
+      kind: 'image',
+      kindLabel: 'IMG',
+      preview_url: item.preview_url || item.media_url,
+    })
+    imgN += 1
+  })
+  if (startFrame.value) {
+    items.push({
+      id: 'video-start-frame',
+      token: `@Image${imgN}`,
+      label: t('creazyCanvas.form.mentionStartFrame'),
+      kind: 'start',
+      kindLabel: 'S',
+      preview_url: startFrame.value.preview_url || startFrame.value.media_url,
+    })
+    imgN += 1
+  }
+  if (endFrame.value) {
+    items.push({
+      id: 'video-end-frame',
+      token: `@Image${imgN}`,
+      label: t('creazyCanvas.form.mentionEndFrame'),
+      kind: 'end',
+      kindLabel: 'E',
+      preview_url: endFrame.value.preview_url || endFrame.value.media_url,
+    })
+  }
+  refVideos.value.forEach((item, i) => {
+    const n = i + 1
+    items.push({
+      id: `video-ref-vid-${i}`,
+      token: `@Video${n}`,
+      label: t('creazyCanvas.form.mentionRefVideo', { n }),
+      kind: 'video',
+      kindLabel: 'VID',
+      preview_url: item.preview_url,
+    })
+  })
+  refAudios.value.forEach((item, i) => {
+    const n = i + 1
+    items.push({
+      id: `video-ref-aud-${i}`,
+      token: `@Audio${n}`,
+      label: t('creazyCanvas.form.mentionRefAudio', { n }),
+      kind: 'audio',
+      kindLabel: 'AUD',
+      preview_url: item.preview_url,
+    })
+  })
+  return items
+}
+
+const mentionAllItems = computed(() =>
+  mention.scope === 'image' ? buildImageMentionItems() : buildVideoMentionItems(),
+)
+
+const mentionFilteredItems = computed(() => {
+  const q = mention.query.trim().toLowerCase()
+  const all = mentionAllItems.value
+  if (!q) return all
+  return all.filter((it) => {
+    return (
+      it.token.toLowerCase().includes(q) ||
+      it.label.toLowerCase().includes(q) ||
+      it.kind.toLowerCase().includes(q) ||
+      it.kindLabel.toLowerCase().includes(q)
+    )
+  })
+})
+
+function closeMentionMenu() {
+  mention.open = false
+  mention.query = ''
+  mention.index = 0
+}
+
+function onPromptInput(scope: PromptScope, event: Event) {
+  const el = event.target as HTMLTextAreaElement | null
+  if (!el) return
+  detectMentionAtCaret(scope, el)
+}
+
+function detectMentionAtCaret(scope: PromptScope, el: HTMLTextAreaElement) {
+  const value = el.value
+  const caret = el.selectionStart ?? 0
+  const before = value.slice(0, caret)
+  const m = before.match(/@([A-Za-z0-9_]*)$/)
+  if (!m) {
+    closeMentionMenu()
+    return
+  }
+  mention.open = true
+  mention.scope = scope
+  mention.query = m[1] || ''
+  mention.start = caret - m[0].length
+  mention.end = caret
+  if (mention.index >= mentionFilteredItems.value.length) {
+    mention.index = 0
+  }
+}
+
+function insertMention(item: MentionItem) {
+  const scope = mention.scope
+  const form = scope === 'image' ? imageForm : videoForm
+  const el = scope === 'image' ? imagePromptEl.value : videoPromptEl.value
+  const value = form.prompt
+  const start = mention.start
+  const end = mention.end
+  const insert = `${item.token} `
+  form.prompt = value.slice(0, start) + insert + value.slice(end)
+  closeMentionMenu()
+  void nextTick(() => {
+    if (!el) return
+    const pos = start + insert.length
+    el.focus()
+    el.setSelectionRange(pos, pos)
+  })
+}
+
+function onPromptKeydown(scope: PromptScope, event: KeyboardEvent) {
+  if (!mention.open || mention.scope !== scope) return
+  const items = mentionFilteredItems.value
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    if (!items.length) return
+    mention.index = (mention.index + 1) % items.length
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    if (!items.length) return
+    mention.index = (mention.index - 1 + items.length) % items.length
+    return
+  }
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    if (items[mention.index]) {
+      event.preventDefault()
+      insertMention(items[mention.index])
+    }
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMentionMenu()
+  }
+}
+
+function onPromptBlur() {
+  if (mentionBlurTimer) clearTimeout(mentionBlurTimer)
+  mentionBlurTimer = setTimeout(() => {
+    closeMentionMenu()
+    mentionBlurTimer = null
+  }, 160)
+}
+
 
 const submittingImage = ref(false)
 const submittingVideo = ref(false)
@@ -6710,6 +7008,145 @@ select.cc-control {
 :global(.dark) .cc-empty-guide {
   border-color: rgb(51 65 85 / 1);
   background: rgb(15 23 42 / 0.6);
+}
+
+
+.cc-prompt-wrap {
+  position: relative;
+}
+.cc-prompt-hint {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: rgb(100 116 139 / 1);
+}
+:global(.dark) .cc-prompt-hint {
+  color: rgb(148 163 184 / 1);
+}
+.cc-mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 40;
+  max-height: 16rem;
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(226 232 240 / 1);
+  background: rgb(255 255 255 / 0.98);
+  box-shadow: 0 12px 28px rgb(15 23 42 / 0.12);
+  padding: 0.35rem;
+}
+:global(.dark) .cc-mention-menu {
+  border-color: rgb(51 65 85 / 1);
+  background: rgb(15 23 42 / 0.98);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.35);
+}
+.cc-mention-menu__head {
+  padding: 0.35rem 0.5rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgb(100 116 139 / 1);
+}
+.cc-mention-menu__empty {
+  padding: 0.65rem 0.55rem;
+  font-size: 0.75rem;
+  color: rgb(148 163 184 / 1);
+}
+.cc-mention-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 0.55rem;
+  border: 0;
+  background: transparent;
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.cc-mention-item:hover,
+.cc-mention-item--active {
+  background: rgb(238 242 255 / 1);
+}
+:global(.dark) .cc-mention-item:hover,
+:global(.dark) .cc-mention-item--active {
+  background: rgb(49 46 129 / 0.35);
+}
+.cc-mention-item__thumb {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.4rem;
+  background: rgb(241 245 249 / 1);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: rgb(99 102 241 / 1);
+}
+:global(.dark) .cc-mention-item__thumb {
+  background: rgb(30 41 59 / 1);
+  color: rgb(165 180 252 / 1);
+}
+.cc-mention-item__thumb img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+.cc-mention-item__kind {
+  letter-spacing: 0.02em;
+}
+.cc-mention-item__body {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.cc-mention-item__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(30 41 59 / 1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:global(.dark) .cc-mention-item__label {
+  color: rgb(226 232 240 / 1);
+}
+.cc-mention-item__token {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: rgb(79 70 229 / 1);
+}
+:global(.dark) .cc-mention-item__token {
+  color: rgb(165 180 252 / 1);
+}
+.cc-media-token {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgb(199 210 254 / 1);
+  background: rgb(238 242 255 / 1);
+  padding: 0.05rem 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: rgb(67 56 202 / 1);
+  white-space: nowrap;
+}
+:global(.dark) .cc-media-token {
+  border-color: rgb(67 56 202 / 0.55);
+  background: rgb(49 46 129 / 0.35);
+  color: rgb(199 210 254 / 1);
 }
 
 </style>

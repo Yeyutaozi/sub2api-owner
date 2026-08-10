@@ -7,7 +7,7 @@
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
     },
-    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，只需使用公开模型名和本文档定义的统一字段。\n\n固定流程：1）有参考素材时先 POST /videos/uploads；2）把每次上传响应中的完整 media_url 填入 POST /videos/generations；3）保存公开 job_id；4）每 3-5 秒查询任务；5）status=completed 后请求 content 接口下载 MP4。服务端后台结算器会持续处理未结算任务和幂等退款，退款不依赖客户持续轮询。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传响应中的 media_url 是临时签名地址，上传后应立即创建任务，不要长期缓存复用。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 都是以 /v1 开头的站点相对路径；完整地址固定为 https://tkcreazy.top + 返回值，不能再拼接 /v1。\n\nSeedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd-2.0-mx933、sd-2.5-mx、sd-2.5-mx-2000。公开支持矩阵：sd-2.0-mx933 支持 480p 和 720p；sd-2.5-mx（官方渠道）与 sd-2.5-mx-2000（非官方渠道）均仅支持 720p，duration 支持 5、10、15 或 30 秒，省略时为 5 秒。两者均支持最多 30 图 / 10 视频 / 10 音频（合计 50）参考素材。创建和查询始终显示客户提交的公开 model。\n\nMiniMax Key 可调用 minimax-h3（1440p，时长 5-15 秒，按秒计费；支持首帧/尾帧/参考图/参考音频；原生生成音频）。Grok Imagine Key 可调用 grok-imagine-1.5（720p，时长 3-15 秒，必须提供首帧）。\n\n时长规则：sd-2.5-mx 与 sd-2.5-mx-2000 的 duration 只允许 5、10、15 或 30，省略时为 5；除此两模型外，其他 Seedance 新请求的 duration 只允许 5、10 或 15，省略时为 5。minimax-h3 的 duration 允许 5-15 的任意整数秒；grok-imagine-1.5 的 duration 允许 3-15 的任意整数秒。Seedance 分组可由平台管理员显式配置为按次计费：价格由公开 model + resolution 决定，每个输出视频计费一次，duration 不作为价格乘数。旧分组在管理员切换前保留原按秒计费，平台不会强制迁移，避免把历史每秒价格误解释为每次价格；客户请求中不传计费单位。\n\nsd-2.0-mx933、sd-2.5-mx 和 sd-2.5-mx-2000 的参考视频与参考音频必须先上传，并在对应 guidance 媒体对象中同时填写完整 media_url 与真实 duration_seconds。sd-2.0-mx933 最多 9 图、3 视频、3 音频、总计 15 个素材，音频与视频分别累计最多 15 秒；sd-2.5-mx（官方）与 sd-2.5-mx-2000（非官方）均最多 30 图、10 视频、10 音频、总计 50 个素材。使用 audio_reference 时必须搭配普通参考图或参考视频，并在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入这些标记。\n\n示例标题中的“已验证”仅用于标记此前已通过 https://tkcreazy.top/v1 取得相应结果的既有示例；本次新增模型示例不使用该标记。"
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，只需使用公开模型名和本文档定义的统一字段。\n\n固定流程：1）有参考素材时先 POST /videos/uploads；2）把每次上传响应中的完整 media_url 填入 POST /videos/generations；3）保存公开 job_id；4）每 3-5 秒查询任务；5）status=completed 后请求 content 接口下载 MP4。服务端后台结算器会持续处理未结算任务和幂等退款，退款不依赖客户持续轮询。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传响应中的 media_url 是临时签名地址，上传后应立即创建任务，不要长期缓存复用。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 都是以 /v1 开头的站点相对路径；完整地址固定为 https://tkcreazy.top + 返回值，不能再拼接 /v1。\n\nSeedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd-2.0-mx933、sd-2.5-mx、sd-2.5-mx-2000。公开支持矩阵：sd-2.0-mx933 支持 480p 和 720p；sd-2.5-mx（官方渠道）与 sd-2.5-mx-2000（非官方渠道）均仅支持 720p，duration 支持 5、10、15 或 30 秒，省略时为 5 秒。两者均支持最多 30 图 / 10 视频 / 10 音频（合计 50）参考素材。创建和查询始终显示客户提交的公开 model。\n\nMiniMax Key 可调用 minimax-h3（1440p，时长 5-15 秒，按秒计费；支持首帧/尾帧/参考图/参考音频；原生生成音频）。Grok Imagine Key 可调用 grok-imagine-1.5（720p，时长 3-15 秒，必须提供首帧）。\n\n时长规则：sd-2.5-mx 与 sd-2.5-mx-2000 的 duration 只允许 5、10、15 或 30，省略时为 5；除此两模型外，其他 Seedance 新请求的 duration 只允许 5、10 或 15，省略时为 5。minimax-h3 的 duration 允许 5-15 的任意整数秒；grok-imagine-1.5 的 duration 允许 3-15 的任意整数秒。Seedance 分组可由平台管理员显式配置为按次计费：价格由公开 model + resolution 决定，每个输出视频计费一次，duration 不作为价格乘数。旧分组在管理员切换前保留原按秒计费，平台不会强制迁移，避免把历史每秒价格误解释为每次价格；客户请求中不传计费单位。\n\nsd-2.0-mx933、sd-2.5-mx 和 sd-2.5-mx-2000 的参考视频与参考音频必须先上传，并在对应 guidance 媒体对象中同时填写完整 media_url 与真实 duration_seconds。sd-2.0-mx933 最多 9 图、3 视频、3 音频、总计 15 个素材，音频与视频分别累计最多 15 秒；sd-2.5-mx（官方）与 sd-2.5-mx-2000（非官方）均最多 30 图、10 视频、10 音频、总计 50 个素材。使用 audio_reference 时必须搭配普通参考图或参考视频，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用已上传素材编号；未手写时平台会按「参考图→首帧→尾帧」顺序自动注入角色说明，手写编号时平台不再二次定义角色映射。\n\n示例标题中的“已验证”仅用于标记此前已通过 https://tkcreazy.top/v1 取得相应结果的既有示例；本次新增模型示例不使用该标记。"
   },
   "servers": [
     {
@@ -367,7 +367,7 @@
           "视频生成"
         ],
         "summary": "创建异步视频生成任务",
-        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型都使用这个统一入口，只通过请求体中的 `model` 区分；不要在路径后添加模型名，也不要调用其他地址。\n\n### 模型和 API Key 分组必须一致\n\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：5/10/15 秒；1080p：5/10 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：5/10/15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.0-mx933` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.5-mx` | 仅 720p：5/10/15/30 秒（官方渠道） |\n| Seedance | `sd-2.5-mx-2000` | 仅 720p：5/10/15/30 秒（非官方渠道，媒体上限同官方 30/10/10） |\n| MiniMax | `minimax-h3` | 仅 1440p：5-15 秒 |\n| GrokImagine | `grok-imagine-1.5` | 仅 720p：3-15 秒，必须首帧 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n`sd-2.5-mx` 与 `sd-2.5-mx-2000` 的 `duration` 只能填整数 `5`、`10`、`15` 或 `30`，省略时按 5 秒处理；除此两模型外，其他 Seedance 新请求的 `duration` 只能填整数 `5`、`10` 或 `15`，省略时按 5 秒处理。`minimax-h3` 为 5-15 秒任意整数；`grok-imagine-1.5` 为 3-15 秒任意整数且必须提供首帧。`0`、`null` 或对应模型不支持的其他秒数会直接返回参数错误。\n\n### 公开模型与清晰度\n\n| 客户填写的 model | 支持的 resolution | duration |\n| --- | --- | --- |\n| `sd-2.0-mx933` | `480p`、`720p` | `5`、`10`、`15`，省略为 `5` |\n| `sd-2.5-mx` | `720p` | `5`、`10`、`15`、`30`，省略为 `5` |\n\n调用方只填写公开 `model`、`resolution` 和本文档定义的其他统一字段。任务创建、查询、计费记录和失败响应始终保留客户提交的公开模型名。\n\n### Seedance 按次计费\n\n只有 Key 所属 Seedance 分组由平台管理员显式启用按次计费时，才按公开 `model + resolution` 的单次价格、每个输出视频计费，`duration` 不作为价格乘数。`sd-2.5-mx` 的 5/10/15/30 秒档位使用同一单次价格。客户请求中没有计费单位字段。旧分组在管理员切换前继续按秒计费，避免把历史每秒价格误解释为每次价格；平台不会强制迁移旧分组。最终 `failed` 或成功取消的任务由平台按既有结算规则执行幂等退款。\n\n### 参考素材怎么填\n\n1. 有参考素材时，先调用 `POST /videos/uploads`；每次只上传一个文件，多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括签名查询参数，填入创建任务 JSON；不要填写 `upload_id`。\n3. 视频和音频参考对象中的 `duration_seconds` 必须填写该文件的真实时长（秒，可为小数），不是目标视频的 `duration`，也不是上传接口返回值。\n4. `sd-2.0-mx933`：首帧、尾帧和普通参考图合计最多 9 张；视频最多 3 个、音频最多 3 个；全部素材合计最多 15 个；参考视频累计最多 15 秒，参考音频累计最多 15 秒。\n5. `sd-2.5-mx`：首帧、尾帧和普通参考图合计最多 30 张；视频最多 10 个、音频最多 10 个；全部素材合计最多 50 个。\n6. 这两个模型允许首尾帧与 `guidances.image_reference` 组合；填写尾帧时必须同时填写首帧。参考音频必须同时存在至少一个 `image_reference` 或 `video_reference_base`，只有首帧/尾帧仍不够。\n7. 使用 `audio_reference` 时必须在请求顶层显式填写 `audio: true`。参考音频不是原音轨直通，`prompt` 要明确写出要保留的音色、语言内容、节奏、旋律或声音事件。\n8. `prompt` 不得包含 `@ImageN`、`@AudioN` 或 `@VideoN` 形式的保留标记（例如 `@Image1`）；平台会按照素材数组顺序自动注入，手写会造成编号冲突。\n\n既有普通 Seedance 最多 4 图、3 视频、1 音频。\n\n### 上传字段和生成字段的对应关系\n\n| 素材 | 上传接口 multipart 字段 | 创建任务 JSON 字段 |\n| --- | --- | --- |\n| 单图/多图参考 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 单视频/多视频参考 | `video` | `guidances.video_reference_base[].video.url` 和 `.duration_seconds` |\n| 单音频/多音频参考 | `audio` | `guidances.audio_reference[].audio.url` 和 `.duration_seconds` |\n\n### 在 Apifox 中选择示例\n\n两个新公开模型提供纯文本、单图、多图、首尾帧、多视频、多音频和综合参考示例；其中 sd-2.5-mx 的命名示例明确覆盖 5、10、15、30 秒四个档位。先选请求示例，把所有 `https://replace.invalid/...` 替换为上传响应中的完整 `media_url`，并按文件真实时长修改 `duration_seconds`；再在 `202` 响应中选择同名示例。请求和响应示例下拉框彼此独立。\n\n### 成功后怎么做\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`。HTTP 200 只表示查询接口调用成功；只有响应体 `status=completed` 才代表生成成功，随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。",
+        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型都使用这个统一入口，只通过请求体中的 `model` 区分；不要在路径后添加模型名，也不要调用其他地址。\n\n### 模型和 API Key 分组必须一致\n\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：5/10/15 秒；1080p：5/10 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：5/10/15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.0-mx933` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.5-mx` | 仅 720p：5/10/15/30 秒（官方渠道） |\n| Seedance | `sd-2.5-mx-2000` | 仅 720p：5/10/15/30 秒（非官方渠道，媒体上限同官方 30/10/10） |\n| MiniMax | `minimax-h3` | 仅 1440p：5-15 秒 |\n| GrokImagine | `grok-imagine-1.5` | 仅 720p：3-15 秒，必须首帧 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n`sd-2.5-mx` 与 `sd-2.5-mx-2000` 的 `duration` 只能填整数 `5`、`10`、`15` 或 `30`，省略时按 5 秒处理；除此两模型外，其他 Seedance 新请求的 `duration` 只能填整数 `5`、`10` 或 `15`，省略时按 5 秒处理。`minimax-h3` 为 5-15 秒任意整数；`grok-imagine-1.5` 为 3-15 秒任意整数且必须提供首帧。`0`、`null` 或对应模型不支持的其他秒数会直接返回参数错误。\n\n### 公开模型与清晰度\n\n| 客户填写的 model | 支持的 resolution | duration |\n| --- | --- | --- |\n| `sd-2.0-mx933` | `480p`、`720p` | `5`、`10`、`15`，省略为 `5` |\n| `sd-2.5-mx` | `720p` | `5`、`10`、`15`、`30`，省略为 `5` |\n\n调用方只填写公开 `model`、`resolution` 和本文档定义的其他统一字段。任务创建、查询、计费记录和失败响应始终保留客户提交的公开模型名。\n\n### Seedance 按次计费\n\n只有 Key 所属 Seedance 分组由平台管理员显式启用按次计费时，才按公开 `model + resolution` 的单次价格、每个输出视频计费，`duration` 不作为价格乘数。`sd-2.5-mx` 的 5/10/15/30 秒档位使用同一单次价格。客户请求中没有计费单位字段。旧分组在管理员切换前继续按秒计费，避免把历史每秒价格误解释为每次价格；平台不会强制迁移旧分组。最终 `failed` 或成功取消的任务由平台按既有结算规则执行幂等退款。\n\n### 参考素材怎么填\n\n1. 有参考素材时，先调用 `POST /videos/uploads`；每次只上传一个文件，多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括签名查询参数，填入创建任务 JSON；不要填写 `upload_id`。\n3. 视频和音频参考对象中的 `duration_seconds` 必须填写该文件的真实时长（秒，可为小数），不是目标视频的 `duration`，也不是上传接口返回值。\n4. `sd-2.0-mx933`：首帧、尾帧和普通参考图合计最多 9 张；视频最多 3 个、音频最多 3 个；全部素材合计最多 15 个；参考视频累计最多 15 秒，参考音频累计最多 15 秒。\n5. `sd-2.5-mx`：首帧、尾帧和普通参考图合计最多 30 张；视频最多 10 个、音频最多 10 个；全部素材合计最多 50 个。\n6. 这两个模型允许首尾帧与 `guidances.image_reference` 组合；填写尾帧时必须同时填写首帧。参考音频必须同时存在至少一个 `image_reference` 或 `video_reference_base`，只有首帧/尾帧仍不够。\n7. 使用 `audio_reference` 时必须在请求顶层显式填写 `audio: true`。参考音频不是原音轨直通，`prompt` 要明确写出要保留的音色、语言内容、节奏、旋律或声音事件。\n8. `prompt` 可手写 `@ImageN` / `@AudioN` / `@VideoN`（例如 `@Image1`）引用已上传素材；未手写时平台按「参考图→首帧→尾帧」与视频/音频各自序号自动注入角色说明。手写编号时平台不再二次定义角色映射，但仍会补充无编号的首尾帧约束。\n\n既有普通 Seedance 最多 4 图、3 视频、1 音频。\n\n### 上传字段和生成字段的对应关系\n\n| 素材 | 上传接口 multipart 字段 | 创建任务 JSON 字段 |\n| --- | --- | --- |\n| 单图/多图参考 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 单视频/多视频参考 | `video` | `guidances.video_reference_base[].video.url` 和 `.duration_seconds` |\n| 单音频/多音频参考 | `audio` | `guidances.audio_reference[].audio.url` 和 `.duration_seconds` |\n\n### 在 Apifox 中选择示例\n\n两个新公开模型提供纯文本、单图、多图、首尾帧、多视频、多音频和综合参考示例；其中 sd-2.5-mx 的命名示例明确覆盖 5、10、15、30 秒四个档位。先选请求示例，把所有 `https://replace.invalid/...` 替换为上传响应中的完整 `media_url`，并按文件真实时长修改 `duration_seconds`；再在 `202` 响应中选择同名示例。请求和响应示例下拉框彼此独立。\n\n### 成功后怎么做\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`。HTTP 200 只表示查询接口调用成功；只有响应体 `status=completed` 才代表生成成功，随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。",
         "operationId": "createVideoGenerationJob",
         "security": [
           {
@@ -380,7 +380,7 @@
           }
         ],
         "requestBody": {
-          "description": "必须选择与 model 对应的请求 Schema。sd-2.5-mx 固定使用 720p，duration 只允许整数 5、10、15、30，省略时为 5；除此模型外，其他 Seedance 新请求的 duration 只允许整数 5、10、15，省略时为 5。新 sd-2.0-mx933 的图片合计最多 9 张、视频最多 3 个、音频最多 3 个、全部素材最多 15 个，参考视频累计最多 15 秒且参考音频累计最多 15 秒。新 sd-2.5-mx 的图片合计最多 30 张、视频最多 10 个、音频最多 10 个、全部素材最多 50 个。两个新模型的每个视频和音频 guidance 对象都必须填写正数 duration_seconds；该值是参考文件真实时长，不是目标 duration。使用 audio_reference 时必须搭配普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。新模型不支持 prompt_enhance。客户只能传公开 model 和本文档定义的统一字段。",
+          "description": "必须选择与 model 对应的请求 Schema。sd-2.5-mx 固定使用 720p，duration 只允许整数 5、10、15、30，省略时为 5；除此模型外，其他 Seedance 新请求的 duration 只允许整数 5、10、15，省略时为 5。新 sd-2.0-mx933 的图片合计最多 9 张、视频最多 3 个、音频最多 3 个、全部素材最多 15 个，参考视频累计最多 15 秒且参考音频累计最多 15 秒。新 sd-2.5-mx 的图片合计最多 30 张、视频最多 10 个、音频最多 10 个、全部素材最多 50 个。两个新模型的每个视频和音频 guidance 对象都必须填写正数 duration_seconds；该值是参考文件真实时长，不是目标 duration。使用 audio_reference 时必须搭配普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。新模型不支持 prompt_enhance。客户只能传公开 model 和本文档定义的统一字段。",
           "required": true,
           "content": {
             "application/json": {
@@ -2645,7 +2645,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记。",
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "allOf": [
           {
             "not": {
@@ -2679,7 +2679,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000,
-            "description": "不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
+            "description": "可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
           },
           "resolution": {
             "type": "string",
@@ -2898,7 +2898,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记。",
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "properties": {
           "model": {
             "type": "string",
@@ -2910,7 +2910,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000,
-            "description": "不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
+            "description": "可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
           },
           "resolution": {
             "type": "string",
@@ -3128,7 +3128,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记。",
+        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "properties": {
           "model": {
             "type": "string",
@@ -3140,7 +3140,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000,
-            "description": "不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
+            "description": "可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
           },
           "resolution": {
             "type": "string",
@@ -3467,7 +3467,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "公开模型 sd-2.0-mx933 支持 resolution=480p 或 720p，客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，duration 不作为价格乘数；旧分组切换前仍按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 9 张，视频最多 3 个，音频最多 3 个，全部素材合计最多 15 个。参考视频累计最多 15 秒，参考音频累计最多 15 秒；每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。",
+        "description": "公开模型 sd-2.0-mx933 支持 resolution=480p 或 720p，客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，duration 不作为价格乘数；旧分组切换前仍按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 9 张，视频最多 3 个，音频最多 3 个，全部素材合计最多 15 个。参考视频累计最多 15 秒，参考音频累计最多 15 秒；每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "example": {
           "model": "sd-2.0-mx933",
           "prompt": "清晨的滨海公路上，一辆银色电动汽车平稳驶过，镜头连续跟拍，无字幕，无水印。",
@@ -3488,7 +3488,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000,
-            "description": "必填。不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
+            "description": "必填。可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
           },
           "resolution": {
             "type": "string",
@@ -3585,7 +3585,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "【官方渠道】公开模型 sd-2.5-mx 为官方渠道。仅支持 resolution=720p；duration 只允许 5、10、15、30，省略时为 5。客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，四个时长档位使用同一单次价格；旧分组切换前仍按实际时长按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 30 张，视频最多 10 个，音频最多 10 个，全部素材合计最多 50 个。每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。",
+        "description": "【官方渠道】公开模型 sd-2.5-mx 为官方渠道。仅支持 resolution=720p；duration 只允许 5、10、15、30，省略时为 5。客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，四个时长档位使用同一单次价格；旧分组切换前仍按实际时长按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 30 张，视频最多 10 个，音频最多 10 个，全部素材合计最多 50 个。每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "example": {
           "model": "sd-2.5-mx",
           "prompt": "傍晚的现代美术馆中，一名舞者连续旋转，镜头沿弧线平稳环绕，无字幕，无水印。",
@@ -3605,7 +3605,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 30000,
-            "description": "必填。不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
+            "description": "必填。可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
           },
           "resolution": {
             "type": "string",
@@ -4263,7 +4263,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 30000,
-            "description": "必填。不得包含 @ImageN、@AudioN 或 @VideoN 形式的保留标记，平台会根据素材顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
+            "description": "必填。可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
           },
           "resolution": {
             "type": "string",
@@ -4360,7 +4360,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "MiniMax H3 公开模型 minimax-h3。仅支持 resolution=1440p；duration 为 5-15 的整数秒。宽高比支持 16:9 与 9:16。支持纯文本、首帧、首尾帧、最多 5 张参考图、最多 3 个参考音频；不支持参考视频。该模型始终生成原生音频；请求中的 audio 字段可省略（平台按 true 处理）。计费通常按秒：费用 ≈ 单价 × duration。尾帧必须搭配首帧。prompt 不得包含 @ImageN/@AudioN 保留标记。",
+        "description": "MiniMax H3 公开模型 minimax-h3。仅支持 resolution=1440p；duration 为 5-15 的整数秒。宽高比支持 16:9 与 9:16。支持纯文本、首帧、首尾帧、最多 5 张参考图、最多 3 个参考音频；不支持参考视频。该模型始终生成原生音频；请求中的 audio 字段可省略（平台按 true 处理）。计费通常按秒：费用 ≈ 单价 × duration。尾帧必须搭配首帧。prompt 可手写 @ImageN/@AudioN 引用素材编号；未手写时平台按上传顺序自动注入。",
         "example": {
           "model": "minimax-h3",
           "prompt": "一位年轻女子缓步走向窗边，阳光洒落，镜头缓慢跟随，电影感。",
@@ -4380,7 +4380,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000,
-            "description": "提示词。不要包含 @ImageN 或 @AudioN 形式的保留标记。"
+            "description": "提示词。可手写 @ImageN 或 @AudioN 引用素材编号；未手写时平台按上传顺序自动注入。"
           },
           "resolution": {
             "type": "string",

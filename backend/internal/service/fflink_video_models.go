@@ -2,12 +2,9 @@ package service
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 )
-
-var ximeiReservedMediaReferencePattern = regexp.MustCompile(`(?i)@(?:image|audio|video)[1-9][0-9]*\b`)
 
 type ffLinkVideoModelProfile struct {
 	Platform            string
@@ -345,9 +342,8 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 		if err := validateXimeiReferenceDurations(info, product); err != nil {
 			return err
 		}
-		if ximeiReservedMediaReferencePattern.MatchString(info.Prompt) {
-			return fmt.Errorf("prompt must not contain platform-reserved media references such as @Image1, @Audio1, or @Video1")
-		}
+		// Allow user-written @ImageN/@AudioN/@VideoN. composeSeedancePromptWithMediaHints
+		// skips role redefinition when the user already owns numbers.
 		if compiledPrompt := compileXimeiPrompt(info); profile.PromptLimit > 0 && utf8.RuneCountInString(compiledPrompt) > profile.PromptLimit {
 			return fmt.Errorf("compiled prompt exceeds the %d character limit for model %s", profile.PromptLimit, info.Model)
 		}
