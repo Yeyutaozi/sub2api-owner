@@ -84,14 +84,17 @@
       <!-- Image -->
       <section v-if="activeTab === 'image'" class="grid gap-5 lg:grid-cols-2">
         <div class="card cc-form-card space-y-5 p-5 sm:p-6">
-          <div class="cc-field">
+          <div class="cc-field" :class="{ 'cc-field--error': imageFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <textarea
               v-model="imageForm.prompt"
               rows="5"
               class="input cc-textarea"
+              :class="{ 'cc-input--error': imageFieldErrors.prompt }"
               :placeholder="t('creazyCanvas.form.promptPlaceholder')"
+              @paste="onPasteMedia($event, 'imageRefs')"
             />
+            <p v-if="imageFieldErrors.prompt" class="cc-field__error">{{ imageFieldErrors.prompt }}</p>
           </div>
           <div class="cc-panel cc-panel--image">
             <div class="cc-panel__head">
@@ -195,30 +198,48 @@
             <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
               {{ imageRefRequired ? t('creazyCanvas.form.imageRefsRequiredHint') : t('creazyCanvas.form.imageRefsHint') }}
             </p>
-            <div class="flex flex-wrap items-center gap-2">
-              <input
-                ref="imageRefInput"
-                type="file"
-                accept="image/*"
-                multiple
-                class="hidden"
-                @change="onPickImageRefs"
-              />
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!!uploadingImageRef || !selectedKeyId || imageRefs.length >= imageRefMax"
-                @click="openImageRefPicker"
-              >
-                {{ uploadingImageRef ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.uploadImage') }}
-              </button>
-              <span v-if="uploadingImageRef" class="text-xs text-gray-500">{{ imageRefUploadLabel }}</span>
+            <div
+              class="cc-dropzone"
+              :class="{ 'cc-field--error': imageFieldErrors.refs }"
+              @dragover.prevent
+              @drop="onDropMedia($event, 'imageRefs')"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  ref="imageRefInput"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  class="hidden"
+                  @change="onPickImageRefs"
+                />
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="!!uploadingImageRef || !selectedKeyId || imageRefs.length >= imageRefMax"
+                  @click="openImageRefPicker"
+                >
+                  {{ uploadingImageRef ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.uploadImage') }}
+                </button>
+                <span v-if="uploadingImageRef" class="text-xs text-gray-500">{{ imageRefUploadLabel }}</span>
+                <span v-if="imageRefMax > 0" class="text-[11px] text-gray-500">{{ mediaProgressText(imageRefs.length, imageRefMax) }}</span>
+              </div>
+              <div v-if="imageRefMax > 0" class="cc-progress">
+                <div class="cc-progress__bar" :style="{ width: Math.min(100, (imageRefs.length / imageRefMax) * 100) + '%' }" />
+              </div>
+              <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
+              <p v-if="imageRefs.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
+              <p v-if="imageFieldErrors.refs" class="cc-field__error">{{ imageFieldErrors.refs }}</p>
             </div>
             <ul v-if="imageRefs.length" class="mt-3 grid gap-2 sm:grid-cols-2">
               <li
                 v-for="(item, idx) in imageRefs"
                 :key="'img-ref-' + idx + item.media_url"
                 class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2 dark:border-dark-700 dark:bg-dark-900"
+                draggable="true"
+                @dragstart="onMediaDragStart('imageRefs', idx)"
+                @dragover.prevent
+                @drop.prevent="onMediaDropReorder('imageRefs', idx)"
               >
                 <img
                   :src="item.preview_url || item.media_url"
@@ -236,6 +257,14 @@
             </ul>
           </div>
 
+          <div class="cc-rules-card" v-if="selectedImageModel || imageModelCapChips.length">
+            <div class="cc-rules-card__title">{{ t('creazyCanvas.form.rulesTitle') }}</div>
+            <div class="cc-rules-card__chips">
+              <span v-for="(chip, idx) in imageModelCapChips" :key="'img-cap-' + idx" class="cc-rules-card__chip">{{ chip }}</span>
+            </div>
+          </div>
+          <div v-else class="cc-rules-card cc-rules-card--empty">{{ t('creazyCanvas.form.rulesEmpty') }}</div>
+
           <div class="cc-create">
             <div class="cc-create__head">
               <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
@@ -245,16 +274,23 @@
               <span class="cc-create__price">{{ imagePriceEstimateText }}</span>
               <span class="cc-create__shortcut">{{ t('creazyCanvas.form.submitShortcut') }}</span>
             </div>
+            <p v-if="imageBalanceHint" class="cc-create__balance" :class="{ 'cc-create__balance--blocked': imageBalanceBlocked }">{{ imageBalanceHint }}</p>
             <p v-if="draftNotice && activeTab === 'image'" class="cc-create__draft">{{ draftNotice }}</p>
+            <p v-else-if="draftSavedAtText && activeTab === 'image'" class="cc-create__draft">{{ draftSavedAtText }}</p>
+            <div class="cc-create__actions">
             <button
               type="button"
               class="btn btn-primary cc-submit"
-              :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
+              :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret || imageBalanceBlocked"
               @click="generateImage"
             >
               <Icon v-if="submittingImage" name="refresh" size="sm" class="mr-2 animate-spin" />
               {{ submittingImage ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
             </button>
+            <button type="button" class="btn btn-secondary cc-submit-secondary" :disabled="submittingImage" @click="clearImageForm()">
+              {{ t('creazyCanvas.form.clearForm') }}
+            </button>
+            </div>
             <p v-if="imageRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
               {{ t('creazyCanvas.tasks.runningCount', { n: imageRunningCount }) }}
             </p>
@@ -273,23 +309,46 @@
                   {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
                 </span>
                 <div class="cc-pagination__actions">
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="loadingWorks || worksPage <= 1"
-                    @click="goToWorksPrevPage($event)"
-                  >
-                    {{ t('creazyCanvas.works.prevPage') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="loadingWorks || worksPage >= worksPages"
-                    @click="goToWorksNextPage($event)"
-                  >
-                    {{ t('creazyCanvas.works.nextPage') }}
-                  </button>
-                </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage <= 1"
+                @click="goToWorksPrevPage($event)"
+              >
+                {{ t('creazyCanvas.works.prevPage') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage >= worksPages"
+                @click="goToWorksNextPage($event)"
+              >
+                {{ t('creazyCanvas.works.nextPage') }}
+              </button>
+              <label class="cc-pagination__jump">
+                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                <input
+                  v-model="worksPageJumpInput"
+                  type="number"
+                  min="1"
+                  :max="worksPages"
+                  class="cc-pagination__input"
+                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
+                  @keyup.enter="jumpWorksPageFromInput"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
+                  {{ t('creazyCanvas.works.pageJump') }}
+                </button>
+              </label>
+              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
+                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
+                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
+                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
+                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
+                  </option>
+                </select>
+              </label>
+            </div>
               </div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
@@ -381,6 +440,29 @@
               >
                 {{ t('creazyCanvas.works.nextPage') }}
               </button>
+              <label class="cc-pagination__jump">
+                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                <input
+                  v-model="worksPageJumpInput"
+                  type="number"
+                  min="1"
+                  :max="worksPages"
+                  class="cc-pagination__input"
+                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
+                  @keyup.enter="jumpWorksPageFromInput"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
+                  {{ t('creazyCanvas.works.pageJump') }}
+                </button>
+              </label>
+              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
+                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
+                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
+                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
+                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
         </div>
@@ -389,14 +471,17 @@
       <!-- Video -->
       <section v-else-if="activeTab === 'video'" class="grid gap-5 lg:grid-cols-2">
         <div class="card cc-form-card space-y-5 p-5 sm:p-6">
-          <div class="cc-field">
+          <div class="cc-field" :class="{ 'cc-field--error': videoFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <textarea
               v-model="videoForm.prompt"
               rows="5"
               class="input cc-textarea"
+              :class="{ 'cc-input--error': videoFieldErrors.prompt }"
               :placeholder="t('creazyCanvas.form.promptPlaceholder')"
+              @paste="onPasteMedia($event, 'refImages')"
             />
+            <p v-if="videoFieldErrors.prompt" class="cc-field__error">{{ videoFieldErrors.prompt }}</p>
           </div>
           <div class="cc-panel cc-panel--video">
             <div class="cc-panel__head">
@@ -487,6 +572,20 @@
               <span v-if="mediaCaps.maxTotalImages > 0">
                 {{ t('creazyCanvas.form.mediaTotalImages', { max: mediaCaps.maxTotalImages }) }}
               </span>
+            </div>
+            <div class="mt-2 grid gap-1.5">
+              <div v-if="mediaCaps.maxImages > 0" class="cc-progress-row">
+                <span>{{ t('creazyCanvas.form.mediaLimitProgress', { used: refImages.length, max: mediaCaps.maxImages }) }}</span>
+                <div class="cc-progress"><div class="cc-progress__bar" :style="{ width: Math.min(100, (refImages.length / mediaCaps.maxImages) * 100) + '%' }" /></div>
+              </div>
+              <div v-if="mediaCaps.maxVideos > 0" class="cc-progress-row">
+                <span>{{ t('creazyCanvas.form.mediaLimitProgress', { used: refVideos.length, max: mediaCaps.maxVideos }) }}</span>
+                <div class="cc-progress"><div class="cc-progress__bar" :style="{ width: Math.min(100, (refVideos.length / mediaCaps.maxVideos) * 100) + '%' }" /></div>
+              </div>
+              <div v-if="mediaCaps.maxAudios > 0" class="cc-progress-row">
+                <span>{{ t('creazyCanvas.form.mediaLimitProgress', { used: refAudios.length, max: mediaCaps.maxAudios }) }}</span>
+                <div class="cc-progress"><div class="cc-progress__bar" :style="{ width: Math.min(100, (refAudios.length / mediaCaps.maxAudios) * 100) + '%' }" /></div>
+              </div>
             </div>
             <p class="mt-1 text-gray-500 dark:text-gray-400">
               {{ t('creazyCanvas.form.optionalMediaHint') }}
@@ -761,6 +860,22 @@
             </div>
           </div>
 
+          <div class="cc-rules-card" v-if="selectedVideoModel || videoModelCapChips.length">
+            <div class="cc-rules-card__title">{{ t('creazyCanvas.form.rulesTitle') }}</div>
+            <div class="cc-rules-card__chips">
+              <span v-for="(chip, idx) in videoModelCapChips" :key="'vid-cap-' + idx" class="cc-rules-card__chip">{{ chip }}</span>
+            </div>
+            <p v-if="mediaCaps.maxImages || mediaCaps.maxVideos || mediaCaps.maxAudios" class="cc-rules-card__meta">
+              {{ t('creazyCanvas.form.mediaLimitsDetail', {
+                images: mediaCaps.maxImages,
+                videos: mediaCaps.maxVideos,
+                audios: mediaCaps.maxAudios,
+                total: mediaCaps.maxTotal ? t('creazyCanvas.form.mediaTotal', { total: mediaCaps.maxTotal }) : ''
+              }) }}
+            </p>
+          </div>
+          <div v-else class="cc-rules-card cc-rules-card--empty">{{ t('creazyCanvas.form.rulesEmpty') }}</div>
+
           <div class="cc-create">
             <div class="cc-create__head">
               <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
@@ -770,16 +885,23 @@
               <span class="cc-create__price">{{ videoPriceEstimateText }}</span>
               <span class="cc-create__shortcut">{{ t('creazyCanvas.form.submitShortcut') }}</span>
             </div>
+            <p v-if="videoBalanceHint" class="cc-create__balance" :class="{ 'cc-create__balance--blocked': videoBalanceBlocked }">{{ videoBalanceHint }}</p>
             <p v-if="draftNotice && activeTab === 'video'" class="cc-create__draft">{{ draftNotice }}</p>
+            <p v-else-if="draftSavedAtText && activeTab === 'video'" class="cc-create__draft">{{ draftSavedAtText }}</p>
+            <div class="cc-create__actions">
             <button
               type="button"
               class="btn btn-primary cc-submit"
-              :disabled="submittingVideo || !!uploadingMedia || !selectedKeyId || resolvingKeySecret || !hasKeySecret"
+              :disabled="submittingVideo || !!uploadingMedia || !selectedKeyId || resolvingKeySecret || !hasKeySecret || videoBalanceBlocked"
               @click="generateVideo"
             >
               <Icon v-if="submittingVideo" name="refresh" size="sm" class="mr-2 animate-spin" />
               {{ submittingVideo ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
             </button>
+            <button type="button" class="btn btn-secondary cc-submit-secondary" :disabled="submittingVideo || !!uploadingMedia" @click="clearVideoForm()">
+              {{ t('creazyCanvas.form.clearForm') }}
+            </button>
+            </div>
             <p v-if="videoRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
               {{ t('creazyCanvas.tasks.runningCount', { n: videoRunningCount }) }}
             </p>
@@ -801,23 +923,46 @@
                   {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
                 </span>
                 <div class="cc-pagination__actions">
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="loadingWorks || worksPage <= 1"
-                    @click="goToWorksPrevPage($event)"
-                  >
-                    {{ t('creazyCanvas.works.prevPage') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="loadingWorks || worksPage >= worksPages"
-                    @click="goToWorksNextPage($event)"
-                  >
-                    {{ t('creazyCanvas.works.nextPage') }}
-                  </button>
-                </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage <= 1"
+                @click="goToWorksPrevPage($event)"
+              >
+                {{ t('creazyCanvas.works.prevPage') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="loadingWorks || worksPage >= worksPages"
+                @click="goToWorksNextPage($event)"
+              >
+                {{ t('creazyCanvas.works.nextPage') }}
+              </button>
+              <label class="cc-pagination__jump">
+                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                <input
+                  v-model="worksPageJumpInput"
+                  type="number"
+                  min="1"
+                  :max="worksPages"
+                  class="cc-pagination__input"
+                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
+                  @keyup.enter="jumpWorksPageFromInput"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
+                  {{ t('creazyCanvas.works.pageJump') }}
+                </button>
+              </label>
+              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
+                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
+                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
+                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
+                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
+                  </option>
+                </select>
+              </label>
+            </div>
               </div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
@@ -865,7 +1010,8 @@
             <article
               v-for="work in videoTaskWorks"
               :key="work.id"
-              class="rounded-xl border p-3 shadow-sm transition-colors"
+              :data-work-id="work.id"
+              class="cc-work-card rounded-xl border p-3 shadow-sm transition-colors"
               :class="workCardClass(work)"
             >
               <div class="flex flex-wrap items-center gap-2">
@@ -873,13 +1019,34 @@
                   <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
                   {{ workStatusLabel(work.status) }}
                 </span>
-                <span class="inline-flex max-w-full items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-300">
+                <span class="inline-flex max-w-full items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-800/60 dark:bg-indigo-950/40 dark:text-indigo-300">
                   {{ work.public_model || '—' }}
                 </span>
                 <span v-if="work.created_at" class="text-[11px] text-gray-500">{{ formatDateTime(work.created_at) }}</span>
               </div>
+              <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                <span v-if="isActiveWorkStatus(work.status) && work.created_at" class="font-mono tabular-nums text-amber-700 dark:text-amber-300">
+                  {{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at) }) }}
+                </span>
+                <span v-if="flashWorkIds[String(work.id)] && flashWorkIds[String(work.id)] > nowTick" class="rounded bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  {{ t('creazyCanvas.tasks.newBadge') }}
+                </span>
+              </div>
               <p class="mt-2 line-clamp-2 text-sm text-gray-800 dark:text-gray-100">{{ work.prompt || ('#' + work.id) }}</p>
-              <p v-if="workErrorText(work)" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ workErrorText(work) }}</p>
+              <div v-if="workErrorText(work)" class="mt-1">
+                <p
+                  class="text-xs text-red-600 dark:text-red-300"
+                  :class="isErrorExpanded(work) ? '' : 'line-clamp-2'"
+                >{{ workErrorText(work) }}</p>
+                <div class="mt-1 flex flex-wrap gap-2">
+                  <button type="button" class="text-[11px] font-medium text-red-600 underline-offset-2 hover:underline dark:text-red-300" @click="toggleErrorExpand(work)">
+                    {{ isErrorExpanded(work) ? t('creazyCanvas.tasks.collapseError') : t('creazyCanvas.tasks.expandError') }}
+                  </button>
+                  <button type="button" class="text-[11px] font-medium text-gray-500 underline-offset-2 hover:underline" @click="copyWorkError(work)">
+                    {{ t('creazyCanvas.tasks.copyError') }}
+                  </button>
+                </div>
+              </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <button
                   v-if="canPreviewWork(work)"
@@ -901,6 +1068,25 @@
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">
                   {{ t('creazyCanvas.works.reuse') }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">
+                  {{ t('creazyCanvas.tasks.copyPrompt') }}
+                </button>
+                <button
+                  v-if="['failed','error'].includes(String(work.status||'').toLowerCase())"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click="retryWork(work)"
+                >
+                  {{ t('creazyCanvas.tasks.retry') }}
+                </button>
+                <button
+                  v-if="isActiveWorkStatus(work.status) && !stoppedTrackIds[String(work.id)]"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="stopLocalTrack(work)"
+                >
+                  {{ t('creazyCanvas.tasks.stopTrack') }}
                 </button>
               </div>
             </article>
@@ -927,6 +1113,29 @@
               >
                 {{ t('creazyCanvas.works.nextPage') }}
               </button>
+              <label class="cc-pagination__jump">
+                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                <input
+                  v-model="worksPageJumpInput"
+                  type="number"
+                  min="1"
+                  :max="worksPages"
+                  class="cc-pagination__input"
+                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
+                  @keyup.enter="jumpWorksPageFromInput"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
+                  {{ t('creazyCanvas.works.pageJump') }}
+                </button>
+              </label>
+              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
+                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
+                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
+                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
+                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
         </div>
@@ -1056,6 +1265,14 @@
             >
               <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('creazyCanvas.works.emptyForKey') }}</p>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.works.emptyForKeyHint') }}</p>
+              <div class="cc-empty-guide mt-5 w-full max-w-md text-left">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">{{ t('creazyCanvas.works.emptyGuideTitle') }}</p>
+                <ol class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+                  <li>1. {{ t('creazyCanvas.works.emptyGuide1') }}</li>
+                  <li>2. {{ t('creazyCanvas.works.emptyGuide2') }}</li>
+                  <li>3. {{ t('creazyCanvas.works.emptyGuide3') }}</li>
+                </ol>
+              </div>
             </div>
 
             <div
@@ -1066,12 +1283,40 @@
             </div>
 
             <div v-else class="space-y-3">
+              <div class="cc-batch-bar">
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="selectAllWorksOnPage(true)">
+                    {{ t('creazyCanvas.works.selectAllPage') }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedWorkIds.length" @click="selectAllWorksOnPage(false)">
+                    {{ t('creazyCanvas.works.clearSelection') }}
+                  </button>
+                  <span v-if="selectedWorkIds.length" class="text-xs text-gray-500">{{ t('creazyCanvas.works.selectedCount', { n: selectedWorkIds.length }) }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm text-rose-600"
+                  :disabled="!selectedWorkIds.length || loadingWorks"
+                  @click="batchDeleteSelectedWorks"
+                >
+                  {{ t('creazyCanvas.works.batchDelete') }}
+                </button>
+              </div>
               <article
                 v-for="work in filteredWorks"
                 :key="String(work.id)"
-                class="group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md dark:bg-dark-900"
+                :data-work-id="work.id"
+                class="cc-work-card group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md dark:bg-dark-900"
                 :class="workCardClass(work)"
               >
+                <div class="absolute left-3 top-3 z-10">
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    :checked="selectedWorkIds.includes(Number(work.id))"
+                    @change="onWorkSelectChange(work, $event)"
+                  />
+                </div>
                 <div class="flex flex-col gap-4 p-4 sm:flex-row sm:items-stretch">
                   <!-- Cover -->
                   <div class="shrink-0">
@@ -1176,11 +1421,22 @@
                       </span>
                     </div>
 
-                    <p
-                      v-if="workErrorText(work)"
-                      class="mt-2 line-clamp-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-950/30 dark:text-red-300"
-                    >
-                      {{ workErrorText(work) }}
+                    <div v-if="workErrorText(work)" class="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 dark:bg-red-950/30">
+                      <p
+                        class="text-xs text-red-600 dark:text-red-300"
+                        :class="isErrorExpanded(work) ? '' : 'line-clamp-2'"
+                      >{{ workErrorText(work) }}</p>
+                      <div class="mt-1 flex flex-wrap gap-2">
+                        <button type="button" class="text-[11px] font-medium text-red-600 underline-offset-2 hover:underline dark:text-red-300" @click="toggleErrorExpand(work)">
+                          {{ isErrorExpanded(work) ? t('creazyCanvas.tasks.collapseError') : t('creazyCanvas.tasks.expandError') }}
+                        </button>
+                        <button type="button" class="text-[11px] font-medium text-gray-500 underline-offset-2 hover:underline" @click="copyWorkError(work)">
+                          {{ t('creazyCanvas.tasks.copyError') }}
+                        </button>
+                      </div>
+                    </div>
+                    <p v-if="isActiveWorkStatus(work.status) && work.created_at" class="mt-2 font-mono text-[11px] tabular-nums text-amber-700 dark:text-amber-300">
+                      {{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at) }) }}
                     </p>
                   </div>
 
@@ -1201,6 +1457,17 @@
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm sm:min-w-[6.5rem]" @click="reuseWork(work)">
                       {{ t('creazyCanvas.works.reuse') }}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm sm:min-w-[6.5rem]" @click="copyWorkPrompt(work)">
+                      {{ t('creazyCanvas.tasks.copyPrompt') }}
+                    </button>
+                    <button
+                      v-if="['failed','error'].includes(String(work.status||'').toLowerCase())"
+                      type="button"
+                      class="btn btn-primary btn-sm sm:min-w-[6.5rem]"
+                      @click="retryWork(work)"
+                    >
+                      {{ t('creazyCanvas.tasks.retry') }}
                     </button>
                     <button
                       type="button"
@@ -1244,6 +1511,29 @@
               >
                 {{ t('creazyCanvas.works.nextPage') }}
               </button>
+              <label class="cc-pagination__jump">
+                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                <input
+                  v-model="worksPageJumpInput"
+                  type="number"
+                  min="1"
+                  :max="worksPages"
+                  class="cc-pagination__input"
+                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
+                  @keyup.enter="jumpWorksPageFromInput"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
+                  {{ t('creazyCanvas.works.pageJump') }}
+                </button>
+              </label>
+              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
+                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
+                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
+                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
+                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
           </div>
@@ -1265,9 +1555,14 @@
             <span v-if="totalRunningJobs" class="cc-task-tray__badge">{{ totalRunningJobs }}</span>
           </span>
           <span class="cc-task-tray__hint">{{ t('creazyCanvas.tasks.trayHint') }}</span>
+          <span class="cc-task-tray__counts">
+            <span v-if="trayStatusCounts.running">{{ t('creazyCanvas.tasks.trayRunning', { n: trayStatusCounts.running }) }}</span>
+            <span v-if="trayStatusCounts.succeeded">{{ t('creazyCanvas.tasks.traySucceeded', { n: trayStatusCounts.succeeded }) }}</span>
+            <span v-if="trayStatusCounts.failed">{{ t('creazyCanvas.tasks.trayFailed', { n: trayStatusCounts.failed }) }}</span>
+          </span>
         </button>
         <div class="cc-task-tray__actions">
-          <button type="button" class="cc-task-tray__link" @click="openTrayTaskBoard">
+          <button type="button" class="cc-task-tray__link" @click="() => openTrayTaskBoard()">
             {{ t('creazyCanvas.tasks.open') }}
           </button>
           <button type="button" class="cc-task-tray__dismiss" @click="taskTrayDismissed = true">
@@ -1282,7 +1577,7 @@
           type="button"
           class="cc-task-tray__item"
           :class="workCardClass(work)"
-          @click="openTrayTaskBoard()"
+          @click="() => openTrayTaskBoard(work)"
         >
           <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
             <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
@@ -1375,6 +1670,7 @@ import {
   isReusableMediaUrl,
   readCanvasDraft,
   writeCanvasDraft,
+  clearCanvasDraft,
   gatewayParamFieldKey,
   type CanvasDraftV1,
 } from './composables/workParams'
@@ -1480,10 +1776,27 @@ let worksLoadingSeq = 0
 const taskTrayExpanded = ref(false)
 const taskTrayDismissed = ref(false)
 const draftNotice = ref('')
+const draftSavedAt = ref<number | null>(null)
 let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
 let draftHydrated = false
 const downloadingWorkId = ref('')
 const deletingWorkId = ref('')
+/** UX: live clock for running-task elapsed timers */
+const nowTick = ref(Date.now())
+let nowTickTimer: ReturnType<typeof setInterval> | null = null
+/** Brief highlight for freshly submitted work cards */
+const flashWorkIds = reactive<Record<string, number>>({})
+const expandedErrorIds = reactive<Record<string, boolean>>({})
+const selectedWorkIds = ref<number[]>([])
+const worksPageJumpInput = ref('')
+const worksPageSizeChoice = ref(12)
+const imageFieldErrors = reactive<Record<string, string>>({})
+const videoFieldErrors = reactive<Record<string, string>>({})
+const dragMediaKey = ref('')
+const dragMediaIndex = ref(-1)
+const actionNotice = ref('')
+const focusWorkId = ref<number | null>(null)
+const stoppedTrackIds = reactive<Record<string, boolean>>({})
 const lastImageTaskId = ref('')
 const lastImageGatewayType = ref<'image_task' | 'image_sync' | ''>('')
 
@@ -1794,6 +2107,81 @@ const videoPriceEstimateText = computed(() => {
     seconds: Number(videoForm.duration || 0) || '-',
   })
 })
+
+const trayStatusCounts = computed(() => {
+  let running = 0
+  let succeeded = 0
+  let failed = 0
+  for (const w of works.value) {
+    const s = String(w.status || '').toLowerCase()
+    if (isActiveWorkStatus(s)) running += 1
+    else if (['succeeded', 'completed', 'success', 'done'].includes(s)) succeeded += 1
+    else if (['failed', 'error', 'expired'].includes(s)) failed += 1
+  }
+  return { running, succeeded, failed }
+})
+
+const imageBalanceBlocked = computed(() => {
+  const bal = userBalance.value
+  const price = imagePriceEstimate.value
+  if (bal == null || price == null) return false
+  return bal + 1e-9 < price
+})
+
+const videoBalanceBlocked = computed(() => {
+  const bal = userBalance.value
+  const price = videoPriceEstimate.value
+  if (bal == null || price == null) return false
+  return bal + 1e-9 < price
+})
+
+const imageBalanceHint = computed(() => {
+  const bal = userBalance.value
+  const price = imagePriceEstimate.value
+  if (bal == null || price == null) return ''
+  if (bal + 1e-9 < price) {
+    return t('creazyCanvas.form.balanceInsufficient', {
+      price: formatMoney(price),
+      balance: formatMoney(bal),
+    })
+  }
+  if (bal < price * 2) {
+    return t('creazyCanvas.form.balanceWarning', {
+      price: formatMoney(price),
+      balance: formatMoney(bal),
+    })
+  }
+  return ''
+})
+
+const videoBalanceHint = computed(() => {
+  const bal = userBalance.value
+  const price = videoPriceEstimate.value
+  if (bal == null || price == null) return ''
+  if (bal + 1e-9 < price) {
+    return t('creazyCanvas.form.balanceInsufficient', {
+      price: formatMoney(price),
+      balance: formatMoney(bal),
+    })
+  }
+  if (bal < price * 2) {
+    return t('creazyCanvas.form.balanceWarning', {
+      price: formatMoney(price),
+      balance: formatMoney(bal),
+    })
+  }
+  return ''
+})
+
+const draftSavedAtText = computed(() => {
+  void nowTick.value
+  const ts = draftSavedAt.value
+  if (!ts) return ''
+  return t('creazyCanvas.form.draftSavedAt', { time: formatClockTime(ts) })
+})
+
+const worksPageSizeOptions = [6, 12, 24, 48]
+
 
 const imageModelCapChips = computed(() => {
   const m = selectedImageModel.value
@@ -2664,22 +3052,378 @@ function workStatusChipClass(status?: string) {
 
 function workCardClass(work: CreazyWork) {
   const s = (work.status || '').toLowerCase()
+  const classes: string[] = []
   if (isExpired(work) || s === 'expired') {
-    return 'border-red-200/80 dark:border-red-900/40'
+    classes.push('border-red-200/80 dark:border-red-900/40')
+  } else if (['succeeded', 'completed', 'success', 'done'].includes(s)) {
+    classes.push('border-emerald-200/90 dark:border-emerald-900/40')
+  } else if (['failed', 'error'].includes(s)) {
+    classes.push('border-red-200/90 dark:border-red-900/40')
+  } else if (['running', 'pending', 'processing', 'queued'].includes(s)) {
+    classes.push('border-amber-200/90 dark:border-amber-900/40')
+  } else if (['created'].includes(s)) {
+    classes.push('border-primary-200/90 dark:border-primary-900/40')
+  } else {
+    classes.push('border-gray-200 dark:border-dark-700')
   }
-  if (['succeeded', 'completed', 'success', 'done'].includes(s)) {
-    return 'border-emerald-200/90 dark:border-emerald-900/40'
+  const id = String(work.id || '')
+  if (id && flashWorkIds[id] && flashWorkIds[id] > nowTick.value) {
+    classes.push('cc-work-card--flash')
   }
-  if (['failed', 'error'].includes(s)) {
-    return 'border-red-200/90 dark:border-red-900/40'
+  if (focusWorkId.value && Number(work.id) === Number(focusWorkId.value)) {
+    classes.push('cc-work-card--focus')
   }
-  if (['running', 'pending', 'processing', 'queued'].includes(s)) {
-    return 'border-amber-200/90 dark:border-amber-900/40'
+  if (id && stoppedTrackIds[id]) {
+    classes.push('opacity-70')
   }
-  if (['created'].includes(s)) {
-    return 'border-primary-200/90 dark:border-primary-900/40'
+  return classes.join(' ')
+}
+
+function formatClockTime(ts: number): string {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ''
   }
-  return 'border-gray-200 dark:border-dark-700'
+}
+
+function formatElapsed(fromIso?: string | null): string {
+  void nowTick.value
+  if (!fromIso) return ''
+  const start = new Date(fromIso).getTime()
+  if (!Number.isFinite(start)) return ''
+  let sec = Math.max(0, Math.floor((nowTick.value - start) / 1000))
+  const h = Math.floor(sec / 3600)
+  sec %= 3600
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function markWorkFlash(id?: number | null) {
+  if (!id) return
+  flashWorkIds[String(id)] = Date.now() + 4500
+}
+
+function clearFieldErrors(kind: 'image' | 'video') {
+  const bag = kind === 'image' ? imageFieldErrors : videoFieldErrors
+  for (const k of Object.keys(bag)) delete bag[k]
+}
+
+function setFieldError(kind: 'image' | 'video', field: string, msg: string) {
+  const bag = kind === 'image' ? imageFieldErrors : videoFieldErrors
+  bag[field] = msg
+}
+
+function validateImageFormFields(): boolean {
+  clearFieldErrors('image')
+  let ok = true
+  if (!selectedKeyId.value) {
+    imageError.value = t('creazyCanvas.errors.selectKey')
+    return false
+  }
+  if (!imageForm.prompt.trim()) {
+    setFieldError('image', 'prompt', t('creazyCanvas.errors.promptRequired'))
+    ok = false
+  }
+  if (!imageForm.model || !selectedImageModel.value) {
+    setFieldError('image', 'model', t('creazyCanvas.errors.selectModel'))
+    ok = false
+  }
+  imageForm.size = canonicalizeImageSizeInput(imageForm.size)
+  const sizeErr = describeImageSizeInvalid(imageForm.size)
+  if (sizeErr) {
+    setFieldError('image', 'size', sizeErr)
+    ok = false
+  }
+  if (imageRefRequired.value && imageRefs.value.length === 0) {
+    setFieldError('image', 'refs', t('creazyCanvas.form.imageRefsRequired'))
+    ok = false
+  }
+  if (imageRefs.value.length > imageRefMax.value) {
+    setFieldError('image', 'refs', t('creazyCanvas.form.imagesExceeded', { max: imageRefMax.value }))
+    ok = false
+  }
+  if (imageBalanceBlocked.value) {
+    imageError.value = imageBalanceHint.value || t('creazyCanvas.errors.insufficientBalance')
+    ok = false
+  }
+  if (!ok && !imageError.value) {
+    imageError.value = t('creazyCanvas.form.validationFailed')
+  }
+  return ok
+}
+
+function validateVideoFormFields(): boolean {
+  clearFieldErrors('video')
+  let ok = true
+  if (!selectedKeyId.value) {
+    videoError.value = t('creazyCanvas.errors.selectKey')
+    return false
+  }
+  if (!videoForm.prompt.trim()) {
+    setFieldError('video', 'prompt', t('creazyCanvas.errors.promptRequired'))
+    ok = false
+  }
+  if (!videoForm.model || !selectedVideoModel.value) {
+    setFieldError('video', 'model', t('creazyCanvas.errors.selectModel'))
+    ok = false
+  }
+  if (mediaCaps.value.requireStartFrame && !startFrame.value?.media_url && !startFrameUrlInput.value.trim()) {
+    setFieldError('video', 'startFrame', t('creazyCanvas.form.startFrameRequired'))
+    ok = false
+  }
+  if (endFrame.value?.media_url && !startFrame.value?.media_url && !startFrameUrlInput.value.trim()) {
+    setFieldError('video', 'endFrame', t('creazyCanvas.form.endNeedsStart'))
+    ok = false
+  }
+  if (videoBalanceBlocked.value) {
+    videoError.value = videoBalanceHint.value || t('creazyCanvas.errors.insufficientBalance')
+    ok = false
+  }
+  if (!ok && !videoError.value) {
+    videoError.value = t('creazyCanvas.form.validationFailed')
+  }
+  return ok
+}
+
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  const textValue = String(value || '')
+  if (!textValue) return false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(textValue)
+      return true
+    }
+  } catch {
+    /* fallback below */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = textValue
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+async function copyWorkError(work: CreazyWork) {
+  const msg = workErrorText(work)
+  if (!msg) return
+  const ok = await copyTextToClipboard(msg)
+  actionNotice.value = ok ? t('creazyCanvas.tasks.copied') : msg
+  if (ok) appStore.showSuccess(t('creazyCanvas.tasks.copied'))
+}
+
+async function copyWorkPrompt(work: CreazyWork) {
+  const prompt = String(work.prompt || '')
+  if (!prompt) return
+  const ok = await copyTextToClipboard(prompt)
+  actionNotice.value = ok ? t('creazyCanvas.form.copyPromptOk') : ''
+  if (ok) appStore.showSuccess(t('creazyCanvas.form.copyPromptOk'))
+}
+
+function toggleErrorExpand(work: CreazyWork) {
+  const id = String(work.id || '')
+  if (!id) return
+  expandedErrorIds[id] = !expandedErrorIds[id]
+}
+
+function isErrorExpanded(work: CreazyWork) {
+  return Boolean(expandedErrorIds[String(work.id || '')])
+}
+
+function stopLocalTrack(work: CreazyWork) {
+  const id = Number(work.id || 0)
+  if (!id) return
+  stoppedTrackIds[String(id)] = true
+  clearPoll()
+  if (activeVideoWorkId.value === id) activeVideoWorkId.value = null
+  actionNotice.value = t('creazyCanvas.tasks.stoppedLocal')
+  appStore.showInfo(t('creazyCanvas.tasks.stoppedLocal'))
+}
+
+async function retryWork(work: CreazyWork) {
+  await reuseWork(work)
+  if ((work.kind || '').toLowerCase() === 'video') {
+    await generateVideo()
+  } else {
+    await generateImage()
+  }
+}
+
+function focusWorkCard(workOrId: CreazyWork | number) {
+  const id = typeof workOrId === 'number' ? workOrId : Number(workOrId.id || 0)
+  if (!id) return
+  focusWorkId.value = id
+  const kind = typeof workOrId === 'number' ? '' : String(workOrId.kind || '').toLowerCase()
+  if (kind === 'video') switchTab('video')
+  else if (kind === 'image') switchTab('image')
+  else if (activeTab.value === 'works') {
+    /* stay */
+  } else if (kind) {
+    switchTab(kind === 'video' ? 'video' : 'image')
+  }
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-work-id="${id}"]`) as HTMLElement | null
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
+  window.setTimeout(() => {
+    if (focusWorkId.value === id) focusWorkId.value = null
+  }, 3500)
+}
+
+function onWorkSelectChange(work: CreazyWork, ev: Event) {
+  const target = ev.target as HTMLInputElement | null
+  toggleSelectWork(work, Boolean(target?.checked))
+}
+
+function toggleSelectWork(work: CreazyWork, checked?: boolean) {
+  const id = Number(work.id || 0)
+  if (!id) return
+  const set = new Set(selectedWorkIds.value)
+  const on = checked == null ? !set.has(id) : Boolean(checked)
+  if (on) set.add(id)
+  else set.delete(id)
+  selectedWorkIds.value = Array.from(set)
+}
+
+function selectAllWorksOnPage(on = true) {
+  if (!on) {
+    selectedWorkIds.value = []
+    return
+  }
+  selectedWorkIds.value = filteredWorks.value.map((w) => Number(w.id || 0)).filter(Boolean)
+}
+
+async function batchDeleteSelectedWorks() {
+  const ids = selectedWorkIds.value.slice()
+  if (!ids.length) return
+  const ok = window.confirm(t('creazyCanvas.works.batchDeleteConfirm', { n: ids.length }))
+  if (!ok) return
+  for (const id of ids) {
+    const work = works.value.find((w) => Number(w.id) === id)
+    if (work) await removeWork(work)
+  }
+  selectedWorkIds.value = []
+  await loadWorks()
+}
+
+function jumpWorksPageFromInput() {
+  const raw = worksPageJumpInput.value.trim()
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return
+  void goWorksPage(n)
+}
+
+function onWorksPageSizeChange() {
+  worksPageSizeChoice.value = Math.max(1, Number(worksPageSizeChoice.value) || 12)
+  resetWorksPage()
+  void loadWorks({ page: 1 })
+}
+
+function scrollWorksBoardTop() {
+  const el = document.querySelector('.cc-board-card, .cc-works-root, [data-cc-board]') as HTMLElement | null
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  else window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function clearImageForm(confirm = true) {
+  if (confirm && !window.confirm(t('creazyCanvas.form.clearFormConfirm'))) return
+  imageForm.prompt = ''
+  imageForm.size = imageSizeOptions.value[0] || '1024x1024'
+  for (const item of imageRefs.value) revokePreviewUrl(item)
+  imageRefs.value = []
+  clearFieldErrors('image')
+  imageError.value = ''
+  imageSaveMessage.value = t('creazyCanvas.form.formCleared')
+  clearCanvasDraft()
+  draftSavedAt.value = null
+  scheduleDraftSave()
+}
+
+function clearVideoForm(confirm = true) {
+  if (confirm && !window.confirm(t('creazyCanvas.form.clearFormConfirm'))) return
+  videoForm.prompt = ''
+  resetVideoMedia()
+  clearFieldErrors('video')
+  videoError.value = ''
+  videoSaveMessage.value = t('creazyCanvas.form.formCleared')
+  clearCanvasDraft()
+  draftSavedAt.value = null
+  scheduleDraftSave()
+}
+
+function mediaProgressText(used: number, max: number) {
+  if (!max || max <= 0) return ''
+  return t('creazyCanvas.form.mediaLimitProgress', { used, max })
+}
+
+function onMediaDragStart(key: string, index: number) {
+  dragMediaKey.value = key
+  dragMediaIndex.value = index
+}
+
+function onMediaDropReorder(key: string, index: number) {
+  if (dragMediaKey.value !== key || dragMediaIndex.value < 0 || dragMediaIndex.value === index) {
+    dragMediaKey.value = ''
+    dragMediaIndex.value = -1
+    return
+  }
+  const list =
+    key === 'imageRefs'
+      ? imageRefs
+      : key === 'refImages'
+        ? refImages
+        : key === 'refVideos'
+          ? refVideos
+          : key === 'refAudios'
+            ? refAudios
+            : null
+  if (!list) return
+  const arr = list.value.slice()
+  const from = dragMediaIndex.value
+  if (from < 0 || from >= arr.length || index < 0 || index >= arr.length) {
+    dragMediaKey.value = ''
+    dragMediaIndex.value = -1
+    return
+  }
+  const [item] = arr.splice(from, 1)
+  arr.splice(index, 0, item)
+  list.value = arr
+  dragMediaKey.value = ''
+  dragMediaIndex.value = -1
+}
+
+function onPasteMedia(ev: ClipboardEvent, target: 'imageRefs' | 'refImages' | 'startFrame' | 'endFrame') {
+  const files = Array.from(ev.clipboardData?.files || [])
+  if (!files.length) return
+  ev.preventDefault()
+  if (target === 'imageRefs') void onPickImageRefs({ target: { files } } as any)
+  else if (target === 'refImages') void onPickRefImage({ target: { files } } as any)
+  else if (target === 'startFrame') void onPickStartFrame({ target: { files } } as any)
+  else if (target === 'endFrame') void onPickEndFrame({ target: { files } } as any)
+}
+
+function onDropMedia(ev: DragEvent, target: 'imageRefs' | 'refImages' | 'refVideos' | 'refAudios' | 'startFrame' | 'endFrame') {
+  ev.preventDefault()
+  const files = Array.from(ev.dataTransfer?.files || [])
+  if (!files.length) return
+  if (target === 'imageRefs') void onPickImageRefs({ target: { files } } as any)
+  else if (target === 'refImages') void onPickRefImage({ target: { files } } as any)
+  else if (target === 'refVideos') void onPickRefVideo({ target: { files } } as any)
+  else if (target === 'refAudios') void onPickRefAudio({ target: { files } } as any)
+  else if (target === 'startFrame') void onPickStartFrame({ target: { files } } as any)
+  else if (target === 'endFrame') void onPickEndFrame({ target: { files } } as any)
 }
 
 function isExpired(work: CreazyWork) {
@@ -3625,35 +4369,7 @@ function normalizeGatewayVideoStatus(status?: string): string {
 async function generateImage() {
   imageError.value = ''
   imageSaveMessage.value = ''
-
-  if (!selectedKeyId.value) {
-    imageError.value = t('creazyCanvas.errors.selectKey')
-    return
-  }
-  if (!imageForm.prompt.trim()) {
-    imageError.value = t('creazyCanvas.errors.promptRequired')
-    return
-  }
-  if (!imageForm.model || !selectedImageModel.value) {
-    imageError.value = t('creazyCanvas.errors.selectModel')
-    return
-  }
-  imageForm.size = canonicalizeImageSizeInput(imageForm.size)
-  {
-    const sizeErr = describeImageSizeInvalid(imageForm.size)
-    if (sizeErr) {
-      imageError.value = sizeErr
-      return
-    }
-  }
-  if (imageRefRequired.value && imageRefs.value.length === 0) {
-    imageError.value = t('creazyCanvas.form.imageRefsRequired')
-    return
-  }
-  if (imageRefs.value.length > imageRefMax.value) {
-    imageError.value = t('creazyCanvas.form.imagesExceeded', { max: imageRefMax.value })
-    return
-  }
+  if (!validateImageFormFields()) return
 
   submittingImage.value = true
   const snapshot = {
@@ -3680,7 +4396,11 @@ async function generateImage() {
       params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
-    if (running?.id) runningWorkId = running.id
+    if (running?.id) {
+      runningWorkId = running.id
+      markWorkFlash(running.id)
+      focusWorkId.value = running.id
+    }
     resetWorksPage()
     void loadWorks({ quiet: true })
 
@@ -3913,24 +4633,23 @@ function extractVideoUrl(job: any): string {
 async function generateVideo() {
   videoError.value = ''
   videoSaveMessage.value = ''
-
-  if (!selectedKeyId.value) {
-    videoError.value = t('creazyCanvas.errors.selectKey')
-    return
-  }
-  if (!videoForm.model || !selectedVideoModel.value) {
-    videoError.value = t('creazyCanvas.errors.selectModel')
-    return
-  }
-  if (!videoForm.prompt.trim()) {
-    videoError.value = t('creazyCanvas.errors.promptRequired')
-    return
-  }
+  if (!validateVideoFormFields()) return
 
   try {
     validateVideoMediaBeforeSubmit()
   } catch (error: any) {
-    videoError.value = mapGatewayError(error)
+    const msg = mapGatewayError(error)
+    videoError.value = msg
+    const low = msg.toLowerCase()
+    if (msg.includes('首帧') || low.includes('start frame') || low.includes('start_frame')) {
+      setFieldError('video', 'startFrame', msg)
+    } else if (msg.includes('尾帧') || low.includes('end frame') || low.includes('end_frame')) {
+      setFieldError('video', 'endFrame', msg)
+    } else if (msg.includes('参考图') || low.includes('image')) {
+      setFieldError('video', 'refs', msg)
+    } else if (msg.includes('音频') || low.includes('audio')) {
+      setFieldError('video', 'audio', msg)
+    }
     return
   }
 
@@ -3996,6 +4715,8 @@ async function generateVideo() {
       })
       if (running?.id) {
         runningWorkId = running.id
+        markWorkFlash(running.id)
+        focusWorkId.value = running.id
         if (selectedKeyId.value === snapshot.keyId) {
           activeVideoWorkId.value = running.id
         }
@@ -4010,7 +4731,11 @@ async function generateVideo() {
         params: baseParams,
         gateway_type: 'video_job',
       })
-      if (running?.id) runningWorkId = running.id
+      if (running?.id) {
+        runningWorkId = running.id
+        markWorkFlash(running.id)
+        focusWorkId.value = running.id
+      }
     }
 
     resetWorksPage()
@@ -4445,7 +5170,11 @@ async function runVideoLifecycle(opts: {
 
 
 function taskBoardPageSize() {
-  return activeTab.value === 'works' ? 12 : 10
+  if (activeTab.value === 'works') {
+    const n = Number(worksPageSizeChoice.value) || 12
+    return Math.min(48, Math.max(6, n))
+  }
+  return 10
 }
 
 function resolveWorksListKind(): string | undefined {
@@ -4466,7 +5195,9 @@ async function goWorksPage(page: number) {
   // Stop scheduled quiet polls so they cannot race a user page change.
   clearWorksPoll()
   worksPage.value = next
+  worksPageJumpInput.value = String(next)
   await loadWorks({ page: next })
+  scrollWorksBoardTop()
 }
 
 function goToWorksPrevPage(ev?: Event) {
@@ -4916,6 +5647,7 @@ function scheduleDraftSave() {
   draftSaveTimer = setTimeout(() => {
     draftSaveTimer = null
     writeCanvasDraft(collectCanvasDraft())
+    draftSavedAt.value = Date.now()
   }, 400)
 }
 
@@ -4995,18 +5727,27 @@ function onCanvasKeydown(ev: KeyboardEvent) {
   }
 }
 
-function openTrayTaskBoard() {
+function openTrayTaskBoard(work?: CreazyWork) {
   taskTrayExpanded.value = true
+  if (work?.id) {
+    focusWorkCard(work)
+    return
+  }
   if (activeTab.value === 'works') {
     void loadWorks()
     return
   }
   const running = trayWorks.value.find((w) => isActiveWorkStatus(w.status))
-  if (running && (running.kind || '').toLowerCase() === 'video') {
-    switchTab('video')
-  } else {
-    switchTab('image')
+  if (running) {
+    focusWorkCard(running)
+    return
   }
+  const first = trayWorks.value[0]
+  if (first) {
+    focusWorkCard(first)
+    return
+  }
+  switchTab(activeTab.value === 'video' ? 'video' : 'image')
 }
 
 // Expand tray only when this browser session submits new jobs (not merely loading historical running works).
@@ -5069,12 +5810,21 @@ onMounted(() => {
       /* ignore */
     }
   })
+  nowTick.value = Date.now()
+  if (nowTickTimer) clearInterval(nowTickTimer)
+  nowTickTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
 })
 
 onBeforeUnmount(() => {
   cancelled = true
   clearPoll()
   clearWorksPoll()
+  if (nowTickTimer) {
+    clearInterval(nowTickTimer)
+    nowTickTimer = null
+  }
   if (draftSaveTimer) {
     clearTimeout(draftSaveTimer)
     draftSaveTimer = null
@@ -5750,6 +6500,216 @@ select.cc-control {
   text-align: center;
   font-size: 0.75rem;
   color: rgb(148 163 184 / 1);
+}
+
+
+.cc-work-card--flash {
+  animation: cc-flash 1.2s ease-in-out 0s 2;
+  box-shadow: 0 0 0 2px rgb(99 102 241 / 0.35);
+}
+.cc-work-card--focus {
+  box-shadow: 0 0 0 2px rgb(16 185 129 / 0.45);
+}
+@keyframes cc-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgb(238 242 255 / 0.85); }
+}
+:global(.dark) .cc-work-card--flash {
+  animation-name: cc-flash-dark;
+}
+@keyframes cc-flash-dark {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgb(49 46 129 / 0.35); }
+}
+.cc-create__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.cc-submit-secondary {
+  min-height: 2.5rem;
+}
+.cc-create__balance {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgb(180 83 9 / 1);
+}
+.cc-create__balance--blocked {
+  color: rgb(220 38 38 / 1);
+  font-weight: 600;
+}
+:global(.dark) .cc-create__balance {
+  color: rgb(251 191 36 / 1);
+}
+:global(.dark) .cc-create__balance--blocked {
+  color: rgb(252 165 165 / 1);
+}
+.cc-field--error .cc-label {
+  color: rgb(220 38 38 / 1);
+}
+.cc-input--error {
+  border-color: rgb(248 113 113 / 1) !important;
+  box-shadow: 0 0 0 1px rgb(248 113 113 / 0.35);
+}
+.cc-field__error {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: rgb(220 38 38 / 1);
+}
+:global(.dark) .cc-field__error {
+  color: rgb(252 165 165 / 1);
+}
+.cc-rules-card {
+  border-radius: 0.9rem;
+  border: 1px solid rgb(226 232 240 / 1);
+  background: linear-gradient(180deg, rgb(248 250 252 / 0.95), rgb(255 255 255 / 0.9));
+  padding: 0.75rem 0.9rem;
+}
+:global(.dark) .cc-rules-card {
+  border-color: rgb(51 65 85 / 1);
+  background: linear-gradient(180deg, rgb(15 23 42 / 0.8), rgb(15 23 42 / 0.55));
+}
+.cc-rules-card--empty {
+  font-size: 0.75rem;
+  color: rgb(148 163 184 / 1);
+}
+.cc-rules-card__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgb(71 85 105 / 1);
+  margin-bottom: 0.4rem;
+}
+:global(.dark) .cc-rules-card__title {
+  color: rgb(203 213 225 / 1);
+}
+.cc-rules-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.cc-rules-card__chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgb(199 210 254 / 1);
+  background: rgb(238 242 255 / 1);
+  color: rgb(67 56 202 / 1);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+}
+:global(.dark) .cc-rules-card__chip {
+  border-color: rgb(67 56 202 / 0.45);
+  background: rgb(49 46 129 / 0.35);
+  color: rgb(199 210 254 / 1);
+}
+.cc-rules-card__meta {
+  margin: 0.45rem 0 0;
+  font-size: 0.6875rem;
+  color: rgb(100 116 139 / 1);
+}
+.cc-dropzone {
+  border-radius: 0.85rem;
+  border: 1px dashed rgb(203 213 225 / 1);
+  background: rgb(248 250 252 / 0.7);
+  padding: 0.7rem 0.8rem;
+}
+:global(.dark) .cc-dropzone {
+  border-color: rgb(71 85 105 / 1);
+  background: rgb(15 23 42 / 0.45);
+}
+.cc-dropzone__hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.6875rem;
+  color: rgb(148 163 184 / 1);
+}
+.cc-progress {
+  margin-top: 0.4rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgb(226 232 240 / 1);
+  overflow: hidden;
+}
+:global(.dark) .cc-progress {
+  background: rgb(51 65 85 / 1);
+}
+.cc-progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgb(99 102 241 / 1), rgb(56 189 248 / 1));
+  transition: width 0.2s ease;
+}
+.cc-progress-row {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.6875rem;
+  color: rgb(100 116 139 / 1);
+}
+.cc-pagination__jump,
+.cc-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.cc-pagination__input {
+  width: 4.2rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(203 213 225 / 1);
+  background: white;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.75rem;
+}
+:global(.dark) .cc-pagination__input {
+  border-color: rgb(71 85 105 / 1);
+  background: rgb(15 23 42 / 1);
+  color: rgb(226 232 240 / 1);
+}
+.cc-pagination__select {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(203 213 225 / 1);
+  background: white;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.75rem;
+}
+:global(.dark) .cc-pagination__select {
+  border-color: rgb(71 85 105 / 1);
+  background: rgb(15 23 42 / 1);
+  color: rgb(226 232 240 / 1);
+}
+.cc-batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgb(226 232 240 / 1);
+  background: rgb(248 250 252 / 0.85);
+}
+:global(.dark) .cc-batch-bar {
+  border-color: rgb(51 65 85 / 1);
+  background: rgb(15 23 42 / 0.55);
+}
+.cc-task-tray__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: rgb(100 116 139 / 1);
+}
+.cc-empty-guide {
+  border-radius: 0.85rem;
+  border: 1px solid rgb(226 232 240 / 1);
+  background: white;
+  padding: 0.75rem 0.9rem;
+}
+:global(.dark) .cc-empty-guide {
+  border-color: rgb(51 65 85 / 1);
+  background: rgb(15 23 42 / 0.6);
 }
 
 </style>
