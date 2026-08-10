@@ -5349,21 +5349,26 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extraBase = buildAnthropicExtra(buildOpenAIExtra())
+  const extra: Record<string, unknown> = { ...(extraBase || {}) }
+  if (form.platform === 'openai' && form.type === 'apikey') {
+    const raw = String(upstreamDeclaredRateInput.value ?? '').trim()
+    if (raw) {
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n < 0) {
+        appStore.showError(t('admin.accounts.upstreamBilling.manualDeclaredRateHint'))
+        return
+      }
+      extra.upstream_declared_rate_multiplier = n
+    }
+  }
 
   await doCreateAccount({
     ...form,
     group_ids: form.group_ids,
-    extra,
+    extra: Object.keys(extra).length > 0 ? extra : undefined,
     upstream_billing_probe_enabled:
       form.platform === 'openai' ? upstreamBillingAutoProbeEnabled.value : undefined,
-    upstream_declared_rate_multiplier: (() => {
-      if (form.platform !== 'openai' || form.type !== 'apikey') return undefined
-      const raw = String(upstreamDeclaredRateInput.value ?? '').trim()
-      if (!raw) return undefined
-      const n = Number(raw)
-      return Number.isFinite(n) && n >= 0 ? n : undefined
-    })(),
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

@@ -2913,11 +2913,6 @@ function formatDateTime(value?: string) {
   }
 }
 
-function workTypeLabel(kind?: string) {
-  const k = (kind || '').toLowerCase()
-  return k === 'video' ? t('creazyCanvas.works.video') : t('creazyCanvas.works.image')
-}
-
 function workStatusLabel(status?: string) {
   const s = (status || '').toLowerCase()
   const key = `creazyCanvas.works.statusLabels.${s}`
@@ -3170,13 +3165,6 @@ function workErrorText(work?: CreazyWork | null): string {
   return ''
 }
 
-function workKindClass(kind?: string) {
-  const k = (kind || '').toLowerCase()
-  if (k === 'video') return 'badge-primary'
-  if (k === 'image') return 'badge-purple'
-  return 'badge-gray'
-}
-
 function workStatusClass(status?: string) {
   const s = (status || '').toLowerCase()
   if (['succeeded', 'completed', 'success', 'done'].includes(s)) return 'badge-success'
@@ -3225,12 +3213,6 @@ function taskCardClass(work: CreazyWork) {
   if (focusWorkId.value && Number(work.id) === Number(focusWorkId.value)) classes.push('is-focus')
   if (id && stoppedTrackIds[id]) classes.push('is-dim')
   return classes.join(' ')
-}
-
-function workElapsedSeconds(work: CreazyWork) {
-  const start = Date.parse(String(work.created_at || work.updated_at || ''))
-  if (!Number.isFinite(start)) return 0
-  return Math.max(0, Math.floor((nowTick.value - start) / 1000))
 }
 
 function workCardClass(work: CreazyWork) {
@@ -4042,11 +4024,6 @@ async function onPickImageRefs(ev: Event) {
     uploadingImageRef.value = false
     imageRefUploadLabel.value = ''
   }
-}
-
-function removeRefImage(idx: number) {
-  const [item] = refImages.value.splice(idx, 1)
-  revokePreviewUrl(item)
 }
 
 function clearRefVideos() {
