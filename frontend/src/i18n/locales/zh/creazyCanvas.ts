@@ -1,8 +1,8 @@
 export default {
   creazyCanvas: {
     title: 'Creazy 画布',
-    heroTagline: '调色台工作流 · 一键出片',
-    subtitle: '选中分组 Key，直接生图 / 生视频；结果沉淀到你的私有作品库。',
+    heroTagline: '选 Key，生成，归档',
+    subtitle: '选择分组 API Key，直接生图 / 生视频；结果只显示当前 Key，并沉淀到作品库。',
     tabs: {
       image: '生图',
       video: '生视频',

@@ -1,8 +1,8 @@
 export default {
   creazyCanvas: {
     title: 'Creazy Canvas',
-    heroTagline: 'Color-bay workflow. One key, full cut.',
-    subtitle: 'Pick a group API key, generate image or video, and keep results in your private works library.',
+    heroTagline: 'Pick a key. Generate. Archive.',
+    subtitle: 'Pick a group API key, generate image or video. Results stay private to the selected key and your works library.',
     tabs: {
       image: 'Image',
       video: 'Video',
