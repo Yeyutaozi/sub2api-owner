@@ -23,6 +23,10 @@ export interface PlazaOffer {
   peakEnd: string
   peakRateMultiplier: number
   isExclusive: boolean
+  /** Group-level average first-token latency (ms). Soft sample baseline when cold. */
+  avgFirstTokenMs: number
+  /** Short disclaimer for TTFT, e.g. based on recent requests. */
+  ttftDisclaimer: string
   model: PlazaModel
 }
 
@@ -95,6 +99,8 @@ export function buildPlazaModelCards(response: ModelPlazaResponse | null | undef
         peakEnd: g.peak_end,
         peakRateMultiplier: g.peak_rate_multiplier,
         isExclusive: g.is_exclusive,
+        avgFirstTokenMs: Number(g.avg_first_token_ms || 0),
+        ttftDisclaimer: g.ttft_disclaimer || '',
         model
       })
       card.minRate = Math.min(card.minRate, rate)
