@@ -1,7 +1,7 @@
 export default {
   creazyCanvas: {
     title: 'Creazy Canvas',
-    heroTagline: 'From frame to cut, in one keystroke',
+    heroTagline: 'Color-bay workflow. One key, full cut.',
     subtitle: 'Pick a group API key, generate image or video, and keep results in your private works library.',
     tabs: {
       image: 'Image',
