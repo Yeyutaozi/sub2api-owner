@@ -5,7 +5,7 @@ export default {
   },
   creazyCanvasPage: {
     title: 'Creazy Canvas',
-    description: 'Generate images and videos with your own API keys; results go to a private works library'
+    description: 'Generate with your API keys'
   },
   // Home Page
   home: {

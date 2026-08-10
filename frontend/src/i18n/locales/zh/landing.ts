@@ -5,7 +5,7 @@ export default {
   },
   creazyCanvasPage: {
     title: 'Creazy 画布',
-    description: '用自己的 API Key 生图 / 生视频，结果进入私有作品库'
+    description: '用 API Key 直连生图与生视频'
   },
   // Home Page
   home: {

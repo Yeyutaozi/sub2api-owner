@@ -1,7 +1,8 @@
 export default {
   creazyCanvas: {
     title: 'Creazy Canvas',
-    subtitle: 'Pick a key, then generate images or videos',
+    heroTagline: 'From frame to cut, in one keystroke',
+    subtitle: 'Pick a group API key, generate image or video, and keep results in your private works library.',
     tabs: {
       image: 'Image',
       video: 'Video',
