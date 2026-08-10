@@ -573,12 +573,90 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		}
 		proxyURL = account.Proxy.URL()
 	}
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/sub2api/billing")
+
+	// 1) Sub2API remote billing declaration (authoritative when present).
+	sub2Status, sub2Body, sub2Retry, sub2Reason, sub2OK := s.doUpstreamRateProbeGET(
+		ctx, account, normalizedBaseURL, proxyURL, apiKey, "/v1/sub2api/billing", now,
+	)
+	if sub2OK {
+		if data, parseErr := parseUpstreamBillingProbeResponse(sub2Body); parseErr == nil {
+			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, sub2Status, data)
+		}
+		// Same body may be a NewAPI fork that already embeds ratio fields.
+		if data, detected, found := parseNewAPIRateProbeResponse(sub2Body, now); found {
+			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, sub2Status, data)
+		} else if detected {
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, "rate_not_exposed", sub2Retry)
+		}
+	}
+
+	// Fall through only when Sub2API endpoint is missing / not our schema / method not allowed.
+	// Auth/rate-limit/5xx stay hard failures so we do not double-spend upstream.
+	shouldTryNewAPI := false
+	switch {
+	case !sub2OK && (sub2Reason == "unsupported" || sub2Status == http.StatusNotFound || sub2Status == http.StatusMethodNotAllowed):
+		shouldTryNewAPI = true
+	case sub2OK:
+		// HTTP 2xx but not Sub2API schema — try NewAPI path next.
+		shouldTryNewAPI = true
+	}
+
+	if shouldTryNewAPI {
+		// 2) Official NewAPI token usage (quota only) and forks that may expose ratio.
+		newStatus, newBody, newRetry, newReason, newOK := s.doUpstreamRateProbeGET(
+			ctx, account, normalizedBaseURL, proxyURL, apiKey, "/api/usage/token", now,
+		)
+		if newOK {
+			if data, detected, found := parseNewAPIRateProbeResponse(newBody, now); found {
+				return s.persistProbeSuccess(ctx, account, intervalMinutes, now, newStatus, data)
+			} else if detected {
+				return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, "rate_not_exposed", newRetry)
+			}
+			// 2xx body is not recognized — treat as unsupported (manual declared rate).
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, "unsupported", newRetry)
+		}
+		if newReason == "unsupported" || newStatus == http.StatusNotFound || newStatus == http.StatusMethodNotAllowed {
+			// Neither Sub2API billing nor NewAPI usage exposes a rate API.
+			statusCode := newStatus
+			if statusCode == 0 {
+				statusCode = sub2Status
+			}
+			retry := newRetry
+			if retry <= 0 {
+				retry = sub2Retry
+			}
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, statusCode, "unsupported", retry)
+		}
+		// NewAPI request hard-failed; keep its error when Sub2API was merely unsupported.
+		if !sub2OK && (sub2Reason == "unsupported" || sub2Status == http.StatusNotFound || sub2Status == http.StatusMethodNotAllowed) {
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, newReason, newRetry)
+		}
+	}
+
+	// Sub2API hard failure path (auth / 5xx / network / invalid without NewAPI fallthrough).
+	if !sub2OK {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, sub2Reason, sub2Retry)
+	}
+	return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, "invalid_response", sub2Retry)
+}
+
+// doUpstreamRateProbeGET issues a single GET against the upstream base URL path.
+// ok=true only for HTTP 2xx with a readable body within size limits.
+func (s *UpstreamBillingProbeService) doUpstreamRateProbeGET(
+	ctx context.Context,
+	account *Account,
+	normalizedBaseURL string,
+	proxyURL string,
+	apiKey string,
+	path string,
+	now time.Time,
+) (statusCode int, body []byte, retryAfterDuration time.Duration, reason string, ok bool) {
+	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, path)
 	probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, bytes.NewReader(nil))
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_build_failed", 0)
+		return 0, nil, 0, "request_build_failed", false
 	}
 	reqCtx := WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI)
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
@@ -591,29 +669,37 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	}
 	resp, err := s.accountTestService.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_failed", 0)
+		return 0, nil, 0, "request_failed", false
 	}
 	if resp == nil || resp.Body == nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "empty_response", 0)
+		return 0, nil, 0, "empty_response", false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
+	retryAfterDuration = retryAfter(resp.Header, now)
 	if readErr != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_read_failed", retryAfter(resp.Header, now))
+		return resp.StatusCode, nil, retryAfterDuration, "response_read_failed", false
 	}
 	if len(body) > upstreamBillingProbeMaxBodyBytes {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_too_large", retryAfter(resp.Header, now))
+		return resp.StatusCode, nil, retryAfterDuration, "response_too_large", false
 	}
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "unsupported", retryAfter(resp.Header, now))
+		return resp.StatusCode, body, retryAfterDuration, "unsupported", false
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "http_error", retryAfter(resp.Header, now))
+		return resp.StatusCode, body, retryAfterDuration, "http_error", false
 	}
-	data, err := parseUpstreamBillingProbeResponse(body)
-	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
-	}
+	return resp.StatusCode, body, retryAfterDuration, "", true
+}
+
+func (s *UpstreamBillingProbeService) persistProbeSuccess(
+	ctx context.Context,
+	account *Account,
+	intervalMinutes int,
+	now time.Time,
+	statusCode int,
+	data map[string]any,
+) (*UpstreamBillingProbeSnapshot, error) {
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        UpstreamBillingProbeStatusOK,
 		Data:          data,
@@ -621,11 +707,16 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
 		LastAttemptAt: now,
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
-		HTTPStatus:    resp.StatusCode,
+		HTTPStatus:    statusCode,
 	}
 	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
 		return nil, err
 	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra[UpstreamBillingProbeExtraKey] = snapshot
+	_ = s.refreshAccountSafeRateStatus(ctx, account)
 	return snapshot, nil
 }
 
@@ -644,7 +735,10 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 		failureCount = previous.FailureCount + 1
 	}
 	status := UpstreamBillingProbeStatusFailed
-	if reason == "unsupported" {
+	// rate_not_exposed means the upstream is reachable but does not publish a
+	// group/ratio field (typical official NewAPI). Treat as unsupported so
+	// operators fill manual upstream_declared_rate_multiplier.
+	if reason == "unsupported" || reason == "rate_not_exposed" {
 		status = UpstreamBillingProbeStatusUnsupported
 	}
 	snapshot := &UpstreamBillingProbeSnapshot{
@@ -666,6 +760,12 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
 		return nil, err
 	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra[UpstreamBillingProbeExtraKey] = snapshot
+	// Recompute admin badge (manual declared rate may still apply).
+	_ = s.refreshAccountSafeRateStatus(ctx, account)
 	return snapshot, nil
 }
 
@@ -917,3 +1017,15 @@ func safeProbeError(err error) string {
 	}
 	return "probe_failed"
 }
+
+
+// refreshAccountSafeRateStatus evaluates sell-rate baselines of bound groups and
+// stores admin-visible safe_rate_status. Scheduling still enforces per-group at
+// selection time so multi-group accounts are not globally over-cut.
+func (s *UpstreamBillingProbeService) refreshAccountSafeRateStatus(ctx context.Context, account *Account) error {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return nil
+	}
+	return RefreshAccountSafeRateStatus(ctx, s.accountRepo, account, s.currentTime())
+}
+

@@ -665,6 +665,8 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if err != nil {
 		return nil, err
 	}
+	previousRateMultiplier := group.RateMultiplier
+	safeRateBaselineDirty := false
 
 	if input.Name != "" {
 		group.Name = input.Name
@@ -680,6 +682,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+		if group.RateMultiplier != previousRateMultiplier {
+			safeRateBaselineDirty = true
+		}
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive
@@ -907,6 +912,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 
 	if s.authCacheInvalidator != nil {
 		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, id)
+	}
+
+	// Re-evaluate bound accounts' admin safe_rate_status when sell baseline changes.
+	// Scheduling already uses live baselines; this keeps the admin badge current.
+	if safeRateBaselineDirty {
+		RefreshGroupBoundAccountsSafeRateStatus(ctx, s.groupRepo, s.accountRepo, group, time.Now().UTC())
 	}
 
 	// 如果指定了复制账号的源分组，同步绑定（替换当前分组的账号）

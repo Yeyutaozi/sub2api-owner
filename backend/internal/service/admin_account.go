@@ -627,6 +627,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	// Best-effort badge when create already has declared/manual upstream rate.
+	_ = RefreshAccountSafeRateStatus(ctx, s.accountRepo, account, time.Now().UTC())
+
 	return account, nil
 }
 
@@ -886,6 +889,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	// Best-effort admin badge refresh when manual/probe-related extras change.
+	_ = RefreshAccountSafeRateStatus(ctx, s.accountRepo, account, time.Now().UTC())
+
 	// 重新查询以确保返回完整数据（包括正确的 Proxy 关联对象）
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
@@ -912,7 +918,17 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	if len(updates) == 0 {
 		return nil
 	}
-	return s.accountRepo.UpdateExtra(ctx, id, updates)
+	_, declaredRateTouched := updates[AccountExtraUpstreamDeclaredRate]
+	if err := s.accountRepo.UpdateExtra(ctx, id, updates); err != nil {
+		return err
+	}
+	if declaredRateTouched {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err == nil && account != nil {
+			_ = RefreshAccountSafeRateStatus(ctx, s.accountRepo, account, time.Now().UTC())
+		}
+	}
+	return nil
 }
 
 // BulkUpdateAccounts updates multiple accounts in one request.

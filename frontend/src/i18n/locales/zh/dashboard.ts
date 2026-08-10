@@ -542,18 +542,40 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     title: '模型广场',
-    description: '按分组浏览可用模型与价格',
+    description: '按模型浏览全站开放目录：同模型合并展示不同分组倍率与价格；视频按画质、按秒/按条计价',
     loading: '加载中...',
-    empty: '暂无可展示的分组',
+    empty: '暂无可展示的模型',
     loadFailed: '加载模型广场失败',
     noSearchResult: '没有匹配的模型',
     anonymousHint: '登录后可查看你的专属分组与专属倍率',
+    kind: {
+      chat: '对话',
+      image: '生图',
+      video: '视频'
+    },
+    stats: {
+      models: '模型',
+      groups: '分组',
+      offers: '分组报价',
+      syncedAt: '同步时间'
+    },
+    admin: {
+      syncAll: '一键获取全部分组模型',
+      refresh: '刷新目录',
+      fullCatalog: '管理员全量目录'
+    },
+    card: {
+      offers: '{n} 个分组报价',
+      bestOffer: '最优报价',
+      baseRate: '默认 {rate}'
+    },
     filters: {
       platformLabel: '平台',
       groupLabel: '分组',
       rateLabel: '倍率',
+      kindLabel: '类型',
       modelLabel: '模型',
-      searchPlaceholder: '搜索模型名称',
+      searchPlaceholder: '搜索模型 / 分组',
       all: '全部'
     },
     badges: {
@@ -563,7 +585,9 @@ export default {
     detail: {
       noModels: '该分组暂未配置模型',
       noPricing: '未配置定价',
-      peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}'
+      peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}',
+      avgFirstToken: '平均首字',
+      ttftDisclaimer: '根据近期请求统计，仅供参考'
     },
     table: {
       model: '模型',
@@ -576,8 +600,10 @@ export default {
       officialPrice: '官方价格',
       rate: '折扣倍率',
       unitPerMillion: '$ / 1M token',
+      unitPerSecond: 'USD / 秒（已乘分组倍率）',
+      unitPerRequest: 'USD / 条（已乘分组倍率）',
       perUnitRequest: '/ 次',
-      perUnitImage: '/ 张',
+      perUnitImage: 'USD / 张（已乘分组倍率）',
       perRequest: '按次计费',
       perImage: '按图片计费'
     },

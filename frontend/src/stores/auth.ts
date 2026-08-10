@@ -138,7 +138,37 @@ export const useAuthStore = defineStore('auth', () => {
    * Start auto-refresh interval for user data
    * Refreshes user data every 60 seconds
    */
+  let connectivityListenersBound = false
+
+  /**
+   * When network recovers (VPN/proxy switch), re-validate session without forcing logout.
+   */
+  function handleConnectivityRestored(): void {
+    if (!token.value) return
+    // Proactively renew if we still have a refresh token.
+    if (refreshTokenValue.value) {
+      performTokenRefresh().catch((error) => {
+        console.error('Token refresh after connectivity restore failed:', error)
+      })
+    }
+    refreshUser().catch((error) => {
+      console.error('User refresh after connectivity restore failed:', error)
+    })
+  }
+
+  function bindConnectivityListeners(): void {
+    if (connectivityListenersBound || typeof window === 'undefined') return
+    connectivityListenersBound = true
+    window.addEventListener('online', handleConnectivityRestored)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        handleConnectivityRestored()
+      }
+    })
+  }
+
   function startAutoRefresh(): void {
+    bindConnectivityListeners()
     // Clear existing interval if any
     stopAutoRefresh()
 
@@ -209,7 +239,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await authAPI.refreshToken()
 
-      // Update state
+      // Update tokens
       token.value = response.access_token
       refreshTokenValue.value = response.refresh_token
 
@@ -217,9 +247,31 @@ export const useAuthStore = defineStore('auth', () => {
       scheduleTokenRefresh(response.expires_in)
     } catch (error) {
       console.error('Token refresh failed:', error)
-      // Don't clear auth here - the interceptor will handle 401 errors
+      // Interceptor already handles definitive 401 logout.
+      // For transient network/VPN failures, keep session and try again soon.
+      const status = (error as { status?: number; code?: string }).status
+      const code = (error as { status?: number; code?: string }).code
+      const transient =
+        status === 0 ||
+        code === 'AUTH_REFRESH_TRANSIENT' ||
+        status === 408 ||
+        status === 425 ||
+        status === 429 ||
+        (typeof status === 'number' && status >= 500)
+
+      if (transient && refreshTokenValue.value) {
+        if (tokenRefreshTimeoutId) {
+          clearTimeout(tokenRefreshTimeoutId)
+          tokenRefreshTimeoutId = null
+        }
+        tokenRefreshTimeoutId = setTimeout(() => {
+          performTokenRefresh()
+        }, 30_000)
+      }
+      // Don't clear auth here - only clear on definitive server rejection in interceptor/refreshUser.
     }
   }
+
 
   /**
    * Stop token refresh timeout
@@ -444,8 +496,14 @@ export const useAuthStore = defineStore('auth', () => {
 
       return userData
     } catch (error) {
-      // If refresh fails with 401, clear auth state
-      if ((error as { status?: number }).status === 401) {
+      // Only clear on definitive auth rejection.
+      // Network/VPN blips return status 0 or AUTH_REFRESH_TRANSIENT and must keep session.
+      const err = error as { status?: number; code?: string }
+      const definitiveAuthFailure =
+        err.status === 401 &&
+        err.code !== 'AUTH_REFRESH_TRANSIENT' &&
+        err.code !== 'TOKEN_REFRESH_NETWORK'
+      if (definitiveAuthFailure) {
         clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
       }
       throw error

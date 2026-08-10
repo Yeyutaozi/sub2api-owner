@@ -1,5 +1,6 @@
 export default {
   creazyCanvas: {
+    brandEyebrow: 'CREAZY · 影棚控制台',
     title: 'Creazy 画布',
     heroTagline: '选 Key，生成，归档',
     subtitle: '选择分组 API Key，直接生图 / 生视频；结果只显示当前 Key，并沉淀到作品库。',
@@ -79,7 +80,7 @@ export default {
       mediaDropHint: '拖拽到此处上传，或在输入框聚焦时 Ctrl+V 粘贴',
       mediaLimitProgress: '已用 {used}/{max}',
       mediaReorderHint: '可拖动卡片调整顺序',
-      mentionHint: '输入 @ 可点选已上传素材，自动填入 @ImageN / @VideoN / @AudioN',
+      mentionHint: "输入 {'@'} 可点选已上传素材，自动填入 {'@'}ImageN / {'@'}VideoN / {'@'}AudioN",
       mentionEmpty: '请先上传参考图/视频/音频，或设置首尾帧',
       mentionNoMatch: '没有匹配的素材编号',
       mentionTitle: '插入素材编号',
@@ -261,6 +262,7 @@ export default {
       previewFailedGeneric: '预览加载失败，请稍后重试',
       needSecretBanner: '请选择可用 API Key 后生成；已成功作品可通过登录会话预览/下载。',
       coverNeedSecret: '加载中',
+      coverLoading: '封面加载中…',
       coverPending: '未完成',
       coverUnavailable: '无封面',
       coverExpired: '已过期',

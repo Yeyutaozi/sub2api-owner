@@ -192,3 +192,91 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	require.Nil(t, out2)
 	require.ErrorIs(t, err2, sentinel)
 }
+
+
+func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
+	price720 := 0.15
+	price1k := 0.04
+	groups := []Group{
+		{
+			ID: 10, Name: "seedance-a", Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: VideoBillingUnitPerSecond,
+			VideoModelPrices: VideoModelPrices{
+				"seedance-2.0": {Price720P: &price720},
+			},
+			ModelsListConfig: GroupModelsListConfig{Enabled: true, Models: []string{"seedance-2.0"}},
+		},
+		{
+			ID: 20, Name: "seedance-b", Platform: PlatformSeedance, RateMultiplier: 0.8,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
+			VideoModelPrices: VideoModelPrices{
+				"seedance-2.0": {Price720P: &price720},
+			},
+			ModelsListConfig: GroupModelsListConfig{Enabled: true, Models: []string{"seedance-2.0"}},
+		},
+		{
+			ID: 30, Name: "img-g", Platform: PlatformOpenAI, RateMultiplier: 1,
+			AllowImageGeneration: true,
+			ImagePrice1K:         &price1k,
+		},
+	}
+	svc := newPlazaChannelService(nil, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 3)
+
+	byName := map[string]PlazaGroup{}
+	for _, g := range out {
+		byName[g.Name] = g
+	}
+	// Video groups expose model with resolution price + billing unit.
+	m0 := byName["seedance-a"].Models[0]
+	require.Equal(t, "seedance-2.0", m0.Name)
+	require.Equal(t, PlazaKindVideo, m0.Kind)
+	require.Equal(t, VideoBillingUnitPerSecond, m0.VideoBillingUnit)
+	require.NotNil(t, m0.VideoPrices)
+	require.NotNil(t, m0.VideoPrices.Price720P)
+	require.InDelta(t, 0.15, *m0.VideoPrices.Price720P, 1e-12)
+
+	m1 := byName["seedance-b"].Models[0]
+	require.Equal(t, VideoBillingUnitPerRequest, m1.VideoBillingUnit)
+
+	// Image group exposes image models with tier prices.
+	var img *PlazaModel
+	for i := range byName["img-g"].Models {
+		if byName["img-g"].Models[i].Name == "gpt-image-2" {
+			img = &byName["img-g"].Models[i]
+			break
+		}
+	}
+	require.NotNil(t, img)
+	require.Equal(t, PlazaKindImage, img.Kind)
+	require.NotNil(t, img.ImagePrices)
+	require.NotNil(t, img.ImagePrices["1K"])
+	require.InDelta(t, 0.04, *img.ImagePrices["1K"], 1e-12)
+}
+
+
+func TestListPlazaGroups_AvgFirstTokenAlwaysPresent(t *testing.T) {
+	channels := []Channel{
+		plazaPricedChannel(1, "c1", []int64{1}, "openai", "gpt-4o"),
+	}
+	groups := []Group{
+		{ID: 1, Name: "g1", Platform: "openai", Status: StatusActive, RateMultiplier: 1},
+	}
+	svc := newPlazaChannelService(channels, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("len=%d", len(out))
+	}
+	if out[0].AvgFirstTokenMs <= 0 {
+		t.Fatalf("expected baseline ttft, got %d", out[0].AvgFirstTokenMs)
+	}
+	if out[0].TTFTDisclaimer == "" {
+		t.Fatal("expected disclaimer")
+	}
+}
+

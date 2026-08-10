@@ -486,6 +486,12 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
+	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
+		if g, gerr := s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID); gerr == nil && g != nil && IsAccountOverGroupSafeRate(account, g, time.Now()) {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+			return nil, true, nil
+		}
+	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
 		return nil, false, nil
 	}
@@ -1349,6 +1355,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 		if !account.IsSchedulable() {
 			filterStats.exclude("not_schedulable")
+			continue
+		}
+		if schedGroup != nil && IsAccountOverGroupSafeRate(account, schedGroup, time.Now()) {
+			filterStats.exclude(SafeRateFilterReason())
 			continue
 		}
 		if account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !accountMatchesOpenAICompatiblePlatform(account, req.Platform) {

@@ -1011,7 +1011,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 					"tls_fingerprint", acc.IsTLSFingerprintEnabled())
 			}
 		}
-		return filtered, useMixed, nil
+		return s.applyGroupSafeRateFilter(ctx, groupID, filtered), useMixed, nil
 	}
 
 	var accounts []Account
@@ -1046,12 +1046,34 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 				"tls_fingerprint", acc.IsTLSFingerprintEnabled())
 		}
 	}
-	return accounts, useMixed, nil
+	return s.applyGroupSafeRateFilter(ctx, groupID, accounts), useMixed, nil
 }
 
 // IsSingleAntigravityAccountGroup 检查指定分组是否只有一个 antigravity 平台的可调度账号。
 // 用于 Handler 层在首次请求时提前设置 SingleAccountRetry context，
 // 避免单账号分组收到 503 时错误地设置模型限流标记导致后续请求连续快速失败。
+// applyGroupSafeRateFilter drops accounts whose known upstream cost exceeds the
+// group's selling-rate baseline. Unknown upstream rates are kept.
+func (s *GatewayService) applyGroupSafeRateFilter(ctx context.Context, groupID *int64, accounts []Account) []Account {
+	if groupID == nil || len(accounts) == 0 {
+		return accounts
+	}
+	var group *Group
+	if s.schedulerSnapshot != nil {
+		group, _ = s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+	}
+	if group == nil && s.groupRepo != nil {
+		if g, err := s.groupRepo.GetByID(ctx, *groupID); err == nil {
+			group = g
+		}
+	}
+	if group == nil {
+		return accounts
+	}
+	return FilterAccountsByGroupSafeRate(accounts, group, time.Now())
+}
+
+
 func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool {
 	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, PlatformAntigravity, true)
 	if err != nil {

@@ -1221,13 +1221,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	if s.schedulerSnapshot != nil {
-		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
-		return accounts, err
-	}
 	var accounts []Account
 	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	if s.schedulerSnapshot != nil {
+		accounts, _, err = s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
+	} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1237,7 +1235,29 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
-	return accounts, nil
+	return s.applyGroupSafeRateFilter(ctx, groupID, accounts), nil
+}
+
+// applyGroupSafeRateFilter drops accounts whose known upstream cost exceeds the
+// group's selling-rate baseline. Unknown upstream rates are kept.
+func (s *OpenAIGatewayService) applyGroupSafeRateFilter(ctx context.Context, groupID *int64, accounts []Account) []Account {
+	if groupID == nil || len(accounts) == 0 {
+		return accounts
+	}
+	group := s.lookupGroupForSafeRate(ctx, *groupID)
+	if group == nil {
+		return accounts
+	}
+	return FilterAccountsByGroupSafeRate(accounts, group, time.Now())
+}
+
+func (s *OpenAIGatewayService) lookupGroupForSafeRate(ctx context.Context, groupID int64) *Group {
+	if s.schedulerSnapshot != nil {
+		if g, err := s.schedulerSnapshot.GetGroupByID(ctx, groupID); err == nil && g != nil {
+			return g
+		}
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {

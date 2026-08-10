@@ -1,5 +1,6 @@
 export default {
   creazyCanvas: {
+    brandEyebrow: 'CREAZY · STAGE CONSOLE',
     title: 'Creazy Canvas',
     heroTagline: 'Pick a key. Generate. Archive.',
     subtitle: 'Pick a group API key, generate image or video. Results stay private to the selected key and your works library.',
@@ -79,7 +80,7 @@ export default {
       mediaDropHint: 'Drop files here, or Ctrl+V while focused',
       mediaLimitProgress: 'Used {used}/{max}',
       mediaReorderHint: 'Drag cards to reorder',
-      mentionHint: 'Type @ to pick uploaded media and insert @ImageN / @VideoN / @AudioN',
+      mentionHint: "Type {'@'} to pick uploaded media and insert {'@'}ImageN / {'@'}VideoN / {'@'}AudioN",
       mentionEmpty: 'Upload reference images/videos/audio or set start/end frames first',
       mentionNoMatch: 'No matching media tokens',
       mentionTitle: 'Insert media token',
@@ -264,6 +265,7 @@ export default {
       previewFailedGeneric: 'Preview failed, please try again',
       needSecretBanner: 'Select an available API key to generate. Succeeded works preview via your login session.',
       coverNeedSecret: 'Loading',
+      coverLoading: 'Loading cover…',
       coverPending: 'Not ready',
       coverUnavailable: 'No cover',
       coverExpired: 'Expired',

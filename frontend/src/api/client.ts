@@ -40,6 +40,7 @@ function subscribeTokenRefresh(callback: (token: string) => void): void {
   refreshSubscribers.push(callback)
 }
 
+
 /**
  * Notify all subscribers that token has been refreshed
  */
@@ -47,6 +48,112 @@ function onTokenRefreshed(token: string): void {
   refreshSubscribers.forEach((callback) => callback(token))
   refreshSubscribers = []
 }
+
+/** HTTP statuses that usually mean "try later", not "credentials invalid". */
+const TRANSIENT_HTTP_STATUSES = new Set([0, 408, 425, 429, 500, 502, 503, 504])
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function getHttpStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined
+  const anyErr = err as { status?: unknown; response?: { status?: unknown } }
+  if (typeof anyErr.status === 'number') return anyErr.status
+  if (typeof anyErr.response?.status === 'number') return anyErr.response.status
+  return undefined
+}
+
+/**
+ * Network blips (VPN/proxy switch, DNS, timeout) should NOT force logout.
+ */
+function isNetworkLikeError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const anyErr = err as AxiosError
+  if (
+    anyErr.code === 'ERR_NETWORK' ||
+    anyErr.code === 'ECONNABORTED' ||
+    anyErr.code === 'ETIMEDOUT' ||
+    anyErr.code === 'ECONNRESET' ||
+    anyErr.code === 'ERR_INTERNET_DISCONNECTED'
+  ) {
+    return true
+  }
+  // Axios network failures often have no response body at all.
+  if (anyErr.isAxiosError && !anyErr.response) return true
+  return false
+}
+
+/**
+ * True when refresh failure is temporary and local session should be kept.
+ * False when server rejected the refresh token (or refresh response is invalid).
+ */
+function isTransientRefreshFailure(err: unknown): boolean {
+  if (isNetworkLikeError(err)) return true
+  const status = getHttpStatus(err)
+  if (status === undefined) return false
+  if (status === 401 || status === 403) return false
+  return TRANSIENT_HTTP_STATUSES.has(status) || status >= 500
+}
+
+function clearLocalAuthStorage(): void {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('refresh_token')
+  localStorage.removeItem('auth_user')
+  localStorage.removeItem('token_expires_at')
+}
+
+function redirectToLoginIfNeeded(): void {
+  if (typeof window === 'undefined') return
+  if (!window.location.pathname.includes('/login')) {
+    window.location.href = '/login'
+  }
+}
+
+async function requestTokenRefresh(refreshToken: string): Promise<{
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}> {
+  // Retry once on transient network/proxy failures (common when switching VPN).
+  let lastError: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const refreshResponse = await axios.post(
+        `${getAPIBaseURL()}/auth/refresh`,
+        { refresh_token: refreshToken },
+        // Explicit timeout: a hung refresh would leave isRefreshing=true forever.
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+      )
+
+      const refreshData = refreshResponse.data as ApiResponse<{
+        access_token: string
+        refresh_token: string
+        expires_in: number
+      }>
+
+      if (refreshData.code === 0 && refreshData.data?.access_token && refreshData.data?.refresh_token) {
+        return refreshData.data
+      }
+
+      // Business-level rejection (invalid/revoked refresh token) — not transient.
+      const bizError = {
+        status: refreshResponse.status || 401,
+        code: refreshData.code ?? 'TOKEN_REFRESH_REJECTED',
+        message: refreshData.message || 'Token refresh rejected',
+      }
+      throw bizError
+    } catch (err) {
+      lastError = err
+      if (!isTransientRefreshFailure(err) || attempt === 1) {
+        throw err
+      }
+      await sleep(400 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
 
 // ==================== Request Interceptor ====================
 
@@ -235,58 +342,42 @@ apiClient.interceptors.response.use(
           isRefreshing = true
 
           try {
-            // Call refresh endpoint directly to avoid circular dependency
-            const refreshResponse = await axios.post(
-              `${getAPIBaseURL()}/auth/refresh`,
-              { refresh_token: refreshToken },
-              // 显式设置超时：裸 axios 默认无限等待，若刷新请求挂起会导致 isRefreshing
-              // 永远为 true，所有排队的 401 重试请求永久卡死，页面 loading 无法恢复。
-              { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
-            )
+            const refreshed = await requestTokenRefresh(refreshToken)
+            const { access_token, refresh_token: newRefreshToken, expires_in } = refreshed
 
-            const refreshData = refreshResponse.data as ApiResponse<{
-              access_token: string
-              refresh_token: string
-              expires_in: number
-            }>
+            // Update tokens in localStorage (convert expires_in to timestamp)
+            localStorage.setItem('auth_token', access_token)
+            localStorage.setItem('refresh_token', newRefreshToken)
+            localStorage.setItem('token_expires_at', String(Date.now() + expires_in * 1000))
 
-            if (refreshData.code === 0 && refreshData.data) {
-              const { access_token, refresh_token: newRefreshToken, expires_in } = refreshData.data
+            // Notify subscribers with new token
+            onTokenRefreshed(access_token)
 
-              // Update tokens in localStorage (convert expires_in to timestamp)
-              localStorage.setItem('auth_token', access_token)
-              localStorage.setItem('refresh_token', newRefreshToken)
-              localStorage.setItem('token_expires_at', String(Date.now() + expires_in * 1000))
-
-              // Notify subscribers with new token
-              onTokenRefreshed(access_token)
-
-              // Retry the original request with new token
-              if (originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${access_token}`
-              }
-
-              isRefreshing = false
-              return apiClient(originalRequest)
+            // Retry the original request with new token
+            if (originalRequest.headers) {
+              originalRequest.headers.Authorization = `Bearer ${access_token}`
             }
 
-            // Refresh response was not successful, fall through to clear auth
-            throw new Error('Token refresh failed')
+            isRefreshing = false
+            return apiClient(originalRequest)
           } catch (refreshError) {
-            // Refresh failed - notify subscribers with empty token
+            // Always release waiters so they don't hang.
             onTokenRefreshed('')
             isRefreshing = false
 
-            // Clear tokens and redirect to login
-            localStorage.removeItem('auth_token')
-            localStorage.removeItem('refresh_token')
-            localStorage.removeItem('auth_user')
-            localStorage.removeItem('token_expires_at')
-            sessionStorage.setItem('auth_expired', '1')
-
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login'
+            // VPN/proxy/network blips: keep local session so user does not re-login.
+            if (isTransientRefreshFailure(refreshError)) {
+              return Promise.reject({
+                status: 0,
+                code: 'AUTH_REFRESH_TRANSIENT',
+                message: 'Network unstable while renewing session. Please retry shortly.',
+              })
             }
+
+            // Definitive auth rejection (invalid/revoked refresh token, 401/403).
+            clearLocalAuthStorage()
+            sessionStorage.setItem('auth_expired', '1')
+            redirectToLoginIfNeeded()
 
             return Promise.reject({
               status: 401,
@@ -307,17 +398,12 @@ apiClient.interceptors.response.use(
               ? authHeader.length > 0
               : !!authHeader
 
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('auth_user')
-        localStorage.removeItem('token_expires_at')
+        clearLocalAuthStorage()
         if ((hasToken || sentAuth) && !isAuthEndpoint) {
           sessionStorage.setItem('auth_expired', '1')
         }
         // Only redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login'
-        }
+        redirectToLoginIfNeeded()
       }
 
       // Return structured error

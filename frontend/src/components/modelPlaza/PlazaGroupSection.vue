@@ -42,6 +42,16 @@
         <Icon name="clock" size="xs" class="h-3 w-3" />
         {{ peakNote }}
       </p>
+      <p
+        class="mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 dark:border-dark-600 dark:bg-dark-900/40 dark:text-dark-300"
+        :title="group.ttft_disclaimer || t('modelPlaza.detail.ttftDisclaimer')"
+        data-testid="plaza-group-ttft"
+      >
+        <Icon name="bolt" size="xs" class="h-3 w-3 text-teal-600 dark:text-teal-400" />
+        <span class="font-medium text-slate-800 dark:text-slate-100">{{ t('modelPlaza.detail.avgFirstToken') }}</span>
+        <span class="font-mono tabular-nums text-teal-700 dark:text-teal-300">{{ formattedFirstToken }}</span>
+        <span class="text-[11px] text-slate-400 dark:text-dark-500">{{ group.ttft_disclaimer || t('modelPlaza.detail.ttftDisclaimer') }}</span>
+      </p>
     </header>
 
     <!-- 模型价格表 -->
@@ -89,5 +99,12 @@ const peakNote = computed(() => {
     window,
     multiplier: props.group.peak_rate_multiplier
   })
+})
+
+const formattedFirstToken = computed(() => {
+  const ms = Number(props.group.avg_first_token_ms || 0)
+  if (!Number.isFinite(ms) || ms <= 0) return '—'
+  if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'
+  return Math.round(ms) + 'ms'
 })
 </script>

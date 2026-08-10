@@ -63,10 +63,27 @@
           {{ t('admin.accounts.upstreamBilling.globalProbeState') }}
           <span class="text-red-400">{{ t('admin.accounts.upstreamBilling.disabled') }}</span>
         </p>
+        <p
+          v-if="safeRateStatus"
+          class="mt-2 border-t border-white/15 pt-2"
+          data-testid="upstream-billing-safe-rate"
+        >
+          {{ t('admin.accounts.upstreamBilling.safeRateLabel') }}
+          <span :class="safeRateClass">{{ safeRateLabel }}</span>
+          <template v-if="safeRateDetail"> · {{ safeRateDetail }}</template>
+        </p>
       </div>
     </HelpTooltip>
     <span v-if="hasEffectiveRate && statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
       {{ statusLabel }}
+    </span>
+    <span
+      v-if="isOverSafe"
+      class="whitespace-nowrap rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-900/30 dark:text-rose-300"
+      data-testid="upstream-billing-over-safe"
+      :title="safeRateDetail || t('admin.accounts.upstreamBilling.overSafeHint')"
+    >
+      {{ t('admin.accounts.upstreamBilling.overSafeBadge') }}
     </span>
     <button
       type="button"
@@ -88,7 +105,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { Account, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, SafeRateStatus, UpstreamBillingProbeSnapshot } from '@/types'
 
 const props = withDefaults(defineProps<{
   account: Account
@@ -109,6 +126,37 @@ const eligible = computed(() => props.account.platform === 'openai' && props.acc
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
 const probeEnabled = computed(() => props.account.extra?.upstream_billing_probe_enabled === true)
+const safeRateStatus = computed<SafeRateStatus | undefined>(() => {
+  const raw = props.account.extra?.safe_rate_status
+  if (!raw || typeof raw !== 'object') return undefined
+  return raw as SafeRateStatus
+})
+const isOverSafe = computed(() => safeRateStatus.value?.status === 'over_safe')
+const safeRateLabel = computed(() => {
+  const status = safeRateStatus.value?.status
+  if (status === 'over_safe') return t('admin.accounts.upstreamBilling.overSafeBadge')
+  if (status === 'ok') return t('admin.accounts.upstreamBilling.safeRateOk')
+  if (status === 'unknown') return t('admin.accounts.upstreamBilling.safeRateUnknown')
+  return status || '-'
+})
+const safeRateClass = computed(() => {
+  if (isOverSafe.value) return 'text-rose-400'
+  if (safeRateStatus.value?.status === 'ok') return 'text-emerald-400'
+  return 'text-amber-300'
+})
+const safeRateDetail = computed(() => {
+  const st = safeRateStatus.value
+  if (!st) return ''
+  const up = st.upstream_rate
+  const base = st.safe_rate_baseline
+  if (typeof up === 'number' && typeof base === 'number') {
+    return t('admin.accounts.upstreamBilling.safeRateCompare', {
+      upstream: up.toFixed(2),
+      baseline: base.toFixed(2)
+    })
+  }
+  return st.message || ''
+})
 const nextProbeAt = computed(() => {
   const value = snapshot.value?.next_probe_at
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : ''
@@ -194,7 +242,12 @@ const effectiveRate = computed(() => {
 })
 const statusLabel = computed(() => {
   if (!snapshot.value) return t('admin.accounts.upstreamBilling.notProbed')
-  if (snapshot.value.status === 'unsupported') return t('admin.accounts.upstreamBilling.unsupported')
+  if (snapshot.value.status === 'unsupported') {
+    if (snapshot.value.last_error === 'rate_not_exposed') {
+      return t('admin.accounts.upstreamBilling.rateNotExposed')
+    }
+    return t('admin.accounts.upstreamBilling.unsupported')
+  }
   if (stale.value) return t('admin.accounts.upstreamBilling.stale')
   if (snapshot.value.status === 'failed') return t('admin.accounts.upstreamBilling.failed')
   return ''

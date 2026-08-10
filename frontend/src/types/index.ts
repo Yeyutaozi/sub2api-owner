@@ -1256,6 +1256,19 @@ export interface UpstreamBillingProbeSnapshot {
   last_error?: string
 }
 
+export type SafeRateStatusCode = 'ok' | 'over_safe' | 'unknown'
+
+/** Admin-visible evaluation of account upstream cost vs group sell baselines. */
+export interface SafeRateStatus {
+  status: SafeRateStatusCode | string
+  upstream_rate?: number | null
+  source?: 'probe' | 'manual' | 'unknown' | string
+  safe_rate_baseline?: number | null
+  over_group_ids?: number[]
+  checked_at?: string
+  message?: string
+}
+
 export interface UpstreamBillingProbeSettings {
   enabled: boolean
   interval_minutes: number
@@ -1336,6 +1349,7 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
+    safe_rate_status?: SafeRateStatus
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null

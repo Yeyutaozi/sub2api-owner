@@ -1267,6 +1267,25 @@
           />
         </div>
 
+        <div v-if="form.platform === 'openai' && form.type === 'apikey'" class="mt-3">
+          <label class="input-label" for="create-upstream-declared-rate">
+            {{ t('admin.accounts.upstreamBilling.manualDeclaredRate') }}
+          </label>
+          <input
+            id="create-upstream-declared-rate"
+            v-model="upstreamDeclaredRateInput"
+            type="number"
+            min="0"
+            step="0.01"
+            class="input-field"
+            data-testid="create-upstream-declared-rate"
+            :placeholder="t('admin.accounts.upstreamBilling.manualDeclaredRatePlaceholder')"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.upstreamBilling.manualDeclaredRateHint') }}
+          </p>
+        </div>
+
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -3832,6 +3851,7 @@ const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
 const upstreamBillingAutoProbeEnabled = ref(true)
+const upstreamDeclaredRateInput = ref<string>('')
 const seedanceProviderModels = computed(() =>
   form.platform === 'seedance'
     ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
@@ -4815,6 +4835,7 @@ const resetForm = () => {
   apiKeyValue.value = ''
   seedanceVideoProvider.value = 'fflink'
   upstreamBillingAutoProbeEnabled.value = true
+  upstreamDeclaredRateInput.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5336,6 +5357,13 @@ const handleSubmit = async () => {
     extra,
     upstream_billing_probe_enabled:
       form.platform === 'openai' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    upstream_declared_rate_multiplier: (() => {
+      if (form.platform !== 'openai' || form.type !== 'apikey') return undefined
+      const raw = String(upstreamDeclaredRateInput.value ?? '').trim()
+      if (!raw) return undefined
+      const n = Number(raw)
+      return Number.isFinite(n) && n >= 0 ? n : undefined
+    })(),
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

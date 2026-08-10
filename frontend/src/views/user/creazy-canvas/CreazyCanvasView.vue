@@ -3,13 +3,26 @@
     <div class="cc-shell">
       <header class="cc-topbar">
         <div class="cc-topbar__main">
-          <div class="cc-topbar__titles">
-            <h1 class="cc-topbar__title">{{ t('creazyCanvas.title') }}</h1>
-            <p class="cc-topbar__sub">{{ t('creazyCanvas.subtitle') }}</p>
+          <div class="cc-topbar__brand">
+            <div class="cc-mark" aria-hidden="true">
+              <span class="cc-mark__frame"></span>
+              <span class="cc-mark__beam"></span>
+            </div>
+            <div class="cc-topbar__titles">
+              <p class="cc-eyebrow">{{ t('creazyCanvas.brandEyebrow') }}</p>
+              <h1 class="cc-topbar__title">{{ t('creazyCanvas.title') }}</h1>
+              <p class="cc-topbar__sub">{{ t('creazyCanvas.subtitle') }}</p>
+            </div>
           </div>
 
           <div class="cc-topbar__key">
-            <label class="cc-topbar__key-label" for="cc-key-select">{{ t('creazyCanvas.key.label') }}</label>
+            <div class="cc-topbar__key-head">
+              <label class="cc-topbar__key-label" for="cc-key-select">{{ t('creazyCanvas.key.label') }}</label>
+              <span v-if="selectedKeyId" class="cc-pill" :class="keyReadyChipClass">
+                <i class="cc-pill__dot" :class="keyReadyDotClass" />
+                {{ keyReadyLabel }}
+              </span>
+            </div>
             <select
               id="cc-key-select"
               v-model.number="selectedKeyId"
@@ -28,16 +41,12 @@
               {{ t('creazyCanvas.key.empty') }}
             </p>
             <div v-if="selectedKeyId" class="cc-topbar__meta">
-              <span class="cc-pill" :class="keyReadyChipClass">
-                <i class="cc-pill__dot" :class="keyReadyDotClass" />
-                {{ keyReadyLabel }}
-              </span>
               <span v-if="userBalance != null" class="cc-topbar__balance" :title="t('creazyCanvas.key.balanceHint')">
                 <em>{{ t('creazyCanvas.key.balance') }}</em>
                 <strong>{{ formatMoney(userBalance) }}</strong>
               </span>
+              <p class="cc-topbar__hint">{{ t('creazyCanvas.key.selectOnlyHint') }}</p>
             </div>
-            <p v-if="selectedKeyId" class="cc-topbar__hint">{{ t('creazyCanvas.key.selectOnlyHint') }}</p>
           </div>
         </div>
       </header>
@@ -59,7 +68,15 @@
 
       <!-- Image -->
       <section v-if="activeTab === 'image'" class="grid gap-5 lg:grid-cols-2">
-        <div class="card cc-form-card cc-surface space-y-5 p-5 sm:p-6">
+        <div class="card cc-form-card cc-surface cc-form-stack">
+          <div class="cc-studio-head">
+            <div class="cc-studio-head__kicker">
+              <span class="cc-studio-head__kicker-dot" aria-hidden="true"></span>
+              STUDIO
+            </div>
+            <h2 class="cc-studio-head__title">{{ t('creazyCanvas.tabs.image') }}</h2>
+            <p class="cc-studio-head__sub">{{ t('creazyCanvas.form.createSectionHintImage') }}</p>
+          </div>
           <div class="cc-field" :class="{ 'cc-field--error': imageFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <div class="cc-prompt-wrap">
@@ -133,7 +150,7 @@
               </select>
               <p
                 v-if="!loadingCatalog && selectedKeyId && imageModels.length === 0"
-                class="input-hint text-amber-600 dark:text-amber-400"
+                class="cc-callout cc-callout--warn"
               >
                 {{ t('creazyCanvas.catalog.emptyImage') }}
               </p>
@@ -187,8 +204,8 @@
               <datalist v-if="imageAllowCustomSize" id="creazy-canvas-image-sizes">
                 <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
               </datalist>
-              <p class="input-hint">{{ imageSizeHintText }}</p>
-              <p v-if="imageSizeLiveError" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ imageSizeLiveError }}</p>
+              <p class="cc-field-hint">{{ imageSizeHintText }}</p>
+              <p v-if="imageSizeLiveError" class="cc-field__error">{{ imageSizeLiveError }}</p>
             </div>
           </div>
 
@@ -196,25 +213,27 @@
             v-if="imageRefSupported"
             class="cc-media-panel"
           >
-            <label class="input-label flex items-center justify-between gap-2">
-              <span>
-                {{ t('creazyCanvas.form.imageRefs') }}
-                ({{ imageRefs.length }}/{{ imageRefMax }})
-                <span v-if="imageRefRequired" class="ml-1 text-rose-500">*</span>
-              </span>
+            <div class="cc-media-panel__head">
+              <div>
+                <label class="cc-label">
+                  {{ t('creazyCanvas.form.imageRefs') }}
+                  <span class="cc-media-count">({{ imageRefs.length }}/{{ imageRefMax }})</span>
+                  <span v-if="imageRefRequired" class="cc-req">*</span>
+                </label>
+                <p class="cc-field-hint">
+                  {{ imageRefRequired ? t('creazyCanvas.form.imageRefsRequiredHint') : t('creazyCanvas.form.imageRefsHint') }}
+                </p>
+              </div>
               <button
                 v-if="imageRefs.length"
                 type="button"
-                class="text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-400"
+                class="cc-link-danger"
                 :disabled="!!uploadingImageRef"
                 @click="clearImageRefs"
               >
                 {{ t('creazyCanvas.form.clearAll') }}
               </button>
-            </label>
-            <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
-              {{ imageRefRequired ? t('creazyCanvas.form.imageRefsRequiredHint') : t('creazyCanvas.form.imageRefsHint') }}
-            </p>
+            </div>
             <div
               class="cc-dropzone"
               :class="{ 'cc-field--error': imageFieldErrors.refs }"
@@ -248,29 +267,25 @@
               <p v-if="imageRefs.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
               <p v-if="imageFieldErrors.refs" class="cc-field__error">{{ imageFieldErrors.refs }}</p>
             </div>
-            <ul v-if="imageRefs.length" class="mt-3 grid gap-2 sm:grid-cols-2">
+            <ul v-if="imageRefs.length" class="cc-media-list">
               <li
                 v-for="(item, idx) in imageRefs"
                 :key="'img-ref-' + idx + item.media_url"
-                class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2 dark:border-dark-700 dark:bg-dark-900"
+                class="cc-media-item"
                 draggable="true"
                 @dragstart="onMediaDragStart('imageRefs', idx)"
                 @dragover.prevent
                 @drop.prevent="onMediaDropReorder('imageRefs', idx)"
               >
-                <img
-                  :src="item.preview_url || item.media_url"
-                  alt=""
-                  class="h-12 w-12 rounded object-cover"
-                />
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-1.5">
+                <img :src="item.preview_url || item.media_url" alt="" class="cc-media-item__thumb" />
+                <div class="cc-media-item__body">
+                  <div class="cc-media-item__row">
                     <span class="cc-media-token">@Image{{ idx + 1 }}</span>
-                    <p class="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{{ item.name }}</p>
+                    <p class="cc-media-item__name">{{ item.name }}</p>
                   </div>
-                  <p class="truncate text-[11px] text-gray-400">{{ item.media_url }}</p>
+                  <p class="cc-media-item__url">{{ item.media_url }}</p>
                 </div>
-                <button type="button" class="text-xs text-rose-600 hover:underline" @click="removeImageRef(idx)">
+                <button type="button" class="cc-link-danger" @click="removeImageRef(idx)">
                   {{ t('creazyCanvas.form.remove') }}
                 </button>
               </li>
@@ -311,181 +326,81 @@
               {{ t('creazyCanvas.form.clearForm') }}
             </button>
             </div>
-            <p v-if="imageRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
+            <p v-if="imageRunningCount" class="cc-callout cc-callout--live">
               {{ t('creazyCanvas.tasks.runningCount', { n: imageRunningCount }) }}
             </p>
-            <p v-if="imageError" class="text-sm text-red-600 dark:text-red-400">{{ imageError }}</p>
-            <p v-if="imageSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ imageSaveMessage }}</p>
+            <p v-if="imageError" class="cc-callout cc-callout--bad">{{ imageError }}</p>
+            <p v-if="imageSaveMessage" class="cc-callout cc-callout--ok">{{ imageSaveMessage }}</p>
           </div>
         </div>
 
-        <div class="card cc-board-card cc-surface space-y-4 p-5 sm:p-6">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <div class="cc-board-head">
-                <span class="cc-board-head__badge">LIVE</span>
-                <h2 class="cc-board-head__title">{{ t('creazyCanvas.tasks.title') }}</h2>
+        <div class="card cc-board-card cc-surface">
+          <div class="cc-board-head">
+            <div class="cc-board-head__main">
+              <div class="cc-board-head__kicker">
+                <span class="cc-board-head__kicker-dot" aria-hidden="true"></span>
+                LIVE
               </div>
+              <h2 class="cc-board-head__title">{{ t('creazyCanvas.tasks.title') }}</h2>
               <p class="cc-board-head__sub">{{ t('creazyCanvas.tasks.subtitle') }}</p>
-              <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board mt-2">
-                <span class="cc-pagination__meta">
-                  {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
-                </span>
-                <div class="cc-pagination__actions">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage <= 1"
-                @click="goToWorksPrevPage($event)"
-              >
-                {{ t('creazyCanvas.works.prevPage') }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage >= worksPages"
-                @click="goToWorksNextPage($event)"
-              >
-                {{ t('creazyCanvas.works.nextPage') }}
-              </button>
-              <label class="cc-pagination__jump">
-                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
-                <input
-                  v-model="worksPageJumpInput"
-                  type="number"
-                  min="1"
-                  :max="worksPages"
-                  class="cc-pagination__input"
-                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
-                  @keyup.enter="jumpWorksPageFromInput"
-                />
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
-                  {{ t('creazyCanvas.works.pageJump') }}
-                </button>
-              </label>
-              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
-                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
-                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
-                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
-                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
-                  </option>
-                </select>
-              </label>
             </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
+            <button type="button" class="btn btn-secondary btn-sm cc-board-head__refresh" :disabled="loadingWorks" @click="() => loadWorks()">
+              <Icon name="refresh" size="sm" class="mr-1.5" :class="loadingWorks ? 'animate-spin' : ''" />
               {{ t('creazyCanvas.works.refresh') }}
             </button>
           </div>
-
-          <div v-if="imageResultUrls.length" class="space-y-2 rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-            <p class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{{ t('creazyCanvas.tasks.latestPreview') }}</p>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <button
-                v-for="(url, idx) in imageResultUrls"
-                :key="'latest-img-' + idx"
-                type="button"
-                class="overflow-hidden rounded-lg border border-emerald-100 bg-white dark:border-emerald-900/40 dark:bg-dark-900"
-                @click="openMediaPreview({ type: 'image', url })"
-              >
-                <img :src="url" alt="latest" class="max-h-40 w-full object-contain" />
-              </button>
+          <div class="cc-board-body">
+            <div v-if="imageResultUrls.length" class="cc-latest">
+              <div class="cc-latest__head">
+                <span class="cc-latest__badge">NOW</span>
+                <p class="cc-latest__title">{{ t('creazyCanvas.tasks.latestPreview') }}</p>
+              </div>
+              <div class="cc-latest__grid">
+                <button v-for="(url, idx) in imageResultUrls" :key="'latest-img-' + idx" type="button" class="cc-latest__tile" @click="openMediaPreview({ type: 'image', url })">
+                  <img :src="url" alt="latest" />
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div v-if="!imageTaskWorks.length" class="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-gray-200 text-sm text-gray-500 dark:border-dark-700 dark:text-gray-400">
-            {{ t('creazyCanvas.tasks.empty') }}
-          </div>
-          <div v-else class="space-y-3">
-            <article
-              v-for="work in imageTaskWorks"
-              :key="work.id"
-              class="rounded-xl border p-3 shadow-sm transition-colors"
-              :class="workCardClass(work)"
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
-                  <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
-                  {{ workStatusLabel(work.status) }}
-                </span>
-                <span class="inline-flex max-w-full items-center gap-1 rounded-md border border-stone-300 bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-700 dark:border-stone-600/60 dark:bg-stone-900/40 dark:text-stone-300">
-                  {{ work.public_model || '—' }}
-                </span>
-                <span v-if="work.created_at" class="text-[11px] text-gray-500">{{ formatDateTime(work.created_at) }}</span>
+            <div v-if="!imageTaskWorks.length" class="cc-empty-stage cc-empty-stage--compact">
+              <div class="cc-empty-stage__icon cc-empty-stage__icon--soft" aria-hidden="true"><span class="cc-empty-stage__glyph">◇</span></div>
+              <p class="cc-empty-stage__title">{{ t('creazyCanvas.tasks.empty') }}</p>
+              <p class="cc-empty-stage__sub">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+            </div>
+            <div v-else class="cc-task-list">
+              <article v-for="work in imageTaskWorks" :key="work.id" class="cc-task-card" :class="taskCardClass(work)">
+                <div class="cc-task-card__top">
+                  <span class="cc-task-status" :class="taskStatusTone(work.status)">
+                    <i class="cc-task-status__dot" :class="{ 'is-pulse': isActiveWorkStatus(work.status) }" />
+                    {{ workStatusLabel(work.status) }}
+                  </span>
+                  <span class="cc-task-model">{{ work.public_model || '—' }}</span>
+                  <span v-if="work.created_at" class="cc-task-time">{{ formatDateTime(work.created_at) }}</span>
+                </div>
+                <p class="cc-task-prompt">{{ work.prompt || ('#' + work.id) }}</p>
+                <p v-if="isActiveWorkStatus(work.status)" class="cc-task-elapsed">{{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at || work.updated_at) }) }}</p>
+                <p v-if="workErrorText(work)" class="cc-task-error">{{ workErrorText(work) }}</p>
+                <div class="cc-task-actions">
+                  <button v-if="canPreviewWork(work)" type="button" class="btn btn-primary btn-sm" :disabled="workPreviewLoading[String(work.id)]" @click="openWorkPreview(work)">
+                    {{ workPreviewLoading[String(work.id)] ? t('creazyCanvas.works.previewLoading') : t('creazyCanvas.works.preview') }}
+                  </button>
+                  <button v-if="canPreviewWork(work)" type="button" class="btn btn-secondary btn-sm" :disabled="downloadingWorkId === String(work.id)" @click="downloadWork(work)">
+                    {{ t('creazyCanvas.works.download') }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">{{ t('creazyCanvas.works.reuse') }}</button>
+                </div>
+              </article>
+            </div>
+            <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board">
+              <span class="cc-pagination__meta">{{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}</span>
+              <div class="cc-pagination__actions">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage <= 1" @click="goToWorksPrevPage($event)">{{ t('creazyCanvas.works.prevPage') }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage >= worksPages" @click="goToWorksNextPage($event)">{{ t('creazyCanvas.works.nextPage') }}</button>
+                <label class="cc-pagination__jump">
+                  <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                  <input v-model="worksPageJumpInput" type="number" min="1" :max="worksPages" class="cc-pagination__input" :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')" @keyup.enter="jumpWorksPageFromInput" />
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">{{ t('creazyCanvas.works.pageJump') }}</button>
+                </label>
               </div>
-              <p class="mt-2 line-clamp-2 text-sm text-gray-800 dark:text-gray-100">{{ work.prompt || ('#' + work.id) }}</p>
-              <p v-if="workErrorText(work)" class="mt-1 line-clamp-2 text-xs text-red-600 dark:text-red-300">{{ workErrorText(work) }}</p>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button
-                  v-if="canPreviewWork(work)"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="workPreviewLoading[String(work.id)]"
-                  @click="openWorkPreview(work)"
-                >
-                  {{ workPreviewLoading[String(work.id)] ? t('creazyCanvas.works.previewLoading') : t('creazyCanvas.works.preview') }}
-                </button>
-                <button
-                  v-if="canPreviewWork(work)"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="downloadingWorkId === String(work.id)"
-                  @click="downloadWork(work)"
-                >
-                  {{ t('creazyCanvas.works.download') }}
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">
-                  {{ t('creazyCanvas.works.reuse') }}
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div v-if="worksTotal > 0" class="cc-pagination">
-            <span class="cc-pagination__meta">
-              {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
-            </span>
-            <div class="cc-pagination__actions">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage <= 1"
-                @click="goToWorksPrevPage($event)"
-              >
-                {{ t('creazyCanvas.works.prevPage') }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage >= worksPages"
-                @click="goToWorksNextPage($event)"
-              >
-                {{ t('creazyCanvas.works.nextPage') }}
-              </button>
-              <label class="cc-pagination__jump">
-                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
-                <input
-                  v-model="worksPageJumpInput"
-                  type="number"
-                  min="1"
-                  :max="worksPages"
-                  class="cc-pagination__input"
-                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
-                  @keyup.enter="jumpWorksPageFromInput"
-                />
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
-                  {{ t('creazyCanvas.works.pageJump') }}
-                </button>
-              </label>
-              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
-                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
-                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
-                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
-                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
-                  </option>
-                </select>
-              </label>
             </div>
           </div>
         </div>
@@ -493,7 +408,15 @@
 
       <!-- Video -->
       <section v-else-if="activeTab === 'video'" class="grid gap-5 lg:grid-cols-2">
-        <div class="card cc-form-card cc-surface space-y-5 p-5 sm:p-6">
+        <div class="card cc-form-card cc-surface cc-form-stack">
+          <div class="cc-studio-head">
+            <div class="cc-studio-head__kicker">
+              <span class="cc-studio-head__kicker-dot" aria-hidden="true"></span>
+              STUDIO
+            </div>
+            <h2 class="cc-studio-head__title">{{ t('creazyCanvas.tabs.video') }}</h2>
+            <p class="cc-studio-head__sub">{{ t('creazyCanvas.form.createSectionHintVideo') }}</p>
+          </div>
           <div class="cc-field" :class="{ 'cc-field--error': videoFieldErrors.prompt }">
             <label class="cc-label">{{ t('creazyCanvas.form.prompt') }}</label>
             <div class="cc-prompt-wrap">
@@ -567,7 +490,7 @@
               </select>
               <p
                 v-if="!loadingCatalog && selectedKeyId && videoModels.length === 0"
-                class="input-hint text-amber-600 dark:text-amber-400"
+                class="cc-callout cc-callout--warn"
               >
                 {{ t('creazyCanvas.catalog.emptyVideo') }}
               </p>
@@ -600,29 +523,29 @@
 
           <label
             v-if="mediaCaps.allowGeneratedAudio"
-            class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
+            class="cc-check"
             :title="mediaCaps.forceGeneratedAudio ? t('creazyCanvas.form.forceGeneratedAudio') : undefined"
           >
             <input
               v-model="videoForm.generateAudio"
               type="checkbox"
-              class="rounded border-gray-300"
+              class="cc-check__input"
               :disabled="mediaCaps.forceGeneratedAudio"
             />
             {{ t('creazyCanvas.form.generateAudio') }}
-            <span v-if="mediaCaps.forceGeneratedAudio" class="text-xs text-gray-500">
+            <span v-if="mediaCaps.forceGeneratedAudio" class="cc-field-hint cc-field-hint--inline">
               ({{ t('creazyCanvas.form.forceGeneratedAudio') }})
             </span>
           </label>
 
           <div
             v-if="selectedVideoModel"
-            class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-dark-700 dark:bg-dark-900/40 dark:text-gray-300"
+            class="cc-limits-card"
           >
-            <div class="font-medium text-gray-800 dark:text-gray-100">
+            <div class="cc-limits-card__title">
               {{ t('creazyCanvas.form.mediaLimits') }}
             </div>
-            <div class="mt-1">
+            <div class="cc-limits-card__body">
               {{
                 t('creazyCanvas.form.mediaLimitsDetail', {
                   images: mediaCaps.maxImages,
@@ -637,7 +560,7 @@
                 {{ t('creazyCanvas.form.mediaTotalImages', { max: mediaCaps.maxTotalImages }) }}
               </span>
             </div>
-            <div class="mt-2 grid gap-1.5">
+            <div class="cc-limits-card__progress">
               <div v-if="mediaCaps.maxImages > 0" class="cc-progress-row">
                 <span>{{ t('creazyCanvas.form.mediaLimitProgress', { used: refImages.length, max: mediaCaps.maxImages }) }}</span>
                 <div class="cc-progress"><div class="cc-progress__bar" :style="{ width: Math.min(100, (refImages.length / mediaCaps.maxImages) * 100) + '%' }" /></div>
@@ -651,274 +574,402 @@
                 <div class="cc-progress"><div class="cc-progress__bar" :style="{ width: Math.min(100, (refAudios.length / mediaCaps.maxAudios) * 100) + '%' }" /></div>
               </div>
             </div>
-            <p class="mt-1 text-gray-500 dark:text-gray-400">
+            <p class="cc-field-hint">
               {{ t('creazyCanvas.form.optionalMediaHint') }}
             </p>
-            <p v-if="mediaCaps.requireStartFrame" class="mt-1 text-amber-700 dark:text-amber-300">
+            <p v-if="mediaCaps.requireStartFrame" class="cc-callout cc-callout--warn">
               {{ t('creazyCanvas.form.constraintHintRequireStart') }}
             </p>
-            <p v-if="mediaCaps.allowEndFrame" class="mt-1 text-amber-700 dark:text-amber-300">
+            <p v-if="mediaCaps.allowEndFrame" class="cc-callout cc-callout--warn">
               {{ t('creazyCanvas.form.constraintHintEndNeedsStart') }}
             </p>
-            <p v-if="mediaCaps.framesExclusiveWithRefs" class="mt-1 text-amber-700 dark:text-amber-300">
+            <p v-if="mediaCaps.framesExclusiveWithRefs" class="cc-callout cc-callout--warn">
               {{ t('creazyCanvas.form.constraintHintExclusiveModes') }}
             </p>
           </div>
 
-          <div class="space-y-3">
-            <div v-if="mediaCaps.allowStartFrame">
-              <label class="input-label">{{ mediaCaps.requireStartFrame ? t('creazyCanvas.form.startFrameRequired') : t('creazyCanvas.form.startFrame') }}</label>
-              <div class="flex flex-wrap items-center gap-2">
-                <input ref="startFrameInput" type="file" accept="image/*" class="hidden" @change="onPickStartFrame" />
+          <div class="cc-media-zone">
+            <div v-if="mediaCaps.allowStartFrame" class="cc-media-panel">
+              <div class="cc-media-panel__head">
+                <div>
+                  <label class="cc-label">
+                    {{ mediaCaps.requireStartFrame ? t('creazyCanvas.form.startFrameRequired') : t('creazyCanvas.form.startFrame') }}
+                    <span v-if="mediaCaps.requireStartFrame" class="cc-req">*</span>
+                  </label>
+                </div>
                 <button
+                  v-if="startFrame"
                   type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || frameUploadsBlocked"
-                  :title="frameUploadsBlocked ? t('creazyCanvas.form.framesExclusiveWithRefs') : undefined"
-                  @click="startFrameInput?.click()"
+                  class="cc-link-danger"
+                  :disabled="!!uploadingMedia"
+                  @click="clearStartFrame"
                 >
-                  {{ uploadingMedia === 'start' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
-                </button>
-                <span v-if="startFrameToken" class="cc-media-token">{{ startFrameToken }}</span>
-                <span v-if="startFrame?.name" class="text-xs text-gray-600 dark:text-gray-300">{{ startFrame.name }}</span>
-                <button v-if="startFrame" type="button" class="btn btn-secondary btn-sm" @click="clearStartFrame">
                   {{ t('creazyCanvas.form.remove') }}
                 </button>
               </div>
-              <div class="mt-2 flex flex-wrap items-center gap-2">
-                <input
-                  v-model="startFrameUrlInput"
-                  type="url"
-                  class="input flex-1 min-w-[16rem] font-mono text-xs"
-                  :placeholder="t('creazyCanvas.form.startFrameUrlPlaceholder')"
-                  :disabled="!!uploadingMedia || !selectedKeyId"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || !startFrameUrlInput.trim()"
-                  @click="applyStartFrameUrl"
-                >
-                  {{ t('creazyCanvas.form.applyUrl') }}
-                </button>
+              <div
+                class="cc-dropzone"
+                :class="{ 'is-disabled': frameUploadsBlocked }"
+                @dragover.prevent
+                @drop="onDropMedia($event, 'startFrame')"
+              >
+                <div class="cc-dropzone__actions">
+                  <input ref="startFrameInput" type="file" accept="image/*" class="hidden" @change="onPickStartFrame" />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || frameUploadsBlocked"
+                    :title="frameUploadsBlocked ? t('creazyCanvas.form.framesExclusiveWithRefs') : undefined"
+                    @click="startFrameInput?.click()"
+                  >
+                    {{ uploadingMedia === 'start' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
+                  </button>
+                  <span v-if="startFrameToken" class="cc-media-token">{{ startFrameToken }}</span>
+                </div>
+                <div class="cc-url-row">
+                  <input
+                    v-model="startFrameUrlInput"
+                    type="url"
+                    class="input cc-control cc-url-row__input"
+                    :placeholder="t('creazyCanvas.form.startFrameUrlPlaceholder')"
+                    :disabled="!!uploadingMedia || !selectedKeyId"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || !startFrameUrlInput.trim()"
+                    @click="applyStartFrameUrl"
+                  >
+                    {{ t('creazyCanvas.form.applyUrl') }}
+                  </button>
+                </div>
+                <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
               </div>
+              <ul v-if="startFrame" class="cc-media-list cc-media-list--single">
+                <li class="cc-media-item">
+                  <img
+                    v-if="startFrame.preview_url || startFrame.media_url"
+                    :src="startFrame.preview_url || startFrame.media_url"
+                    alt=""
+                    class="cc-media-item__thumb"
+                  />
+                  <div v-else class="cc-media-item__badge">FR</div>
+                  <div class="cc-media-item__body">
+                    <div class="cc-media-item__row">
+                      <span class="cc-media-token">{{ startFrameToken || '@Image1' }}</span>
+                      <p class="cc-media-item__name">{{ startFrame.name }}</p>
+                    </div>
+                    <p class="cc-media-item__url">{{ startFrame.media_url }}</p>
+                  </div>
+                </li>
+              </ul>
             </div>
 
-            <div v-if="mediaCaps.allowEndFrame">
-              <label class="input-label">{{ t('creazyCanvas.form.endFrame') }}</label>
-              <div class="flex flex-wrap items-center gap-2">
-                <input ref="endFrameInput" type="file" accept="image/*" class="hidden" @change="onPickEndFrame" />
+            <div v-if="mediaCaps.allowEndFrame" class="cc-media-panel">
+              <div class="cc-media-panel__head">
+                <div>
+                  <label class="cc-label">{{ t('creazyCanvas.form.endFrame') }}</label>
+                  <p class="cc-field-hint">{{ t('creazyCanvas.form.endNeedsStart') }}</p>
+                </div>
                 <button
+                  v-if="endFrame"
                   type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || !startFrame || frameUploadsBlocked"
-                  :title="
-                    !startFrame
-                      ? t('creazyCanvas.form.endNeedsStart')
-                      : frameUploadsBlocked
-                        ? t('creazyCanvas.form.framesExclusiveWithRefs')
-                        : undefined
-                  "
-                  @click="endFrameInput?.click()"
+                  class="cc-link-danger"
+                  :disabled="!!uploadingMedia"
+                  @click="endFrame = null"
                 >
-                  {{ uploadingMedia === 'end' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
-                </button>
-                <span v-if="endFrameToken" class="cc-media-token">{{ endFrameToken }}</span>
-                <span v-if="endFrame?.name" class="text-xs text-gray-600 dark:text-gray-300">{{ endFrame.name }}</span>
-                <button v-if="endFrame" type="button" class="btn btn-secondary btn-sm" @click="endFrame = null">
                   {{ t('creazyCanvas.form.remove') }}
                 </button>
               </div>
+              <div
+                class="cc-dropzone"
+                :class="{ 'is-disabled': !startFrame || frameUploadsBlocked }"
+                @dragover.prevent
+                @drop="onDropMedia($event, 'endFrame')"
+              >
+                <div class="cc-dropzone__actions">
+                  <input ref="endFrameInput" type="file" accept="image/*" class="hidden" @change="onPickEndFrame" />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || !startFrame || frameUploadsBlocked"
+                    :title="
+                      !startFrame
+                        ? t('creazyCanvas.form.endNeedsStart')
+                        : frameUploadsBlocked
+                          ? t('creazyCanvas.form.framesExclusiveWithRefs')
+                          : undefined
+                    "
+                    @click="endFrameInput?.click()"
+                  >
+                    {{ uploadingMedia === 'end' ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.upload') }}
+                  </button>
+                  <span v-if="endFrameToken" class="cc-media-token">{{ endFrameToken }}</span>
+                </div>
+                <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
+              </div>
+              <ul v-if="endFrame" class="cc-media-list cc-media-list--single">
+                <li class="cc-media-item">
+                  <img
+                    v-if="endFrame.preview_url || endFrame.media_url"
+                    :src="endFrame.preview_url || endFrame.media_url"
+                    alt=""
+                    class="cc-media-item__thumb"
+                  />
+                  <div v-else class="cc-media-item__badge">FR</div>
+                  <div class="cc-media-item__body">
+                    <div class="cc-media-item__row">
+                      <span class="cc-media-token">{{ endFrameToken || '@Image2' }}</span>
+                      <p class="cc-media-item__name">{{ endFrame.name }}</p>
+                    </div>
+                    <p class="cc-media-item__url">{{ endFrame.media_url }}</p>
+                  </div>
+                </li>
+              </ul>
             </div>
 
-            <div v-if="mediaCaps.maxImages > 0">
-              <label class="input-label flex items-center justify-between gap-2">
-                <span>{{ t('creazyCanvas.form.refImages') }} ({{ refImages.length }}/{{ mediaCaps.maxImages }})</span>
+            <div v-if="mediaCaps.maxImages > 0" class="cc-media-panel">
+              <div class="cc-media-panel__head">
+                <div>
+                  <label class="cc-label">
+                    {{ t('creazyCanvas.form.refImages') }}
+                    <span class="cc-media-count">({{ refImages.length }}/{{ mediaCaps.maxImages }})</span>
+                  </label>
+                </div>
                 <button
                   v-if="refImages.length"
                   type="button"
-                  class="text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-400"
+                  class="cc-link-danger"
                   :disabled="!!uploadingMedia"
                   @click="clearRefImages"
                 >
                   {{ t('creazyCanvas.form.clearAll') }}
                 </button>
-              </label>
-              <div class="flex flex-wrap items-center gap-2">
-                <input
-                  ref="refImageInput"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  class="hidden"
-                  @change="onPickRefImage"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || refImages.length >= mediaCaps.maxImages || refUploadsBlocked"
-                  :title="refUploadsBlocked ? t('creazyCanvas.form.refsExclusiveWithFrames') : undefined"
-                  @click="refImageInput?.click()"
-                >
-                  {{
-                    uploadingMedia === 'ref-image'
-                      ? uploadProgressLabel || t('creazyCanvas.form.uploading')
-                      : mediaCaps.maxImages >= 8
-                        ? t('creazyCanvas.form.uploadMultiple')
-                        : t('creazyCanvas.form.upload')
-                  }}
-                </button>
               </div>
-              <ul
-                v-if="refImages.length"
-                class="mt-2 max-h-44 overflow-y-auto rounded-md border border-gray-200 bg-white/70 divide-y divide-gray-100 dark:border-dark-600 dark:bg-dark-900/50 dark:divide-dark-700"
+              <div
+                class="cc-dropzone"
+                :class="{ 'is-disabled': refUploadsBlocked || refImages.length >= mediaCaps.maxImages }"
+                @dragover.prevent
+                @drop="onDropMedia($event, 'refImages')"
               >
+                <div class="cc-dropzone__actions">
+                  <input
+                    ref="refImageInput"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    class="hidden"
+                    @change="onPickRefImage"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || refImages.length >= mediaCaps.maxImages || refUploadsBlocked"
+                    :title="refUploadsBlocked ? t('creazyCanvas.form.refsExclusiveWithFrames') : undefined"
+                    @click="refImageInput?.click()"
+                  >
+                    {{
+                      uploadingMedia === 'ref-image'
+                        ? uploadProgressLabel || t('creazyCanvas.form.uploading')
+                        : mediaCaps.maxImages >= 5
+                          ? t('creazyCanvas.form.uploadMultiple')
+                          : t('creazyCanvas.form.upload')
+                    }}
+                  </button>
+                  <span v-if="mediaCaps.maxImages > 0" class="cc-media-count">{{ mediaProgressText(refImages.length, mediaCaps.maxImages) }}</span>
+                </div>
+                <div v-if="mediaCaps.maxImages > 0" class="cc-progress">
+                  <div class="cc-progress__bar" :style="{ width: Math.min(100, (refImages.length / mediaCaps.maxImages) * 100) + '%' }" />
+                </div>
+                <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
+                <p v-if="refImages.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
+              </div>
+              <ul v-if="refImages.length" class="cc-media-list">
                 <li
                   v-for="(item, idx) in refImages"
-                  :key="'img-' + idx + '-' + item.media_url"
-                  class="flex items-center gap-2 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
+                  :key="'ref-img-' + idx + '-' + item.media_url"
+                  class="cc-media-item"
+                  draggable="true"
+                  @dragstart="onMediaDragStart('refImages', idx)"
+                  @dragover.prevent
+                  @drop.prevent="onMediaDropReorder('refImages', idx)"
                 >
-                  <div
-                    class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded bg-stone-100 text-[10px] font-semibold text-stone-700 dark:bg-stone-900/40 dark:text-stone-300"
-                  >
-                    <img
-                      v-if="item.preview_url"
-                      :src="item.preview_url"
-                      alt=""
-                      class="h-full w-full object-cover"
-                    />
-                    <span v-else>IMG</span>
+                  <img :src="item.preview_url || item.media_url" alt="" class="cc-media-item__thumb" />
+                  <div class="cc-media-item__body">
+                    <div class="cc-media-item__row">
+                      <span class="cc-media-token">@Image{{ idx + 1 }}</span>
+                      <p class="cc-media-item__name">{{ item.name }}</p>
+                    </div>
+                    <p class="cc-media-item__url">{{ item.media_url }}</p>
                   </div>
-                  <span class="min-w-0 flex-1 truncate" :title="item.name">{{ item.name }}</span>
-                  <span class="cc-media-token shrink-0">@Image{{ idx + 1 }}</span>
-                  <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="removeRefImage(idx)">
+                  <button type="button" class="cc-link-danger" @click="refImages.splice(idx, 1)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
                 </li>
               </ul>
             </div>
 
-            <div v-if="mediaCaps.maxVideos > 0">
-              <label class="input-label flex items-center justify-between gap-2">
-                <span>{{ t('creazyCanvas.form.refVideos') }} ({{ refVideos.length }}/{{ mediaCaps.maxVideos }})</span>
+            <div v-if="mediaCaps.maxVideos > 0" class="cc-media-panel">
+              <div class="cc-media-panel__head">
+                <div>
+                  <label class="cc-label">
+                    {{ t('creazyCanvas.form.refVideos') }}
+                    <span class="cc-media-count">({{ refVideos.length }}/{{ mediaCaps.maxVideos }})</span>
+                  </label>
+                </div>
                 <button
                   v-if="refVideos.length"
                   type="button"
-                  class="text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-400"
+                  class="cc-link-danger"
                   :disabled="!!uploadingMedia"
                   @click="clearRefVideos"
                 >
                   {{ t('creazyCanvas.form.clearAll') }}
                 </button>
-              </label>
-              <div class="flex flex-wrap items-center gap-2">
-                <input
-                  ref="refVideoInput"
-                  type="file"
-                  accept="video/*"
-                  multiple
-                  class="hidden"
-                  @change="onPickRefVideo"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || refVideos.length >= mediaCaps.maxVideos"
-                  @click="refVideoInput?.click()"
-                >
-                  {{
-                    uploadingMedia === 'ref-video'
-                      ? uploadProgressLabel || t('creazyCanvas.form.uploading')
-                      : mediaCaps.maxVideos >= 5
-                        ? t('creazyCanvas.form.uploadMultiple')
-                        : t('creazyCanvas.form.upload')
-                  }}
-                </button>
               </div>
-              <ul
-                v-if="refVideos.length"
-                class="mt-2 max-h-36 overflow-y-auto rounded-md border border-gray-200 bg-white/70 divide-y divide-gray-100 dark:border-dark-600 dark:bg-dark-900/50 dark:divide-dark-700"
+              <div
+                class="cc-dropzone"
+                :class="{ 'is-disabled': refVideos.length >= mediaCaps.maxVideos }"
+                @dragover.prevent
+                @drop="onDropMedia($event, 'refVideos')"
               >
+                <div class="cc-dropzone__actions">
+                  <input
+                    ref="refVideoInput"
+                    type="file"
+                    accept="video/*"
+                    multiple
+                    class="hidden"
+                    @change="onPickRefVideo"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || refVideos.length >= mediaCaps.maxVideos"
+                    @click="refVideoInput?.click()"
+                  >
+                    {{
+                      uploadingMedia === 'ref-video'
+                        ? uploadProgressLabel || t('creazyCanvas.form.uploading')
+                        : mediaCaps.maxVideos >= 3
+                          ? t('creazyCanvas.form.uploadMultiple')
+                          : t('creazyCanvas.form.upload')
+                    }}
+                  </button>
+                  <span class="cc-media-count">{{ mediaProgressText(refVideos.length, mediaCaps.maxVideos) }}</span>
+                </div>
+                <div class="cc-progress">
+                  <div class="cc-progress__bar" :style="{ width: Math.min(100, (refVideos.length / mediaCaps.maxVideos) * 100) + '%' }" />
+                </div>
+                <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
+                <p v-if="refVideos.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
+              </div>
+              <ul v-if="refVideos.length" class="cc-media-list">
                 <li
                   v-for="(item, idx) in refVideos"
-                  :key="'vid-' + idx + '-' + item.media_url"
-                  class="flex items-center gap-2 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
+                  :key="'ref-vid-' + idx + '-' + item.media_url"
+                  class="cc-media-item"
+                  draggable="true"
+                  @dragstart="onMediaDragStart('refVideos', idx)"
+                  @dragover.prevent
+                  @drop.prevent="onMediaDropReorder('refVideos', idx)"
                 >
-                  <div
-                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-sky-50 text-[10px] font-semibold text-sky-600 dark:bg-sky-950/40 dark:text-sky-300"
-                  >
-                    VID
+                  <div class="cc-media-item__badge cc-media-item__badge--vid">VID</div>
+                  <div class="cc-media-item__body">
+                    <div class="cc-media-item__row">
+                      <span class="cc-media-token">@Video{{ idx + 1 }}</span>
+                      <p class="cc-media-item__name">{{ item.name }}</p>
+                    </div>
+                    <p class="cc-media-item__url">
+                      {{ item.media_url }}
+                      <span v-if="item.duration_seconds"> · {{ item.duration_seconds }}s</span>
+                    </p>
                   </div>
-                  <span class="min-w-0 flex-1 truncate" :title="item.name">
-                    {{ item.name }}
-                    <span class="text-gray-400">({{ item.duration_seconds }}s)</span>
-                  </span>
-                  <span class="cc-media-token shrink-0">@Video{{ idx + 1 }}</span>
-                  <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="refVideos.splice(idx, 1)">
+                  <button type="button" class="cc-link-danger" @click="refVideos.splice(idx, 1)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
                 </li>
               </ul>
             </div>
 
-            <div v-if="mediaCaps.maxAudios > 0">
-              <label class="input-label flex items-center justify-between gap-2">
-                <span>{{ t('creazyCanvas.form.refAudios') }} ({{ refAudios.length }}/{{ mediaCaps.maxAudios }})</span>
+            <div v-if="mediaCaps.maxAudios > 0" class="cc-media-panel">
+              <div class="cc-media-panel__head">
+                <div>
+                  <label class="cc-label">
+                    {{ t('creazyCanvas.form.refAudios') }}
+                    <span class="cc-media-count">({{ refAudios.length }}/{{ mediaCaps.maxAudios }})</span>
+                  </label>
+                </div>
                 <button
                   v-if="refAudios.length"
                   type="button"
-                  class="text-[11px] font-medium text-rose-600 hover:underline dark:text-rose-400"
+                  class="cc-link-danger"
                   :disabled="!!uploadingMedia"
                   @click="clearRefAudios"
                 >
                   {{ t('creazyCanvas.form.clearAll') }}
                 </button>
-              </label>
-              <div class="flex flex-wrap items-center gap-2">
-                <input
-                  ref="refAudioInput"
-                  type="file"
-                  accept="audio/*"
-                  multiple
-                  class="hidden"
-                  @change="onPickRefAudio"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingMedia || !selectedKeyId || refAudios.length >= mediaCaps.maxAudios || refUploadsBlocked"
-                  :title="refUploadsBlocked ? t('creazyCanvas.form.refsExclusiveWithFrames') : undefined"
-                  @click="refAudioInput?.click()"
-                >
-                  {{
-                    uploadingMedia === 'ref-audio'
-                      ? uploadProgressLabel || t('creazyCanvas.form.uploading')
-                      : mediaCaps.maxAudios >= 5
-                        ? t('creazyCanvas.form.uploadMultiple')
-                        : t('creazyCanvas.form.upload')
-                  }}
-                </button>
               </div>
-              <ul
-                v-if="refAudios.length"
-                class="mt-2 max-h-36 overflow-y-auto rounded-md border border-gray-200 bg-white/70 divide-y divide-gray-100 dark:border-dark-600 dark:bg-dark-900/50 dark:divide-dark-700"
+              <div
+                class="cc-dropzone"
+                :class="{ 'is-disabled': refUploadsBlocked || refAudios.length >= mediaCaps.maxAudios }"
+                @dragover.prevent
+                @drop="onDropMedia($event, 'refAudios')"
               >
+                <div class="cc-dropzone__actions">
+                  <input
+                    ref="refAudioInput"
+                    type="file"
+                    accept="audio/*"
+                    multiple
+                    class="hidden"
+                    @change="onPickRefAudio"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!!uploadingMedia || !selectedKeyId || refAudios.length >= mediaCaps.maxAudios || refUploadsBlocked"
+                    :title="refUploadsBlocked ? t('creazyCanvas.form.refsExclusiveWithFrames') : undefined"
+                    @click="refAudioInput?.click()"
+                  >
+                    {{
+                      uploadingMedia === 'ref-audio'
+                        ? uploadProgressLabel || t('creazyCanvas.form.uploading')
+                        : mediaCaps.maxAudios >= 5
+                          ? t('creazyCanvas.form.uploadMultiple')
+                          : t('creazyCanvas.form.upload')
+                    }}
+                  </button>
+                  <span class="cc-media-count">{{ mediaProgressText(refAudios.length, mediaCaps.maxAudios) }}</span>
+                </div>
+                <div class="cc-progress">
+                  <div class="cc-progress__bar" :style="{ width: Math.min(100, (refAudios.length / mediaCaps.maxAudios) * 100) + '%' }" />
+                </div>
+                <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
+                <p v-if="refAudios.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
+              </div>
+              <ul v-if="refAudios.length" class="cc-media-list">
                 <li
                   v-for="(item, idx) in refAudios"
-                  :key="'aud-' + idx + '-' + item.media_url"
-                  class="flex items-center gap-2 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
+                  :key="'ref-aud-' + idx + '-' + item.media_url"
+                  class="cc-media-item"
+                  draggable="true"
+                  @dragstart="onMediaDragStart('refAudios', idx)"
+                  @dragover.prevent
+                  @drop.prevent="onMediaDropReorder('refAudios', idx)"
                 >
-                  <div
-                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-emerald-50 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  >
-                    AUD
+                  <div class="cc-media-item__badge cc-media-item__badge--aud">AUD</div>
+                  <div class="cc-media-item__body">
+                    <div class="cc-media-item__row">
+                      <span class="cc-media-token">@Audio{{ idx + 1 }}</span>
+                      <p class="cc-media-item__name">{{ item.name }}</p>
+                    </div>
+                    <p class="cc-media-item__url">
+                      {{ item.media_url }}
+                      <span v-if="item.duration_seconds"> · {{ item.duration_seconds }}s</span>
+                    </p>
                   </div>
-                  <span class="min-w-0 flex-1 truncate" :title="item.name">
-                    {{ item.name }}
-                    <span class="text-gray-400">({{ item.duration_seconds }}s)</span>
-                  </span>
-                  <span class="cc-media-token shrink-0">@Audio{{ idx + 1 }}</span>
-                  <button type="button" class="btn btn-secondary btn-sm shrink-0 px-2 py-0.5" @click="refAudios.splice(idx, 1)">
+                  <button type="button" class="cc-link-danger" @click="refAudios.splice(idx, 1)">
                     {{ t('creazyCanvas.form.remove') }}
                   </button>
                 </li>
@@ -968,243 +1019,86 @@
               {{ t('creazyCanvas.form.clearForm') }}
             </button>
             </div>
-            <p v-if="videoRunningCount" class="text-xs text-amber-600 dark:text-amber-400">
+            <p v-if="videoRunningCount" class="cc-callout cc-callout--live">
               {{ t('creazyCanvas.tasks.runningCount', { n: videoRunningCount }) }}
             </p>
-            <p v-if="videoStatus" class="text-sm text-gray-600 dark:text-gray-300">
+            <p v-if="videoStatus" class="cc-callout">
               {{ t('creazyCanvas.result.status') }}: {{ videoStatus }}
             </p>
-            <p v-if="videoError" class="text-sm text-red-600 dark:text-red-400">{{ videoError }}</p>
-            <p v-if="videoSaveMessage" class="text-sm text-green-600 dark:text-green-400">{{ videoSaveMessage }}</p>
+            <p v-if="videoError" class="cc-callout cc-callout--bad">{{ videoError }}</p>
+            <p v-if="videoSaveMessage" class="cc-callout cc-callout--ok">{{ videoSaveMessage }}</p>
           </div>
         </div>
 
-        <div class="card cc-board-card cc-surface space-y-4 p-5 sm:p-6">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <div class="cc-board-head">
-                <span class="cc-board-head__badge">LIVE</span>
-                <h2 class="cc-board-head__title">{{ t('creazyCanvas.tasks.title') }}</h2>
+        <div class="card cc-board-card cc-surface">
+          <div class="cc-board-head">
+            <div class="cc-board-head__main">
+              <div class="cc-board-head__kicker">
+                <span class="cc-board-head__kicker-dot" aria-hidden="true"></span>
+                LIVE
               </div>
+              <h2 class="cc-board-head__title">{{ t('creazyCanvas.tasks.title') }}</h2>
               <p class="cc-board-head__sub">{{ t('creazyCanvas.tasks.subtitle') }}</p>
-              <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board mt-2">
-                <span class="cc-pagination__meta">
-                  {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
-                </span>
-                <div class="cc-pagination__actions">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage <= 1"
-                @click="goToWorksPrevPage($event)"
-              >
-                {{ t('creazyCanvas.works.prevPage') }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage >= worksPages"
-                @click="goToWorksNextPage($event)"
-              >
-                {{ t('creazyCanvas.works.nextPage') }}
-              </button>
-              <label class="cc-pagination__jump">
-                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
-                <input
-                  v-model="worksPageJumpInput"
-                  type="number"
-                  min="1"
-                  :max="worksPages"
-                  class="cc-pagination__input"
-                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
-                  @keyup.enter="jumpWorksPageFromInput"
-                />
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
-                  {{ t('creazyCanvas.works.pageJump') }}
-                </button>
-              </label>
-              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
-                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
-                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
-                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
-                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
-                  </option>
-                </select>
-              </label>
             </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingWorks" @click="() => loadWorks()">
+            <button type="button" class="btn btn-secondary btn-sm cc-board-head__refresh" :disabled="loadingWorks" @click="() => loadWorks()">
+              <Icon name="refresh" size="sm" class="mr-1.5" :class="loadingWorks ? 'animate-spin' : ''" />
               {{ t('creazyCanvas.works.refresh') }}
             </button>
           </div>
-
-          <div v-if="videoResultUrl" class="space-y-2 rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-            <p class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{{ t('creazyCanvas.tasks.latestPreview') }}</p>
-            <div class="overflow-hidden rounded-lg border border-emerald-100 bg-black dark:border-emerald-900/40">
-              <video
-                :src="videoResultUrl"
-                controls
-                playsinline
-                preload="metadata"
-                :muted="false"
-                class="max-h-64 w-full object-contain"
-              />
-            </div>
-            <p class="text-[11px] text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.result.videoAudioHint') }}</p>
-            <div class="flex flex-wrap gap-2">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="openMediaPreview({ type: 'video', url: videoResultUrl })"
-              >
-                {{ t('creazyCanvas.result.fullscreenPreview') }}
-              </button>
-              <a
-                :href="videoResultUrl"
-                :download="isBlobUrl(videoResultUrl) ? 'creazy-video.mp4' : undefined"
-                target="_blank"
-                rel="noopener"
-                class="btn btn-secondary btn-sm"
-              >
-                {{ t('creazyCanvas.result.download') }}
-              </a>
-            </div>
-          </div>
-
-          <div v-if="!videoTaskWorks.length" class="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-gray-200 text-sm text-gray-500 dark:border-dark-700 dark:text-gray-400">
-            {{ t('creazyCanvas.tasks.empty') }}
-          </div>
-          <div v-else class="space-y-3">
-            <article
-              v-for="work in videoTaskWorks"
-              :key="work.id"
-              :data-work-id="work.id"
-              class="cc-work-card rounded-xl border p-3 shadow-sm transition-colors"
-              :class="workCardClass(work)"
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
-                  <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
-                  {{ workStatusLabel(work.status) }}
-                </span>
-                <span class="inline-flex max-w-full items-center gap-1 rounded-md border border-stone-300 bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-700 dark:border-stone-600/60 dark:bg-stone-900/40 dark:text-stone-300">
-                  {{ work.public_model || '—' }}
-                </span>
-                <span v-if="work.created_at" class="text-[11px] text-gray-500">{{ formatDateTime(work.created_at) }}</span>
+          <div class="cc-board-body">
+            <div v-if="videoResultUrl" class="cc-latest cc-latest--video">
+              <div class="cc-latest__head">
+                <span class="cc-latest__badge">NOW</span>
+                <p class="cc-latest__title">{{ t('creazyCanvas.tasks.latestPreview') }}</p>
               </div>
-              <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                <span v-if="isActiveWorkStatus(work.status) && work.created_at" class="font-mono tabular-nums text-amber-700 dark:text-amber-300">
-                  {{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at) }) }}
-                </span>
-                <span v-if="flashWorkIds[String(work.id)] && flashWorkIds[String(work.id)] > nowTick" class="rounded bg-stone-100 px-1.5 py-0.5 font-semibold text-stone-700 dark:bg-stone-900/50 dark:text-stone-300">
-                  {{ t('creazyCanvas.tasks.newBadge') }}
-                </span>
+              <div class="cc-latest__stage">
+                <video :src="videoResultUrl" controls playsinline preload="metadata" :muted="false" />
               </div>
-              <p class="mt-2 line-clamp-2 text-sm text-gray-800 dark:text-gray-100">{{ work.prompt || ('#' + work.id) }}</p>
-              <div v-if="workErrorText(work)" class="mt-1">
-                <p
-                  class="text-xs text-red-600 dark:text-red-300"
-                  :class="isErrorExpanded(work) ? '' : 'line-clamp-2'"
-                >{{ workErrorText(work) }}</p>
-                <div class="mt-1 flex flex-wrap gap-2">
-                  <button type="button" class="text-[11px] font-medium text-red-600 underline-offset-2 hover:underline dark:text-red-300" @click="toggleErrorExpand(work)">
-                    {{ isErrorExpanded(work) ? t('creazyCanvas.tasks.collapseError') : t('creazyCanvas.tasks.expandError') }}
-                  </button>
-                  <button type="button" class="text-[11px] font-medium text-gray-500 underline-offset-2 hover:underline" @click="copyWorkError(work)">
-                    {{ t('creazyCanvas.tasks.copyError') }}
-                  </button>
+              <p class="cc-latest__hint">{{ t('creazyCanvas.result.videoAudioHint') }}</p>
+            </div>
+            <div v-if="!videoTaskWorks.length" class="cc-empty-stage cc-empty-stage--compact">
+              <div class="cc-empty-stage__icon cc-empty-stage__icon--soft" aria-hidden="true"><span class="cc-empty-stage__glyph">◇</span></div>
+              <p class="cc-empty-stage__title">{{ t('creazyCanvas.tasks.empty') }}</p>
+              <p class="cc-empty-stage__sub">{{ t('creazyCanvas.tasks.subtitle') }}</p>
+            </div>
+            <div v-else class="cc-task-list">
+              <article v-for="work in videoTaskWorks" :key="work.id" class="cc-task-card" :class="taskCardClass(work)">
+                <div class="cc-task-card__top">
+                  <span class="cc-task-status" :class="taskStatusTone(work.status)">
+                    <i class="cc-task-status__dot" :class="{ 'is-pulse': isActiveWorkStatus(work.status) }" />
+                    {{ workStatusLabel(work.status) }}
+                  </span>
+                  <span class="cc-task-model">{{ work.public_model || '—' }}</span>
+                  <span v-if="work.created_at" class="cc-task-time">{{ formatDateTime(work.created_at) }}</span>
                 </div>
+                <p class="cc-task-prompt">{{ work.prompt || ('#' + work.id) }}</p>
+                <p v-if="isActiveWorkStatus(work.status)" class="cc-task-elapsed">{{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at || work.updated_at) }) }}</p>
+                <p v-if="workErrorText(work)" class="cc-task-error">{{ workErrorText(work) }}</p>
+                <div class="cc-task-actions">
+                  <button v-if="canPreviewWork(work)" type="button" class="btn btn-primary btn-sm" :disabled="workPreviewLoading[String(work.id)]" @click="openWorkPreview(work)">
+                    {{ workPreviewLoading[String(work.id)] ? t('creazyCanvas.works.previewLoading') : t('creazyCanvas.works.preview') }}
+                  </button>
+                  <button v-if="canPreviewWork(work)" type="button" class="btn btn-secondary btn-sm" :disabled="downloadingWorkId === String(work.id)" @click="downloadWork(work)">
+                    {{ t('creazyCanvas.works.download') }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">{{ t('creazyCanvas.works.reuse') }}</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">{{ t('creazyCanvas.tasks.copyPrompt') }}</button>
+                  <button v-if="['failed','error'].includes(String(work.status||'').toLowerCase())" type="button" class="btn btn-primary btn-sm" @click="retryWork(work)">{{ t('creazyCanvas.tasks.retry') }}</button>
+                  <button v-if="isActiveWorkStatus(work.status) && !stoppedTrackIds[String(work.id)]" type="button" class="btn btn-secondary btn-sm" @click="stopLocalTrack(work)">{{ t('creazyCanvas.tasks.stopTrack') }}</button>
+                </div>
+              </article>
+            </div>
+            <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board">
+              <span class="cc-pagination__meta">{{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}</span>
+              <div class="cc-pagination__actions">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage <= 1" @click="goToWorksPrevPage($event)">{{ t('creazyCanvas.works.prevPage') }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage >= worksPages" @click="goToWorksNextPage($event)">{{ t('creazyCanvas.works.nextPage') }}</button>
+                <label class="cc-pagination__jump">
+                  <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
+                  <input v-model="worksPageJumpInput" type="number" min="1" :max="worksPages" class="cc-pagination__input" :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')" @keyup.enter="jumpWorksPageFromInput" />
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">{{ t('creazyCanvas.works.pageJump') }}</button>
+                </label>
               </div>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button
-                  v-if="canPreviewWork(work)"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="workPreviewLoading[String(work.id)]"
-                  @click="openWorkPreview(work)"
-                >
-                  {{ workPreviewLoading[String(work.id)] ? t('creazyCanvas.works.previewLoading') : t('creazyCanvas.works.preview') }}
-                </button>
-                <button
-                  v-if="canPreviewWork(work)"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="downloadingWorkId === String(work.id)"
-                  @click="downloadWork(work)"
-                >
-                  {{ t('creazyCanvas.works.download') }}
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">
-                  {{ t('creazyCanvas.works.reuse') }}
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">
-                  {{ t('creazyCanvas.tasks.copyPrompt') }}
-                </button>
-                <button
-                  v-if="['failed','error'].includes(String(work.status||'').toLowerCase())"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  @click="retryWork(work)"
-                >
-                  {{ t('creazyCanvas.tasks.retry') }}
-                </button>
-                <button
-                  v-if="isActiveWorkStatus(work.status) && !stoppedTrackIds[String(work.id)]"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="stopLocalTrack(work)"
-                >
-                  {{ t('creazyCanvas.tasks.stopTrack') }}
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div v-if="worksTotal > 0" class="cc-pagination">
-            <span class="cc-pagination__meta">
-              {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
-            </span>
-            <div class="cc-pagination__actions">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage <= 1"
-                @click="goToWorksPrevPage($event)"
-              >
-                {{ t('creazyCanvas.works.prevPage') }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="loadingWorks || worksPage >= worksPages"
-                @click="goToWorksNextPage($event)"
-              >
-                {{ t('creazyCanvas.works.nextPage') }}
-              </button>
-              <label class="cc-pagination__jump">
-                <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
-                <input
-                  v-model="worksPageJumpInput"
-                  type="number"
-                  min="1"
-                  :max="worksPages"
-                  class="cc-pagination__input"
-                  :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')"
-                  @keyup.enter="jumpWorksPageFromInput"
-                />
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">
-                  {{ t('creazyCanvas.works.pageJump') }}
-                </button>
-              </label>
-              <label v-if="String(activeTab) === 'works'" class="cc-pagination__size">
-                <span class="text-[11px] text-gray-500">{{ t('creazyCanvas.works.pageSize') }}</span>
-                <select v-model.number="worksPageSizeChoice" class="cc-pagination__select" @change="onWorksPageSizeChange">
-                  <option v-for="n in worksPageSizeOptions" :key="'ps-' + n" :value="n">
-                    {{ t('creazyCanvas.works.pageSizeOption', { n }) }}
-                  </option>
-                </select>
-              </label>
             </div>
           </div>
         </div>
@@ -1214,8 +1108,12 @@
       <section v-else class="space-y-4">
         <div class="card cc-works overflow-hidden">
           <div class="cc-works__head">
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div class="min-w-0">
+            <div class="cc-works__title-row">
+              <div class="cc-works__title-block">
+                <div class="cc-works__kicker">
+                  <span class="cc-works__kicker-dot" aria-hidden="true"></span>
+                  LIBRARY
+                </div>
                 <h2 class="cc-works__title">
                   {{ t('creazyCanvas.works.title') }}
                 </h2>
@@ -1229,114 +1127,124 @@
                   </template>
                 </p>
               </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                  <span>{{ t('creazyCanvas.works.filterKind') }}</span>
-                  <select
-                    v-model="worksFilterKind"
-                    class="input min-w-[7rem] py-1 text-xs"
-                    :disabled="!selectedKeyId || loadingWorks"
-                    @change="() => reloadWorksFromStart()"
-                  >
-                    <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
-                    <option value="image">{{ t('creazyCanvas.works.image') }}</option>
-                    <option value="video">{{ t('creazyCanvas.works.video') }}</option>
-                  </select>
-                </label>
-                <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                  <span>{{ t('creazyCanvas.works.filterStatus') }}</span>
-                  <select
-                    v-model="worksFilterStatus"
-                    class="input min-w-[7rem] py-1 text-xs"
-                    :disabled="!selectedKeyId || loadingWorks"
-                    @change="() => reloadWorksFromStart()"
-                  >
-                    <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
-                    <option value="succeeded">{{ t('creazyCanvas.works.statusLabels.succeeded') }}</option>
-                    <option value="failed">{{ t('creazyCanvas.works.statusLabels.failed') }}</option>
-                    <option value="queued">{{ t('creazyCanvas.works.statusLabels.queued') }}</option>
-                    <option value="running">{{ t('creazyCanvas.works.statusLabels.running') }}</option>
-                    <option value="created">{{ t('creazyCanvas.works.statusLabels.created') }}</option>
-                    <option value="expired">{{ t('creazyCanvas.works.statusLabels.expired') }}</option>
-                    <option value="canceled">{{ t('creazyCanvas.works.statusLabels.canceled') }}</option>
-                  </select>
-                </label>
-                <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                  <span>{{ t('creazyCanvas.works.filterModel') }}</span>
-                  <select
-                    v-model="worksFilterModel"
-                    class="input min-w-[8rem] py-1 text-xs"
-                    :disabled="!selectedKeyId || loadingWorks"
-                  >
-                    <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
-                    <option v-for="m in worksModelOptions" :key="'wm-' + m" :value="m">{{ m }}</option>
-                  </select>
-                </label>
-                <label class="flex min-w-[10rem] flex-1 items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 sm:max-w-[16rem]">
-                  <span class="shrink-0">{{ t('creazyCanvas.works.filterQuery') }}</span>
-                  <input
-                    v-model="worksFilterQuery"
-                    type="search"
-                    class="input w-full min-w-0 py-1 text-xs"
-                    :placeholder="t('creazyCanvas.works.filterQueryPlaceholder')"
-                    :disabled="!selectedKeyId || loadingWorks"
-                  />
-                </label>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!selectedKeyId || loadingWorks"
-                  @click="() => loadWorks()"
-                >
-                  <Icon name="refresh" size="sm" class="mr-1.5" :class="loadingWorks ? 'animate-spin' : ''" />
-                  {{ t('creazyCanvas.works.refresh') }}
-                </button>
-              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm cc-works__refresh"
+                :disabled="!selectedKeyId || loadingWorks"
+                @click="() => loadWorks()"
+              >
+                <Icon name="refresh" size="sm" class="mr-1.5" :class="loadingWorks ? 'animate-spin' : ''" />
+                {{ t('creazyCanvas.works.refresh') }}
+              </button>
             </div>
 
-            <div v-if="selectedKeyId && worksStatusSummary.total > 0" class="mt-4 flex flex-wrap gap-2">
+            <div class="cc-filterbar" role="search">
+              <label class="cc-filter">
+                <span class="cc-filter__label">{{ t('creazyCanvas.works.filterKind') }}</span>
+                <select
+                  v-model="worksFilterKind"
+                  class="input cc-filter__control"
+                  :disabled="!selectedKeyId || loadingWorks"
+                  @change="() => reloadWorksFromStart()"
+                >
+                  <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
+                  <option value="image">{{ t('creazyCanvas.works.image') }}</option>
+                  <option value="video">{{ t('creazyCanvas.works.video') }}</option>
+                </select>
+              </label>
+              <label class="cc-filter">
+                <span class="cc-filter__label">{{ t('creazyCanvas.works.filterStatus') }}</span>
+                <select
+                  v-model="worksFilterStatus"
+                  class="input cc-filter__control"
+                  :disabled="!selectedKeyId || loadingWorks"
+                  @change="() => reloadWorksFromStart()"
+                >
+                  <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
+                  <option value="succeeded">{{ t('creazyCanvas.works.statusLabels.succeeded') }}</option>
+                  <option value="failed">{{ t('creazyCanvas.works.statusLabels.failed') }}</option>
+                  <option value="queued">{{ t('creazyCanvas.works.statusLabels.queued') }}</option>
+                  <option value="running">{{ t('creazyCanvas.works.statusLabels.running') }}</option>
+                  <option value="created">{{ t('creazyCanvas.works.statusLabels.created') }}</option>
+                  <option value="expired">{{ t('creazyCanvas.works.statusLabels.expired') }}</option>
+                  <option value="canceled">{{ t('creazyCanvas.works.statusLabels.canceled') }}</option>
+                </select>
+              </label>
+              <label class="cc-filter">
+                <span class="cc-filter__label">{{ t('creazyCanvas.works.filterModel') }}</span>
+                <select
+                  v-model="worksFilterModel"
+                  class="input cc-filter__control"
+                  :disabled="!selectedKeyId || loadingWorks"
+                >
+                  <option value="">{{ t('creazyCanvas.works.filterAll') }}</option>
+                  <option v-for="m in worksModelOptions" :key="'wm-' + m" :value="m">{{ m }}</option>
+                </select>
+              </label>
+              <label class="cc-filter cc-filter--grow">
+                <span class="cc-filter__label">{{ t('creazyCanvas.works.filterQuery') }}</span>
+                <input
+                  v-model="worksFilterQuery"
+                  type="search"
+                  class="input cc-filter__control"
+                  :placeholder="t('creazyCanvas.works.filterQueryPlaceholder')"
+                  :disabled="!selectedKeyId || loadingWorks"
+                />
+              </label>
+            </div>
+
+            <div v-if="selectedKeyId && worksStatusSummary.total > 0" class="cc-status-strip">
               <span
                 v-for="item in worksStatusSummary.items"
                 :key="item.key"
-                class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+                class="cc-status-chip"
                 :class="item.chipClass"
               >
-                <span class="h-1.5 w-1.5 rounded-full" :class="item.dotClass" />
-                {{ item.label }}
-                <span class="tabular-nums opacity-80">{{ item.count }}</span>
+                <span class="cc-status-chip__dot" :class="item.dotClass" />
+                <span class="cc-status-chip__label">{{ item.label }}</span>
+                <span class="cc-status-chip__count">{{ item.count }}</span>
               </span>
             </div>
           </div>
 
-          <div class="p-5">
+          <div class="cc-works-body-pad">
+
             <div
               v-if="worksNeedSecretBanner"
-              class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+              class="cc-banner cc-banner--warn"
             >
               {{ t('creazyCanvas.works.needSecretBanner') }}
             </div>
 
-            <div v-if="!selectedKeyId" class="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 text-center dark:border-dark-700 dark:bg-dark-900/40">
-              <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-300">
+            <div v-if="!selectedKeyId" class="cc-empty-stage">
+              <div class="cc-empty-stage__icon" aria-hidden="true">
                 <Icon name="key" size="md" />
               </div>
-              <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('creazyCanvas.works.selectKeyFirst') }}</p>
-              <p class="mt-1 max-w-md text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.works.selectKeyFirstHint') }}</p>
+              <p class="cc-empty-stage__title">{{ t('creazyCanvas.works.selectKeyFirst') }}</p>
+              <p class="cc-empty-stage__sub">{{ t('creazyCanvas.works.selectKeyFirstHint') }}</p>
             </div>
 
-            <div v-else-if="loadingWorks" class="space-y-3">
-              <div v-for="i in 4" :key="i" class="h-28 animate-pulse rounded-2xl bg-gray-100 dark:bg-dark-800" />
+            <div v-else-if="loadingWorks" class="cc-works-skeleton">
+              <div v-for="i in 6" :key="i" class="cc-works-skeleton__card">
+                <div class="cc-works-skeleton__media" />
+                <div class="cc-works-skeleton__lines">
+                  <i></i><i></i><i></i>
+                </div>
+              </div>
             </div>
 
             <div
               v-else-if="works.length === 0"
-              class="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 text-center dark:border-dark-700 dark:bg-dark-900/40"
+              class="cc-empty-stage"
             >
-              <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('creazyCanvas.works.emptyForKey') }}</p>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('creazyCanvas.works.emptyForKeyHint') }}</p>
-              <div class="cc-empty-guide mt-5 w-full max-w-md text-left">
-                <p class="mb-2 text-xs font-semibold uppercase tracking-wide cc-linkish">{{ t('creazyCanvas.works.emptyGuideTitle') }}</p>
-                <ol class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+              <div class="cc-empty-stage__icon cc-empty-stage__icon--soft" aria-hidden="true">
+                <span class="cc-empty-stage__glyph">◇</span>
+              </div>
+              <p class="cc-empty-stage__title">{{ t('creazyCanvas.works.emptyForKey') }}</p>
+              <p class="cc-empty-stage__sub">{{ t('creazyCanvas.works.emptyForKeyHint') }}</p>
+              <div class="cc-empty-guide">
+                <p class="cc-empty-guide__title">{{ t('creazyCanvas.works.emptyGuideTitle') }}</p>
+                <ol class="cc-empty-guide__list">
                   <li>1. {{ t('creazyCanvas.works.emptyGuide1') }}</li>
                   <li>2. {{ t('creazyCanvas.works.emptyGuide2') }}</li>
                   <li>3. {{ t('creazyCanvas.works.emptyGuide3') }}</li>
@@ -1346,53 +1254,69 @@
 
             <div
               v-else-if="filteredWorks.length === 0"
-              class="flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 text-center dark:border-dark-700 dark:bg-dark-900/40"
+              class="cc-empty-stage cc-empty-stage--compact"
             >
-              <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ t('creazyCanvas.works.filterEmpty') }}</p>
+              <p class="cc-empty-stage__title">{{ t('creazyCanvas.works.filterEmpty') }}</p>
             </div>
 
-            <div v-else class="space-y-3">
+            <div v-else class="cc-works-body">
               <div class="cc-batch-bar">
-                <div class="flex flex-wrap items-center gap-2">
+                <div class="cc-batch-bar__left">
                   <button type="button" class="btn btn-secondary btn-sm" @click="selectAllWorksOnPage(true)">
                     {{ t('creazyCanvas.works.selectAllPage') }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedWorkIds.length" @click="selectAllWorksOnPage(false)">
                     {{ t('creazyCanvas.works.clearSelection') }}
                   </button>
-                  <span v-if="selectedWorkIds.length" class="text-xs text-gray-500">{{ t('creazyCanvas.works.selectedCount', { n: selectedWorkIds.length }) }}</span>
+                  <span v-if="selectedWorkIds.length" class="cc-batch-bar__count">{{ t('creazyCanvas.works.selectedCount', { n: selectedWorkIds.length }) }}</span>
                 </div>
                 <button
                   type="button"
-                  class="btn btn-secondary btn-sm text-rose-600"
+                  class="btn btn-secondary btn-sm cc-batch-bar__danger"
                   :disabled="!selectedWorkIds.length || loadingWorks"
                   @click="batchDeleteSelectedWorks"
                 >
                   {{ t('creazyCanvas.works.batchDelete') }}
                 </button>
               </div>
-              <article
-                v-for="work in filteredWorks"
-                :key="String(work.id)"
-                :data-work-id="work.id"
-                class="cc-work-card group relative overflow-hidden"
-                :class="workCardClass(work)"
-              >
-                <div class="absolute left-3 top-3 z-10">
-                  <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-                    :checked="selectedWorkIds.includes(Number(work.id))"
-                    @change="onWorkSelectChange(work, $event)"
-                  />
-                </div>
-                <div class="flex flex-col gap-4 p-4 sm:flex-row sm:items-stretch">
-                  <!-- Cover -->
-                  <div class="shrink-0">
+
+              <div class="cc-works-grid">
+                <article
+                  v-for="work in filteredWorks"
+                  :key="String(work.id)"
+                  :data-work-id="work.id"
+                  class="cc-work-card group"
+                  :class="workCardClass(work)"
+                >
+                  <div class="cc-work-media">
+                    <label class="cc-work-check" @click.stop>
+                      <input
+                        type="checkbox"
+                        :checked="selectedWorkIds.includes(Number(work.id))"
+                        @change="onWorkSelectChange(work, $event)"
+                      />
+                    </label>
+
+                    <span class="cc-work-status" :class="workStatusClass(work.status)">
+                      <i class="cc-work-status__dot" :class="workStatusDotClass(work.status)" />
+                      {{ workStatusLabel(work.status) }}
+                    </span>
+                    <span v-if="isExpired(work)" class="cc-work-expired">{{ t('creazyCanvas.works.expired') }}</span>
+
+                    <div
+                      v-if="isWorkCoverLoading(work)"
+                      class="cc-cover-skeleton"
+                      aria-hidden="true"
+                    >
+                      <div class="cc-cover-skeleton__shine" />
+                      <span class="cc-cover-skeleton__label">{{ t('creazyCanvas.works.coverLoading') }}</span>
+                    </div>
+
                     <button
                       v-if="workCoverUrl(work)"
                       type="button"
-                      class="relative h-32 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 sm:w-44 dark:border-dark-700 dark:bg-dark-800"
+                      class="cc-work-cover"
+                      :class="{ 'is-ready': isWorkCoverReady(work) }"
                       :title="t('creazyCanvas.works.preview')"
                       @click="openWorkPreview(work)"
                     >
@@ -1400,7 +1324,9 @@
                         v-if="isImageWork(work) || workCoverIsImage(work)"
                         :src="workCoverUrl(work)"
                         alt=""
-                        class="h-full w-full object-cover"
+                        class="cc-work-cover__media"
+                        @load="onCoverMediaReady(work, $event)"
+                        @error="onCoverMediaError(work)"
                       />
                       <video
                         v-else
@@ -1408,155 +1334,119 @@
                         muted
                         playsinline
                         preload="metadata"
-                        class="h-full w-full object-cover"
-                        @loadeddata="onCoverVideoLoaded"
+                        class="cc-work-cover__media"
+                        @loadeddata="onCoverVideoLoaded($event, work)"
+                        @error="onCoverMediaError(work)"
                       />
-                      <span
-                        class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-xs font-medium text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100"
-                      >
-                        {{ t('creazyCanvas.works.preview') }}
+                      <span class="cc-work-cover__veil">
+                        <span class="cc-work-cover__play">{{ t('creazyCanvas.works.preview') }}</span>
                       </span>
                     </button>
+
                     <button
                       v-else-if="canPreviewWork(work)"
                       type="button"
-                      class="flex h-28 w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed px-2 text-center text-[11px] leading-tight sm:w-40"
-                      :class="
-                        workNeedsSecret(work)
-                          ? 'border-amber-300 bg-amber-50/70 text-amber-700 dark:border-amber-700 dark:bg-amber-950/20 dark:text-amber-300'
-                          : 'border-gray-300 bg-gray-50 text-gray-500 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-400'
-                      "
+                      class="cc-work-cover cc-work-cover--pending"
                       :disabled="workPreviewLoading[String(work.id)]"
                       @click="openWorkPreview(work)"
                     >
-                      <template v-if="workPreviewLoading[String(work.id)]">
-                        {{ t('creazyCanvas.works.previewLoading') }}
-                      </template>
-                      <template v-else-if="workNeedsSecret(work)">
-                        <span class="font-semibold">{{ t('creazyCanvas.works.coverNeedSecret') }}</span>
-                        <span class="opacity-80">{{ t('creazyCanvas.works.preview') }}</span>
-                      </template>
-                      <template v-else>
-                        {{ t('creazyCanvas.works.preview') }}
-                      </template>
+                      <span class="cc-work-cover__pending-text">
+                        {{
+                          workPreviewLoading[String(work.id)]
+                            ? t('creazyCanvas.works.coverLoading')
+                            : t('creazyCanvas.works.preview')
+                        }}
+                      </span>
                     </button>
-                    <div
-                      v-else
-                      class="flex h-28 w-full flex-col items-center justify-center rounded-xl border border-gray-100 bg-gray-50 px-2 text-center text-[11px] text-gray-400 sm:w-44 dark:border-dark-700 dark:bg-dark-800"
-                      :title="workCoverUnavailableReason(work)"
-                    >
-                      <span>{{ workCoverPlaceholder(work) }}</span>
+
+                    <div v-else class="cc-work-cover cc-work-cover--empty">
+                      <span>{{ workCoverUnavailableReason(work) }}</span>
+                    </div>
+
+                    <div class="cc-work-media__corners" aria-hidden="true">
+                      <i></i><i></i><i></i><i></i>
                     </div>
                   </div>
 
-                  <!-- Body -->
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span class="badge" :class="workKindClass(work.kind)">
-                        {{ workTypeLabel(work.kind) }}
-                      </span>
-                      <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
-                        {{ workStatusLabel(work.status) }}
-                      </span>
-                      <span v-if="isExpired(work)" class="badge badge-danger">{{ t('creazyCanvas.works.expired') }}</span>
-                    </div>
-
-                    <p class="mt-2 line-clamp-2 text-sm font-medium leading-6 text-gray-900 dark:text-gray-50">
-                      {{ work.prompt || work.public_model || `#${work.id}` }}
+                  <div class="cc-work-body">
+                    <p class="cc-work-prompt" :title="work.prompt || work.public_model || ('#' + work.id)">
+                      {{ work.prompt || work.public_model || ('#' + work.id) }}
                     </p>
 
-                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                      <span
-                        class="inline-flex max-w-full items-center gap-1.5 rounded-lg cc-token-chip"
-                        :title="t('creazyCanvas.form.model')"
-                      >
-                        <span class="text-[10px] font-medium uppercase tracking-wide cc-linkish">
-                          {{ t('creazyCanvas.form.model') }}
-                        </span>
-                        <span class="truncate">{{ work.public_model || '\u2014' }}</span>
+                    <div class="cc-work-meta">
+                      <span class="cc-token-chip" :title="t('creazyCanvas.form.model')">
+                        <em>{{ t('creazyCanvas.form.model') }}</em>
+                        <strong>{{ work.public_model || '—' }}</strong>
                       </span>
-                      <span
-                        v-if="work.created_at"
-                        class="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1 text-[11px] text-gray-600 dark:bg-dark-800 dark:text-gray-300"
-                      >
-                        {{ t('creazyCanvas.works.createdAt') }} · {{ formatDateTime(work.created_at) }}
-                      </span>
-                      <span
-                        v-if="work.expires_at"
-                        class="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1 text-[11px] text-gray-600 dark:bg-dark-800 dark:text-gray-300"
-                      >
-                        exp · {{ formatDateTime(work.expires_at) }}
+                      <span v-if="work.created_at" class="cc-work-time">
+                        {{ formatDateTime(work.created_at) }}
                       </span>
                     </div>
 
-                    <div v-if="workErrorText(work)" class="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 dark:bg-red-950/30">
-                      <p
-                        class="text-xs text-red-600 dark:text-red-300"
-                        :class="isErrorExpanded(work) ? '' : 'line-clamp-2'"
-                      >{{ workErrorText(work) }}</p>
-                      <div class="mt-1 flex flex-wrap gap-2">
-                        <button type="button" class="text-[11px] font-medium text-red-600 underline-offset-2 hover:underline dark:text-red-300" @click="toggleErrorExpand(work)">
+                    <div v-if="workErrorText(work)" class="cc-work-error">
+                      <p :class="isErrorExpanded(work) ? '' : 'line-clamp-2'">{{ workErrorText(work) }}</p>
+                      <div class="cc-work-error__actions">
+                        <button type="button" @click="toggleErrorExpand(work)">
                           {{ isErrorExpanded(work) ? t('creazyCanvas.tasks.collapseError') : t('creazyCanvas.tasks.expandError') }}
                         </button>
-                        <button type="button" class="text-[11px] font-medium text-gray-500 underline-offset-2 hover:underline" @click="copyWorkError(work)">
+                        <button type="button" @click="copyWorkError(work)">
                           {{ t('creazyCanvas.tasks.copyError') }}
                         </button>
                       </div>
                     </div>
-                    <p v-if="isActiveWorkStatus(work.status) && work.created_at" class="mt-2 font-mono text-[11px] tabular-nums text-amber-700 dark:text-amber-300">
+
+                    <p v-if="isActiveWorkStatus(work.status) && work.created_at" class="cc-work-elapsed">
                       {{ t('creazyCanvas.tasks.elapsed', { time: formatElapsed(work.created_at) }) }}
                     </p>
-                  </div>
 
-                  <!-- Actions -->
-                  <div class="flex shrink-0 flex-wrap items-start gap-2 sm:flex-col sm:items-stretch">
-                    <button
-                      v-if="canPreviewWork(work)"
-                      type="button"
-                      class="btn btn-primary btn-sm sm:min-w-[6.5rem]"
-                      :disabled="workPreviewLoading[String(work.id)]"
-                      @click="openWorkPreview(work)"
-                    >
-                      {{
-                        workPreviewLoading[String(work.id)]
-                          ? t('creazyCanvas.works.previewLoading')
-                          : t('creazyCanvas.works.preview')
-                      }}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm sm:min-w-[6.5rem]" @click="reuseWork(work)">
-                      {{ t('creazyCanvas.works.reuse') }}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm sm:min-w-[6.5rem]" @click="copyWorkPrompt(work)">
-                      {{ t('creazyCanvas.tasks.copyPrompt') }}
-                    </button>
-                    <button
-                      v-if="['failed','error'].includes(String(work.status||'').toLowerCase())"
-                      type="button"
-                      class="btn btn-primary btn-sm sm:min-w-[6.5rem]"
-                      @click="retryWork(work)"
-                    >
-                      {{ t('creazyCanvas.tasks.retry') }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm sm:min-w-[6.5rem]"
-                      :disabled="downloadingWorkId === String(work.id) || isExpired(work) || work.status === 'failed'"
-                      @click="downloadWork(work)"
-                    >
-                      {{ t('creazyCanvas.works.download') }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm sm:min-w-[6.5rem]"
-                      :disabled="deletingWorkId === String(work.id)"
-                      @click="removeWork(work)"
-                    >
-                      {{ t('creazyCanvas.works.delete') }}
-                    </button>
+                    <div class="cc-work-actions">
+                      <button
+                        v-if="canPreviewWork(work)"
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="workPreviewLoading[String(work.id)]"
+                        @click="openWorkPreview(work)"
+                      >
+                        {{
+                          workPreviewLoading[String(work.id)]
+                            ? t('creazyCanvas.works.previewLoading')
+                            : t('creazyCanvas.works.preview')
+                        }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">
+                        {{ t('creazyCanvas.works.reuse') }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">
+                        {{ t('creazyCanvas.tasks.copyPrompt') }}
+                      </button>
+                      <button
+                        v-if="['failed','error'].includes(String(work.status||'').toLowerCase())"
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        @click="retryWork(work)"
+                      >
+                        {{ t('creazyCanvas.tasks.retry') }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="downloadingWorkId === String(work.id) || isExpired(work) || work.status === 'failed'"
+                        @click="downloadWork(work)"
+                      >
+                        {{ t('creazyCanvas.works.download') }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="deletingWorkId === String(work.id)"
+                        @click="removeWork(work)"
+                      >
+                        {{ t('creazyCanvas.works.delete') }}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
+                </article>
+              </div>
             </div>
 
             <div v-if="worksTotal > 0" class="cc-pagination">
@@ -2036,6 +1926,7 @@ const videoSaveMessage = ref('')
 const mediaPreview = ref<{ type: 'image' | 'video'; url: string } | null>(null)
 /** Cached playable URLs for works list (may be blob:) */
 const workPreviewUrls = reactive<Record<string, string>>({})
+const workCoverReady = reactive<Record<string, boolean>>({})
 const workPreviewLoading = reactive<Record<string, boolean>>({})
 const workPreviewBlobUrls = new Set<string>()
 
@@ -3300,35 +3191,51 @@ function workStatusClass(status?: string) {
 
 function workStatusDotClass(status?: string) {
   const s = (status || '').toLowerCase()
-  if (['succeeded', 'completed', 'success', 'done'].includes(s)) return 'bg-emerald-500'
-  if (['failed', 'error', 'expired'].includes(s)) return 'bg-red-500'
-  if (['running', 'pending', 'processing'].includes(s)) return 'bg-amber-500 animate-pulse'
-  if (['queued'].includes(s)) return 'bg-amber-400'
-  if (['created'].includes(s)) return 'bg-primary-500'
-  if (['canceled', 'cancelled'].includes(s)) return 'bg-gray-400'
-  return 'bg-gray-400'
+  if (['succeeded', 'completed', 'success', 'done'].includes(s)) return 'is-ok'
+  if (['failed', 'error', 'expired'].includes(s)) return 'is-bad'
+  if (['running', 'pending', 'processing'].includes(s)) return 'is-live is-pulse'
+  if (['queued'].includes(s)) return 'is-live'
+  if (['created'].includes(s)) return 'is-new'
+  if (['canceled', 'cancelled'].includes(s)) return 'is-idle'
+  return 'is-idle'
 }
 
 function workStatusChipClass(status?: string) {
+  return taskStatusTone(status)
+}
+
+function taskStatusTone(status?: string) {
   const s = (status || '').toLowerCase()
-  if (['succeeded', 'completed', 'success', 'done'].includes(s)) {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300'
-  }
-  if (['failed', 'error', 'expired'].includes(s)) {
-    return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300'
-  }
-  if (['running', 'pending', 'processing', 'queued'].includes(s)) {
-    return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300'
-  }
-  if (['created'].includes(s)) {
-    return 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900/50 dark:bg-primary-950/30 dark:text-primary-300'
-  }
-  return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300'
+  if (['succeeded', 'completed', 'success', 'done'].includes(s)) return 'is-ok'
+  if (['failed', 'error', 'expired'].includes(s)) return 'is-bad'
+  if (['running', 'pending', 'processing', 'queued'].includes(s)) return 'is-live'
+  if (['created'].includes(s)) return 'is-new'
+  return 'is-idle'
+}
+
+function taskCardClass(work: CreazyWork) {
+  const s = (work.status || '').toLowerCase()
+  const classes: string[] = []
+  if (isExpired(work) || s === 'expired') classes.push('is-bad')
+  else if (['succeeded', 'completed', 'success', 'done'].includes(s)) classes.push('is-ok')
+  else if (['failed', 'error'].includes(s)) classes.push('is-bad')
+  else if (['running', 'pending', 'processing', 'queued', 'created'].includes(s) || isActiveWorkStatus(s)) classes.push('is-live')
+  const id = String(work.id || '')
+  if (id && flashWorkIds[id] && flashWorkIds[id] > nowTick.value) classes.push('is-flash')
+  if (focusWorkId.value && Number(work.id) === Number(focusWorkId.value)) classes.push('is-focus')
+  if (id && stoppedTrackIds[id]) classes.push('is-dim')
+  return classes.join(' ')
+}
+
+function workElapsedSeconds(work: CreazyWork) {
+  const start = Date.parse(String(work.created_at || work.updated_at || ''))
+  if (!Number.isFinite(start)) return 0
+  return Math.max(0, Math.floor((nowTick.value - start) / 1000))
 }
 
 function workCardClass(work: CreazyWork) {
   const s = (work.status || '').toLowerCase()
-  const classes: string[] = ['cc-work-card']
+  const classes: string[] = []
   if (isExpired(work) || s === 'expired') {
     classes.push('cc-work-card--expired')
   } else if (['succeeded', 'completed', 'success', 'done'].includes(s)) {
@@ -3772,7 +3679,7 @@ function workCoverVideoSrc(work: CreazyWork): string {
   return url + '#t=0.1'
 }
 
-function onCoverVideoLoaded(ev: Event) {
+function onCoverVideoLoaded(ev: Event, work?: CreazyWork) {
   const el = ev.target as HTMLVideoElement | null
   if (!el) return
   try {
@@ -3782,6 +3689,29 @@ function onCoverVideoLoaded(ev: Event) {
   } catch {
     // ignore seek failures (some blobs disallow seek until more data)
   }
+  if (work) onCoverMediaReady(work, ev)
+}
+
+function onCoverMediaReady(work: CreazyWork, _ev?: Event) {
+  workCoverReady[String(work.id)] = true
+}
+
+function onCoverMediaError(work: CreazyWork) {
+  workCoverReady[String(work.id)] = false
+}
+
+function isWorkCoverReady(work: CreazyWork): boolean {
+  const id = String(work.id)
+  if (!workCoverUrl(work)) return false
+  return Boolean(workCoverReady[id])
+}
+
+function isWorkCoverLoading(work: CreazyWork): boolean {
+  if (!canPreviewWork(work)) return false
+  const id = String(work.id)
+  if (workPreviewLoading[id]) return true
+  if (workCoverUrl(work) && !workCoverReady[id]) return true
+  return false
 }
 
 /** Cover prefers cached playable media, then public poster/static URL. */
@@ -3913,6 +3843,7 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
   if (workPreviewUrls[id]) return true
   if (workPreviewLoading[id]) return false
   workPreviewLoading[id] = true
+  workCoverReady[id] = false
   let lastError: any = null
   try {
     let url = workStaticMediaUrl(work)
@@ -4032,10 +3963,10 @@ async function hydrateWorkPreviews(list: CreazyWork[]) {
   }).slice(0, 16)
   const heavyVideo = previewable
     .filter((w) => !isImageWork(w) && !light.includes(w))
-    .slice(0, 4)
+    .slice(0, 8)
   const targets = [...light, ...heavyVideo]
   // Sequential-ish batches to reduce memory spikes on large MP4s.
-  const batchSize = 4
+  const batchSize = 3
   for (let i = 0; i < targets.length; i += batchSize) {
     if (cancelled) break
     await Promise.all(targets.slice(i, i + batchSize).map((w) => loadWorkPreview(w)))
@@ -6118,22 +6049,27 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Creazy Canvas — Quiet Studio Console
-   Tool-first workbench integrated with Sub2API (teal primary app shell).
-   No marketing hero, no rainbow scope, no decorative REC/meta chips. */
+/* =========================================================
+   Creazy Canvas — Stage Console
+   Media-first workbench: cool graphite, cyan signal, stage bezels.
+   ========================================================= */
 
 .cc-shell {
   --cc-ink: #0f172a;
+  --cc-ink-soft: #1e293b;
   --cc-muted: #64748b;
   --cc-faint: #94a3b8;
   --cc-line: #e2e8f0;
   --cc-line-2: #cbd5e1;
-  --cc-bg: transparent;
+  --cc-paper: #eef2f6;
   --cc-surface: #ffffff;
   --cc-surface-2: #f8fafc;
   --cc-surface-3: #f1f5f9;
-  --cc-accent: #0d9488;
-  --cc-accent-2: #0f766e;
+  --cc-stage: #0b1220;
+  --cc-stage-2: #111827;
+  --cc-accent: #0f766e;
+  --cc-accent-2: #0e7490;
+  --cc-accent-bright: #2dd4bf;
   --cc-accent-soft: #ccfbf1;
   --cc-ok: #059669;
   --cc-ok-soft: #d1fae5;
@@ -6143,34 +6079,58 @@ onBeforeUnmount(() => {
   --cc-bad-soft: #fee2e2;
   --cc-live: #ea580c;
   --cc-live-soft: #ffedd5;
-  --cc-radius: 14px;
-  --cc-radius-sm: 10px;
-  --cc-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -16px rgb(15 23 42 / 0.18);
-  --cc-shadow-lg: 0 2px 4px rgb(15 23 42 / 0.04), 0 16px 40px -20px rgb(15 23 42 / 0.22);
-  --cc-font: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --cc-radius: 16px;
+  --cc-radius-sm: 12px;
+  --cc-shadow: 0 1px 0 rgb(15 23 42 / 0.04), 0 10px 30px -18px rgb(15 23 42 / 0.28);
+  --cc-shadow-lg: 0 2px 4px rgb(15 23 42 / 0.05), 0 24px 48px -28px rgb(15 23 42 / 0.35);
+  --cc-font: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --cc-display: "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --cc-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
-
+  position: relative;
   margin: 0 auto;
-  max-width: 78rem;
-  padding: 0 0 2.5rem;
+  max-width: 84rem;
+  padding: 0.35rem 0 3.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1.05rem;
   color: var(--cc-ink);
   font-family: var(--cc-font);
 }
+.cc-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(58rem 28rem at 8% -8%, rgb(45 212 191 / 0.09), transparent 58%),
+    radial-gradient(42rem 24rem at 96% 0%, rgb(14 116 144 / 0.07), transparent 52%),
+    linear-gradient(180deg, #f4f7fb 0%, #eef3f8 42%, #f7f9fc 100%);
+}
+:global(.dark) .cc-shell::before {
+  background:
+    radial-gradient(58rem 28rem at 8% -8%, rgb(45 212 191 / 0.08), transparent 58%),
+    radial-gradient(42rem 24rem at 96% 0%, rgb(34 211 238 / 0.06), transparent 52%),
+    linear-gradient(180deg, #070b14 0%, #0a101b 46%, #0b1220 100%);
+}
+
 
 :global(.dark) .cc-shell {
-  --cc-ink: #e5eef8;
+  --cc-ink: #e8eef8;
+  --cc-ink-soft: #cbd5e1;
   --cc-muted: #94a3b8;
   --cc-faint: #64748b;
   --cc-line: #1e293b;
   --cc-line-2: #334155;
+  --cc-paper: #0b1220;
   --cc-surface: #0f172a;
   --cc-surface-2: #111c2e;
   --cc-surface-3: #162033;
+  --cc-stage: #05080f;
+  --cc-stage-2: #0b1220;
   --cc-accent: #2dd4bf;
-  --cc-accent-2: #5eead4;
+  --cc-accent-2: #22d3ee;
+  --cc-accent-bright: #5eead4;
   --cc-accent-soft: #134e4a;
   --cc-ok: #34d399;
   --cc-ok-soft: #064e3b;
@@ -6180,1093 +6140,1378 @@ onBeforeUnmount(() => {
   --cc-bad-soft: #450a0a;
   --cc-live: #fb923c;
   --cc-live-soft: #431407;
-  --cc-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 28px -18px rgb(0 0 0 / 0.55);
-  --cc-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.35), 0 20px 44px -22px rgb(0 0 0 / 0.65);
+  --cc-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 16px 36px -22px rgb(0 0 0 / 0.7);
+  --cc-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 28px 56px -28px rgb(0 0 0 / 0.75);
 }
 
-/* ========== Top bar (compact tool chrome) ========== */
+/* Top bar */
 .cc-topbar {
+  position: relative;
   border: 1px solid var(--cc-line);
-  border-radius: calc(var(--cc-radius) + 2px);
+  border-radius: calc(var(--cc-radius) + 4px);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 92%, #fff) 0%, var(--cc-surface) 100%);
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 55%, transparent), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 96%, #fff), var(--cc-surface));
   box-shadow: var(--cc-shadow);
   overflow: hidden;
 }
-
-:global(.dark) .cc-topbar {
-  background: linear-gradient(180deg, var(--cc-surface-2), var(--cc-surface));
+.cc-topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--cc-accent-bright), var(--cc-accent) 45%, #0369a1);
 }
-
+:global(.dark) .cc-topbar {
+  background:
+    radial-gradient(100% 80% at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 45%, transparent), transparent 50%),
+    linear-gradient(180deg, var(--cc-surface-2), var(--cc-surface));
+}
 .cc-topbar__main {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(16.5rem, 0.95fr);
-  gap: 1rem 1.5rem;
-  padding: 1rem 1.15rem 1.05rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.15fr) minmax(17rem, 0.95fr);
+  gap: 1.1rem 1.6rem;
+  padding: 1.15rem 1.25rem 1.15rem 1.35rem;
+  align-items: center;
 }
-
-@media (max-width: 820px) {
-  .cc-topbar__main {
-    grid-template-columns: 1fr;
-  }
+@media (max-width: 860px) {
+  .cc-topbar__main { grid-template-columns: 1fr; }
 }
-
-.cc-topbar__titles {
+.cc-topbar__brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
   min-width: 0;
-  padding-top: 0.15rem;
+}
+.cc-mark {
+  position: relative;
+  width: 2.9rem;
+  height: 2.9rem;
+  flex: 0 0 auto;
+  border-radius: 0.95rem;
+  background:
+    radial-gradient(circle at 30% 25%, rgb(45 212 191 / 0.35), transparent 48%),
+    linear-gradient(160deg, #132033 0%, #0a101b 55%, #071018 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 0 0 1px rgb(15 23 42 / 0.08),
+    0 14px 28px -16px rgb(15 118 110 / 0.75);
 }
 
+.cc-mark__frame {
+  position: absolute;
+  inset: 0.45rem;
+  border: 1.5px solid rgb(34 211 238 / 0.55);
+  border-radius: 0.35rem;
+}
+.cc-mark__frame::before,
+.cc-mark__frame::after {
+  content: "";
+  position: absolute;
+  width: 0.45rem;
+  height: 0.45rem;
+  border: 1.5px solid var(--cc-accent-bright);
+}
+.cc-mark__frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.cc-mark__frame::after { right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
+.cc-mark__beam {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58%;
+  height: 2px;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  background: linear-gradient(90deg, transparent, var(--cc-accent-bright), transparent);
+  box-shadow: 0 0 12px rgb(34 211 238 / 0.55);
+}
+.cc-eyebrow {
+  margin: 0 0 0.2rem;
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cc-accent-2);
+}
+.cc-topbar__titles { min-width: 0; }
 .cc-topbar__title {
   margin: 0;
-  font-size: clamp(1.25rem, 1.8vw, 1.55rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
+  font-family: var(--cc-display);
+  font-size: clamp(1.35rem, 2vw, 1.7rem);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
   color: var(--cc-ink);
 }
-
 .cc-topbar__sub {
-  margin: 0.35rem 0 0;
-  max-width: 36rem;
+  margin: 0.4rem 0 0;
+  max-width: 38rem;
   font-size: 0.875rem;
   line-height: 1.55;
   color: var(--cc-muted);
 }
-
 .cc-topbar__key {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.75rem 0.85rem;
+  gap: 0.45rem;
+  padding: 0.85rem 0.95rem;
   border-radius: var(--cc-radius-sm);
   border: 1px solid var(--cc-line);
-  background: var(--cc-surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cc-surface-2) 80%, #fff), var(--cc-surface-2));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
 }
-
+:global(.dark) .cc-topbar__key { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03); }
+.cc-topbar__key-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
 .cc-topbar__key-label {
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--cc-muted);
 }
-
 .cc-topbar__select {
   width: 100%;
-  min-height: 2.4rem !important;
-  border-radius: 0.65rem !important;
+  min-height: 2.55rem !important;
+  border-radius: 0.75rem !important;
   border-color: var(--cc-line-2) !important;
   background: var(--cc-surface) !important;
   font-size: 0.875rem !important;
+  font-weight: 600 !important;
 }
-
 .cc-topbar__select:focus {
   border-color: var(--cc-accent) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 22%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 20%, transparent) !important;
 }
-
-.cc-topbar__empty {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--cc-muted);
-}
-
-.cc-topbar__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem 0.65rem;
-  margin-top: 0.1rem;
-}
-
+.cc-topbar__empty { margin: 0; font-size: 0.78rem; color: var(--cc-muted); }
+.cc-topbar__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.7rem; }
 .cc-topbar__balance {
   display: inline-flex;
   align-items: baseline;
   gap: 0.35rem;
-  padding: 0.18rem 0.5rem;
+  padding: 0.2rem 0.55rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--cc-accent-soft) 70%, var(--cc-surface));
-  border: 1px solid color-mix(in srgb, var(--cc-accent) 22%, var(--cc-line));
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 24%, var(--cc-line));
   font-size: 0.78rem;
   color: var(--cc-ink);
 }
+.cc-topbar__balance em { font-style: normal; color: var(--cc-muted); font-size: 0.7rem; }
+.cc-topbar__balance strong { font-family: var(--cc-mono); font-weight: 700; color: var(--cc-accent); font-size: 0.86rem; }
+.cc-topbar__hint { margin: 0; flex: 1 1 12rem; font-size: 0.72rem; line-height: 1.4; color: var(--cc-faint); }
 
-.cc-topbar__balance em {
-  font-style: normal;
-  color: var(--cc-muted);
-  font-size: 0.7rem;
-}
-
-.cc-topbar__balance strong {
-  font-family: var(--cc-mono);
-  font-weight: 700;
-  color: var(--cc-accent-2);
-  font-size: 0.86rem;
-}
-
-.cc-topbar__hint {
-  margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.4;
-  color: var(--cc-faint);
-}
-
-/* Status pills */
 .cc-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.32rem;
-  padding: 0.16rem 0.52rem;
-  border-radius: 999px;
-  border: 1px solid var(--cc-line);
-  background: var(--cc-surface);
-  color: var(--cc-muted);
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 0.32rem;
+  padding: 0.18rem 0.55rem; border-radius: 999px; border: 1px solid var(--cc-line);
+  background: var(--cc-surface); color: var(--cc-muted); font-size: 0.72rem; font-weight: 700;
 }
-
-.cc-pill__dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.cc-pill.is-ready,
-.cc-pill__dot.is-ready {
-  color: var(--cc-ok);
-}
-.cc-pill.is-ready {
-  background: color-mix(in srgb, var(--cc-ok-soft) 75%, var(--cc-surface));
-  border-color: color-mix(in srgb, var(--cc-ok) 30%, var(--cc-line));
-}
-
-.cc-pill.is-warn,
-.cc-pill__dot.is-warn {
-  color: var(--cc-warn);
-}
-.cc-pill.is-warn {
-  background: color-mix(in srgb, var(--cc-warn-soft) 75%, var(--cc-surface));
-  border-color: color-mix(in srgb, var(--cc-warn) 30%, var(--cc-line));
-}
-
-.cc-pill.is-bad,
-.cc-pill__dot.is-bad {
-  color: var(--cc-bad);
-}
-.cc-pill.is-bad {
-  background: color-mix(in srgb, var(--cc-bad-soft) 75%, var(--cc-surface));
-  border-color: color-mix(in srgb, var(--cc-bad) 30%, var(--cc-line));
-}
-
-.cc-pill__dot.is-pulse {
-  animation: cc-pulse 1.4s ease-out infinite;
-}
-
+.cc-pill__dot { width: 0.4rem; height: 0.4rem; border-radius: 999px; background: currentColor; }
+.cc-pill.is-ready { color: var(--cc-ok); background: color-mix(in srgb, var(--cc-ok-soft) 75%, var(--cc-surface)); border-color: color-mix(in srgb, var(--cc-ok) 30%, var(--cc-line)); }
+.cc-pill.is-warn { color: var(--cc-warn); background: color-mix(in srgb, var(--cc-warn-soft) 75%, var(--cc-surface)); border-color: color-mix(in srgb, var(--cc-warn) 30%, var(--cc-line)); }
+.cc-pill.is-bad { color: var(--cc-bad); background: color-mix(in srgb, var(--cc-bad-soft) 75%, var(--cc-surface)); border-color: color-mix(in srgb, var(--cc-bad) 30%, var(--cc-line)); }
+.cc-pill__dot.is-ready { color: var(--cc-ok); }
+.cc-pill__dot.is-warn { color: var(--cc-warn); }
+.cc-pill__dot.is-bad { color: var(--cc-bad); }
+.cc-pill__dot.is-pulse { animation: cc-pulse 1.4s ease-out infinite; }
 @keyframes cc-pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 40%, transparent); }
   70% { box-shadow: 0 0 0 0.4rem transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
-/* ========== Tabs ========== */
+/* Tabs */
 .cc-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.25rem;
-  padding: 0.28rem;
-  border: 1px solid var(--cc-line);
-  border-radius: calc(var(--cc-radius) + 2px);
-  background: var(--cc-surface-2);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.5);
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.3rem; padding: 0.3rem;
+  border: 1px solid var(--cc-line); border-radius: calc(var(--cc-radius) + 2px);
+  background: var(--cc-surface-2); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45);
 }
-
-:global(.dark) .cc-tabs {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
-}
-
+:global(.dark) .cc-tabs { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03); }
 .cc-tab {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--cc-muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  padding: 0.62rem 0.75rem;
-  border-radius: var(--cc-radius-sm);
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  appearance: none; border: 0; background: transparent; color: var(--cc-muted); font: inherit;
+  font-size: 0.92rem; font-weight: 650; padding: 0.7rem 0.8rem; border-radius: var(--cc-radius-sm);
+  cursor: pointer; transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
-
-.cc-tab:hover {
-  color: var(--cc-ink);
-  background: color-mix(in srgb, var(--cc-surface) 80%, transparent);
-}
-
+.cc-tab:hover { color: var(--cc-ink); background: color-mix(in srgb, var(--cc-surface) 85%, transparent); }
 .cc-tab--active {
-  color: var(--cc-ink);
-  background: var(--cc-surface);
-  box-shadow:
-    0 1px 2px rgb(15 23 42 / 0.06),
-    0 0 0 1px color-mix(in srgb, var(--cc-accent) 18%, transparent),
-    inset 0 -2px 0 0 var(--cc-accent);
+  color: var(--cc-ink); background: var(--cc-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 0 0 1px color-mix(in srgb, var(--cc-accent) 18%, transparent), inset 0 -2px 0 0 var(--cc-accent);
 }
 
-:global(.dark) .cc-tab--active {
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 0 0 1px color-mix(in srgb, var(--cc-accent) 28%, transparent),
-    inset 0 -2px 0 0 var(--cc-accent);
-}
-
-/* ========== Surfaces / cards ========== */
-.cc-surface,
-.cc-form-card,
-.cc-board-card {
+/* Surfaces / form */
+.cc-surface, .cc-form-card, .cc-board-card {
   border: 1px solid var(--cc-line) !important;
   border-radius: calc(var(--cc-radius) + 2px) !important;
   background: var(--cc-surface) !important;
   box-shadow: var(--cc-shadow) !important;
 }
-
-.cc-form-card {
-  position: relative;
-}
-
+.cc-form-card { position: relative; overflow: hidden; }
 .cc-form-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 12px;
-  bottom: 12px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--cc-accent), color-mix(in srgb, var(--cc-accent) 30%, #38bdf8));
-  opacity: 0.9;
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, var(--cc-accent-bright), var(--cc-accent) 55%, #0369a1);
 }
-
-/* Labels */
-.cc-label,
-.cc-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-  font-size: 0.8rem;
-  font-weight: 650;
-  color: var(--cc-ink);
-  letter-spacing: 0;
-  text-transform: none;
+.cc-label, .cc-label-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-bottom: 0.42rem; font-size: 0.8rem; font-weight: 700; color: var(--cc-ink);
 }
-
 .cc-label-row { width: 100%; }
-
-.cc-field {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.cc-field--error .cc-control,
-.cc-field--error .cc-textarea,
-.cc-input--error {
+.cc-field { display: flex; flex-direction: column; min-width: 0; }
+.cc-field--error .cc-control, .cc-field--error .cc-textarea, .cc-input--error {
   border-color: var(--cc-bad) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-bad) 16%, transparent) !important;
 }
-
-.cc-field__error {
-  margin: 0.35rem 0 0;
-  font-size: 0.76rem;
-  color: var(--cc-bad);
+.cc-field__error { margin: 0.35rem 0 0; font-size: 0.76rem; color: var(--cc-bad); }
+.cc-control, .cc-params-grid .cc-control, select.cc-control, input.cc-control {
+  width: 100%; min-height: 2.55rem; height: 2.55rem; box-sizing: border-box;
+  border-radius: 0.8rem !important; border: 1px solid var(--cc-line-2) !important;
+  background: var(--cc-surface) !important; color: var(--cc-ink) !important;
+  font-size: 0.875rem !important; line-height: 1.25 !important; padding: 0.45rem 0.8rem !important;
 }
-
-/* Controls alignment */
-.cc-control,
-.cc-params-grid .cc-control,
-select.cc-control,
-input.cc-control {
-  width: 100%;
-  min-height: 2.45rem;
-  height: 2.45rem;
-  box-sizing: border-box;
-  border-radius: 0.7rem !important;
-  border: 1px solid var(--cc-line-2) !important;
-  background: var(--cc-surface) !important;
-  color: var(--cc-ink) !important;
-  font-size: 0.875rem !important;
-  line-height: 1.25 !important;
-  padding: 0.45rem 0.75rem !important;
-}
-
-.cc-control:focus,
-.cc-textarea:focus {
-  outline: none;
-  border-color: var(--cc-accent) !important;
+.cc-control:focus, .cc-textarea:focus {
+  outline: none; border-color: var(--cc-accent) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 18%, transparent);
 }
-
 .cc-params-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem 0.9rem;
-  align-items: start;
+  align-items: stretch;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem 0.95rem; align-items: start;
 }
-
-@media (min-width: 640px) {
-  .cc-params-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
+@media (min-width: 640px) { .cc-params-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .cc-params-grid > * { min-width: 0; }
-
 .cc-textarea {
-  width: 100%;
-  min-height: 8rem;
-  resize: vertical;
-  border-radius: 0.85rem !important;
-  border: 1px solid var(--cc-line-2) !important;
-  background: var(--cc-surface) !important;
-  color: var(--cc-ink) !important;
-  font-size: 0.92rem !important;
-  line-height: 1.55 !important;
-  padding: 0.8rem 0.9rem !important;
-  font-family: var(--cc-font) !important;
+  width: 100%; min-height: 8.5rem; resize: vertical; border-radius: 0.95rem !important;
+  border: 1px solid var(--cc-line-2) !important; background: var(--cc-surface) !important;
+  color: var(--cc-ink) !important; font-size: 0.94rem !important; line-height: 1.55 !important;
+  padding: 0.85rem 0.95rem !important; font-family: var(--cc-font) !important;
 }
-
 .cc-prompt-wrap { position: relative; }
-
-.cc-prompt-hint {
-  margin: 0.4rem 0 0;
-  font-size: 0.75rem;
-  color: var(--cc-faint);
-}
-
-.cc-size-current {
-  margin-top: 0.3rem;
-  font-family: var(--cc-mono);
-  font-size: 0.74rem;
-  color: var(--cc-accent-2);
-}
-
-/* Param panel */
+.cc-prompt-hint { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--cc-faint); }
+.cc-size-current { margin-top: 0.3rem; font-family: var(--cc-mono); font-size: 0.74rem; color: var(--cc-accent); }
 .cc-panel {
-  border: 1px solid var(--cc-line);
-  border-radius: var(--cc-radius);
-  background: var(--cc-surface-2);
-  padding: 0.9rem 0.95rem;
+  border: 1px solid var(--cc-line); border-radius: var(--cc-radius); background: var(--cc-surface-2); padding: 0.95rem 1rem;
 }
-
-.cc-panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
+.cc-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.8rem; }
 .cc-panel__badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.18rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--cc-accent-2);
+  display: inline-flex; align-items: center; padding: 0.18rem 0.55rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 750; color: var(--cc-accent);
   background: color-mix(in srgb, var(--cc-accent-soft) 80%, var(--cc-surface));
   border: 1px solid color-mix(in srgb, var(--cc-accent) 22%, var(--cc-line));
 }
-
-.cc-panel__meta {
-  font-size: 0.76rem;
-  color: var(--cc-muted);
+.cc-panel__meta { font-size: 0.76rem; color: var(--cc-muted); }
+.cc-chip-row, .cc-cap-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cc-chip, .cc-cap-chip, .cc-token-chip {
+  display: inline-flex; align-items: center; gap: 0.28rem; padding: 0.34rem 0.7rem; border-radius: 999px;
+  border: 1px solid var(--cc-line); background: var(--cc-surface); color: var(--cc-muted);
+  font-size: 0.78rem; font-weight: 650; cursor: pointer; transition: 0.12s ease;
 }
-
-/* Chips */
-.cc-chip-row,
-.cc-cap-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.cc-chip,
-.cc-cap-chip,
-.cc-token-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.3rem 0.62rem;
-  border-radius: 999px;
-  border: 1px solid var(--cc-line);
-  background: var(--cc-surface);
-  color: var(--cc-muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: 0.12s ease;
-}
-
-.cc-chip:hover,
-.cc-cap-chip:hover {
-  border-color: var(--cc-line-2);
-  color: var(--cc-ink);
-}
-
-.cc-chip--active,
-.cc-chip.is-active {
-  color: var(--cc-accent-2);
-  border-color: color-mix(in srgb, var(--cc-accent) 40%, var(--cc-line));
+.cc-chip:hover, .cc-cap-chip:hover { border-color: var(--cc-line-2); color: var(--cc-ink); }
+.cc-chip--active, .cc-chip.is-active {
+  color: var(--cc-accent); border-color: color-mix(in srgb, var(--cc-accent) 40%, var(--cc-line));
   background: color-mix(in srgb, var(--cc-accent-soft) 80%, var(--cc-surface));
 }
-
-.cc-cap-chip {
-  cursor: default;
-  font-size: 0.72rem;
-  color: var(--cc-muted);
-  background: var(--cc-surface-3);
+.cc-cap-chip { cursor: default; font-size: 0.72rem; background: var(--cc-surface-3); }
+.cc-token-chip { cursor: default; font-family: var(--cc-mono); font-size: 0.7rem; padding: 0.28rem 0.55rem; }
+.cc-token-chip em {
+  font-style: normal; font-family: var(--cc-font); font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--cc-faint);
 }
-
-.cc-token-chip {
-  font-family: var(--cc-mono);
-  font-size: 0.7rem;
+.cc-token-chip strong {
+  font-weight: 700; color: var(--cc-ink); max-width: 10rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-.cc-linkish {
-  color: var(--cc-accent-2);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
+.cc-linkish { color: var(--cc-accent); text-decoration: none; font-weight: 700; font-size: 0.8rem; }
 .cc-linkish:hover { text-decoration: underline; }
-
-.cc-media-token {
-  font-family: var(--cc-mono);
-  font-size: 0.7rem;
-  color: var(--cc-accent-2);
-}
-
+.cc-media-token { font-family: var(--cc-mono); font-size: 0.7rem; color: var(--cc-accent); }
 .cc-media-panel {
-  border: 1px dashed var(--cc-line-2);
-  border-radius: var(--cc-radius);
-  background: var(--cc-surface-2);
-  padding: 0.95rem;
+  border: 1px dashed var(--cc-line-2); border-radius: var(--cc-radius);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cc-surface-2) 70%, transparent), var(--cc-surface-2));
+  padding: 1rem;
 }
-
 .cc-dropzone {
-  border: 1px dashed var(--cc-line-2);
-  border-radius: var(--cc-radius-sm);
-  background: var(--cc-surface);
-  padding: 0.9rem;
-  text-align: center;
-  color: var(--cc-muted);
-  font-size: 0.84rem;
-  transition: 0.12s ease;
+  border: 1px dashed var(--cc-line-2); border-radius: var(--cc-radius-sm); background: var(--cc-surface);
+  padding: 0.95rem; text-align: center; color: var(--cc-muted); font-size: 0.84rem; transition: 0.12s ease;
 }
-
-.cc-dropzone:hover,
-.cc-dropzone.is-drag {
+.cc-dropzone:hover, .cc-dropzone.is-drag {
   border-color: var(--cc-accent);
-  background: color-mix(in srgb, var(--cc-accent-soft) 50%, var(--cc-surface));
+  background: color-mix(in srgb, var(--cc-accent-soft) 45%, var(--cc-surface));
   color: var(--cc-ink);
 }
+.cc-dropzone__hint { margin: 0.25rem 0 0; font-size: 0.74rem; color: var(--cc-faint); }
+.cc-create {
+  display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.05rem;
+  border: 1px solid var(--cc-line); border-radius: var(--cc-radius);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--cc-accent-soft) 50%, transparent), transparent 52%), var(--cc-surface-2);
+}
+.cc-create__head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.cc-create__title { font-size: 0.86rem; font-weight: 750; color: var(--cc-ink); }
+.cc-create__hint { font-size: 0.75rem; color: var(--cc-muted); }
+.cc-create__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.85rem; font-size: 0.8rem; color: var(--cc-muted); }
+.cc-create__price { font-family: var(--cc-mono); font-weight: 750; color: var(--cc-accent); }
+.cc-create__shortcut { font-size: 0.72rem; color: var(--cc-faint); }
+.cc-create__draft { font-size: 0.78rem; color: var(--cc-muted); }
+.cc-create__balance { font-size: 0.8rem; color: var(--cc-ink); }
+.cc-create__balance--blocked { color: var(--cc-bad); }
+.cc-create__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.cc-submit {
+  min-height: 2.7rem !important; border-radius: 0.9rem !important; font-weight: 760 !important;
+  background: linear-gradient(135deg, #2dd4bf 0%, #0f766e 48%, #0e7490 100%) !important;
+  border-color: transparent !important; color: #042f2e !important;
+  box-shadow: 0 14px 28px -16px rgb(15 118 110 / 0.9);
+}
+.cc-submit:hover:not(:disabled) { filter: brightness(1.04); }
+.cc-submit:disabled { opacity: 0.55; box-shadow: none !important; }
+.cc-form-stack {
+  display: flex !important;
+  flex-direction: column;
+  gap: 1.05rem !important;
+  padding: 1.15rem 1.2rem 1.25rem !important;
+}
+.cc-studio-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--cc-line) 80%, transparent);
+  margin-bottom: 0.1rem;
+}
+.cc-studio-head__kicker,
+.cc-board-head__kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cc-accent-2);
+}
+.cc-studio-head__kicker-dot,
+.cc-board-head__kicker-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--cc-accent-bright);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent-bright) 22%, transparent);
+}
+.cc-studio-head__title {
+  margin: 0.15rem 0 0;
+  font-family: var(--cc-display);
+  font-size: 1.08rem;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  color: var(--cc-ink);
+}
+.cc-studio-head__sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--cc-muted);
+}
+.cc-field-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--cc-faint);
+}
+.cc-callout {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-2);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--cc-muted);
+}
+.cc-callout--warn {
+  border-color: color-mix(in srgb, var(--cc-warn) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-warn-soft) 75%, var(--cc-surface));
+  color: color-mix(in srgb, var(--cc-warn) 78%, var(--cc-ink));
+}
+.cc-callout--bad {
+  border-color: color-mix(in srgb, var(--cc-bad) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-bad-soft) 75%, var(--cc-surface));
+  color: color-mix(in srgb, var(--cc-bad) 80%, var(--cc-ink));
+}
+.cc-callout--ok {
+  border-color: color-mix(in srgb, var(--cc-ok) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-ok-soft) 75%, var(--cc-surface));
+  color: color-mix(in srgb, var(--cc-ok) 80%, var(--cc-ink));
+}
+.cc-callout--live {
+  border-color: color-mix(in srgb, var(--cc-live) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-live-soft) 75%, var(--cc-surface));
+  color: color-mix(in srgb, var(--cc-live) 80%, var(--cc-ink));
+}
+.cc-limits-card {
+  border: 1px solid var(--cc-line);
+  border-radius: var(--cc-radius-sm);
+  background: linear-gradient(180deg, var(--cc-surface-2), var(--cc-surface));
+  padding: 0.85rem 0.95rem;
+  font-size: 0.78rem;
+  color: var(--cc-muted);
+  line-height: 1.5;
+}
 
-.cc-dropzone__hint {
-  margin: 0.25rem 0 0;
+.cc-field-hint--inline {
+  display: inline;
+  margin: 0 0 0 0.35rem;
   font-size: 0.74rem;
   color: var(--cc-faint);
 }
+.cc-limits-card__body { margin-top: 0.2rem; }
+.cc-limits-card__progress {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+.cc-limits-card__title {
+  font-size: 0.8rem;
+  font-weight: 750;
+  color: var(--cc-ink);
+  margin-bottom: 0.25rem;
+}
 
-/* Create strip */
-.cc-create {
+.cc-media-zone {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid var(--cc-line);
-  border-radius: var(--cc-radius);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--cc-accent-soft) 55%, transparent), transparent 55%),
-    var(--cc-surface-2);
+  gap: 0.75rem;
 }
-
-.cc-create__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.cc-create__title {
-  font-size: 0.84rem;
-  font-weight: 700;
-  color: var(--cc-ink);
-}
-
-.cc-create__hint {
-  font-size: 0.75rem;
-  color: var(--cc-muted);
-}
-
-.cc-create__meta {
+.cc-dropzone__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.85rem;
-  font-size: 0.8rem;
-  color: var(--cc-muted);
-}
-
-.cc-create__price {
-  font-family: var(--cc-mono);
-  font-weight: 700;
-  color: var(--cc-accent-2);
-}
-
-.cc-create__shortcut {
-  font-size: 0.72rem;
-  color: var(--cc-faint);
-}
-
-.cc-create__draft {
-  font-size: 0.78rem;
-  color: var(--cc-muted);
-}
-
-.cc-create__balance { font-size: 0.8rem; color: var(--cc-ink); }
-.cc-create__balance--blocked { color: var(--cc-bad); }
-
-.cc-create__actions {
-  display: flex;
-  flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
 }
-
-.cc-submit {
-  min-height: 2.55rem !important;
-  border-radius: 0.8rem !important;
-  font-weight: 700 !important;
-  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%) !important;
-  border-color: transparent !important;
-  color: #fff !important;
-  box-shadow: 0 8px 18px -12px rgb(13 148 136 / 0.75);
-}
-
-.cc-submit:hover:not(:disabled) {
-  filter: brightness(1.04);
-}
-
-.cc-submit:disabled {
+.cc-dropzone.is-disabled {
   opacity: 0.55;
-  box-shadow: none;
-  filter: none;
+  pointer-events: none;
 }
-
-.cc-submit-secondary {
-  min-height: 2.55rem !important;
-  border-radius: 0.8rem !important;
-  border: 1px solid var(--cc-line-2) !important;
-  background: var(--cc-surface) !important;
-  color: var(--cc-ink) !important;
-  font-weight: 600 !important;
+.cc-url-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
 }
-
-.cc-submit-secondary:hover:not(:disabled) {
-  border-color: var(--cc-accent) !important;
-  color: var(--cc-accent-2) !important;
+.cc-url-row__input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-family: var(--cc-mono);
+  font-size: 0.74rem !important;
 }
-
-/* Board head */
+.cc-media-list--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.cc-media-item__badge {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  color: var(--cc-accent-2);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc-accent-soft) 70%, var(--cc-surface)), var(--cc-stage));
+  border: 1px solid var(--cc-line);
+}
+.cc-media-item__badge--vid {
+  color: #0e7490;
+  background: linear-gradient(160deg, color-mix(in srgb, #67e8f9 35%, var(--cc-surface)), var(--cc-stage));
+}
+.cc-media-item__badge--aud {
+  color: #047857;
+  background: linear-gradient(160deg, color-mix(in srgb, #6ee7b7 35%, var(--cc-surface)), var(--cc-stage));
+}
+.cc-media-panel {
+  border: 1px solid var(--cc-line);
+  border-radius: var(--cc-radius);
+  background: var(--cc-surface-2);
+  padding: 0.9rem 1rem;
+}
+.cc-media-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.cc-media-count {
+  margin-left: 0.25rem;
+  font-family: var(--cc-mono);
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--cc-faint);
+}
+.cc-req { color: var(--cc-bad); margin-left: 0.15rem; }
+.cc-link-danger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--cc-bad);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-link-danger:hover { text-decoration: underline; }
+.cc-link-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+.cc-media-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.55rem;
+}
+.cc-media-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--cc-line);
+  border-radius: 0.8rem;
+  background: var(--cc-surface);
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.03);
+}
+.cc-media-item__thumb {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.55rem;
+  object-fit: cover;
+  background: var(--cc-stage);
+  flex: 0 0 auto;
+}
+.cc-media-item__body { min-width: 0; flex: 1 1 auto; }
+.cc-media-item__row { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.cc-media-item__name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: var(--cc-ink);
+}
+.cc-media-item__url {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cc-mono);
+  font-size: 0.66rem;
+  color: var(--cc-faint);
+}
+.cc-board-card { padding: 0 !important; overflow: hidden; }
 .cc-board-head {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.65rem 1rem;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 0.95rem;
+  border-bottom: 1px solid var(--cc-line);
+  background:
+    radial-gradient(28rem 12rem at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 42%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 92%, #fff), var(--cc-surface-2));
 }
-
-.cc-board-head__badge {
-  display: inline-flex;
-  margin-bottom: 0.28rem;
-  padding: 0.12rem 0.48rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cc-live);
-  background: color-mix(in srgb, var(--cc-live-soft) 80%, var(--cc-surface));
-  border: 1px solid color-mix(in srgb, var(--cc-live) 28%, var(--cc-line));
+:global(.dark) .cc-board-head {
+  background:
+    radial-gradient(28rem 12rem at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 35%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--cc-surface-2), color-mix(in srgb, var(--cc-surface) 88%, #000));
 }
-
+.cc-board-head__main { min-width: 0; flex: 1 1 12rem; }
 .cc-board-head__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  margin: 0.18rem 0 0;
+  font-family: var(--cc-display);
+  font-size: 1.02rem;
+  font-weight: 750;
   letter-spacing: -0.02em;
   color: var(--cc-ink);
 }
-
 .cc-board-head__sub {
   margin: 0.2rem 0 0;
   font-size: 0.78rem;
+  line-height: 1.45;
   color: var(--cc-muted);
 }
-
-.cc-board-head-actions {
+.cc-board-head__refresh { flex: 0 0 auto; }
+.cc-board-body {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem 1.05rem;
 }
-
-/* Pagination */
-.cc-pagination {
+.cc-latest {
+  border: 1px solid color-mix(in srgb, var(--cc-ok) 28%, var(--cc-line));
+  border-radius: var(--cc-radius-sm);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--cc-ok-soft) 55%, transparent), transparent 55%),
+    var(--cc-surface);
+  padding: 0.8rem 0.85rem;
+}
+.cc-latest__head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem 0.85rem;
-  padding-top: 0.4rem;
-}
-
-.cc-pagination--inline { padding-top: 0; }
-
-.cc-pagination--board {
-  border-top: 1px solid var(--cc-line);
-  margin-top: 0.4rem;
-  padding-top: 0.8rem;
-}
-
-.cc-pagination__meta {
-  font-size: 0.76rem;
-  color: var(--cc-muted);
-}
-
-.cc-pagination__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.cc-pagination__select,
-.cc-pagination__input {
-  min-height: 2rem;
-  border-radius: 0.55rem !important;
-  border: 1px solid var(--cc-line-2) !important;
-  background: var(--cc-surface) !important;
-  color: var(--cc-ink) !important;
-  font-size: 0.8rem !important;
-  padding: 0.2rem 0.45rem !important;
-}
-
-.cc-pagination__jump,
-.cc-pagination__size {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.76rem;
-  color: var(--cc-muted);
-}
-
-/* Task tray */
-.cc-task-tray {
-  position: sticky;
-  bottom: 0.75rem;
-  z-index: 30;
-  border: 1px solid var(--cc-line);
-  border-radius: calc(var(--cc-radius) + 2px);
-  background: color-mix(in srgb, var(--cc-surface) 94%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: var(--cc-shadow-lg);
-  overflow: hidden;
-}
-
-.cc-task-tray--collapsed .cc-task-tray__list { display: none; }
-
-.cc-task-tray__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
-  padding: 0.7rem 0.85rem;
-  border-bottom: 1px solid var(--cc-line);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--cc-accent-soft) 45%, transparent), transparent 55%);
-}
-
-.cc-task-tray__toggle {
-  display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  border: 0;
-  background: transparent;
-  color: var(--cc-ink);
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
+  margin-bottom: 0.55rem;
 }
-
-.cc-task-tray__title {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--cc-ink);
-}
-
-.cc-task-tray__badge {
+.cc-latest__badge {
   display: inline-flex;
-  min-width: 1.25rem;
-  justify-content: center;
-  padding: 0.05rem 0.35rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #fff;
-  background: var(--cc-live);
-}
-
-.cc-task-tray__hint {
-  font-size: 0.74rem;
-  color: var(--cc-muted);
-}
-
-.cc-task-tray__actions {
-  display: flex;
   align-items: center;
-  gap: 0.4rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-family: var(--cc-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--cc-ok);
+  background: color-mix(in srgb, var(--cc-ok-soft) 80%, var(--cc-surface));
+  border: 1px solid color-mix(in srgb, var(--cc-ok) 28%, var(--cc-line));
 }
-
-.cc-task-tray__link,
-.cc-task-tray__dismiss {
+.cc-latest__title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: color-mix(in srgb, var(--cc-ok) 75%, var(--cc-ink));
+}
+.cc-latest__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+}
+.cc-latest__tile {
   appearance: none;
-  border: 1px solid var(--cc-line);
-  background: var(--cc-surface);
-  color: var(--cc-ink);
-  border-radius: 0.55rem;
-  font-size: 0.76rem;
-  font-weight: 600;
-  padding: 0.3rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--cc-ok) 18%, var(--cc-line));
+  border-radius: 0.7rem;
+  overflow: hidden;
+  padding: 0;
+  background: var(--cc-stage);
   cursor: pointer;
+  min-height: 6.5rem;
 }
-
-.cc-task-tray__link:hover,
-.cc-task-tray__dismiss:hover {
-  border-color: var(--cc-accent);
-  color: var(--cc-accent-2);
+.cc-latest__tile img {
+  width: 100%;
+  height: 100%;
+  max-height: 9rem;
+  object-fit: contain;
+  display: block;
+  background: #0b1220;
 }
-
-.cc-task-tray__list {
+.cc-latest__stage {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cc-ok) 18%, var(--cc-line));
+  background: #000;
+}
+.cc-latest__stage video {
+  display: block;
+  width: 100%;
+  max-height: 16rem;
+  object-fit: contain;
+  background: #000;
+}
+.cc-latest__hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  color: var(--cc-faint);
+}
+.cc-task-list {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  max-height: 12rem;
-  overflow: auto;
-  padding: 0.55rem 0.65rem 0.7rem;
+  gap: 0.65rem;
 }
-
-.cc-task-tray__item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.15rem 0.55rem;
-  padding: 0.5rem 0.55rem;
+.cc-task-card {
+  position: relative;
   border: 1px solid var(--cc-line);
-  border-radius: 0.65rem;
-  background: var(--cc-surface-2);
-  cursor: pointer;
-}
-
-.cc-task-tray__item:hover { border-color: var(--cc-accent); }
-
-.cc-task-tray__kind {
-  grid-row: span 2;
-  align-self: center;
-  font-size: 0.66rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  color: var(--cc-accent-2);
-  padding: 0.22rem 0.38rem;
-  border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--cc-accent-soft) 70%, var(--cc-surface));
-}
-
-.cc-task-tray__model {
-  font-size: 0.8rem;
-  font-weight: 650;
-  color: var(--cc-ink);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cc-task-tray__prompt {
-  font-size: 0.74rem;
-  color: var(--cc-muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cc-task-tray__empty {
-  margin: 0;
-  padding: 0.55rem;
-  font-size: 0.78rem;
-  color: var(--cc-muted);
-  text-align: center;
-}
-
-/* Work cards */
-.cc-work-card {
-  border: 1px solid var(--cc-line) !important;
-  border-left: 3px solid var(--cc-line-2) !important;
-  border-radius: calc(var(--cc-radius) + 2px) !important;
-  background: var(--cc-surface) !important;
-  box-shadow: var(--cc-shadow) !important;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
-}
-
-.cc-work-card:hover {
-  box-shadow: var(--cc-shadow-lg) !important;
-}
-
-.cc-work-card--ok {
-  border-left-color: var(--cc-ok) !important;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--cc-ok-soft) 50%, transparent), transparent 38%),
-    var(--cc-surface) !important;
-}
-
-.cc-work-card--bad,
-.cc-work-card--expired {
-  border-left-color: var(--cc-bad) !important;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--cc-bad-soft) 50%, transparent), transparent 38%),
-    var(--cc-surface) !important;
-}
-
-.cc-work-card--live {
-  border-left-color: var(--cc-live) !important;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--cc-live-soft) 55%, transparent), transparent 38%),
-    var(--cc-surface) !important;
-}
-
-.cc-work-card--idle {
-  border-left-color: var(--cc-line-2) !important;
-}
-
-.cc-work-card--dim { opacity: 0.72; }
-
-.cc-work-card--flash {
-  animation: cc-flash 1.1s ease;
-}
-
-.cc-work-card--focus {
-  outline: 2px solid color-mix(in srgb, var(--cc-accent) 50%, transparent);
-  outline-offset: 2px;
-}
-
-@keyframes cc-flash {
-  0%, 100% { box-shadow: var(--cc-shadow); }
-  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 30%, transparent); }
-}
-
-/* Rules / progress / mention */
-.cc-rules-card {
-  border: 1px solid var(--cc-line);
-  border-radius: var(--cc-radius-sm);
-  background: var(--cc-surface-2);
+  border-radius: calc(var(--cc-radius-sm) + 2px);
+  background: var(--cc-surface);
   padding: 0.8rem 0.9rem;
-  font-size: 0.8rem;
-  color: var(--cc-muted);
-  line-height: 1.5;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-
-.cc-rules-card--empty { border-style: dashed; }
-
-.cc-progress {
-  height: 0.35rem;
-  border-radius: 999px;
-  background: var(--cc-line);
-  overflow: hidden;
-}
-
-.cc-progress__bar {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #14b8a6, #0d9488);
-  transition: width 0.25s ease;
-}
-
-.cc-mention-menu {
+.cc-task-card::before {
+  content: "";
   position: absolute;
   left: 0;
-  right: 0;
-  top: calc(100% + 0.35rem);
-  z-index: 40;
-  max-height: 16rem;
-  overflow: auto;
-  border: 1px solid var(--cc-line-2);
-  border-radius: var(--cc-radius);
-  background: var(--cc-surface);
-  box-shadow: var(--cc-shadow-lg);
+  top: 0.7rem;
+  bottom: 0.7rem;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--cc-line-2);
 }
-
-.cc-mention-menu__head {
-  padding: 0.55rem 0.75rem 0.4rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--cc-muted);
-  border-bottom: 1px solid var(--cc-line);
+.cc-task-card.is-live {
+  border-color: color-mix(in srgb, var(--cc-live) 34%, var(--cc-line));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--cc-live-soft) 55%, transparent), transparent 46%),
+    var(--cc-surface);
 }
-
-.cc-mention-menu__empty {
-  padding: 0.75rem;
-  font-size: 0.8rem;
-  color: var(--cc-muted);
-  text-align: center;
+.cc-task-card.is-live::before { background: var(--cc-live); }
+.cc-task-card.is-ok { border-color: color-mix(in srgb, var(--cc-ok) 28%, var(--cc-line)); }
+.cc-task-card.is-ok::before { background: var(--cc-ok); }
+.cc-task-card.is-bad { border-color: color-mix(in srgb, var(--cc-bad) 28%, var(--cc-line)); }
+.cc-task-card.is-bad::before { background: var(--cc-bad); }
+.cc-task-card.is-flash { animation: cc-task-flash 1.1s ease; }
+.cc-task-card.is-focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 22%, transparent), var(--cc-shadow);
 }
-
-.cc-mention-item {
-  display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr);
-  gap: 0.55rem;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-bottom: 1px solid var(--cc-line);
-  background: transparent;
-  color: inherit;
-  padding: 0.55rem 0.7rem;
-  cursor: pointer;
+.cc-task-card.is-dim { opacity: 0.62; }
+@keyframes cc-task-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cc-accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
-
-.cc-mention-item:last-child { border-bottom: 0; }
-
-.cc-mention-item:hover,
-.cc-mention-item--active {
-  background: color-mix(in srgb, var(--cc-accent-soft) 50%, var(--cc-surface));
-}
-
-.cc-mention-item__thumb {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.45rem;
-  overflow: hidden;
-  background: var(--cc-surface-2);
-  border: 1px solid var(--cc-line);
+.cc-task-card__top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
+  gap: 0.4rem 0.5rem;
+  padding-left: 0.35rem;
 }
-
-.cc-mention-item__thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cc-mention-item__kind {
-  font-size: 0.6rem;
-  font-weight: 700;
+.cc-task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.18rem 0.52rem;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-2);
+  font-size: 0.7rem;
+  font-weight: 750;
   color: var(--cc-muted);
 }
-
-.cc-mention-item__body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+.cc-task-status__dot {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
 }
-
-.cc-mention-item__label {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--cc-ink);
+.cc-task-status__dot.is-pulse,
+.cc-work-status__dot.is-pulse,
+.cc-status-chip__dot.is-pulse {
+  animation: cc-pulse 1.4s ease-out infinite;
+}
+.cc-task-status.is-ok,
+.cc-status-chip.is-ok {
+  color: var(--cc-ok);
+  background: color-mix(in srgb, var(--cc-ok-soft) 78%, var(--cc-surface));
+  border-color: color-mix(in srgb, var(--cc-ok) 30%, var(--cc-line));
+}
+.cc-task-status.is-bad,
+.cc-status-chip.is-bad {
+  color: var(--cc-bad);
+  background: color-mix(in srgb, var(--cc-bad-soft) 78%, var(--cc-surface));
+  border-color: color-mix(in srgb, var(--cc-bad) 30%, var(--cc-line));
+}
+.cc-task-status.is-live,
+.cc-status-chip.is-live {
+  color: var(--cc-live);
+  background: color-mix(in srgb, var(--cc-live-soft) 78%, var(--cc-surface));
+  border-color: color-mix(in srgb, var(--cc-live) 30%, var(--cc-line));
+}
+.cc-task-status.is-new,
+.cc-status-chip.is-new {
+  color: var(--cc-accent-2);
+  background: color-mix(in srgb, var(--cc-accent-soft) 78%, var(--cc-surface));
+  border-color: color-mix(in srgb, var(--cc-accent) 28%, var(--cc-line));
+}
+.cc-task-status.is-idle,
+.cc-status-chip.is-idle { color: var(--cc-muted); }
+.cc-work-status__dot.is-ok,
+.cc-status-chip__dot.is-ok { color: var(--cc-ok); background: var(--cc-ok); }
+.cc-work-status__dot.is-bad,
+.cc-status-chip__dot.is-bad { color: var(--cc-bad); background: var(--cc-bad); }
+.cc-work-status__dot.is-live,
+.cc-status-chip__dot.is-live { color: var(--cc-live); background: var(--cc-live); }
+.cc-work-status__dot.is-new,
+.cc-status-chip__dot.is-new { color: var(--cc-accent-2); background: var(--cc-accent-2); }
+.cc-work-status__dot.is-idle,
+.cc-status-chip__dot.is-idle { color: var(--cc-faint); background: var(--cc-faint); }
+.cc-task-model {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 0.16rem 0.48rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-2);
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--cc-ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.cc-mention-item__token {
+.cc-task-time {
+  margin-left: auto;
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  color: var(--cc-faint);
+}
+.cc-task-prompt {
+  margin: 0.55rem 0 0;
+  padding-left: 0.35rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--cc-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cc-task-error {
+  margin: 0.4rem 0 0;
+  padding-left: 0.35rem;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--cc-bad);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cc-task-elapsed {
+  margin: 0.35rem 0 0;
+  padding-left: 0.35rem;
   font-family: var(--cc-mono);
   font-size: 0.72rem;
-  color: var(--cc-accent-2);
+  color: var(--cc-live);
+}
+.cc-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  padding-left: 0.35rem;
+}
+.cc-pagination--board {
+  margin-top: 0.15rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--cc-line);
 }
 
-/* Compat: old keydeck class names if any remain in template */
-.cc-keydeck,
-.cc-hero { display: contents; }
-
-/* Works section filter bar polish */
-.cc-shell :deep(.badge) {
-  border-radius: 999px;
+/* Filter bar / status / empty stage */
+.cc-filterbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--cc-line);
+  border-radius: calc(var(--cc-radius-sm) + 2px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 88%, #fff), var(--cc-surface-2));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
 }
-
-/* Responsive */
+:global(.dark) .cc-filterbar {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  background: linear-gradient(180deg, var(--cc-surface-2), color-mix(in srgb, var(--cc-surface) 80%, #000));
+}
+@media (max-width: 1100px) {
+  .cc-filterbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 640px) {
-  .cc-shell { gap: 0.75rem; }
-  .cc-params-grid { grid-template-columns: 1fr; }
-  .cc-create__actions { flex-direction: column; }
-  .cc-create__actions > * { width: 100%; }
-  .cc-tabs { grid-template-columns: 1fr; }
+  .cc-filterbar { grid-template-columns: 1fr; }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .cc-pill__dot.is-pulse,
-  .cc-work-card--flash {
-    animation: none !important;
-  }
+.cc-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
 }
+.cc-filter--grow { min-width: 0; }
+.cc-filter__label {
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-faint);
+}
+.cc-filter__control {
+  width: 100% !important;
+  min-height: 2.35rem !important;
+  height: 2.35rem !important;
+  border-radius: 0.7rem !important;
+  border-color: var(--cc-line-2) !important;
+  background: var(--cc-surface) !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  color: var(--cc-ink) !important;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.03);
+}
+.cc-filter__control:focus {
+  border-color: var(--cc-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 18%, transparent) !important;
+}
+.cc-filter__control:disabled { opacity: 0.55; cursor: not-allowed; }
+.cc-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+}
+.cc-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cc-muted);
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.03);
+}
+.cc-status-chip__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.cc-status-chip__count {
+  font-family: var(--cc-mono);
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.cc-banner {
+  margin-bottom: 1rem;
+  border-radius: 0.9rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  border: 1px solid var(--cc-line);
+}
+.cc-banner--warn {
+  border-color: color-mix(in srgb, var(--cc-warn) 28%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-warn-soft) 78%, var(--cc-surface));
+  color: color-mix(in srgb, var(--cc-warn) 80%, var(--cc-ink));
+}
+.cc-empty-stage {
+  min-height: 18rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.35rem;
+  padding: 2rem 1.25rem;
+  border: 1px dashed color-mix(in srgb, var(--cc-line-2) 80%, var(--cc-accent));
+  border-radius: calc(var(--cc-radius) + 2px);
+  background:
+    radial-gradient(28rem 12rem at 50% 0%, color-mix(in srgb, var(--cc-accent-soft) 55%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--cc-surface-2), var(--cc-surface));
+}
+.cc-empty-stage__icon {
+  width: 3.1rem;
+  height: 3.1rem;
+  border-radius: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.55rem;
+  color: var(--cc-accent);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--cc-accent-soft) 80%, #fff), var(--cc-surface));
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 22%, var(--cc-line));
+  box-shadow: 0 10px 24px -16px rgb(15 118 110 / 0.65);
+}
+.cc-empty-stage__icon--soft {
+  background: var(--cc-stage);
+  color: var(--cc-accent-bright);
+  border-color: rgb(255 255 255 / 0.08);
+}
+.cc-empty-stage__glyph { font-size: 1.15rem; line-height: 1; opacity: 0.9; }
+.cc-empty-stage--compact { min-height: 10rem; padding: 1.4rem 1rem; }
+.cc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--cc-ink);
+  cursor: pointer;
+  user-select: none;
+}
+.cc-check__input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cc-accent);
+  border-radius: 0.25rem;
+}
+.cc-empty-stage__title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--cc-ink);
+}
+.cc-empty-stage__sub {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--cc-muted);
+}
+.cc-empty-guide {
+  margin-top: 1.15rem;
+  width: 100%;
+  max-width: 26rem;
+  text-align: left;
+  border: 1px solid var(--cc-line);
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-surface);
+  padding: 0.85rem 0.95rem;
+  box-shadow: var(--cc-shadow);
+}
+.cc-empty-guide__title {
+  margin: 0 0 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cc-accent);
+}
+.cc-empty-guide__list {
+  margin: 0;
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--cc-muted);
+  line-height: 1.45;
+}
+.cc-works-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: 0.95rem;
+}
+.cc-works-skeleton__card {
+  border: 1px solid var(--cc-line);
+  border-radius: calc(var(--cc-radius-sm) + 2px);
+  overflow: hidden;
+  background: var(--cc-surface);
+}
+.cc-works-skeleton__media {
+  aspect-ratio: 16 / 10;
+  background:
+    linear-gradient(90deg, var(--cc-surface-3) 0%, color-mix(in srgb, var(--cc-surface-2) 40%, #fff) 50%, var(--cc-surface-3) 100%);
+  background-size: 200% 100%;
+  animation: cc-shimmer 1.35s linear infinite;
+}
+.cc-works-skeleton__lines {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem 0.9rem 1rem;
+}
+.cc-works-skeleton__lines i {
+  display: block;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: var(--cc-surface-3);
+}
+.cc-works-skeleton__lines i:nth-child(1) { width: 88%; height: 0.8rem; }
+.cc-works-skeleton__lines i:nth-child(2) { width: 62%; }
+.cc-works-skeleton__lines i:nth-child(3) { width: 42%; }
 
 /* Works library */
 .cc-works {
   border: 1px solid var(--cc-line) !important;
-  border-radius: calc(var(--cc-radius) + 2px) !important;
+  border-radius: calc(var(--cc-radius) + 4px) !important;
   background: var(--cc-surface) !important;
   box-shadow: var(--cc-shadow) !important;
+  overflow: hidden;
 }
 .cc-works__head {
   border-bottom: 1px solid var(--cc-line);
-  background: var(--cc-surface-2);
-  padding: 1rem 1.15rem;
+  background:
+    radial-gradient(40rem 12rem at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 42%, transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface-2) 88%, #fff), var(--cc-surface-2));
+  padding: 1.15rem 1.25rem 1.05rem;
 }
-.cc-works__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--cc-ink);
+.cc-works__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem 1rem;
 }
-.cc-works__sub {
-  margin: 0.3rem 0 0;
-  font-size: 0.8rem;
-  color: var(--cc-muted);
-  line-height: 1.45;
-}
-.cc-works__keychip {
+.cc-works__title-block { min-width: 0; flex: 1 1 16rem; }
+.cc-works__kicker {
   display: inline-flex;
   align-items: center;
-  margin-left: 0.35rem;
-  padding: 0.12rem 0.5rem;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cc-accent);
+}
+.cc-works__kicker-dot {
+  width: 0.38rem;
+  height: 0.38rem;
   border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 650;
-  color: var(--cc-accent-2);
+  background: var(--cc-accent-bright);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent-bright) 25%, transparent);
+}
+.cc-works__title {
+  margin: 0; font-family: var(--cc-display); font-size: 1.18rem; font-weight: 760;
+  letter-spacing: -0.03em; color: var(--cc-ink);
+}
+.cc-works__refresh { border-radius: 0.75rem !important; }
+.cc-works-body-pad { padding: 1.15rem 1.2rem 1.25rem; }
+
+.cc-works__sub { margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--cc-muted); line-height: 1.45; }
+.cc-works__keychip {
+  display: inline-flex; align-items: center; margin-left: 0.35rem; padding: 0.14rem 0.55rem;
+  border-radius: 999px; font-size: 0.74rem; font-weight: 700; color: var(--cc-accent);
   background: color-mix(in srgb, var(--cc-accent-soft) 75%, var(--cc-surface));
   border: 1px solid color-mix(in srgb, var(--cc-accent) 22%, var(--cc-line));
-  max-width: 18rem;
+  max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+.cc-works-body { display: flex; flex-direction: column; gap: 0.85rem; }
+.cc-batch-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem;
+  padding: 0.65rem 0.75rem; border: 1px solid var(--cc-line); border-radius: var(--cc-radius-sm);
+  background: var(--cc-surface-2);
+}
+.cc-batch-bar__left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.cc-batch-bar__count { font-size: 0.76rem; color: var(--cc-muted); }
+.cc-batch-bar__danger { color: var(--cc-bad) !important; }
+.cc-works-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr)); gap: 0.95rem;
+}
+.cc-work-card {
+  display: flex; flex-direction: column; border: 1px solid var(--cc-line);
+  border-radius: calc(var(--cc-radius) + 2px); background: var(--cc-surface);
+  box-shadow: var(--cc-shadow); overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+
+  isolation: isolate;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.cc-work-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--cc-accent) 28%, var(--cc-line));
+  box-shadow: var(--cc-shadow-lg);
+}
+
+.cc-work-card:hover {
+  transform: translateY(-2px); box-shadow: var(--cc-shadow-lg);
+  border-color: color-mix(in srgb, var(--cc-accent) 22%, var(--cc-line));
+}
+.cc-work-card--ok { box-shadow: var(--cc-shadow), inset 0 0 0 1px color-mix(in srgb, var(--cc-ok) 16%, transparent); }
+.cc-work-card--bad { box-shadow: var(--cc-shadow), inset 0 0 0 1px color-mix(in srgb, var(--cc-bad) 18%, transparent); }
+.cc-work-card--live { box-shadow: var(--cc-shadow), inset 0 0 0 1px color-mix(in srgb, var(--cc-live) 20%, transparent); }
+.cc-work-card--expired { opacity: 0.78; }
+.cc-work-card--dim { opacity: 0.72; }
+.cc-work-card--flash { animation: cc-flash 1.1s ease; }
+.cc-work-card--focus { outline: 2px solid color-mix(in srgb, var(--cc-accent) 50%, transparent); outline-offset: 2px; }
+.cc-work-card--idle {}
+@keyframes cc-flash {
+  0%, 100% { box-shadow: var(--cc-shadow); }
+  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 30%, transparent); }
+}
+.cc-work-media {
+  position: relative; aspect-ratio: 16 / 10;
+  background: radial-gradient(90% 80% at 50% 40%, #1a2438 0%, var(--cc-stage) 70%), var(--cc-stage);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
+}
+.cc-work-media__corners { pointer-events: none; position: absolute; inset: 0.45rem; z-index: 3; }
+.cc-work-media__corners i {
+  position: absolute; width: 0.7rem; height: 0.7rem; border: 1.5px solid rgb(34 211 238 / 0.55); opacity: 0.7;
+}
+.cc-work-media__corners i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.cc-work-media__corners i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.cc-work-media__corners i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.cc-work-media__corners i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+.cc-work-check {
+  position: absolute; top: 0.55rem; left: 0.55rem; z-index: 5; display: grid; place-items: center;
+  width: 1.55rem; height: 1.55rem; border-radius: 0.45rem; background: rgb(15 23 42 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.12); backdrop-filter: blur(6px);
+}
+.cc-work-check input { width: 0.95rem; height: 0.95rem; accent-color: var(--cc-accent-2); margin: 0; }
+.cc-work-status {
+  position: absolute; top: 0.55rem; right: 0.55rem; z-index: 5; display: inline-flex; align-items: center;
+  gap: 0.28rem; max-width: calc(100% - 3.5rem); padding: 0.22rem 0.5rem; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 750; letter-spacing: 0.02em; background: rgb(15 23 42 / 0.62);
+  color: #e2e8f0; border: 1px solid rgb(255 255 255 / 0.1); backdrop-filter: blur(8px);
+}
+.cc-work-status__dot { width: 0.38rem; height: 0.38rem; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+.cc-work-expired {
+  position: absolute; top: 2.25rem; right: 0.55rem; z-index: 5; padding: 0.14rem 0.42rem; border-radius: 999px;
+  font-size: 0.65rem; font-weight: 750; color: #fecaca; background: rgb(127 29 29 / 0.75);
+  border: 1px solid rgb(248 113 113 / 0.35);
+}
+.cc-work-cover {
+  appearance: none; border: 0; padding: 0; margin: 0; width: 100%; height: 100%; display: block;
+  position: relative; cursor: pointer; background: transparent; opacity: 0; transition: opacity 0.25s ease;
+}
+.cc-work-cover.is-ready { opacity: 1; }
+.cc-work-cover__media { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--cc-stage); }
+.cc-work-cover__veil {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: linear-gradient(180deg, transparent 40%, rgb(0 0 0 / 0.45));
+  opacity: 0; transition: opacity 0.18s ease;
+}
+.cc-work-card:hover .cc-work-cover__veil { opacity: 1; }
+.cc-work-cover__play {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 4.5rem;
+  padding: 0.4rem 0.8rem; border-radius: 999px; font-size: 0.75rem; font-weight: 750; color: #ecfeff;
+  background: rgb(8 145 178 / 0.88); border: 1px solid rgb(165 243 252 / 0.35);
+  box-shadow: 0 10px 24px -12px rgb(0 0 0 / 0.7);
+}
+.cc-work-cover--pending,
+.cc-work-cover--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  text-align: center;
+  padding: 1.1rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  background:
+    radial-gradient(18rem 10rem at 50% 30%, rgb(45 212 191 / 0.08), transparent 70%),
+    linear-gradient(180deg, #0d1524, #0a101b);
+}
+.cc-work-cover--pending { color: #a5f3fc; cursor: pointer; }
+.cc-work-cover--empty { color: rgb(148 163 184 / 0.92); cursor: default; }
+.cc-work-cover--empty::before {
+  content: "";
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.65rem;
+  border: 1px dashed rgb(148 163 184 / 0.35);
+  background: rgb(255 255 255 / 0.02);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.03);
+}
+.cc-work-cover__pending-text { color: #a5f3fc; letter-spacing: 0.02em; }
+.cc-cover-skeleton {
+  position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(135deg, #0b1220 0%, #152033 45%, #0b1220 100%);
+}
+.cc-cover-skeleton__shine {
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgb(34 211 238 / 0.12) 48%, transparent 66%);
+  transform: translateX(-60%); animation: cc-shimmer 1.35s ease-in-out infinite;
+}
+.cc-cover-skeleton__label {
+  position: relative; z-index: 1; padding: 0.35rem 0.7rem; border-radius: 999px; font-size: 0.72rem;
+  font-weight: 700; letter-spacing: 0.04em; color: #a5f3fc; background: rgb(8 145 178 / 0.18);
+  border: 1px solid rgb(34 211 238 / 0.28); backdrop-filter: blur(4px);
+}
+@keyframes cc-shimmer {
+  0% { transform: translateX(-70%); }
+  100% { transform: translateX(70%); }
+}
+.cc-work-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem 0.95rem 1rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 92%, var(--cc-surface-2)), var(--cc-surface));
+  border-top: 1px solid color-mix(in srgb, var(--cc-line) 80%, transparent);
+}
+
+.cc-work-prompt {
+  margin: 0; font-size: 0.88rem; font-weight: 700; line-height: 1.4; color: var(--cc-ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.45rem;
+}
+.cc-work-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.55rem; }
+.cc-work-time { font-family: var(--cc-mono); font-size: 0.7rem; color: var(--cc-muted); }
+.cc-work-error {
+  border-radius: 0.7rem; background: color-mix(in srgb, var(--cc-bad-soft) 80%, var(--cc-surface));
+  border: 1px solid color-mix(in srgb, var(--cc-bad) 22%, var(--cc-line)); padding: 0.5rem 0.6rem;
+}
+.cc-work-error p { margin: 0; font-size: 0.74rem; color: var(--cc-bad); line-height: 1.4; }
+.cc-work-error__actions { margin-top: 0.3rem; display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.cc-work-error__actions button {
+  appearance: none; border: 0; background: transparent; padding: 0; font-size: 0.7rem; font-weight: 700;
+  color: var(--cc-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.cc-work-elapsed { margin: 0; font-family: var(--cc-mono); font-size: 0.72rem; color: var(--cc-live); }
+.cc-work-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.15rem; }
+.cc-work-actions .btn { border-radius: 0.7rem !important; }
+.cc-empty-guide {
+  border: 1px solid var(--cc-line); border-radius: var(--cc-radius-sm); background: var(--cc-surface-2); padding: 0.85rem 0.95rem;
+}
+.cc-rules-card {
+  border: 1px solid var(--cc-line); border-radius: var(--cc-radius-sm); background: var(--cc-surface-2);
+  padding: 0.8rem 0.9rem; font-size: 0.8rem; color: var(--cc-muted); line-height: 1.5;
+}
+.cc-rules-card--empty { border-style: dashed; }
+.cc-progress { height: 0.35rem; border-radius: 999px; background: var(--cc-line); overflow: hidden; }
+.cc-progress__bar {
+  height: 100%; border-radius: inherit; background: linear-gradient(90deg, #22d3ee, #0e7490); transition: width 0.25s ease;
+}
+.cc-mention-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 0.35rem); z-index: 40; max-height: 16rem; overflow: auto;
+  border: 1px solid var(--cc-line-2); border-radius: var(--cc-radius); background: var(--cc-surface); box-shadow: var(--cc-shadow-lg);
+}
+.cc-mention-menu__head {
+  padding: 0.55rem 0.75rem 0.4rem; font-size: 0.72rem; font-weight: 750; color: var(--cc-muted); border-bottom: 1px solid var(--cc-line);
+}
+.cc-mention-menu__empty { padding: 0.75rem; font-size: 0.8rem; color: var(--cc-muted); text-align: center; }
+.cc-mention-item {
+  display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0.55rem; width: 100%; text-align: left;
+  border: 0; border-bottom: 1px solid var(--cc-line); background: transparent; color: inherit; padding: 0.55rem 0.7rem; cursor: pointer;
+}
+.cc-mention-item:last-child { border-bottom: 0; }
+.cc-mention-item:hover, .cc-mention-item--active {
+  background: color-mix(in srgb, var(--cc-accent-soft) 50%, var(--cc-surface));
+}
+.cc-mention-item__thumb {
+  width: 2.5rem; height: 2.5rem; border-radius: 0.45rem; overflow: hidden; background: var(--cc-surface-2);
+  border: 1px solid var(--cc-line); display: flex; align-items: center; justify-content: center;
+}
+.cc-mention-item__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cc-mention-item__kind { font-size: 0.6rem; font-weight: 750; color: var(--cc-muted); }
+.cc-mention-item__body { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.cc-mention-item__label {
+  font-size: 0.84rem; font-weight: 650; color: var(--cc-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cc-mention-item__token { font-family: var(--cc-mono); font-size: 0.72rem; color: var(--cc-accent); }
+.cc-pagination {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--cc-line);
+}
+.cc-pagination__meta { font-size: 0.78rem; color: var(--cc-muted); }
+.cc-pagination__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.cc-pagination__select {
+  min-height: 2rem !important; height: 2rem !important; border-radius: 0.6rem !important;
+  font-size: 0.78rem !important; padding: 0 0.45rem !important;
+}
+.cc-keydeck, .cc-hero { display: contents; }
+.cc-shell :deep(.badge) { border-radius: 999px; }
+@media (max-width: 640px) {
+  .cc-shell { gap: 0.8rem; }
+  .cc-params-grid { grid-template-columns: 1fr; }
+  .cc-create__actions { flex-direction: column; }
+  .cc-create__actions > * { width: 100%; }
+  .cc-tabs { grid-template-columns: 1fr; }
+  .cc-works-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-pill__dot.is-pulse, .cc-work-card--flash, .cc-cover-skeleton__shine { animation: none !important; }
+  .cc-work-card:hover { transform: none; }
 }
 
 </style>

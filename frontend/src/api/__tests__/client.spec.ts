@@ -346,6 +346,104 @@ describe('API Client', () => {
     })
   })
 
+  describe('session resilience on network blips', () => {
+    it('keeps session when token refresh fails due to network error', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'refresh-token-1')
+      localStorage.setItem('auth_user', JSON.stringify({ id: 1, username: 'u' }))
+
+      const originalLocation = window.location
+      Object.defineProperty(window, 'location', {
+        value: { ...originalLocation, pathname: '/dashboard', href: '/dashboard' },
+        writable: true,
+      })
+
+      const postSpy = vi.spyOn(axios, 'post').mockRejectedValue({
+        code: 'ERR_NETWORK',
+        message: 'Network Error',
+        isAxiosError: true,
+      })
+
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 401,
+          data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
+        },
+        config: {
+          url: '/usage',
+          headers: { Authorization: 'Bearer expired-token' },
+        },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/usage')).rejects.toEqual(
+        expect.objectContaining({
+          status: 0,
+          code: 'AUTH_REFRESH_TRANSIENT',
+        })
+      )
+
+      // Must NOT force logout on transient refresh failure
+      expect(localStorage.getItem('auth_token')).toBe('expired-token')
+      expect(localStorage.getItem('refresh_token')).toBe('refresh-token-1')
+      expect(postSpy).toHaveBeenCalled()
+
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+      })
+    })
+
+    it('clears session when refresh token is definitively rejected', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'bad-refresh')
+
+      const originalLocation = window.location
+      Object.defineProperty(window, 'location', {
+        value: { ...originalLocation, pathname: '/dashboard', href: '/dashboard' },
+        writable: true,
+      })
+
+      vi.spyOn(axios, 'post').mockResolvedValue({
+        status: 200,
+        data: { code: 40101, message: 'invalid refresh token', data: null },
+        headers: {},
+        statusText: 'OK',
+        config: {},
+      })
+
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 401,
+          data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
+        },
+        config: {
+          url: '/usage',
+          headers: { Authorization: 'Bearer expired-token' },
+        },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/usage')).rejects.toEqual(
+        expect.objectContaining({
+          status: 401,
+          code: 'TOKEN_REFRESH_FAILED',
+        })
+      )
+
+      expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(localStorage.getItem('refresh_token')).toBeNull()
+
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+      })
+    })
+  })
+
+
   // --- 网络错误 ---
 
   describe('网络错误', () => {

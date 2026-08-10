@@ -1,7 +1,7 @@
 /**
  * Model Plaza API（公开端点，可匿名访问）
- * 以分组为中心的模型价目：分组信息 + 模型渠道定价 + LiteLLM 官方参考价。
- * 带 token 请求时后端会额外返回专属分组与用户专属倍率。
+ * 以分组开放模型为源：实时聚合渠道 token 价 + 分组视频/图片档位价。
+ * 前端再按模型名合并卡片，展示不同分组的倍率与价格。
  */
 
 import { apiClient } from './client'
@@ -18,11 +18,30 @@ export interface PlazaOfficialPricing {
   cache_read_price: number | null
 }
 
+export type PlazaModelKind = 'chat' | 'image' | 'video'
+
+export interface PlazaVideoPrices {
+  '480p'?: number | null
+  '720p'?: number | null
+  '1080p'?: number | null
+  '1440p'?: number | null
+  '2160p'?: number | null
+}
+
 export interface PlazaModel {
   name: string
   platform: string
+  /** chat | image | video */
+  kind: PlazaModelKind | string
   pricing: UserSupportedModelPricing | null
   official_pricing: PlazaOfficialPricing | null
+  /** per_second | per_request — video only */
+  video_billing_unit?: string
+  /** Allowed resolution keys for this video model (may be unpriced). */
+  video_resolutions?: string[]
+  video_prices?: PlazaVideoPrices | null
+  /** 1K / 2K / 4K 等图片档位价 */
+  image_prices?: Record<string, number | null | undefined> | null
 }
 
 export interface ModelPlazaGroup {
@@ -33,19 +52,34 @@ export interface ModelPlazaGroup {
   /** 'standard' | 'subscription' */
   subscription_type: string
   rate_multiplier: number
-  /** 登录且管理员为该用户配了专属倍率时返回；生效倍率 = user_rate ?? rate_multiplier。 */
+  /** 登录且管理员/用户为该用户配了专属倍率时返回；生效倍率 = user_rate ?? rate_multiplier。 */
   user_rate_multiplier?: number
   peak_rate_enabled: boolean
   peak_start: string
   peak_end: string
   peak_rate_multiplier: number
   is_exclusive: boolean
+  /** Always present for user surfaces (baseline when cold). */
+  avg_first_token_ms: number
+  /** e.g. 根据近期请求统计，仅供参考 */
+  ttft_disclaimer: string
   models: PlazaModel[]
+}
+
+export interface ModelPlazaStats {
+  groups: number
+  models: number
+  offers: number
 }
 
 export interface ModelPlazaResponse {
   /** 管理员配置的全局价格说明（Markdown）。 */
   description: string
+  /** 本次聚合时间（ISO UTC）。 */
+  synced_at?: string
+  /** 管理员视角（含专属分组全量）。 */
+  is_admin_view?: boolean
+  stats?: ModelPlazaStats
   groups: ModelPlazaGroup[]
 }
 

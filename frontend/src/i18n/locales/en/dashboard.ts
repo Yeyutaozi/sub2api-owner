@@ -537,18 +537,40 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     title: 'Model Plaza',
-    description: 'Browse available models and pricing by group',
+    description: 'Browse open models as cards: same model shows multi-group rates and prices; video quality tiers with per-second or per-request billing',
     loading: 'Loading...',
-    empty: 'No groups to display',
+    empty: 'No models to display',
     loadFailed: 'Failed to load model plaza',
     noSearchResult: 'No matching models',
-    anonymousHint: 'Sign in to see your exclusive groups and personal rates',
+    anonymousHint: 'Sign in to view exclusive groups and your personal rates',
+    kind: {
+      chat: 'Chat',
+      image: 'Image',
+      video: 'Video'
+    },
+    stats: {
+      models: 'Models',
+      groups: 'Groups',
+      offers: 'Group offers',
+      syncedAt: 'Synced at'
+    },
+    admin: {
+      syncAll: 'Fetch all group models',
+      refresh: 'Refresh catalog',
+      fullCatalog: 'Admin full catalog'
+    },
+    card: {
+      offers: '{n} group offers',
+      bestOffer: 'Best rate',
+      baseRate: 'default {rate}'
+    },
     filters: {
       platformLabel: 'Platform',
       groupLabel: 'Group',
       rateLabel: 'Rate',
+      kindLabel: 'Type',
       modelLabel: 'Model',
-      searchPlaceholder: 'Search models',
+      searchPlaceholder: 'Search model / group',
       all: 'All'
     },
     badges: {
@@ -558,7 +580,9 @@ export default {
     detail: {
       noModels: 'No models configured for this group',
       noPricing: 'Pricing not configured',
-      peakNote: 'Peak hours {window}: billing rate ×{multiplier}'
+      peakNote: 'Peak window {window} rate ×{multiplier}',
+      avgFirstToken: 'Avg first token',
+      ttftDisclaimer: 'Based on recent requests; for reference only'
     },
     table: {
       model: 'Model',
@@ -567,18 +591,20 @@ export default {
       cache: 'Cache',
       cacheWrite: 'Write',
       cacheRead: 'Read',
-      paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
+      paidPrice: 'Paid price',
+      officialPrice: 'Official price',
       rate: 'Rate',
-      unitPerMillion: '$ / 1M tokens',
+      unitPerMillion: '$ / 1M token',
+      unitPerSecond: 'USD / sec (rate applied)',
+      unitPerRequest: 'USD / clip (rate applied)',
       perUnitRequest: '/ request',
-      perUnitImage: '/ image',
+      perUnitImage: 'USD / image (rate applied)',
       perRequest: 'Per request',
       perImage: 'Per image'
     },
     nav: {
-      login: 'Sign In',
-      backToDashboard: 'Back to Console'
+      login: 'Sign in',
+      backToDashboard: 'Back to dashboard'
     }
   },
 

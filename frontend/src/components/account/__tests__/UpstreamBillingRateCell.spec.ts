@@ -273,6 +273,31 @@ describe('UpstreamBillingRateCell', () => {
     expect(wrapper.text()).toBe('-')
   })
 
+  it('shows rateNotExposed when upstream cannot publish group ratio', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: {
+              status: 'unsupported',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T01:00:00Z',
+              last_error: 'rate_not_exposed'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe(
+      'admin.accounts.upstreamBilling.rateNotExposed'
+    )
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.rateNotExposed')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.unsupported')
+  })
+
   it('fails neutral for malformed data and timestamps', async () => {
     const malformedAccount = (
       dataOverrides: Partial<typeof billingData> = {},
