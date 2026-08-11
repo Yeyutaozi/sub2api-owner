@@ -896,6 +896,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		}
 		return s.isBetterAccount(a, b)
 	})
+	// Prefer significantly faster peers even when advanced scheduler is off.
+	// Keeps priority/LRU when TTFT is close; only reorders on strong real samples.
+	sort.SliceStable(eligible, func(i, j int) bool {
+		return compareAccountsBySignificantTTFT(eligible[i].ID, eligible[j].ID) < 0
+	})
 	return eligible[0], compactBlocked
 }
 
@@ -1164,6 +1169,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				return rateOrder.compare(available[i].account, available[j].account) < 0
 			})
 		}
+		// Final TTFT pass: after priority/load/shuffle, float clearly faster peers to front.
+		// Critical for classic path — sticky escape alone still reselected by LRU without this.
+		sort.SliceStable(available, func(i, j int) bool {
+			return compareAccountsBySignificantTTFT(available[i].account.ID, available[j].account.ID) < 0
+		})
 
 		selectionOrder := make([]accountWithLoad, 0, len(available))
 		if requireCompact {
@@ -1220,6 +1230,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				return rateOrder.compare(ordered[i], ordered[j]) < 0
 			})
 		}
+		sort.SliceStable(ordered, func(i, j int) bool {
+			return compareAccountsBySignificantTTFT(ordered[i].ID, ordered[j].ID) < 0
+		})
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
@@ -1270,6 +1283,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			return rateOrder.compare(candidates[i], candidates[j]) < 0
 		})
 	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return compareAccountsBySignificantTTFT(candidates[i].ID, candidates[j].ID) < 0
+	})
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}

@@ -291,6 +291,61 @@ func ReportAccountRuntimeResult(accountID int64, success bool, firstTokenMs *int
 	_ = persistAccountRuntimeToRedis(accountID, success, firstTokenMs)
 }
 
+// compareAccountsBySignificantTTFT ranks accounts for classic (non-advanced) selection.
+// Returns -1 if a is preferred, 1 if b is preferred, 0 if no strong signal.
+//
+// Rules (real-request samples only, no probe cost):
+//   - both measured: prefer the significantly faster one (same spirit as sticky escape:
+//     >1.3x and >600ms gap, OR absolute gap >1500ms for extreme hangers like 20s vs 5s)
+//   - one measured severely slow (>=5s) vs unmeasured: prefer unmeasured (explore)
+//   - one measured healthy vs unmeasured: prefer measured (keep proven capacity)
+// Used after sticky escape and on free selection so priority/LRU cannot keep landing on
+// multi-second hangers when a clearly faster peer exists in the same group.
+func compareAccountsBySignificantTTFT(aID, bID int64) int {
+	if aID <= 0 || bID <= 0 || aID == bID {
+		return 0
+	}
+	_, aEWMA, aLast, aHas := SnapshotOpenAIAccountRuntimeDetailed(aID)
+	_, bEWMA, bLast, bHas := SnapshotOpenAIAccountRuntimeDetailed(bID)
+	aTTFT, aOK := effectiveTTFTForEscape(aEWMA, aLast, aHas)
+	bTTFT, bOK := effectiveTTFTForEscape(bEWMA, bLast, bHas)
+	if !aOK && !bOK {
+		return 0
+	}
+	const exploreMs = 5000.0
+	if aOK && !bOK {
+		if aTTFT >= exploreMs {
+			return 1 // prefer unmeasured over severe hanger
+		}
+		return -1
+	}
+	if bOK && !aOK {
+		if bTTFT >= exploreMs {
+			return -1
+		}
+		return 1
+	}
+	// both measured
+	ratio := 1.3
+	minDelta := 600.0
+	absGap := 1500.0
+	if aTTFT > 0 && bTTFT > 0 {
+		if bTTFT > aTTFT*ratio && (bTTFT-aTTFT) > minDelta {
+			return -1 // a significantly faster
+		}
+		if aTTFT > bTTFT*ratio && (aTTFT-bTTFT) > minDelta {
+			return 1 // b significantly faster
+		}
+		if bTTFT-aTTFT > absGap {
+			return -1
+		}
+		if aTTFT-bTTFT > absGap {
+			return 1
+		}
+	}
+	return 0
+}
+
 // shouldEscapeStickyByRuntime decides whether a sticky account should be abandoned based on
 // EWMA first-token latency / error rate from real traffic (no probe cost).
 //
@@ -380,6 +435,12 @@ func stickyEscapeReasonByFasterPeer(stickyTTFT float64, cfg openAIStickyEscapeCo
 	}
 	if hasMeasuredPeer {
 		if stickyTTFT > bestPeer*ratio && (stickyTTFT-bestPeer) > minDelta {
+			return "ttft_relative", true
+		}
+		// Extreme absolute hangers: e.g. 20s vs 16s can fail pure 1.3x ratio
+		// (20 < 16*1.3=20.8) yet still lag multi-seconds — free reselection.
+		absGap := 2500.0
+		if stickyTTFT-bestPeer > absGap {
 			return "ttft_relative", true
 		}
 		return "", false
