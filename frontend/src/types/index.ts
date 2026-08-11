@@ -1244,6 +1244,8 @@ export interface UpstreamBillingData {
   effective_rate_multiplier: number
   timezone?: string
   observed_at: string
+  /** Optional probed upstream group name (e.g. NewAPI group). */
+  group_name?: string
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'

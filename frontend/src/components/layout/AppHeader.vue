@@ -327,14 +327,6 @@ const pageTitle = computed(() => {
   return (route.meta.title as string) || ''
 })
 
-const pageDescription = computed(() => {
-  const descKey = route.meta.descriptionKey as string
-  if (descKey) {
-    return t(descKey)
-  }
-  return (route.meta.description as string) || ''
-})
-
 function toggleMobileSidebar() {
   appStore.toggleMobileSidebar()
 }
