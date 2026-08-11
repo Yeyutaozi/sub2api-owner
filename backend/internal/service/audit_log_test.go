@@ -154,14 +154,17 @@ func TestRedactAuditBody_Empty(t *testing.T) {
 func TestSessionBindingHash(t *testing.T) {
 	a := &SessionBinding{IP: "1.2.3.4", UserAgent: "Mozilla/5.0"}
 	b := &SessionBinding{IP: "1.2.3.4", UserAgent: "Mozilla/5.0"}
-	if a.Hash() != b.Hash() {
-		t.Fatalf("identical bindings must hash equal")
-	}
 	if a.Hash() == "" {
 		t.Fatalf("non-empty binding must produce non-empty hash")
 	}
+	if a.Hash() != b.Hash() {
+		t.Fatalf("identical bindings must share hash")
+	}
+	if !strings.HasPrefix(a.Hash(), bindingHashV2Prefix) {
+		t.Fatalf("new hash must use v2 prefix, got %q", a.Hash())
+	}
 
-	// IP 变化 → 哈希变化。
+	// IP 变化 → 哈希变化（但评估为软重绑）。
 	c := &SessionBinding{IP: "5.6.7.8", UserAgent: "Mozilla/5.0"}
 	if a.Hash() == c.Hash() {
 		t.Fatalf("changing IP must change hash")
@@ -182,6 +185,49 @@ func TestSessionBindingHash(t *testing.T) {
 		t.Fatalf("nil binding must hash to empty string")
 	}
 }
+
+func TestEvaluateSessionBindingSoftIPAndHardUA(t *testing.T) {
+	base := &SessionBinding{IP: "1.2.3.4", UserAgent: "Mozilla/5.0"}
+	stored := base.Hash()
+
+	if got := EvaluateSessionBinding(stored, base); got != BindingMatch {
+		t.Fatalf("same binding: got %v want Match", got)
+	}
+
+	ipChanged := &SessionBinding{IP: "9.9.9.9", UserAgent: "Mozilla/5.0"}
+	if got := EvaluateSessionBinding(stored, ipChanged); got != BindingSoftIPChange {
+		t.Fatalf("IP-only change: got %v want SoftIPChange", got)
+	}
+	if SessionBindingHardMismatch(stored, ipChanged) {
+		t.Fatalf("IP-only change must not hard-mismatch")
+	}
+
+	uaChanged := &SessionBinding{IP: "1.2.3.4", UserAgent: "curl/8.0"}
+	if got := EvaluateSessionBinding(stored, uaChanged); got != BindingHardMismatch {
+		t.Fatalf("UA change: got %v want HardMismatch", got)
+	}
+	if !SessionBindingHardMismatch(stored, uaChanged) {
+		t.Fatalf("UA change must hard-mismatch")
+	}
+
+	// Legacy v1: matching combined hash → Match
+	legacy := base.LegacyHash()
+	if got := EvaluateSessionBinding(legacy, base); got != BindingMatch {
+		t.Fatalf("legacy match: got %v want Match", got)
+	}
+	// Legacy v1 mismatch (any) → soft, so VPN switches do not kill old sessions.
+	if got := EvaluateSessionBinding(legacy, ipChanged); got != BindingSoftIPChange {
+		t.Fatalf("legacy IP mismatch: got %v want SoftIPChange", got)
+	}
+	if got := EvaluateSessionBinding(legacy, uaChanged); got != BindingSoftIPChange {
+		t.Fatalf("legacy UA mismatch: got %v want SoftIPChange (migration soft path)", got)
+	}
+
+	if got := EvaluateSessionBinding("", base); got != BindingMatch {
+		t.Fatalf("empty stored: got %v want Match", got)
+	}
+}
+
 
 func TestParseAuditLogRetentionDays(t *testing.T) {
 	cases := map[string]int{

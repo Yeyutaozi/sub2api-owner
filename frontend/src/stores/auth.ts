@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
+import { AUTH_TOKENS_UPDATED_EVENT, type AuthTokensUpdatedDetail } from '@/api/client'
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -141,12 +142,38 @@ export const useAuthStore = defineStore('auth', () => {
   let connectivityListenersBound = false
 
   /**
+   * Keep Pinia in sync when axios interceptor rotates tokens (localStorage-only path).
+   */
+  function handleAuthTokensUpdated(event: Event): void {
+    const detail = (event as CustomEvent<AuthTokensUpdatedDetail>).detail
+    if (!detail?.access_token || !detail?.refresh_token) return
+    token.value = detail.access_token
+    refreshTokenValue.value = detail.refresh_token
+    scheduleTokenRefresh(detail.expires_in)
+  }
+
+  /**
    * When network recovers (VPN/proxy switch), re-validate session without forcing logout.
    */
   function handleConnectivityRestored(): void {
+    // Always re-hydrate from localStorage first — interceptor may have rotated tokens
+    // while Pinia still held the previous refresh token.
+    const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
+    const savedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY)
+    const savedExpiresAt = localStorage.getItem(TOKEN_EXPIRES_AT_KEY)
+    if (savedToken) token.value = savedToken
+    if (savedRefresh) refreshTokenValue.value = savedRefresh
+    if (savedExpiresAt) {
+      const expiresAt = parseInt(savedExpiresAt, 10)
+      if (!Number.isNaN(expiresAt)) {
+        tokenExpiresAt.value = expiresAt
+      }
+    }
+
     if (!token.value) return
+
     // Proactively renew if we still have a refresh token.
-    if (refreshTokenValue.value) {
+    if (refreshTokenValue.value || savedRefresh) {
       performTokenRefresh().catch((error) => {
         console.error('Token refresh after connectivity restore failed:', error)
       })
@@ -160,6 +187,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (connectivityListenersBound || typeof window === 'undefined') return
     connectivityListenersBound = true
     window.addEventListener('online', handleConnectivityRestored)
+    window.addEventListener(AUTH_TOKENS_UPDATED_EVENT, handleAuthTokensUpdated as EventListener)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         handleConnectivityRestored()
@@ -232,9 +260,12 @@ export const useAuthStore = defineStore('auth', () => {
    * Perform the actual token refresh
    */
   async function performTokenRefresh(): Promise<void> {
-    if (!refreshTokenValue.value) {
+    // Prefer localStorage source of truth (interceptor may have rotated already).
+    const latestRefresh = localStorage.getItem(REFRESH_TOKEN_KEY) || refreshTokenValue.value
+    if (!latestRefresh) {
       return
     }
+    refreshTokenValue.value = latestRefresh
 
     try {
       const response = await authAPI.refreshToken()
@@ -247,19 +278,40 @@ export const useAuthStore = defineStore('auth', () => {
       scheduleTokenRefresh(response.expires_in)
     } catch (error) {
       console.error('Token refresh failed:', error)
-      // Interceptor already handles definitive 401 logout.
+      // Stale concurrent rotation is benign — rehydrate and keep session.
+      const err = error as {
+        status?: number
+        code?: string
+        response?: { status?: number }
+      }
+      const status = typeof err.status === 'number' ? err.status : err.response?.status
+      const code = err.code
+      if (code === 'AUTH_REFRESH_STALE') {
+        const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
+        const savedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY)
+        const savedExpiresAt = localStorage.getItem(TOKEN_EXPIRES_AT_KEY)
+        if (savedToken) token.value = savedToken
+        if (savedRefresh) refreshTokenValue.value = savedRefresh
+        if (savedExpiresAt) {
+          const expiresAt = parseInt(savedExpiresAt, 10)
+          if (!Number.isNaN(expiresAt)) {
+            tokenExpiresAt.value = expiresAt
+            scheduleTokenRefreshAt(expiresAt)
+          }
+        }
+        return
+      }
       // For transient network/VPN failures, keep session and try again soon.
-      const status = (error as { status?: number; code?: string }).status
-      const code = (error as { status?: number; code?: string }).code
       const transient =
         status === 0 ||
+        status === undefined ||
         code === 'AUTH_REFRESH_TRANSIENT' ||
         status === 408 ||
         status === 425 ||
         status === 429 ||
         (typeof status === 'number' && status >= 500)
 
-      if (transient && refreshTokenValue.value) {
+      if (transient && (refreshTokenValue.value || localStorage.getItem(REFRESH_TOKEN_KEY))) {
         if (tokenRefreshTimeoutId) {
           clearTimeout(tokenRefreshTimeoutId)
           tokenRefreshTimeoutId = null
@@ -267,8 +319,13 @@ export const useAuthStore = defineStore('auth', () => {
         tokenRefreshTimeoutId = setTimeout(() => {
           performTokenRefresh()
         }, 30_000)
+        return
       }
-      // Don't clear auth here - only clear on definitive server rejection in interceptor/refreshUser.
+
+      // Definitive rejection from shared refresh path (raw axios, not apiClient interceptor).
+      if (status === 401 || status === 403 || code === 'TOKEN_REFRESH_REJECTED' || code === 'NO_REFRESH_TOKEN') {
+        clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      }
     }
   }
 
@@ -502,6 +559,7 @@ export const useAuthStore = defineStore('auth', () => {
       const definitiveAuthFailure =
         err.status === 401 &&
         err.code !== 'AUTH_REFRESH_TRANSIENT' &&
+        err.code !== 'AUTH_REFRESH_STALE' &&
         err.code !== 'TOKEN_REFRESH_NETWORK'
       if (definitiveAuthFailure) {
         clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })

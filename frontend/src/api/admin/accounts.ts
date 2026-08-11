@@ -938,7 +938,84 @@ export async function refreshOllamaCloudUsage(id: number): Promise<OllamaCloudUs
   return data
 }
 
-export const accountsAPI = {
+export 
+export interface AccountSwitchAuditCandidate {
+  account_id: number
+  account_name?: string
+  score: number
+  priority: number
+  ttft_ms?: number
+  has_ttft: boolean
+  error_rate: number
+  load_rate: number
+  waiting_count: number
+  rate_multiplier?: number
+  selected: boolean
+  escaped?: boolean
+}
+
+export interface AccountSwitchScoreWeights {
+  priority: number
+  load: number
+  queue: number
+  error_rate: number
+  ttft: number
+  reset: number
+  quota_headroom: number
+  upstream_cost: number
+}
+
+export interface AccountSwitchAuditEvent {
+  id: string
+  at: string
+  event_type: string
+  reason: string
+  user_id?: number
+  group_id?: number
+  platform?: string
+  model?: string
+  request_id?: string
+  session_hash_short?: string
+  layer?: string
+  from_account_id?: number
+  from_account_name?: string
+  to_account_id?: number
+  to_account_name?: string
+  from_ttft_ms?: number
+  from_error_rate?: number
+  has_from_ttft: boolean
+  context_preserved: boolean
+  threshold_ttft_ms?: number
+  threshold_error_rate?: number
+  relative_ratio?: number
+  relative_min_delta_ms?: number
+  score_weights?: AccountSwitchScoreWeights
+  candidates?: AccountSwitchAuditCandidate[]
+  note?: string
+}
+
+export interface AccountSwitchAuditListResponse {
+  retention_hours: number
+  total: number
+  items: AccountSwitchAuditEvent[]
+  disclaimer: string
+}
+
+/**
+ * List automatic account-switch audit events (24h retention).
+ */
+export async function listSwitchAudit(params?: {
+  limit?: number
+  user_id?: number
+  group_id?: number
+  account_id?: number
+  reason?: string
+}): Promise<AccountSwitchAuditListResponse> {
+  const { data } = await apiClient.get('/admin/accounts/switch-audit', { params })
+  return data
+}
+
+const accountsAPI = {
   list,
   listWithEtag,
   getById,
@@ -997,7 +1074,8 @@ export const accountsAPI = {
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,
   setOllamaCloudUsageAutoRefresh,
-  refreshOllamaCloudUsage
+  refreshOllamaCloudUsage,
+  listSwitchAudit
 }
 
 export default accountsAPI

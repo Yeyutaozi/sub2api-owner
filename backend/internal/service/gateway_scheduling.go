@@ -378,6 +378,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 											"session", shortSessionHash(sessionHash),
 											"layer", "routing",
 										)
+										{
+											// routingCandidates is already []*Account
+											peers := append([]*Account(nil), routingCandidates...)
+											errRate, _, _ := SnapshotOpenAIAccountRuntime(stickyAccountID)
+											RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, stickyAccount, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+										}
 										stickyCacheMissReason = "ttft_escape"
 									} else {
 										if s.debugModelRoutingEnabled() {
@@ -600,6 +606,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									"session", shortSessionHash(sessionHash),
 									"layer", "no_routing",
 								)
+								{
+									peers := make([]*Account, 0, len(accountByID))
+									for _, peer := range accountByID {
+										if peer != nil {
+											peers = append(peers, peer)
+										}
+									}
+									errRate, _, _ := SnapshotOpenAIAccountRuntime(accountID)
+									RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+								}
 								// fall through to Layer 2 load-aware selection
 							} else {
 								if s.cache != nil {
@@ -1867,6 +1883,14 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 									"session", shortSessionHash(sessionHash),
 									"layer", "legacy_routing",
 								)
+								{
+									errRate, _, _ := SnapshotOpenAIAccountRuntime(accountID)
+									var fromAcc *Account
+									if account != nil {
+										fromAcc = account
+									}
+									RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, fromAcc, nil, nil, ttft, errRate, gatewayStickyEscapeConfig())
+								}
 							} else {
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)

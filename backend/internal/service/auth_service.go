@@ -59,7 +59,7 @@ type JWTClaims struct {
 	TokenVersion int64  `json:"token_version"` // Used to invalidate tokens on password change
 	// SessionID 会话 ID（与 refresh token family 对应），用于单会话撤销与 step-up 授权绑定。
 	SessionID string `json:"sid,omitempty"`
-	// BindingHash 会话指纹哈希（IP+UA），会话绑定开启时校验；空值表示旧 token（平滑升级）。
+	// BindingHash 会话指纹哈希（v2: IP+UA 可拆分；仅 UA 硬绑定，IP 软重绑）；空值表示旧 token（平滑升级）。
 	BindingHash string `json:"bnd,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -1288,7 +1288,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 
 	// 会话绑定检查：指纹变化的旧 token 不允许换发新 token。
 	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && claims.BindingHash != "" {
-		if current := sessionBindingHashFromContext(ctx); current != "" && current != claims.BindingHash {
+		if SessionBindingHardMismatch(claims.BindingHash, SessionBindingFromContext(ctx)) {
 			_ = s.RevokeSessionFamily(ctx, claims.SessionID)
 			return "", ErrSessionBindingMismatch
 		}
@@ -1617,12 +1617,13 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrTokenRevoked
 	}
 
-	// 会话绑定检查：IP/UA 任一变化即撤销整个会话家族。
+	// 会话绑定检查：仅 User-Agent 硬变化才撤销会话家族。
+	// 仅 IP 变化（VPN/代理）软重绑：放行并在 GenerateTokenPair 中写入新指纹。
 	// data.BindingHash 为空表示功能开启前签发的旧会话，放行并在轮转时补齐绑定。
 	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && data.BindingHash != "" {
-		if current := sessionBindingHashFromContext(ctx); current != "" && current != data.BindingHash {
+		if SessionBindingHardMismatch(data.BindingHash, SessionBindingFromContext(ctx)) {
 			_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
-			logger.LegacyPrintf("service.auth", "[Auth] Session binding mismatch on refresh for user %d, family revoked", data.UserID)
+			logger.LegacyPrintf("service.auth", "[Auth] Session binding hard mismatch on refresh for user %d, family revoked", data.UserID)
 			return nil, ErrSessionBindingMismatch
 		}
 	}

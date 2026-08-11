@@ -370,7 +370,7 @@ export interface SystemSettings {
   passkey_configured: boolean;
   passkey_rp_id: string;
   passkey_rp_origins: string[];
-  session_binding_enabled: boolean; // 会话 IP/UA 绑定
+  session_binding_enabled: boolean; // 会话绑定（UA 硬绑定，IP 软重绑）
   step_up_enabled: boolean; // 敏感操作 step-up 2FA
   audit_log_retention_days: number; // 审计日志保留天数
   login_agreement_enabled: boolean;
@@ -684,7 +684,7 @@ export interface UpdateSettingsRequest {
   invitation_code_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证
   passkey_enabled?: boolean;
-  session_binding_enabled?: boolean; // 会话 IP/UA 绑定
+  session_binding_enabled?: boolean; // 会话绑定（UA 硬绑定，IP 软重绑）
   step_up_enabled?: boolean; // 敏感操作 step-up 2FA
   audit_log_retention_days?: number; // 审计日志保留天数
   login_agreement_enabled?: boolean;

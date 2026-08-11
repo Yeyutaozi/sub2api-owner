@@ -291,14 +291,19 @@ func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, 
 }
 
 // gatewayStickyEscapeConfig is used by Claude/Gemini gateway sticky sessions.
-// Absolute threshold is looser than OpenAI (Claude TTFT often multi-second); relative escape stays sensitive.
+// Absolute threshold is looser than OpenAI (Claude TTFT often multi-second) but still sensitive enough
+// that multi-second hangers get escaped. Relative escape stays peer-aware.
+//
+// Context guarantee: sticky escape only changes which upstream account is used. Request body
+// conversation/messages always forward unchanged; Claude/Gemini do not depend on account-bound
+// previous_response anchors.
 func gatewayStickyEscapeConfig() openAIStickyEscapeConfig {
 	return openAIStickyEscapeConfig{
 		enabled:          true,
-		ttftMs:           15000,
+		ttftMs:           5000, // 5s absolute EWMA (was 15s; too sticky for slow accounts)
 		errorRate:        0.5,
 		relativeRatio:    1.15,
-		relativeMinDelta: 500,
+		relativeMinDelta: 300,
 	}
 }
 
@@ -495,6 +500,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
 	start := time.Now()
+	var escapeMeta *accountSwitchEscapeMeta
 	defer func() {
 		decision.LatencyMs = time.Since(start).Milliseconds()
 		s.metrics.recordSelect(decision)
@@ -524,6 +530,55 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			}
 		}
 		if selection != nil && selection.Account != nil {
+			// Tool-chain continuations without full local context MUST stay on the same account.
+			// When input can rebuild the conversation (PreviousResponseCanMove), allow TTFT/error
+			// escape so slow accounts do not pin forever. Downstream then strips previous_response_id
+			// and rebuilds from the full request input — context is preserved, not dropped.
+			if req.PreviousResponseCanMove {
+				escapeCfg := s.service.openAIStickyEscapeConfig()
+				var peerIDs []int64
+				if req.GroupID != nil {
+					if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
+						peerIDs = make([]int64, 0, len(peers))
+						for i := range peers {
+							peerIDs = append(peerIDs, peers[i].ID)
+						}
+					}
+				}
+				if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(selection.Account.ID, escapeCfg, peerIDs); shouldEscape {
+					slog.Info("sticky_escape_triggered",
+						"account_id", selection.Account.ID,
+						"reason", reason,
+						"error_rate", errorRate,
+						"ttft", ttft,
+						"layer", "previous_response_id",
+						"context_rebuild", true,
+					)
+					escapeMeta = &accountSwitchEscapeMeta{
+						fromAccountID: selection.Account.ID,
+						fromName:      selection.Account.Name,
+						reason:        reason,
+						errorRate:     errorRate,
+						ttft:          ttft,
+						hasTTFT:       ttft > 0,
+						layer:         "previous_response_id",
+						cfg:           escapeCfg,
+						contextOK:     true,
+						note:          "previous_response 可迁移：剥离 previous_response_id 后用完整 input 重建上下文",
+					}
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
+					}
+					if req.SessionHash != "" {
+						_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+					}
+					// Fall through to load-balance. StickyPreviousHit stays false so handlers
+					// strip previous_response_id and continue with full input context.
+					selection = nil
+				}
+			}
+		}
+		if selection != nil && selection.Account != nil {
 			decision.Layer = openAIAccountScheduleLayerPreviousResponse
 			decision.StickyPreviousHit = true
 			decision.SelectedAccountID = selection.Account.ID
@@ -536,9 +591,12 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}
 
 	if !req.StickyWeighted {
-		selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
+		selection, escapedSticky, sessionEscape, err := s.selectBySessionHash(ctx, req)
 		if err != nil {
 			return nil, decision, err
+		}
+		if sessionEscape != nil {
+			escapeMeta = sessionEscape
 		}
 		if selection != nil && selection.Account != nil {
 			decision.Layer = openAIAccountScheduleLayerSessionSticky
@@ -558,6 +616,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	decision.TopK = topK
 	decision.LoadSkew = loadSkew
 	if err != nil {
+		if escapeMeta != nil {
+			s.enrichAndRecordStickyEscapeAudit(ctx, req, escapeMeta, nil)
+		}
 		return nil, decision, err
 	}
 	if selection != nil && selection.Account != nil {
@@ -572,16 +633,23 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			}
 		}
 	}
+	if escapeMeta != nil {
+		var selectedAcc *Account
+		if selection != nil {
+			selectedAcc = selection.Account
+		}
+		s.enrichAndRecordStickyEscapeAudit(ctx, req, escapeMeta, selectedAcc)
+	}
 	return selection, decision, nil
 }
 
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, bool, error) {
+) (*AccountSelectionResult, bool, *accountSwitchEscapeMeta, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
 	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 
 	accountID := req.StickyAccountID
@@ -589,44 +657,55 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		var err error
 		accountID, err = s.service.getStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		if err != nil || accountID <= 0 {
-			return nil, false, nil
+			return nil, false, nil, nil
 		}
 	}
 	if accountID <= 0 {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if req.ExcludedIDs != nil {
 		if _, excluded := req.ExcludedIDs[accountID]; excluded {
-			return nil, false, nil
+			return nil, false, nil, nil
 		}
 	}
 
 	account, err := s.service.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !accountMatchesOpenAICompatiblePlatform(account, req.Platform) || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
 		if g, gerr := s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID); gerr == nil && g != nil && IsAccountOverGroupSafeRate(account, g, time.Now()) {
 			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-			return nil, true, nil
+			fromName := ""
+			if account != nil {
+				fromName = account.Name
+			}
+			return nil, true, &accountSwitchEscapeMeta{
+				fromAccountID: accountID,
+				fromName:      fromName,
+				reason:        "safe_rate",
+				layer:         "session_hash",
+				contextOK:     true,
+				note:          "账号超过分组安全倍率，粘性绑定解除并重选",
+			}, nil
 		}
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	var peerIDs []int64
@@ -647,8 +726,23 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		)
 		// Drop sticky binding so load-balance can rebind to a faster account.
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		fromName := ""
+		if account != nil {
+			fromName = account.Name
+		}
 		// Return escaped=false so subsequent selection may rebind sticky to the better account.
-		return nil, false, nil
+		return nil, false, &accountSwitchEscapeMeta{
+			fromAccountID: accountID,
+			fromName:      fromName,
+			reason:        reason,
+			errorRate:     errorRate,
+			ttft:          ttft,
+			hasTTFT:       ttft > 0,
+			layer:         "session_hash",
+			cfg:           escapeCfg,
+			contextOK:     true,
+			note:          "粘性会话因首字/错误率逃逸；请求上下文原样转发，仅切换上游账号",
+		}, nil
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
@@ -657,7 +751,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			Account:     account,
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
-		}, false, nil
+		}, false, nil, nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -671,7 +765,22 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				"error_rate", errorRate,
 				"ttft", ttft,
 			)
-			return nil, true, nil
+			fromName := ""
+			if account != nil {
+				fromName = account.Name
+			}
+			return nil, true, &accountSwitchEscapeMeta{
+				fromAccountID: accountID,
+				fromName:      fromName,
+				reason:        "concurrency_full",
+				errorRate:     errorRate,
+				ttft:          ttft,
+				hasTTFT:       ttft > 0,
+				layer:         "session_hash",
+				cfg:           escapeCfg,
+				contextOK:     true,
+				note:          "粘性账号并发已满，逃逸到负载均衡重选",
+			}, nil
 		}
 		return &AccountSelectionResult{
 			Account: account,
@@ -681,9 +790,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				Timeout:        cfg.StickySessionWaitTimeout,
 				MaxWaiting:     cfg.StickySessionMaxWaiting,
 			},
-		}, false, nil
+		}, false, nil, nil
 	}
-	return nil, false, nil
+	return nil, false, nil, nil
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {

@@ -52,8 +52,9 @@ func SecurityClientIP(c *gin.Context) string {
 	return ip.GetTrustedClientIP(c)
 }
 
-// enforceSessionBinding 校验 access token 的会话指纹（IP/UA 绑定）。
-// 指纹不匹配时：撤销该会话家族的所有 refresh token、写入审计安全事件、返回 401。
+// enforceSessionBinding 校验 access token 的会话指纹。
+// - 仅 IP 变化（VPN/代理）：软重绑放行，不撤销会话（access token 内旧指纹在 refresh 后升级）。
+// - User-Agent 变化：撤销该会话家族、写入审计、返回 401。
 // 返回 false 表示请求已被中断。
 //
 // 兼容性：claims.BindingHash 为空（功能上线前签发的旧 token）时放行，
@@ -72,8 +73,10 @@ func enforceSessionBinding(
 		return true
 	}
 	binding := requestSessionBinding(c)
-	current := binding.Hash()
-	if current == "" || current == claims.BindingHash {
+	decision := service.EvaluateSessionBinding(claims.BindingHash, binding)
+	if decision != service.BindingHardMismatch {
+		// Match 或 SoftIPChange：放行。SoftIP 场景下 access token 仍携带旧 hash，
+		// 但不会 401；下一次 refresh 会签发带新 IP 的 v2 指纹。
 		return true
 	}
 

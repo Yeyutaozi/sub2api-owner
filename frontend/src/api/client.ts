@@ -30,8 +30,22 @@ export const apiClient: AxiosInstance = axios.create({
 
 // Track if a token refresh is in progress to prevent multiple simultaneous refresh requests
 let isRefreshing = false
+// In-flight shared refresh promise (interceptor + proactive store refresh share this)
+let sharedRefreshPromise: Promise<{
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}> | null = null
 // Queue of requests waiting for token refresh
 let refreshSubscribers: Array<(token: string) => void> = []
+
+export const AUTH_TOKENS_UPDATED_EVENT = 'auth-tokens-updated'
+
+export interface AuthTokensUpdatedDetail {
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}
 
 /**
  * Subscribe to token refresh completion
@@ -47,6 +61,81 @@ function subscribeTokenRefresh(callback: (token: string) => void): void {
 function onTokenRefreshed(token: string): void {
   refreshSubscribers.forEach((callback) => callback(token))
   refreshSubscribers = []
+}
+
+function persistRefreshedTokens(tokens: {
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}): void {
+  localStorage.setItem('auth_token', tokens.access_token)
+  localStorage.setItem('refresh_token', tokens.refresh_token)
+  localStorage.setItem('token_expires_at', String(Date.now() + tokens.expires_in * 1000))
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_TOKENS_UPDATED_EVENT, {
+          detail: {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in
+          }
+        })
+      )
+    } catch {
+      // ignore event failures (non-browser / restricted env)
+    }
+  }
+}
+
+/**
+ * Single-flight session refresh shared by response interceptor and auth store.
+ * Prevents double-rotate races that force logout when network/VPN flips.
+ */
+export async function ensureSessionRefresh(): Promise<{
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}> {
+  if (sharedRefreshPromise) {
+    return sharedRefreshPromise
+  }
+
+  const refreshToken = localStorage.getItem('refresh_token')
+  if (!refreshToken) {
+    throw {
+      status: 401,
+      code: 'NO_REFRESH_TOKEN',
+      message: 'No refresh token available'
+    }
+  }
+
+  sharedRefreshPromise = (async () => {
+    const tokens = await requestTokenRefresh(refreshToken)
+    // If another path rotated while we waited at the network layer, prefer newer local token.
+    const latestLocal = localStorage.getItem('refresh_token')
+    if (latestLocal && latestLocal !== refreshToken && latestLocal !== tokens.refresh_token) {
+      // Concurrent success already wrote a newer pair; keep the newer local values.
+      const access = localStorage.getItem('auth_token') || tokens.access_token
+      const expiresRaw = localStorage.getItem('token_expires_at')
+      const expires_in = expiresRaw
+        ? Math.max(1, Math.floor((parseInt(expiresRaw, 10) - Date.now()) / 1000))
+        : tokens.expires_in
+      return {
+        access_token: access,
+        refresh_token: latestLocal,
+        expires_in
+      }
+    }
+    persistRefreshedTokens(tokens)
+    return tokens
+  })()
+
+  try {
+    return await sharedRefreshPromise
+  } finally {
+    sharedRefreshPromise = null
+  }
 }
 
 /** HTTP statuses that usually mean "try later", not "credentials invalid". */
@@ -310,8 +399,48 @@ apiClient.interceptors.response.use(
       // This handles TOKEN_EXPIRED, INVALID_TOKEN, TOKEN_REVOKED, etc.
       if (status === 401 && !originalRequest._retry) {
         const refreshToken = localStorage.getItem('refresh_token')
+        const isRefreshEndpoint = url.includes('/auth/refresh')
         const isAuthEndpoint =
-          url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
+          url.includes('/auth/login') || url.includes('/auth/register') || isRefreshEndpoint
+
+        // Refresh endpoint 401: do NOT auto-clear if a concurrent refresh already rotated
+        // tokens (common during VPN/proxy switch when store + interceptor race).
+        if (isRefreshEndpoint) {
+          const latestRefresh = localStorage.getItem('refresh_token')
+          const requestBody = originalRequest.data
+          let sentRefresh = ''
+          if (typeof requestBody === 'string') {
+            try {
+              sentRefresh = String((JSON.parse(requestBody) as { refresh_token?: string }).refresh_token || '')
+            } catch {
+              sentRefresh = ''
+            }
+          } else if (requestBody && typeof requestBody === 'object') {
+            sentRefresh = String((requestBody as { refresh_token?: string }).refresh_token || '')
+          }
+
+          if (latestRefresh && sentRefresh && latestRefresh !== sentRefresh) {
+            // Stale refresh token lost a race; keep the newer session.
+            return Promise.reject({
+              status: 401,
+              code: 'AUTH_REFRESH_STALE',
+              message: 'Stale refresh token after concurrent rotation',
+            })
+          }
+
+          // Definitive refresh rejection for the current token — clear session.
+          const hasToken = !!localStorage.getItem('auth_token')
+          clearLocalAuthStorage()
+          if (hasToken) {
+            sessionStorage.setItem('auth_expired', '1')
+          }
+          redirectToLoginIfNeeded()
+          return Promise.reject({
+            status,
+            code: apiData.code || 'TOKEN_REFRESH_FAILED',
+            message: apiData.message || apiData.detail || error.message
+          })
+        }
 
         // If we have a refresh token and this is not an auth endpoint, try to refresh
         if (refreshToken && !isAuthEndpoint) {
@@ -342,13 +471,8 @@ apiClient.interceptors.response.use(
           isRefreshing = true
 
           try {
-            const refreshed = await requestTokenRefresh(refreshToken)
-            const { access_token, refresh_token: newRefreshToken, expires_in } = refreshed
-
-            // Update tokens in localStorage (convert expires_in to timestamp)
-            localStorage.setItem('auth_token', access_token)
-            localStorage.setItem('refresh_token', newRefreshToken)
-            localStorage.setItem('token_expires_at', String(Date.now() + expires_in * 1000))
+            const refreshed = await ensureSessionRefresh()
+            const { access_token } = refreshed
 
             // Notify subscribers with new token
             onTokenRefreshed(access_token)
@@ -375,6 +499,18 @@ apiClient.interceptors.response.use(
             }
 
             // Definitive auth rejection (invalid/revoked refresh token, 401/403).
+            // Guard: if another path already wrote a new refresh token, keep session.
+            const latestRefresh = localStorage.getItem('refresh_token')
+            if (latestRefresh && latestRefresh !== refreshToken) {
+              const access = localStorage.getItem('auth_token')
+              if (access) {
+                if (originalRequest.headers) {
+                  originalRequest.headers.Authorization = `Bearer ${access}`
+                }
+                return apiClient(originalRequest)
+              }
+            }
+
             clearLocalAuthStorage()
             sessionStorage.setItem('auth_expired', '1')
             redirectToLoginIfNeeded()

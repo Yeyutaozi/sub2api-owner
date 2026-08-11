@@ -446,6 +446,44 @@ describe('API Client', () => {
 
   // --- 网络错误 ---
 
+  
+
+  describe('shared session refresh single-flight', () => {
+    it('ensureSessionRefresh reuses one in-flight rotation', async () => {
+      localStorage.setItem('refresh_token', 'refresh-token-shared')
+
+      let postCalls = 0
+      const postSpy = vi.spyOn(axios, 'post').mockImplementation(async () => {
+        postCalls += 1
+        await new Promise((r) => setTimeout(r, 30))
+        return {
+          status: 200,
+          data: {
+            code: 0,
+            data: {
+              access_token: 'access-new',
+              refresh_token: 'refresh-new',
+              expires_in: 3600
+            }
+          },
+          headers: {},
+          statusText: 'OK',
+          config: {}
+        }
+      })
+
+      const { ensureSessionRefresh } = await import('@/api/client')
+      const [a, b] = await Promise.all([ensureSessionRefresh(), ensureSessionRefresh()])
+      expect(a.access_token).toBe('access-new')
+      expect(b.access_token).toBe('access-new')
+      expect(postCalls).toBe(1)
+      expect(localStorage.getItem('auth_token')).toBe('access-new')
+      expect(localStorage.getItem('refresh_token')).toBe('refresh-new')
+      postSpy.mockRestore()
+    })
+  })
+
+
   describe('网络错误', () => {
     it('网络错误返回 status 0 的错误', async () => {
       const adapter = vi.fn().mockRejectedValue({

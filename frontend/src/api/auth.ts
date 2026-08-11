@@ -3,7 +3,7 @@
  * Handles user login, registration, and logout operations
  */
 
-import { apiClient } from './client'
+import { apiClient, ensureSessionRefresh } from './client'
 import type {
   LoginRequest,
   RegisterRequest,
@@ -293,21 +293,15 @@ export async function prepareOAuthBindAccessTokenCookie(): Promise<void> {
  * @returns New token pair
  */
 export async function refreshToken(): Promise<RefreshTokenResponse> {
-  const currentRefreshToken = getRefreshToken()
-  if (!currentRefreshToken) {
-    throw new Error('No refresh token available')
+  // Shared single-flight with axios interceptor to avoid double-rotate logout races
+  // during VPN/proxy network switches.
+  const tokens = await ensureSessionRefresh()
+  return {
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expires_in: tokens.expires_in,
+    token_type: 'Bearer'
   }
-
-  const { data } = await apiClient.post<RefreshTokenResponse>('/auth/refresh', {
-    refresh_token: currentRefreshToken
-  })
-
-  // Update tokens in localStorage
-  setAuthToken(data.access_token)
-  setRefreshToken(data.refresh_token)
-  setTokenExpiresAt(data.expires_in)
-
-  return data
 }
 
 /**
