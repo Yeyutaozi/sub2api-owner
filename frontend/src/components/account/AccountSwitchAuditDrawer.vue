@@ -102,7 +102,7 @@ onMounted(() => {
       </div>
 
       <div v-if="loading" class="switch-audit-empty">加载中…</div>
-      <div v-else-if="!items.length" class="switch-audit-empty">近 {{ retentionHours }} 小时暂无自动切号记录</div>
+      <div v-else-if="!items.length" class="switch-audit-empty">近 {{ retentionHours }} 小时暂无自动切号记录（仅记录 sticky 逃逸与上游失败切号；同账号重试/未触发逃逸不会出现）</div>
 
       <div v-else class="switch-audit-list">
         <article v-for="ev in items" :key="ev.id" class="switch-audit-card">

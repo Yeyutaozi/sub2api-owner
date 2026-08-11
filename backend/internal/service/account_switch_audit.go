@@ -2,13 +2,18 @@
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -18,7 +23,8 @@ const (
 )
 
 // AccountSwitchAuditEvent is an admin-auditable record of automatic sticky/account switches.
-// Retention is process-local and capped at 24h (also hard-capped by max events).
+// Retention is 24h (hard-capped by max events). When Redis is wired, events survive process
+// restarts and are shared across instances; otherwise they stay process-local memory.
 type AccountSwitchAuditEvent struct {
 	ID                 string                        `json:"id"`
 	At                 time.Time                     `json:"at"`
@@ -98,13 +104,32 @@ var defaultAccountSwitchAuditStore = &accountSwitchAuditStore{
 	events: make([]AccountSwitchAuditEvent, 0, 256),
 }
 
+const accountSwitchAuditRedisKey = "sub2api:account_switch_audit:v1"
+
+var accountSwitchAuditRedis atomic.Pointer[redis.Client]
+
+// SetAccountSwitchAuditRedis enables cross-instance 24h persistence for switch audits.
+// Safe to call with nil to disable.
+func SetAccountSwitchAuditRedis(client *redis.Client) {
+	accountSwitchAuditRedis.Store(client)
+}
+
+func accountSwitchAuditRedisClient() *redis.Client {
+	return accountSwitchAuditRedis.Load()
+}
+
 // RecordAccountSwitchAudit appends an automatic switch audit event (best-effort, never blocks hot path hard).
 func RecordAccountSwitchAudit(event AccountSwitchAuditEvent) {
 	defaultAccountSwitchAuditStore.record(event)
+	persistAccountSwitchAuditToRedis(event)
 }
 
 // ListAccountSwitchAudit returns newest-first events within retention.
+// Prefers Redis (shared) when configured; falls back to process memory.
 func ListAccountSwitchAudit(limit int, userID, groupID, accountID int64, reason string) []AccountSwitchAuditEvent {
+	if items, ok := listAccountSwitchAuditFromRedis(limit * 2); ok {
+		return filterAccountSwitchAuditEvents(items, limit, userID, groupID, accountID, reason)
+	}
 	return defaultAccountSwitchAuditStore.list(limit, userID, groupID, accountID, reason)
 }
 
@@ -117,15 +142,7 @@ func (s *accountSwitchAuditStore) record(event AccountSwitchAuditEvent) {
 	if s == nil {
 		return
 	}
-	if event.ID == "" {
-		event.ID = uuid.NewString()
-	}
-	if event.At.IsZero() {
-		event.At = time.Now().UTC()
-	}
-	if event.EventType == "" {
-		event.EventType = "sticky_escape"
-	}
+	event = normalizeAccountSwitchAuditEvent(event)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,6 +209,146 @@ func (s *accountSwitchAuditStore) pruneLocked(now time.Time) {
 	}
 	// Ensure no aliasing surprises if capacity was reused.
 	s.events = append([]AccountSwitchAuditEvent(nil), kept...)
+}
+
+func filterAccountSwitchAuditEvents(src []AccountSwitchAuditEvent, limit int, userID, groupID, accountID int64, reason string) []AccountSwitchAuditEvent {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	reason = strings.TrimSpace(reason)
+	cutoff := time.Now().UTC().Add(-accountSwitchAuditRetention)
+	out := make([]AccountSwitchAuditEvent, 0, limit)
+	for i := range src {
+		ev := src[i]
+		if ev.At.IsZero() || ev.At.Before(cutoff) {
+			continue
+		}
+		if userID > 0 && ev.UserID != userID {
+			continue
+		}
+		if groupID > 0 {
+			if ev.GroupID == nil || *ev.GroupID != groupID {
+				continue
+			}
+		}
+		if accountID > 0 && ev.FromAccountID != accountID && ev.ToAccountID != accountID {
+			continue
+		}
+		if reason != "" && !strings.EqualFold(ev.Reason, reason) {
+			continue
+		}
+		out = append(out, ev)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeAccountSwitchAuditEvent(event AccountSwitchAuditEvent) AccountSwitchAuditEvent {
+	if event.ID == "" {
+		event.ID = uuid.NewString()
+	}
+	if event.At.IsZero() {
+		event.At = time.Now().UTC()
+	}
+	if event.EventType == "" {
+		event.EventType = "sticky_escape"
+	}
+	return event
+}
+
+func persistAccountSwitchAuditToRedis(event AccountSwitchAuditEvent) {
+	rdb := accountSwitchAuditRedisClient()
+	if rdb == nil {
+		return
+	}
+	event = normalizeAccountSwitchAuditEvent(event)
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancel()
+	pipe := rdb.Pipeline()
+	pipe.LPush(ctx, accountSwitchAuditRedisKey, payload)
+	pipe.LTrim(ctx, accountSwitchAuditRedisKey, 0, int64(accountSwitchAuditMaxEvents-1))
+	pipe.Expire(ctx, accountSwitchAuditRedisKey, accountSwitchAuditRetention)
+	_, _ = pipe.Exec(ctx)
+}
+
+func listAccountSwitchAuditFromRedis(limit int) ([]AccountSwitchAuditEvent, bool) {
+	rdb := accountSwitchAuditRedisClient()
+	if rdb == nil {
+		return nil, false
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > accountSwitchAuditMaxEvents {
+		limit = accountSwitchAuditMaxEvents
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+	raw, err := rdb.LRange(ctx, accountSwitchAuditRedisKey, 0, int64(limit-1)).Result()
+	if err != nil {
+		return nil, false
+	}
+	out := make([]AccountSwitchAuditEvent, 0, len(raw))
+	for _, item := range raw {
+		var ev AccountSwitchAuditEvent
+		if json.Unmarshal([]byte(item), &ev) != nil {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out, true
+}
+
+// RecordFailoverSwitchAudit records upstream-error driven account switches (not sticky TTFT escape).
+func RecordFailoverSwitchAudit(
+	ctx context.Context,
+	fromAccountID int64,
+	fromAccountName string,
+	toAccountID int64,
+	toAccountName string,
+	platform string,
+	statusCode int,
+	switchCount int,
+	maxSwitches int,
+	failoverReason string,
+) {
+	userID, requestID, model, ctxPlatform := accountSwitchAuditContext(ctx)
+	if platform == "" {
+		platform = ctxPlatform
+	}
+	reason := strings.TrimSpace(failoverReason)
+	if reason == "" {
+		if statusCode > 0 {
+			reason = "upstream_" + strconv.Itoa(statusCode)
+		} else {
+			reason = "upstream_failover"
+		}
+	}
+	note := fmt.Sprintf("上游失败触发切号 switch=%d/%d status=%d；同账号临时重试不记入", switchCount, maxSwitches, statusCode)
+	RecordAccountSwitchAudit(AccountSwitchAuditEvent{
+		EventType:        "failover_switch",
+		Reason:           reason,
+		UserID:           userID,
+		Platform:         platform,
+		Model:            model,
+		RequestID:        requestID,
+		Layer:            "failover",
+		FromAccountID:    fromAccountID,
+		FromAccountName:  fromAccountName,
+		ToAccountID:      toAccountID,
+		ToAccountName:    toAccountName,
+		ContextPreserved: true,
+		Note:             note,
+	})
 }
 
 func accountSwitchAuditContext(ctx context.Context) (userID int64, requestID, model, platform string) {

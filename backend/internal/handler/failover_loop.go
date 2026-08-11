@@ -126,6 +126,19 @@ func (s *FailoverState) HandleFailoverError(
 		zap.Int("switch_count", s.SwitchCount),
 		zap.Int("max_switches", s.MaxSwitches),
 	)
+	// Admin-visible 24h audit: only real account switches (not same-account temp retries).
+	service.RecordFailoverSwitchAudit(
+		ctx,
+		accountID,
+		"",
+		0,
+		"",
+		platform,
+		failoverErr.StatusCode,
+		s.SwitchCount,
+		s.MaxSwitches,
+		string(failoverErr.Reason),
+	)
 
 	// Antigravity 平台换号线性递增延时
 	if platform == service.PlatformAntigravity {

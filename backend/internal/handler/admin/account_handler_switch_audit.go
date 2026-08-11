@@ -27,7 +27,7 @@ func (h *AccountHandler) ListAccountSwitchAudit(c *gin.Context) {
 		"retention_hours": service.AccountSwitchAuditRetentionHours(),
 		"total":           len(events),
 		"items":           events,
-		"disclaimer":      "根据近期真实请求样本生成的自动切号审计，仅供参考（非主动探测）；进程内保留 24 小时",
+		"disclaimer":      "根据近期真实请求样本生成的自动切号审计，仅供参考（非主动探测）。含 sticky 逃逸与上游失败切号；Redis 共享保留 24 小时（无 Redis 时进程内存）",
 	})
 }
 
@@ -41,8 +41,13 @@ func (h *AccountHandler) ListAccountSwitchAuditMeta(c *gin.Context) {
 			"error_rate",
 			"concurrency_full",
 			"safe_rate",
+			"upstream_failover",
+			"upstream_429",
+			"upstream_500",
+			"upstream_502",
+			"upstream_503",
 		},
 		"event_types": []string{"sticky_escape", "failover_switch"},
-		"disclaimer":  "自动切号审计保留 24 小时；包含用户、来源/目标账号、阈值与候选评分",
+		"disclaimer":  "自动切号审计保留 24 小时（Redis 共享优先）；含 sticky_escape 与 failover_switch；同账号临时重试不记入",
 	})
 }
