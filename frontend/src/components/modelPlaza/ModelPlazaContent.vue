@@ -527,9 +527,9 @@ watch(
 .mp-vendor-shelf__kind[data-kind='image'] { color:#1d4ed8; background:#dbeafe; border-color:#bfdbfe; }
 .mp-vendor-shelf__kind[data-kind='chat'],
 .mp-vendor-shelf__kind[data-kind='text'] { color:#0f766e; background:#ccfbf1; border-color:#99f6e4; }
-.mp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:14px; }
+.mp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
 .mp-grid :deep(.mp-card--multi) { grid-column: 1 / -1; }
-.mp-skeleton-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:14px; }
+.mp-skeleton-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
 :global(.dark) .mp-vendor-shelf { background:linear-gradient(180deg,#111827,#0b1220); border-color:#243041; }
 :global(.dark) .mp-vendor-shelf__title { color:#e2e8f0; }
 :global(.dark) .mp-vendor-shelf__sub { color:#94a3b8; }

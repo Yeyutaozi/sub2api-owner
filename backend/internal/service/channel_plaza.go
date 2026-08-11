@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -259,6 +259,11 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			appendPlazaMediaModels(pg, src, idx)
 		}
 	}
+
+	// Cross-group / LiteLLM pricing fill: models may appear via account support without
+	// channel pricing overlay. Reuse same-model base pricing from any group first, then
+	// LiteLLM synthesize, so plaza cards don't show empty prices for valid offers.
+	s.fillPlazaMissingPricing(byGroup, order)
 
 	officialMemo := make(map[string]*PlazaOfficialPricing)
 	out := make([]PlazaGroup, 0, len(order))
@@ -822,6 +827,73 @@ func plazaImagePricesForGroup(g *Group) map[string]*float64 {
 	}
 	// Drop entirely-null map for cleaner JSON (all nil still useful for UI "未配置").
 	return out
+}
+
+
+// fillPlazaMissingPricing fills nil/empty model Pricing for plaza display only.
+// Priority: (1) same model name pricing already present on another group
+// (2) LiteLLM synthesize via pricingService.
+// Does not invent image/video group matrices; only token/channel pricing overlays.
+func (s *ChannelService) fillPlazaMissingPricing(byGroup map[int64]*PlazaGroup, order []int64) {
+	if byGroup == nil {
+		return
+	}
+	// First pass: collect usable base pricing by model name.
+	baseByName := make(map[string]*ChannelModelPricing)
+	for _, gid := range order {
+		pg := byGroup[gid]
+		if pg == nil {
+			continue
+		}
+		for i := range pg.Models {
+			m := &pg.Models[i]
+			if pricingNeedsFallback(m.Pricing) {
+				continue
+			}
+			name := strings.TrimSpace(m.Name)
+			if name == "" {
+				continue
+			}
+			if _, ok := baseByName[name]; !ok {
+				baseByName[name] = m.Pricing
+			}
+		}
+	}
+	// Second pass: fill missing entries.
+	for _, gid := range order {
+		pg := byGroup[gid]
+		if pg == nil {
+			continue
+		}
+		for i := range pg.Models {
+			m := &pg.Models[i]
+			if !pricingNeedsFallback(m.Pricing) {
+				continue
+			}
+			name := strings.TrimSpace(m.Name)
+			if name == "" {
+				continue
+			}
+			if p, ok := baseByName[name]; ok && p != nil {
+				m.Pricing = p
+				if m.Kind == "" || m.Kind == PlazaKindChat {
+					m.Kind = plazaKindFromPricing(p)
+				}
+				continue
+			}
+			if s == nil || s.pricingService == nil {
+				continue
+			}
+			lp := s.pricingService.GetModelPricing(name)
+			if lp == nil {
+				continue
+			}
+			m.Pricing = synthesizePricingFromLiteLLM(lp, m.Pricing)
+			if m.Kind == "" || m.Kind == PlazaKindChat {
+				m.Kind = plazaKindFromPricing(m.Pricing)
+			}
+		}
+	}
 }
 
 // lookupOfficialPricing 查询模型的 LiteLLM 官方参考价，带 memo 避免同名模型重复转换。

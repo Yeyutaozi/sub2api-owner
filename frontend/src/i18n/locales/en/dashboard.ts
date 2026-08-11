@@ -564,7 +564,7 @@ export default {
       bestOffer: 'Best rate',
       baseRate: 'default {rate}',
       groupMountTitle: 'Group offers',
-      groupMountHint: 'Rates, prices and recent first-token latency per group under this model',
+      groupMountHint: 'Compare group rates, first-token latency and paid prices in one table',
       groupLabel: 'Group'
     },
     filters: {
@@ -608,6 +608,9 @@ export default {
       perToken: 'Token billing',
       tokenBillingHint: 'Chat/text model credits bill by tokens; unit is $/M (per 1M tokens)',
       rateAppliedNote: 'Shown amount already includes this group rate (base × rate)',
+      priceFallbackNote: 'Some groups lack channel pricing; estimated from same-model base or official price × rate',
+      priceFallbackShort: 'No channel pricing; estimated',
+      priceEstimateBadge: 'est.',
       imageBillingHint: 'Image models only: charged per output image; 1K/2K/4K are quality tiers (not tokens)',
       videoBillingPerSecondHint: 'Charged by generated video duration in seconds',
       videoBillingPerClipHint: 'Charged by number of output video clips'

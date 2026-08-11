@@ -569,7 +569,7 @@ export default {
       bestOffer: '最优报价',
       baseRate: '默认 {rate}',
       groupMountTitle: '分组报价',
-      groupMountHint: '同一模型下各分组价格与近期首字，便于比价',
+      groupMountHint: '一表对比各分组倍率、首字与实付价',
       groupLabel: '分组'
     },
     filters: {
@@ -613,6 +613,9 @@ export default {
       perToken: '按 Token 计费',
       tokenBillingHint: '对话/文本模型积分按 Token 结算，价格单位为 $/M（每百万 Token）',
       rateAppliedNote: '下方金额已含本分组折扣倍率（基础价 × 倍率）',
+      priceFallbackNote: '部分分组未单独配置渠道价，已按同模型基础价或官方参考价 × 倍率估算',
+      priceFallbackShort: '渠道未单独配置定价，显示为估算价',
+      priceEstimateBadge: '估',
       imageBillingHint: '仅生图模型按输出张数结算；1K/2K/4K 为清晰度档位（非 Token）',
       videoBillingPerSecondHint: '按生成视频时长（秒）结算',
       videoBillingPerClipHint: '按输出视频条数结算'

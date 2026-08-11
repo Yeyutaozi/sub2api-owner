@@ -182,3 +182,38 @@ export const VIDEO_RESOLUTION_KEYS: (keyof PlazaVideoPrices)[] = [
 ]
 
 export const IMAGE_TIER_KEYS = ['1K', '2K', '4K'] as const
+
+
+/** Resolve token unit base for an offer: own channel pricing → sibling → official. */
+export function resolveOfferTokenBase(
+  offer: Pick<PlazaOffer, 'model' | 'effectiveRate'>,
+  field: 'input_price' | 'output_price' | 'cache_write_price' | 'cache_read_price',
+  opts?: {
+    siblingPricing?: PlazaModel['pricing'] | null
+    official?: PlazaModel['official_pricing'] | null
+  }
+): number | null {
+  const own = offer.model.pricing?.[field]
+  if (own != null) return Number(own)
+  const sib = opts?.siblingPricing?.[field]
+  if (sib != null) return Number(sib)
+  const off = opts?.official?.[field as keyof NonNullable<PlazaModel['official_pricing']>]
+  if (off != null) return Number(off)
+  const off2 = offer.model.official_pricing?.[field as keyof NonNullable<PlazaModel['official_pricing']>]
+  if (off2 != null) return Number(off2)
+  return null
+}
+
+/** Paid $/token * rate (caller multiplies by 1e6 for $/M display). */
+export function paidTokenUnit(
+  offer: Pick<PlazaOffer, 'model' | 'effectiveRate'>,
+  field: 'input_price' | 'output_price',
+  opts?: {
+    siblingPricing?: PlazaModel['pricing'] | null
+    official?: PlazaModel['official_pricing'] | null
+  }
+): number | null {
+  const base = resolveOfferTokenBase(offer, field, opts)
+  if (base == null || !Number.isFinite(base)) return null
+  return base * offer.effectiveRate
+}

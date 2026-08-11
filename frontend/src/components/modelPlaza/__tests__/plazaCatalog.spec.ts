@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlazaModelCards, normalizeModelKey } from '../plazaCatalog'
+import { buildPlazaModelCards, normalizeModelKey, paidTokenUnit, resolveOfferTokenBase } from '../plazaCatalog'
 import type { ModelPlazaResponse } from '@/api/modelPlaza'
 
 function group(
@@ -77,5 +77,56 @@ describe('buildPlazaModelCards', () => {
 
     const cards = buildPlazaModelCards(response)
     expect(cards).toHaveLength(2)
+  })
+})
+
+
+describe('token price fallback', () => {
+  it('uses sibling channel base when offer pricing is null', () => {
+    const offer = {
+      effectiveRate: 0.1,
+      model: {
+        name: 'gpt-5.4',
+        platform: 'openai',
+        kind: 'chat',
+        pricing: null,
+        official_pricing: null
+      }
+    }
+    const sibling = {
+      billing_mode: 'token' as const,
+      input_price: 5e-6,
+      output_price: 3e-5,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: []
+    }
+    expect(resolveOfferTokenBase(offer as any, 'input_price', { siblingPricing: sibling })).toBe(5e-6)
+    // 0.1x => $0.5 / $3 per M
+    expect(paidTokenUnit(offer as any, 'input_price', { siblingPricing: sibling })).toBeCloseTo(5e-7)
+    expect(paidTokenUnit(offer as any, 'output_price', { siblingPricing: sibling })).toBeCloseTo(3e-6)
+  })
+
+  it('falls back to official pricing when no channel or sibling pricing', () => {
+    const offer = {
+      effectiveRate: 0.1,
+      model: {
+        name: 'gpt-5.4',
+        platform: 'openai',
+        kind: 'chat',
+        pricing: null,
+        official_pricing: null
+      }
+    }
+    const official = {
+      input_price: 5e-6,
+      output_price: 3e-5,
+      cache_write_price: null,
+      cache_read_price: null
+    }
+    expect(paidTokenUnit(offer as any, 'input_price', { official })).toBeCloseTo(5e-7)
   })
 })

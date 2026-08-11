@@ -37,152 +37,203 @@
       </div>
     </header>
 
-    <div class="mp-card__groups" data-testid="plaza-model-groups">
-      <div class="mp-card__groups-bar">
-        <span class="mp-card__groups-title">{{ t('modelPlaza.card.groupMountTitle') }}</span>
-        <span class="mp-card__groups-hint">{{ t('modelPlaza.card.groupMountHint') }}</span>
+    <!-- Multi-group: dense comparison table (avoids tall stacked tickets) -->
+    <div v-if="card.offerCount > 1" class="mp-compare" data-testid="plaza-model-groups">
+      <div class="mp-compare__bar">
+        <span class="mp-compare__title">{{ t('modelPlaza.card.groupMountTitle') }}</span>
+        <span class="mp-compare__hint">{{ t('modelPlaza.card.groupMountHint') }}</span>
       </div>
-      <div class="mp-card__groups-list">
-        <section
-          v-for="(offer, idx) in card.offers"
-          :key="offer.groupId"
-          class="mp-group"
-          :class="{ 'is-best': isBestOffer(idx), 'is-solo': card.offerCount === 1 }"
-          :style="groupTicketStyle(idx)"
-          data-testid="plaza-offer-panel"
-        >
-          <div class="mp-group__rail" aria-hidden="true" />
-          <div class="mp-group__body">
-            <div class="mp-group__top">
-              <div class="mp-group__identity">
-                <div class="mp-group__name-row">
-                  <span class="mp-group__index" aria-hidden="true">{{ String(idx + 1).padStart(2, '0') }}</span>
-                  <div class="mp-group__name-wrap">
-                    <span class="mp-group__kicker">{{ t('modelPlaza.card.groupLabel') }}</span>
-                    <h4 class="mp-group__name" :title="offer.groupName">{{ offer.groupName }}</h4>
-                  </div>
+      <div class="mp-compare__scroll">
+        <table class="mp-compare__table" :data-kind="card.kind">
+          <thead>
+            <tr>
+              <th class="col-group">{{ t('modelPlaza.card.groupLabel') }}</th>
+              <th class="col-rate">{{ t('modelPlaza.table.rate') }}</th>
+              <th class="col-ttft" :title="t('modelPlaza.detail.ttftDisclaimer')">{{ t('modelPlaza.detail.avgFirstToken') }}</th>
+              <template v-if="card.kind === 'video'">
+                <th
+                  v-for="res in multiVideoResolutions"
+                  :key="'h-v-' + res"
+                  class="col-price"
+                >{{ formatRes(res) }}</th>
+              </template>
+              <template v-else-if="card.kind === 'image'">
+                <th
+                  v-for="tier in multiImageTiers"
+                  :key="'h-i-' + tier"
+                  class="col-price"
+                >{{ formatImageTier(tier) }}</th>
+              </template>
+              <template v-else>
+                <th class="col-price">{{ t('modelPlaza.table.input') }} <span class="u">$/M</span></th>
+                <th class="col-price">{{ t('modelPlaza.table.output') }} <span class="u">$/M</span></th>
+                <th class="col-price">{{ t('modelPlaza.table.cache') }} <span class="u">$/M</span></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(offer, idx) in card.offers"
+              :key="offer.groupId"
+              :class="{ 'is-best': isBestOffer(idx) }"
+              data-testid="plaza-offer-panel"
+              :style="groupTicketStyle(idx)"
+            >
+              <td class="col-group">
+                <div class="mp-row-name">
+                  <span class="mp-row-dot" aria-hidden="true" />
+                  <span class="mp-row-name__text" :title="offer.groupName">{{ offer.groupName }}</span>
                 </div>
-                <div class="mp-group__pills">
+                <div class="mp-row-pills">
                   <span v-if="isBestOffer(idx)" class="mp-pill mp-pill--best">{{ t('modelPlaza.card.bestOffer') }}</span>
                   <span v-if="offer.isExclusive" class="mp-pill mp-pill--exclusive">{{ t('modelPlaza.badges.exclusive') }}</span>
                   <span v-if="offer.subscriptionType === 'subscription'" class="mp-pill mp-pill--sub">{{ t('modelPlaza.badges.subscription') }}</span>
+                  <span v-if="tokenPriceSource(offer) === 'fallback'" class="mp-pill mp-pill--est" :title="t('modelPlaza.table.priceFallbackShort')">{{ t('modelPlaza.table.priceEstimateBadge') }}</span>
                 </div>
-              </div>
-              <div class="mp-group__metrics">
-                <div class="mp-metric mp-metric--rate" title="effective group rate">
-                  <span class="mp-metric__label">{{ t('modelPlaza.table.rate') }}</span>
-                  <span class="mp-metric__value">{{ formatRate(offer.effectiveRate) }}</span>
-                  <span
-                    v-if="offer.userRateMultiplier != null && offer.userRateMultiplier !== offer.rateMultiplier"
-                    class="mp-metric__sub"
-                  >{{ t('modelPlaza.card.baseRate', { rate: formatRate(offer.rateMultiplier) }) }}</span>
-                </div>
-                <div
-                  class="mp-metric mp-metric--ttft"
-                  :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')"
-                  data-testid="plaza-offer-ttft"
-                >
-                  <span class="mp-metric__label">
-                    <svg class="mp-metric__bolt" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
-                      <path fill="currentColor" d="M9.2 1.1 3.4 8.4c-.2.3 0 .7.4.7h3.1l-.8 5.5c-.1.4.5.6.7.3l5.8-7.3c.2-.3 0-.7-.4-.7H8.9l1-5.5c.1-.4-.5-.6-.7-.3Z" />
-                    </svg>
-                    {{ t('modelPlaza.detail.avgFirstToken') }}
-                  </span>
-                  <span class="mp-metric__value">{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
-                  <span class="mp-metric__sub">{{ offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer') }}</span>
-                </div>
-              </div>
-            </div>
-            <p v-if="offer.description" class="mp-group__desc" :title="offer.description">{{ offer.description }}</p>
-
-            <div v-if="card.kind === 'video'" class="mp-price-block">
-              <div class="mp-price-block__bar">
-                <span class="mp-price-block__mode">{{ videoModeLabel(offer) }}</span>
-                <span class="mp-price-block__unit">{{ videoUnitLabel(offer) }}</span>
-              </div>
-              <p class="mp-price-block__hint">{{ videoHint(offer) }} · {{ t('modelPlaza.table.rateAppliedNote') }}</p>
-              <div v-if="videoResolutions(offer).length" class="mp-price-grid">
-                <div
-                  v-for="res in videoResolutions(offer)"
+              </td>
+              <td class="col-rate mono">{{ formatRate(offer.effectiveRate) }}</td>
+              <td class="col-ttft mono" data-testid="plaza-offer-ttft" :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')">
+                {{ formatFirstToken(offer.avgFirstTokenMs) }}
+              </td>
+              <template v-if="card.kind === 'video'">
+                <td
+                  v-for="res in multiVideoResolutions"
                   :key="offer.groupId + '-v-' + res"
-                  class="mp-price-cell"
+                  class="col-price mono"
                   :class="{ 'is-empty': !hasVideoPrice(offer, res) }"
-                >
-                  <span class="mp-price-cell__k">{{ formatRes(res) }}</span>
-                  <span class="mp-price-cell__v">{{ formatVideoPrice(offer, res) }}</span>
-                </div>
-              </div>
-              <p v-else class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</p>
-            </div>
-
-            <div v-else-if="card.kind === 'image'" class="mp-price-block">
-              <div class="mp-price-block__bar">
-                <span class="mp-price-block__mode">{{ t('modelPlaza.table.perImage') }}</span>
-                <span class="mp-price-block__unit">{{ t('modelPlaza.table.perUnitImage') }}</span>
-              </div>
-              <p class="mp-price-block__hint">{{ t('modelPlaza.table.imageBillingHint') }} · {{ t('modelPlaza.table.rateAppliedNote') }}</p>
-              <div v-if="hasImageConfiguredPrice(offer)" class="mp-price-grid">
-                <div
-                  v-for="tier in imageTiers(offer)"
+                >{{ formatVideoPrice(offer, res) }}</td>
+              </template>
+              <template v-else-if="card.kind === 'image'">
+                <td
+                  v-for="tier in multiImageTiers"
                   :key="offer.groupId + '-i-' + tier"
-                  class="mp-price-cell"
+                  class="col-price mono"
                   :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
-                >
-                  <span class="mp-price-cell__k">{{ formatImageTier(tier) }}</span>
-                  <span class="mp-price-cell__v">{{ formatImagePrice(offer, tier) }}</span>
-                </div>
-              </div>
-              <p v-else class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</p>
-            </div>
-
-            <div v-else class="mp-price-block">
-              <div class="mp-price-block__bar">
-                <span class="mp-price-block__mode">{{ t('modelPlaza.table.perToken') }}</span>
-                <span class="mp-price-block__unit">{{ t('modelPlaza.table.unitPerMillion') }}</span>
-              </div>
-              <p class="mp-price-block__hint">{{ t('modelPlaza.table.tokenBillingHint') }} · {{ t('modelPlaza.table.rateAppliedNote') }}</p>
-              <div class="mp-token-grid mp-token-grid--inblock">
-                <div class="mp-token-cell">
-                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.input') }}</div>
-                  <div class="mp-token-cell__v">{{ paidToken(offer, 'input_price') }}<span class="mp-token-cell__u">$/M</span></div>
-                </div>
-                <div class="mp-token-cell">
-                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.output') }}</div>
-                  <div class="mp-token-cell__v">{{ paidToken(offer, 'output_price') }}<span class="mp-token-cell__u">$/M</span></div>
-                </div>
-                <div class="mp-token-cell">
-                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.cache') }}</div>
-                  <div class="mp-token-cell__v">{{ cachePaid(offer) }}<span class="mp-token-cell__u">$/M</span></div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="offer.peakRateEnabled" class="mp-group__foot">
-              <span class="mp-peak">{{ t('modelPlaza.detail.peakNote', { window: peakWindow(offer), multiplier: offer.peakRateMultiplier }) }}</span>
-            </div>
-            <p
-              v-if="offer.model.pricing?.billing_mode && card.kind === 'chat' && offer.model.pricing.billing_mode !== 'token'"
-              class="mp-mode-note"
-            >{{ nonTokenLabel(offer) }}</p>
-          </div>
-        </section>
+                >{{ formatImagePrice(offer, tier) }}</td>
+              </template>
+              <template v-else>
+                <td class="col-price mono">{{ paidToken(offer, 'input_price') }}</td>
+                <td class="col-price mono">{{ paidToken(offer, 'output_price') }}</td>
+                <td class="col-price mono">{{ cachePaid(offer) }}</td>
+              </template>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <p class="mp-compare__note">
+        <template v-if="card.kind === 'video'">{{ videoHint(card.offers[0]) }} · </template>
+        <template v-else-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
+        <template v-else>{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
+        {{ t('modelPlaza.table.rateAppliedNote') }}
+        <span v-if="hasAnyFallback" class="mp-compare__fallback"> · {{ t('modelPlaza.table.priceFallbackNote') }}</span>
+      </p>
     </div>
 
-        <footer v-if="card.official_pricing && (card.kind === 'chat' || card.kind === 'text')" class="mp-card__official">
+    <!-- Single offer: compact card body -->
+    <div v-else class="mp-solo" data-testid="plaza-model-groups">
+      <section
+        v-for="(offer, idx) in card.offers"
+        :key="offer.groupId"
+        class="mp-group is-solo"
+        :style="groupTicketStyle(idx)"
+        data-testid="plaza-offer-panel"
+      >
+        <div class="mp-group__top">
+          <div class="mp-group__identity">
+            <span class="mp-group__kicker">{{ t('modelPlaza.card.groupLabel') }}</span>
+            <h4 class="mp-group__name" :title="offer.groupName">{{ offer.groupName }}</h4>
+            <div class="mp-group__pills">
+              <span v-if="offer.isExclusive" class="mp-pill mp-pill--exclusive">{{ t('modelPlaza.badges.exclusive') }}</span>
+              <span v-if="offer.subscriptionType === 'subscription'" class="mp-pill mp-pill--sub">{{ t('modelPlaza.badges.subscription') }}</span>
+              <span v-if="tokenPriceSource(offer) === 'fallback'" class="mp-pill mp-pill--est">{{ t('modelPlaza.table.priceEstimateBadge') }}</span>
+            </div>
+          </div>
+          <div class="mp-group__metrics">
+            <div class="mp-metric mp-metric--rate">
+              <span class="mp-metric__label">{{ t('modelPlaza.table.rate') }}</span>
+              <span class="mp-metric__value">{{ formatRate(offer.effectiveRate) }}</span>
+            </div>
+            <div
+              class="mp-metric mp-metric--ttft"
+              :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')"
+              data-testid="plaza-offer-ttft"
+            >
+              <span class="mp-metric__label">{{ t('modelPlaza.detail.avgFirstToken') }}</span>
+              <span class="mp-metric__value">{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="card.kind === 'video'" class="mp-price-row">
+          <span
+            v-for="res in videoResolutions(offer)"
+            :key="offer.groupId + '-sv-' + res"
+            class="mp-chip-price"
+            :class="{ 'is-empty': !hasVideoPrice(offer, res) }"
+          >
+            <em>{{ formatRes(res) }}</em>
+            <strong>{{ formatVideoPrice(offer, res) }}</strong>
+          </span>
+          <span v-if="!videoResolutions(offer).length" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+        </div>
+        <div v-else-if="card.kind === 'image'" class="mp-price-row">
+          <span
+            v-for="tier in imageTiers(offer)"
+            :key="offer.groupId + '-si-' + tier"
+            class="mp-chip-price"
+            :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
+          >
+            <em>{{ formatImageTier(tier) }}</em>
+            <strong>{{ formatImagePrice(offer, tier) }}</strong>
+          </span>
+          <span v-if="!hasImageConfiguredPrice(offer)" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+        </div>
+        <div v-else class="mp-price-row mp-price-row--token">
+          <span class="mp-chip-price">
+            <em>{{ t('modelPlaza.table.input') }}</em>
+            <strong>{{ paidToken(offer, 'input_price') }} <i>$/M</i></strong>
+          </span>
+          <span class="mp-chip-price">
+            <em>{{ t('modelPlaza.table.output') }}</em>
+            <strong>{{ paidToken(offer, 'output_price') }} <i>$/M</i></strong>
+          </span>
+          <span class="mp-chip-price">
+            <em>{{ t('modelPlaza.table.cache') }}</em>
+            <strong>{{ cachePaid(offer) }} <i>$/M</i></strong>
+          </span>
+        </div>
+        <p class="mp-solo__note">
+          <template v-if="card.kind === 'video'">{{ videoHint(offer) }} · </template>
+          <template v-else-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
+          <template v-else>{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
+          {{ t('modelPlaza.table.rateAppliedNote') }}
+        </p>
+        <div v-if="offer.peakRateEnabled" class="mp-group__foot">
+          <span class="mp-peak">{{ t('modelPlaza.detail.peakNote', { window: peakWindow(offer), multiplier: offer.peakRateMultiplier }) }}</span>
+        </div>
+      </section>
+    </div>
+
+    <footer v-if="card.official_pricing && (card.kind === 'chat' || card.kind === 'text')" class="mp-card__official">
       <span class="mp-official__k">{{ t('modelPlaza.table.officialPrice') }}</span>
       <span class="mp-official__v">
-        {{ t('modelPlaza.table.input') }} {{ officialToken(card.official_pricing.input_price) }} · {{ t('modelPlaza.table.output') }} {{ officialToken(card.official_pricing.output_price) }}
+        {{ t('modelPlaza.table.input') }} {{ officialToken(card.official_pricing.input_price) }}
+        · {{ t('modelPlaza.table.output') }} {{ officialToken(card.official_pricing.output_price) }}
         <span class="mp-official__unit">{{ t('modelPlaza.table.unitPerMillion') }}</span>
       </span>
     </footer>
   </article>
 </template>
+
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PlazaModelCard, PlazaOffer } from './plazaCatalog'
-import { IMAGE_TIER_KEYS, VIDEO_RESOLUTION_KEYS } from './plazaCatalog'
+import {
+  IMAGE_TIER_KEYS,
+  VIDEO_RESOLUTION_KEYS,
+  type PlazaModelCard,
+  type PlazaOffer
+} from './plazaCatalog'
 import PlazaVendorMark from './PlazaVendorMark.vue'
 import { resolvePlazaVendor } from './plazaVendors'
 
@@ -193,7 +244,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const PER_MILLION = 1_000_000
 const MIN_DECIMALS = 2
-const emDash = "—"
+const emDash = '\u2014'
 
 const GROUP_ACCENTS = [
   { color: '#0f766e', soft: '#ccfbf1' },
@@ -220,6 +271,44 @@ const kindLabel = computed(() => {
     default:
       return t('modelPlaza.kind.chat')
   }
+})
+
+/** Union of video resolutions across offers for multi table columns. */
+const multiVideoResolutions = computed(() => {
+  const set = new Set<string>()
+  for (const offer of props.card.offers) {
+    for (const r of videoResolutions(offer)) set.add(r)
+  }
+  return VIDEO_RESOLUTION_KEYS.filter((k) => set.has(k)) as string[]
+})
+
+/** Union of image tiers across offers for multi table columns. */
+const multiImageTiers = computed(() => {
+  const set = new Set<string>()
+  for (const offer of props.card.offers) {
+    for (const tier of imageTiers(offer)) {
+      if (tier && tier !== emDash) set.add(tier)
+    }
+  }
+  const known = IMAGE_TIER_KEYS.filter((k) => set.has(k)) as string[]
+  const knownSet = new Set<string>(IMAGE_TIER_KEYS as unknown as string[])
+  const extra = [...set].filter((k) => !knownSet.has(k))
+  return known.length || extra.length ? [...known, ...extra] : (IMAGE_TIER_KEYS as unknown as string[])
+})
+
+const hasAnyFallback = computed(() =>
+  props.card.offers.some((o) => tokenPriceSource(o) === 'fallback')
+)
+
+/** Sibling channel base pricing when this offer has no pricing of its own. */
+const siblingTokenBase = computed(() => {
+  for (const o of props.card.offers) {
+    const p = o.model.pricing
+    if (p && (p.input_price != null || p.output_price != null || p.cache_write_price != null || p.cache_read_price != null)) {
+      return p
+    }
+  }
+  return null
 })
 
 function groupTicketStyle(idx: number): Record<string, string> {
@@ -253,22 +342,6 @@ function formatRes(res: string): string {
   return String(res).toUpperCase()
 }
 
-function videoUnitLabel(offer: PlazaOffer): string {
-  const unit = String(offer.model.video_billing_unit || '').toLowerCase()
-  if (unit === 'second' || unit === 'per_second' || unit === 'sec') {
-    return t('modelPlaza.table.unitPerSecond')
-  }
-  return t('modelPlaza.table.unitPerRequest')
-}
-
-
-function videoModeLabel(offer: PlazaOffer): string {
-  const unit = String(offer.model.video_billing_unit || '').toLowerCase()
-  if (unit === 'second' || unit === 'per_second' || unit === 'sec') {
-    return t('modelPlaza.table.perSecond')
-  }
-  return t('modelPlaza.table.perRequest')
-}
 
 
 function videoHint(offer: PlazaOffer): string {
@@ -279,11 +352,9 @@ function videoHint(offer: PlazaOffer): string {
   return t('modelPlaza.table.videoBillingPerClipHint')
 }
 
-
 function hasImageConfiguredPrice(offer: PlazaOffer): boolean {
   const tiers = imageTiers(offer)
   if (!tiers.length) return false
-  // avoid showing a placeholder-only grid
   return tiers.some((tier) => formatImagePrice(offer, tier) !== emDash)
 }
 
@@ -293,7 +364,6 @@ function formatImageTier(tier: string): string {
   if (/^[0-9]+[kK]$/.test(raw)) return raw.toUpperCase()
   return raw
 }
-
 
 function videoResolutions(offer: PlazaOffer): string[] {
   const listed = (offer.model.video_resolutions || [])
@@ -342,8 +412,9 @@ function imageTiers(offer: PlazaOffer): string[] {
     return []
   }
   const known = IMAGE_TIER_KEYS.filter((k) => k in prices || prices[k] != null)
-  if (known.length) return [...known]
-  return IMAGE_TIER_KEYS.filter((k) => prices[k] != null)
+  const knownSet = new Set<string>(IMAGE_TIER_KEYS as unknown as string[])
+  const extras = Object.keys(prices).filter((k) => !knownSet.has(k))
+  return [...known, ...extras]
 }
 
 function formatImagePrice(offer: PlazaOffer, tier: string): string {
@@ -354,125 +425,418 @@ function formatImagePrice(offer: PlazaOffer, tier: string): string {
   if (offer.model.pricing?.billing_mode === 'image') {
     const hit = (offer.model.pricing.intervals || []).find((i) => i.tier_label === tier)
     const v = hit?.per_request_price ?? offer.model.pricing.per_request_price
-    if (v != null) return formatScaled(v * offer.effectiveRate, 1, MIN_DECIMALS)
+    if (v == null) return emDash
+    return formatScaled(Number(v) * offer.effectiveRate, 1, MIN_DECIMALS)
   }
   return emDash
 }
 
+type TokenField = 'input_price' | 'output_price' | 'cache_write_price' | 'cache_read_price'
+
+/** Resolve base unit price: own pricing → sibling group → official. */
+function resolveTokenBase(offer: PlazaOffer, field: TokenField): number | null {
+  const own = offer.model.pricing?.[field]
+  if (own != null) return Number(own)
+  const sib = siblingTokenBase.value?.[field]
+  if (sib != null) return Number(sib)
+  const off = props.card.official_pricing?.[field as keyof typeof props.card.official_pricing]
+  if (off != null) return Number(off)
+  // also try offer-level official
+  const off2 = offer.model.official_pricing?.[field as keyof NonNullable<typeof offer.model.official_pricing>]
+  if (off2 != null) return Number(off2)
+  return null
+}
+
+function tokenPriceSource(offer: PlazaOffer): 'channel' | 'fallback' | 'none' {
+  if (props.card.kind === 'video' || props.card.kind === 'image') return 'channel'
+  const p = offer.model.pricing
+  if (p && (p.input_price != null || p.output_price != null || p.cache_write_price != null || p.cache_read_price != null)) {
+    return 'channel'
+  }
+  if (siblingTokenBase.value || props.card.official_pricing || offer.model.official_pricing) {
+    return 'fallback'
+  }
+  return 'none'
+}
+
 function paidToken(offer: PlazaOffer, field: 'input_price' | 'output_price'): string {
-  const v = offer.model.pricing?.[field]
-  if (v == null) return emDash
+  const v = resolveTokenBase(offer, field)
+  if (v == null || !Number.isFinite(v)) return emDash
   return formatScaled(v * offer.effectiveRate, PER_MILLION, MIN_DECIMALS)
 }
 
 function cachePaid(offer: PlazaOffer): string {
-  const w = offer.model.pricing?.cache_write_price
-  const r = offer.model.pricing?.cache_read_price
+  const w = resolveTokenBase(offer, 'cache_write_price')
+  const r = resolveTokenBase(offer, 'cache_read_price')
   if (w == null && r == null) return emDash
   const ws = w == null ? emDash : formatScaled(w * offer.effectiveRate, PER_MILLION, MIN_DECIMALS)
   const rs = r == null ? emDash : formatScaled(r * offer.effectiveRate, PER_MILLION, MIN_DECIMALS)
-  return ws + ' / ' + rs
+  if (ws === emDash) return rs
+  if (rs === emDash) return ws
+  return ws + '/' + rs
 }
 
 function officialToken(v: number | null | undefined): string {
-  if (v == null) return emDash
-  return formatScaled(v, PER_MILLION, MIN_DECIMALS)
-}
-
-function nonTokenLabel(offer: PlazaOffer): string {
-  const mode = offer.model.pricing?.billing_mode
-  if (mode === 'image') return t('modelPlaza.table.perImage')
-  if (mode === 'video' || mode === 'per_request') return t('modelPlaza.table.perRequest')
-  return String(mode || '')
+  if (v == null || !Number.isFinite(Number(v))) return emDash
+  return formatScaled(Number(v), PER_MILLION, MIN_DECIMALS)
 }
 
 function peakWindow(offer: PlazaOffer): string {
   const a = offer.peakStart || '?'
   const b = offer.peakEnd || '?'
-  return a + "–" + b
+  return a + '–' + b
 }
+
 </script>
+
 <style scoped>
-.mp-card{--mp-ink:#0f172a;--mp-muted:#64748b;--mp-faint:#94a3b8;--mp-line:#e2e8f0;position:relative;display:flex;flex-direction:column;border-radius:18px;border:1px solid color-mix(in srgb,var(--vendor-color,#0f766e) 22%,var(--mp-line));background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);box-shadow:0 1px 0 rgba(15,23,42,.04),0 10px 28px -18px rgba(15,23,42,.28);overflow:hidden;min-width:0}
-.mp-card--multi{box-shadow:0 1px 0 rgba(15,23,42,.05),0 16px 36px -20px rgba(15,23,42,.32)}
-.mp-card__head{display:grid;grid-template-columns:6px 1fr;background:radial-gradient(120% 140% at 0% 0%,color-mix(in srgb,var(--vendor-soft,#ccfbf1) 85%,#fff),transparent 60%),linear-gradient(180deg,#fff,#f8fafc);border-bottom:1px solid var(--mp-line)}
-.mp-card__rail{background:linear-gradient(180deg,var(--vendor-color,#0f766e),color-mix(in srgb,var(--vendor-color,#0f766e) 45%,#fff))}
-.mp-card__head-main{padding:14px 16px 12px;min-width:0}
-.mp-card__title-row{display:flex;align-items:flex-start;gap:12px;min-width:0}
-.mp-card__title-text{min-width:0;flex:1}
-.mp-card__name-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
-.mp-card__kind{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;border:1px solid transparent}
-.mp-card__kind[data-kind='video']{color:#9a3412;background:#ffedd5;border-color:#fed7aa}
-.mp-card__kind[data-kind='image']{color:#1d4ed8;background:#dbeafe;border-color:#bfdbfe}
-.mp-card__kind[data-kind='chat'],.mp-card__kind[data-kind='text']{color:#0f766e;background:#ccfbf1;border-color:#99f6e4}
-.mp-card__name{margin:0;font-size:16px;font-weight:800;letter-spacing:-.02em;color:var(--mp-ink);line-height:1.25;word-break:break-word}
-.mp-card__meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
-.mp-card__platform{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:650;color:var(--mp-muted)}
-.mp-card__chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:7px;font-size:11px;font-weight:700;color:var(--mp-muted);background:#f1f5f9;border:1px solid var(--mp-line)}
-.mp-card__chip--groups{color:#1d4ed8;background:#eff6ff;border-color:#bfdbfe}
-.mp-card__chip--rate{font-family:"JetBrains Mono",ui-monospace,monospace;color:#047857;background:#ecfdf5;border-color:#a7f3d0}
-.mp-card__groups{display:flex;flex-direction:column;background:linear-gradient(180deg,#f1f5f9,#f8fafc 40%,#fff);padding:0 0 12px}
-.mp-card__groups-bar{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px;padding:10px 16px 8px}
-.mp-card__groups-title{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#334155}
-.mp-card__groups-hint{font-size:11px;color:var(--mp-faint)}
-.mp-card__groups-list{display:flex;flex-direction:column;gap:10px;padding:0 12px}
-.mp-group{position:relative;display:grid;grid-template-columns:5px 1fr;border-radius:14px;border:1px solid color-mix(in srgb,var(--group-color,#0f766e) 28%,var(--mp-line));background:linear-gradient(135deg,color-mix(in srgb,var(--group-soft,#ccfbf1) 55%,#fff),#fff 55%);box-shadow:0 1px 0 rgba(15,23,42,.03);overflow:hidden}
-.mp-group.is-best{border-color:color-mix(in srgb,#059669 45%,var(--mp-line));box-shadow:0 0 0 1px rgba(5,150,105,.12),0 8px 20px -14px rgba(5,150,105,.45)}
-.mp-group__rail{background:linear-gradient(180deg,var(--group-color,#0f766e),color-mix(in srgb,var(--group-color,#0f766e) 50%,#fff))}
-.mp-group__body{padding:12px 12px 12px 14px;min-width:0}
-.mp-group__top{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px;align-items:start}
-.mp-group__identity{min-width:0}
-.mp-group__name-row{display:flex;align-items:flex-start;gap:10px;min-width:0}
-.mp-group__index{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:8px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;font-weight:800;color:var(--group-color,#0f766e);background:color-mix(in srgb,var(--group-soft,#ccfbf1) 80%,#fff);border:1px solid color-mix(in srgb,var(--group-color,#0f766e) 22%,#fff)}
-.mp-group__name-wrap{min-width:0}
-.mp-group__kicker{display:block;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mp-faint);margin-bottom:2px}
-.mp-group__name{margin:0;font-size:14px;font-weight:800;color:var(--mp-ink);line-height:1.3;word-break:break-word}
-.mp-group__pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.mp-pill{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:800;border:1px solid transparent}
-.mp-pill--best{color:#047857;background:#d1fae5;border-color:#a7f3d0}
-.mp-pill--exclusive{color:#1d4ed8;background:#dbeafe;border-color:#bfdbfe}
-.mp-pill--sub{color:#7c3aed;background:#ede9fe;border-color:#ddd6fe}
-.mp-group__metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
-.mp-metric{border-radius:11px;border:1px solid var(--mp-line);background:rgba(255,255,255,.92);padding:8px 10px;min-width:0}
-.mp-metric__label{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mp-faint)}
-.mp-metric__value{display:block;margin-top:4px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:18px;font-weight:800;letter-spacing:-.03em;color:var(--mp-ink);font-variant-numeric:tabular-nums;line-height:1.1}
-.mp-metric--rate .mp-metric__value{color:#047857}
-.mp-metric--ttft .mp-metric__value{color:#c2410c}
-.mp-metric__sub{display:block;margin-top:3px;font-size:10px;line-height:1.35;color:var(--mp-faint)}
-.mp-metric__bolt{flex:0 0 auto}
-.mp-group__desc{margin:10px 0 0;font-size:12px;line-height:1.45;color:var(--mp-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.mp-price-block{margin-top:10px;border-radius:12px;border:1px solid var(--mp-line);overflow:hidden;background:#f8fafc}
-.mp-price-block__bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;background:linear-gradient(90deg,color-mix(in srgb,var(--group-soft,#eef2ff) 70%,#fff),#f8fafc);border-bottom:1px solid var(--mp-line)}
-.mp-price-block__mode{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.02em;color:color-mix(in srgb,var(--group-color,#4338ca) 90%,#0f172a);background:color-mix(in srgb,var(--group-soft,#eef2ff) 80%,#fff);border:1px solid color-mix(in srgb,var(--group-color,#4338ca) 22%,#e2e8f0)}
-.mp-price-block__unit{font-size:11px;font-weight:700;letter-spacing:.01em;color:#475569;text-transform:none;font-family:inherit}
-.mp-price-block__hint{margin:0;padding:6px 10px 0;font-size:11px;line-height:1.45;color:#64748b}
-.mp-official__unit{display:inline-block;margin-left:6px;font-size:10px;font-weight:600;color:#94a3b8}
-.mp-price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:1px;background:var(--mp-line)}
-.mp-price-cell{background:#fff;padding:9px 10px;min-width:0}
-.mp-price-cell__k{display:block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mp-faint)}
-.mp-price-cell__v{display:block;margin-top:4px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;font-weight:750;color:var(--mp-ink);font-variant-numeric:tabular-nums}
-.mp-token-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
-.mp-token-grid--inblock{margin:8px 10px 10px}
-.mp-token-cell__u{margin-left:4px;font-size:10px;font-weight:700;color:#64748b;font-family:inherit}
-.mp-token-cell{border-radius:10px;border:1px solid var(--mp-line);background:#fff;padding:8px 9px;min-width:0}
-.mp-token-cell__k{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-faint)}
-.mp-token-cell__v{margin-top:3px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-weight:750;color:var(--mp-ink);word-break:break-word}
-.mp-group__foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.mp-peak{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:700;color:#9a3412;background:#ffedd5;border:1px solid rgba(234,88,12,.2)}
-.mp-empty-price,.mp-group .is-empty .mp-price-cell__v{color:var(--mp-faint);font-size:12px}
-.mp-empty-price{padding:8px 10px}
-.mp-mode-note{margin:8px 0 0;font-size:11px;color:var(--mp-muted);line-height:1.4}
-.mp-card__official{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 16px 12px;border-top:1px dashed var(--mp-line);background:#f8fafc}
-.mp-official__k{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-faint)}
-.mp-official__v{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-weight:700;color:var(--mp-ink)}
-@media (max-width:720px){.mp-group__top{grid-template-columns:1fr}.mp-token-grid{grid-template-columns:1fr}}
-:global(.dark) .mp-card{background:#111827;border-color:#243041;box-shadow:none}
-:global(.dark) .mp-card__head{background:linear-gradient(180deg,#0f172a,#111827);border-bottom-color:#243041}
-:global(.dark) .mp-card__groups{background:linear-gradient(180deg,#0b1220,#111827)}
-:global(.dark) .mp-group{background:#0b1220;border-color:#243041}
-:global(.dark) .mp-group__name,:global(.dark) .mp-card__name,:global(.dark) .mp-metric__value,:global(.dark) .mp-price-cell__v,:global(.dark) .mp-token-cell__v,:global(.dark) .mp-official__v{color:#e5eef8}
-:global(.dark) .mp-metric,:global(.dark) .mp-price-cell,:global(.dark) .mp-token-cell,:global(.dark) .mp-price-block,:global(.dark) .mp-card__official{background:#0f172a;border-color:#243041}
-:global(.dark) .mp-price-grid{background:#243041}
-:global(.dark) .mp-price-block__bar{background:linear-gradient(90deg,rgba(15,118,110,.18),#0f172a);border-bottom-color:#243041}
-:global(.dark) .mp-card__chip{background:#0f172a;border-color:#243041;color:#94a3b8}
+.mp-card {
+  --mp-ink: #0f172a;
+  --mp-muted: #64748b;
+  --mp-faint: #94a3b8;
+  --mp-line: #e2e8f0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--vendor-color, #0f766e) 18%, #e2e8f0);
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03), 0 10px 28px -22px rgba(15, 23, 42, 0.35);
+  overflow: hidden;
+}
+.mp-card__rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--vendor-color, #0f766e), color-mix(in srgb, var(--vendor-color, #0f766e) 40%, #94a3b8));
+}
+.mp-card__head {
+  padding: 12px 14px 10px 16px;
+  border-bottom: 1px solid var(--mp-line);
+  background:
+    radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--vendor-soft, #ccfbf1) 70%, #fff), transparent 60%),
+    linear-gradient(180deg, #fcfdff, #fff);
+}
+.mp-card__title-row { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.mp-card__title-text { min-width: 0; flex: 1; }
+.mp-card__name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-card__kind {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+.mp-card__kind[data-kind='video'] { color: #9a3412; background: #ffedd5; border-color: #fed7aa; }
+.mp-card__kind[data-kind='image'] { color: #1d4ed8; background: #dbeafe; border-color: #bfdbfe; }
+.mp-card__kind[data-kind='chat'],
+.mp-card__kind[data-kind='text'] { color: #0f766e; background: #ccfbf1; border-color: #99f6e4; }
+.mp-card__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--mp-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+.mp-card__platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--mp-muted);
+}
+.mp-card__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  border: 1px solid var(--mp-line);
+  background: #fff;
+  color: #475569;
+}
+.mp-card__chip--rate { color: #047857; background: #ecfdf5; border-color: #a7f3d0; }
+
+/* Dense multi-group compare */
+.mp-compare { padding: 8px 10px 10px; background: linear-gradient(180deg, #f8fafc, #fff); }
+.mp-compare__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+.mp-compare__title { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mp-faint); }
+.mp-compare__hint { font-size: 11px; color: var(--mp-muted); }
+.mp-compare__scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--mp-line); background: #fff; }
+.mp-compare__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 520px;
+  font-size: 12px;
+}
+.mp-compare__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--mp-line);
+  white-space: nowrap;
+}
+.mp-compare__table thead th .u { text-transform: none; font-weight: 700; color: #94a3b8; margin-left: 2px; }
+.mp-compare__table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f7;
+  vertical-align: middle;
+  color: var(--mp-ink);
+}
+.mp-compare__table tbody tr:last-child td { border-bottom: 0; }
+.mp-compare__table tbody tr.is-best { background: linear-gradient(90deg, color-mix(in srgb, var(--group-soft, #ecfdf5) 55%, #fff), #fff); }
+.mp-compare__table tbody tr:hover { background: #f8fafc; }
+.col-group { min-width: 148px; max-width: 220px; }
+.col-rate, .col-ttft { width: 72px; white-space: nowrap; }
+.col-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.col-price.is-empty { color: var(--mp-faint); }
+.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 750; font-variant-numeric: tabular-nums; }
+.col-rate.mono { color: #047857; }
+.col-ttft.mono { color: #c2410c; }
+.mp-row-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.mp-row-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--group-color, #0f766e);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-soft, #ccfbf1) 80%, transparent);
+}
+.mp-row-name__text {
+  font-weight: 750;
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--mp-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-row-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mp-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  border: 1px solid transparent;
+}
+.mp-pill--best { color: #047857; background: #d1fae5; border-color: #a7f3d0; }
+.mp-pill--exclusive { color: #7c3aed; background: #ede9fe; border-color: #ddd6fe; }
+.mp-pill--sub { color: #1d4ed8; background: #dbeafe; border-color: #bfdbfe; }
+.mp-pill--est { color: #b45309; background: #fef3c7; border-color: #fde68a; }
+.mp-compare__note {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--mp-muted);
+}
+.mp-compare__fallback { color: #b45309; font-weight: 650; }
+
+/* Solo compact */
+.mp-solo { padding: 10px 12px 12px; }
+.mp-group {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--group-color, #0f766e) 20%, var(--mp-line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--group-soft, #ccfbf1) 35%, #fff), #fff);
+  padding: 10px 12px;
+}
+.mp-group__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+.mp-group__kicker {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+.mp-group__name {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--mp-ink);
+  line-height: 1.25;
+}
+.mp-group__pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mp-group__metrics { display: flex; gap: 8px; }
+.mp-metric {
+  min-width: 72px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--mp-line);
+  background: #fff;
+}
+.mp-metric__label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+.mp-metric__value {
+  display: block;
+  margin-top: 2px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--mp-ink);
+}
+.mp-metric--rate .mp-metric__value { color: #047857; }
+.mp-metric--ttft .mp-metric__value { color: #c2410c; }
+.mp-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.mp-chip-price {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 78px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--mp-line);
+  background: #fff;
+}
+.mp-chip-price em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+.mp-chip-price strong {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--mp-ink);
+  font-variant-numeric: tabular-nums;
+}
+.mp-chip-price strong i {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  margin-left: 2px;
+}
+.mp-chip-price.is-empty strong { color: var(--mp-faint); }
+.mp-solo__note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--mp-muted);
+}
+.mp-group__foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.mp-peak {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9a3412;
+  background: #ffedd5;
+  border: 1px solid rgba(234, 88, 12, 0.2);
+}
+.mp-empty-price { color: var(--mp-faint); font-size: 12px; padding: 4px 2px; }
+.mp-card__official {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 14px 10px;
+  border-top: 1px dashed var(--mp-line);
+  background: #f8fafc;
+}
+.mp-official__k {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+.mp-official__v {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-ink);
+}
+.mp-official__unit {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  font-family: inherit;
+}
+@media (max-width: 720px) {
+  .mp-group__top { grid-template-columns: 1fr; }
+  .mp-compare__table { min-width: 480px; }
+}
+:global(.dark) .mp-card { background: #111827; border-color: #243041; box-shadow: none; }
+:global(.dark) .mp-card__head,
+:global(.dark) .mp-compare,
+:global(.dark) .mp-card__official { background: #0f172a; border-color: #243041; }
+:global(.dark) .mp-compare__scroll,
+:global(.dark) .mp-group,
+:global(.dark) .mp-metric,
+:global(.dark) .mp-chip-price { background: #0b1220; border-color: #243041; }
+:global(.dark) .mp-compare__table thead th { background: #0b1220; color: #94a3b8; border-color: #243041; }
+:global(.dark) .mp-compare__table tbody td { border-color: #1f2937; color: #e5eef8; }
+:global(.dark) .mp-card__name,
+:global(.dark) .mp-group__name,
+:global(.dark) .mp-metric__value,
+:global(.dark) .mp-row-name__text,
+:global(.dark) .mp-official__v,
+:global(.dark) .mp-chip-price strong { color: #e5eef8; }
+:global(.dark) .mp-card__chip { background: #0f172a; border-color: #243041; color: #94a3b8; }
 </style>
