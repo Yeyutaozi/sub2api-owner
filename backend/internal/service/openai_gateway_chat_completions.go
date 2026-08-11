@@ -483,6 +483,13 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
 
+	duration := time.Since(startTime)
+	// Buffered non-stream response: approximate TTFT with total wait so sticky escape works.
+	ms := int(duration.Milliseconds())
+	if ms < 0 {
+		ms = 0
+	}
+	firstTokenMs := ms
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
 		Usage:         usage,
@@ -490,7 +497,8 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		BillingModel:  billingModel,
 		UpstreamModel: upstreamModel,
 		Stream:        false,
-		Duration:      time.Since(startTime),
+		Duration:      duration,
+		FirstTokenMs:  &firstTokenMs,
 	}, nil
 }
 

@@ -330,7 +330,17 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if result != nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, result.FirstTokenMs)
+			ft := result.FirstTokenMs
+			// Safety net: non-stream paths historically omitted FirstTokenMs; use Duration so
+			// sticky TTFT escape and account ranking still observe latency.
+			if ft == nil && result.Duration > 0 {
+				ms := int(result.Duration.Milliseconds())
+				if ms < 0 {
+					ms = 0
+				}
+				ft = &ms
+			}
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, ft)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, nil)
 		}

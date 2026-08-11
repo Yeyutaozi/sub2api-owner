@@ -669,8 +669,12 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 
 	// 1. 尝试粘性会话命中
 	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
-		return account, nil
+	stickyAccount, escapedFromID := s.tryStickySessionHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
+	if escapedFromID > 0 {
+		excludedIDs = softExcludeStickyAccount(excludedIDs, escapedFromID)
+	}
+	if stickyAccount != nil {
+		return stickyAccount, nil
 	}
 
 	// 2. 获取可调度的 OpenAI 账号
@@ -707,9 +711,65 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 //
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
-func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, platform string, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) *Account {
+// applyOpenAIClassicStickyEscapeIfNeeded evaluates peer-relative TTFT/error escape for the
+// classic (non-advanced-scheduler) sticky path. On escape it clears the sticky binding and
+// records a 24h admin audit entry. Request body/messages are never modified.
+func (s *OpenAIGatewayService) applyOpenAIClassicStickyEscapeIfNeeded(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	sessionHash string,
+	account *Account,
+	requestedModel string,
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+) (escaped bool, reason string) {
+	if s == nil || account == nil || account.ID <= 0 {
+		return false, ""
+	}
+	platform = normalizeOpenAICompatiblePlatform(platform)
+	peers, err := s.listSchedulableAccounts(ctx, groupID, platform)
+	if err != nil || len(peers) == 0 {
+		return false, ""
+	}
+	peerIDs := make([]int64, 0, len(peers))
+	peerPtrs := make([]*Account, 0, len(peers))
+	for i := range peers {
+		acc := &peers[i]
+		if acc == nil || acc.ID <= 0 || acc.ID == account.ID {
+			continue
+		}
+		if !isOpenAICompatibleAccountEligibleForRequest(ctx, acc, platform, requestedModel, false, requiredCapability) {
+			continue
+		}
+		if !parentHealthyForShadow(acc, s.parentAccountLookup(ctx)) {
+			continue
+		}
+		if s.isOpenAIAccountRequestRuntimeBlocked(acc, requestedModel) {
+			continue
+		}
+		if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
+			s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
+			continue
+		}
+		peerIDs = append(peerIDs, acc.ID)
+		peerPtrs = append(peerPtrs, acc)
+	}
+	cfg := s.openAIStickyEscapeConfig()
+	reason, errRate, ttft, shouldEscape := shouldEscapeStickyByRuntime(account.ID, cfg, peerIDs)
+	if !shouldEscape {
+		return false, ""
+	}
+	if sessionHash != "" {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+	}
+	RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peerPtrs, ttft, errRate, cfg)
+	return true, reason
+}
+
+func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, platform string, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) (account *Account, escapedFromID int64) {
 	if sessionHash == "" {
-		return nil
+		return nil, 0
 	}
 	platform = normalizeOpenAICompatiblePlatform(platform)
 
@@ -718,63 +778,67 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		var err error
 		accountID, err = s.getStickySessionAccountID(ctx, groupID, sessionHash)
 		if err != nil || accountID <= 0 {
-			return nil
+			return nil, 0
 		}
 	}
 
-	if _, excluded := excludedIDs[accountID]; excluded {
-		return nil
+	if excludedIDs != nil {
+		if _, excluded := excludedIDs[accountID]; excluded {
+			return nil, 0
+		}
 	}
 
-	account, err := s.getSchedulableAccount(ctx, accountID)
+	acc, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 
-	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
-	if shouldClearStickySession(account, requestedModel) {
+	if shouldClearStickySession(acc, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
+		return nil, 0
 	}
 
-	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
-		return nil
+	if !isOpenAICompatibleAccountEligibleForRequest(ctx, acc, platform, requestedModel, false, requiredCapability) {
+		return nil, 0
 	}
-	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
+	if !parentHealthyForShadow(acc, s.parentAccountLookup(ctx)) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
+		return nil, 0
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlocked(acc, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
+		return nil, 0
 	}
-	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
-	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+	acc = s.recheckSelectedOpenAIAccountFromDB(ctx, acc, groupID, platform, requestedModel, requireCompact, requiredCapability)
+	if acc == nil || !s.openAIAccountMatchesSchedulingGroup(acc, groupID) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
+		return nil, 0
 	}
 	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
-		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
+		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
+		return nil, 0
 	}
 
-	// 刷新会话 TTL 并返回账号
+	// Peer-relative sticky TTFT/error escape (works without advanced scheduler).
+	// Full request messages are unchanged; only the sticky account binding is dropped.
+	if escaped, reason := s.applyOpenAIClassicStickyEscapeIfNeeded(ctx, groupID, platform, sessionHash, acc, requestedModel, requiredCapability, requireCompact); escaped {
+		slog.Info("sticky_escape_triggered",
+			"account_id", acc.ID,
+			"reason", reason,
+			"layer", "classic_session_hash",
+			"context_carry", "full_messages_unchanged",
+		)
+		return nil, acc.ID
+	}
+
 	// Refresh session TTL and return account
 	_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
-	return account
+	return acc, 0
 }
 
-// selectBestAccount 从候选账号中选择最佳账号（优先级 + LRU）。
-// 返回 nil 表示无可用账号。
-//
-// selectBestAccount selects the best account from candidates (priority + LRU).
-// Returns nil if no available account. The second return reports whether at
-// least one candidate was filtered out solely because it lacks compact support
-// (only meaningful when requireCompact=true).
 func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, bool) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	compactBlocked := false
@@ -957,6 +1021,22 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					} else if escaped, reason := s.applyOpenAIClassicStickyEscapeIfNeeded(ctx, groupID, platform, sessionHash, account, requestedModel, requiredCapability, requireCompact); escaped {
+						slog.Info("sticky_escape_triggered",
+							"account_id", account.ID,
+							"reason", reason,
+							"layer", "classic_load_aware_sticky",
+							"context_carry", "full_messages_unchanged",
+						)
+						excludedIDs = softExcludeStickyAccount(excludedIDs, account.ID)
+						isExcluded = func(id int64) bool {
+							if excludedIDs == nil {
+								return false
+							}
+							_, excluded := excludedIDs[id]
+							return excluded
+						}
+						// Fall through to load-aware reselection with full messages unchanged.
 					} else {
 						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 						if err == nil && result != nil && result.Acquired {

@@ -853,6 +853,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			return nil, err
 		}
+		// Non-stream responses have no SSE first-token marker; use total wait as TTFT proxy
+		// so sticky escape / first-token ranking works for Claude and other platforms.
+		ms := int(time.Since(startTime).Milliseconds())
+		if ms < 0 {
+			ms = 0
+		}
+		firstTokenMs = &ms
 	}
 
 	return &ForwardResult{

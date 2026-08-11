@@ -14,19 +14,26 @@ func TestShouldEscapeStickyUsesLastSampleNotOnlyEWMA(t *testing.T) {
 	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
 	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 	id := int64(94001)
-	// Warm up with moderate TTFT under absolute threshold for OpenAI (1500ms default not used here).
-	// Use gateway config absolute 5000ms: many 2000ms then one 20000ms last sample.
+	peerID := int64(94002)
+	// Warm up with moderate TTFT then one multi-second hang last sample.
 	for i := 0; i < 8; i++ {
 		v := 2000
 		stats.report(id, true, &v)
 	}
 	spike := 20000
 	stats.report(id, true, &spike)
+	// Peer is much faster; last-sample-sensitive escape should fire only vs peer.
+	fast := 900
+	stats.report(peerID, true, &fast)
 
 	cfg := gatewayStickyEscapeConfig()
+	// Solo still must not unstick (cache-preserving).
 	reason, _, ttft, escape := shouldEscapeStickyByRuntime(id, cfg, nil)
-	require.True(t, escape, "last sample spike should escape, ttft=%v reason=%s", ttft, reason)
-	require.Equal(t, "ttft", reason)
+	require.False(t, escape, "solo spike must not unstick without faster peer, ttft=%v reason=%s", ttft, reason)
+
+	reason, _, ttft, escape = shouldEscapeStickyByRuntime(id, cfg, []int64{peerID})
+	require.True(t, escape, "last sample spike should escape vs faster peer, ttft=%v reason=%s", ttft, reason)
+	require.Equal(t, "ttft_relative", reason)
 	require.GreaterOrEqual(t, ttft, float64(spike))
 }
 
@@ -54,17 +61,17 @@ func TestAccountRuntimeRedisSharedAcrossProcessLocalMiss(t *testing.T) {
 	// Wipe process-local stats to simulate another instance reading only Redis.
 	sharedOpenAIAccountRuntimeStats.Store(newOpenAIAccountRuntimeStats())
 
-	// Instance B must still see Redis TTFT and escape sticky.
+	// Instance B must still see Redis TTFT and escape sticky when a much faster peer exists.
 	cfg := openAIStickyEscapeConfig{
 		enabled:          true,
-		ttftMs:           1500,
+		ttftMs:           0,
 		errorRate:        0.5,
-		relativeRatio:    1.15,
-		relativeMinDelta: 250,
+		relativeRatio:    1.3,
+		relativeMinDelta: 600,
 	}
 	reason, _, ttft, escape := shouldEscapeStickyByRuntime(slowID, cfg, []int64{fastID})
 	require.True(t, escape, "redis-backed TTFT should escape on cold local cache, ttft=%v reason=%s", ttft, reason)
-	require.Contains(t, []string{"ttft", "ttft_relative"}, reason)
+	require.Equal(t, "ttft_relative", reason)
 	require.Greater(t, ttft, 1500.0)
 
 	// Fast account should not escape.

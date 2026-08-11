@@ -442,6 +442,14 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = c.Writer.Write(respBody)
 
+	duration := time.Since(startTime)
+	// Non-stream clients never emit a streamed first-token event. Use end-to-end wait
+	// as TTFT so sticky escape / ranking can see real latency from non-stream traffic.
+	ms := int(duration.Milliseconds())
+	if ms < 0 {
+		ms = 0
+	}
+	firstTokenMs := ms
 	return &OpenAIForwardResult{
 		RequestID:       requestID,
 		Usage:           usage,
@@ -451,7 +459,8 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
 		Stream:          false,
-		Duration:        time.Since(startTime),
+		Duration:        duration,
+		FirstTokenMs:    &firstTokenMs,
 	}, nil
 }
 

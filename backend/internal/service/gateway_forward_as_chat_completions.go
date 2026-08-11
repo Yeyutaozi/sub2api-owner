@@ -338,6 +338,12 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		c.JSON(http.StatusOK, ccResp)
 	}
 
+	duration := time.Since(startTime)
+	ms := int(duration.Milliseconds())
+	if ms < 0 {
+		ms = 0
+	}
+	firstTokenMs := ms
 	return &ForwardResult{
 		RequestID:       requestID,
 		Usage:           usage,
@@ -345,7 +351,8 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		UpstreamModel:   mappedModel,
 		ReasoningEffort: reasoningEffort,
 		Stream:          false,
-		Duration:        time.Since(startTime),
+		Duration:        duration,
+		FirstTokenMs:    &firstTokenMs,
 	}, nil
 }
 

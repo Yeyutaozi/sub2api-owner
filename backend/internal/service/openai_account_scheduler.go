@@ -293,41 +293,25 @@ func ReportAccountRuntimeResult(accountID int64, success bool, firstTokenMs *int
 
 // shouldEscapeStickyByRuntime decides whether a sticky account should be abandoned based on
 // EWMA first-token latency / error rate from real traffic (no probe cost).
-// Escape uses max(EWMA, last_sample) so a single multi-second hang is enough to unstick.
+//
+// Policy (cache-preserving, peer-aware):
+//   - Solo account never escapes on TTFT alone (no alternative = keep sticky/cache).
+//   - Peer list MUST exclude the sticky account itself when comparing (self samples must not
+//     masquerade as "best peer" and permanently block escape).
+//   - ttft_relative: measured peer is much faster (relativeRatio + minDelta).
+//   - ttft_explore: sticky is severely slow, other schedulable peers exist, but none have TTFT
+//     samples yet — allow reselection so sticky monopolies cannot starve peer measurement.
+//     This is NOT a 1.5s blind cut; exploreMs defaults to multi-second.
+//   - Error-rate escape remains independent of peer TTFT.
 func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	if !cfg.enabled || accountID <= 0 {
 		return "", 0, 0, false
 	}
 	errorRate, ewma, last, hasTTFT := SnapshotOpenAIAccountRuntimeDetailed(accountID)
 	ttft, hasTTFT = effectiveTTFTForEscape(ewma, last, hasTTFT)
-	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
-		return "ttft", errorRate, ttft, true
-	}
-	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
-		bestPeer := 0.0
-		hasPeer := false
-		for _, peerID := range peerAccountIDs {
-			if peerID <= 0 || peerID == accountID {
-				continue
-			}
-			_, peerEWMA, peerLast, peerHas := SnapshotOpenAIAccountRuntimeDetailed(peerID)
-			peerTTFT, peerHas := effectiveTTFTForEscape(peerEWMA, peerLast, peerHas)
-			if !peerHas || peerTTFT <= 0 {
-				continue
-			}
-			if !hasPeer || peerTTFT < bestPeer {
-				bestPeer = peerTTFT
-				hasPeer = true
-			}
-		}
-		if hasPeer {
-			minDelta := cfg.relativeMinDelta
-			if minDelta <= 0 {
-				minDelta = 250
-			}
-			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
-				return "ttft_relative", errorRate, ttft, true
-			}
+	if hasTTFT {
+		if reason, ok := stickyEscapeReasonByFasterPeer(ttft, cfg, accountID, peerAccountIDs, nil); ok {
+			return reason, errorRate, ttft, true
 		}
 	}
 	if errorRate > cfg.errorRate {
@@ -336,20 +320,92 @@ func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, 
 	return "", errorRate, ttft, false
 }
 
+// stickyEscapeReasonByFasterPeer evaluates TTFT escape against other accounts in the same group.
+// stickyAccountID is excluded from peer comparisons (critical: peer lists from listSchedulableAccounts include self).
+// stats may be nil (use process/Redis SnapshotOpenAIAccountRuntimeDetailed) or a concrete bag for tests.
+func stickyEscapeReasonByFasterPeer(stickyTTFT float64, cfg openAIStickyEscapeConfig, stickyAccountID int64, peerAccountIDs []int64, stats *openAIAccountRuntimeStats) (reason string, ok bool) {
+	if stickyTTFT <= 0 || len(peerAccountIDs) == 0 {
+		return "", false
+	}
+	ratio := cfg.relativeRatio
+	if ratio <= 1 {
+		ratio = 1.3
+	}
+	minDelta := cfg.relativeMinDelta
+	if minDelta <= 0 {
+		minDelta = 600
+	}
+	exploreMs := cfg.exploreMs
+	if exploreMs <= 0 {
+		exploreMs = 5000
+	}
+
+	bestPeer := 0.0
+	hasMeasuredPeer := false
+	otherPeerCount := 0
+	for _, peerID := range peerAccountIDs {
+		if peerID <= 0 || peerID == stickyAccountID {
+			continue
+		}
+		otherPeerCount++
+		var peerTTFT float64
+		var peerHas bool
+		if stats != nil {
+			_, peerEWMA, peerHasSnap := stats.snapshot(peerID) // errorRate, ttftEWMA, hasTTFT
+			peerLast := 0.0
+			if value, found := stats.accounts.Load(peerID); found {
+				if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+					v := math.Float64frombits(stat.lastTTFTBits.Load())
+					if !math.IsNaN(v) && v > 0 {
+						peerLast = v
+					}
+				}
+			}
+			peerTTFT, peerHas = effectiveTTFTForEscape(peerEWMA, peerLast, peerHasSnap || peerLast > 0)
+		} else {
+			_, peerEWMA, peerLast, peerHasDetailed := SnapshotOpenAIAccountRuntimeDetailed(peerID)
+			peerTTFT, peerHas = effectiveTTFTForEscape(peerEWMA, peerLast, peerHasDetailed)
+		}
+		if !peerHas || peerTTFT <= 0 {
+			continue
+		}
+		if !hasMeasuredPeer || peerTTFT < bestPeer {
+			bestPeer = peerTTFT
+			hasMeasuredPeer = true
+		}
+	}
+	if otherPeerCount == 0 {
+		// Solo (or only self in list): never TTFT-escape.
+		return "", false
+	}
+	if hasMeasuredPeer {
+		if stickyTTFT > bestPeer*ratio && (stickyTTFT-bestPeer) > minDelta {
+			return "ttft_relative", true
+		}
+		return "", false
+	}
+	// Other peers exist but none measured yet — sticky monopoly would never see a "faster peer".
+	// Only explore when sticky is already severely slow (multi-second), not on mild TTFT.
+	if stickyTTFT >= exploreMs {
+		return "ttft_explore", true
+	}
+	return "", false
+}
+
 // gatewayStickyEscapeConfig is used by Claude/Gemini gateway sticky sessions.
-// Absolute threshold is looser than OpenAI (Claude TTFT often multi-second) but still sensitive enough
-// that multi-second hangers get escaped. Relative escape stays peer-aware.
 //
 // Context guarantee: sticky escape only changes which upstream account is used. Request body
 // conversation/messages always forward unchanged; Claude/Gemini do not depend on account-bound
 // previous_response anchors.
 func gatewayStickyEscapeConfig() openAIStickyEscapeConfig {
+	// Same cache-preserving peer-aware policy as OpenAI (no solo absolute cut).
 	return openAIStickyEscapeConfig{
 		enabled:          true,
-		ttftMs:           5000, // 5s absolute EWMA (was 15s; too sticky for slow accounts)
+		ttftMs:           0,
 		errorRate:        0.5,
-		relativeRatio:    1.15,
-		relativeMinDelta: 300,
+		relativeRatio:    1.3,
+		relativeMinDelta: 600,
+		exploreMs:        5000,
 	}
 }
 
@@ -529,10 +585,11 @@ func (b *openAISelectionProbeBudget) wasAttempted(accountID int64) bool {
 
 type openAIStickyEscapeConfig struct {
 	enabled          bool
-	ttftMs           float64
+	ttftMs           float64 // audit/display reference only; not used as solo hard cut
 	errorRate        float64
 	relativeRatio    float64 // escape if sticky TTFT > bestPeer * ratio
 	relativeMinDelta float64 // and sticky-bestPeer > this (ms)
+	exploreMs        float64 // escape when sticky is this slow and peers exist but lack TTFT samples
 }
 
 func newDefaultOpenAIAccountScheduler(service *OpenAIGatewayService, stats *openAIAccountRuntimeStats) OpenAIAccountScheduler {
@@ -587,15 +644,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			// and rebuilds from the full request input — context is preserved, not dropped.
 			if req.PreviousResponseCanMove {
 				escapeCfg := s.service.openAIStickyEscapeConfig()
-				var peerIDs []int64
-				if req.GroupID != nil {
-					if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
-						peerIDs = make([]int64, 0, len(peers))
-						for i := range peers {
-							peerIDs = append(peerIDs, peers[i].ID)
-						}
-					}
-				}
+				peerIDs := s.peerIDsForStickyEscape(ctx, req, selection.Account.ID)
 				if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(selection.Account.ID, escapeCfg, peerIDs); shouldEscape {
 					slog.Info("sticky_escape_triggered",
 						"account_id", selection.Account.ID,
@@ -625,7 +674,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 					}
 					// Fall through to load-balance. StickyPreviousHit stays false so handlers
 					// strip previous_response_id and continue with full input context.
-					if len(peerIDs) > 1 {
+					if len(peerIDs) > 0 {
 						if req.ExcludedIDs == nil {
 							req.ExcludedIDs = make(map[int64]struct{})
 						}
@@ -647,6 +696,72 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
+	// Sticky-weighted mode skips hard session sticky, so apply the same peer-relative escape here:
+	// soft-exclude a much-slower sticky account for this reselection and clear the binding so a
+	// faster peer can be chosen and re-bound (full request context is unchanged).
+	if req.StickyWeighted {
+		escapeCfg := s.service.openAIStickyEscapeConfig()
+		peerIDsBase := s.peerIDsForStickyEscape(ctx, req, 0)
+		for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+			if stickyID <= 0 {
+				continue
+			}
+			if req.ExcludedIDs != nil {
+				if _, excluded := req.ExcludedIDs[stickyID]; excluded {
+					continue
+				}
+			}
+			peerIDs := make([]int64, 0, len(peerIDsBase))
+			for _, id := range peerIDsBase {
+				if id != stickyID {
+					peerIDs = append(peerIDs, id)
+				}
+			}
+			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(stickyID, escapeCfg, peerIDs); shouldEscape {
+				fromName := ""
+				if acc, gerr := s.service.getSchedulableAccount(ctx, stickyID); gerr == nil && acc != nil {
+					fromName = acc.Name
+				}
+				slog.Info("sticky_escape_triggered",
+					"account_id", stickyID,
+					"reason", reason,
+					"error_rate", errorRate,
+					"ttft", ttft,
+					"layer", "sticky_weighted",
+				)
+				escapeMeta = &accountSwitchEscapeMeta{
+					fromAccountID: stickyID,
+					fromName:      fromName,
+					reason:        reason,
+					errorRate:     errorRate,
+					ttft:          ttft,
+					hasTTFT:       ttft > 0,
+					layer:         "sticky_weighted",
+					cfg:           escapeCfg,
+					contextOK:     true,
+					note:          "粘性加权模式：同组存在明显更快账号时软排除慢账号并改绑，请求上下文原样转发",
+				}
+				// Soft-exclude only when alternative peers exist (preserve cache on solo account).
+				peerCount := 0
+				for _, id := range peerIDs {
+					if id > 0 && id != stickyID {
+						peerCount++
+					}
+				}
+				if peerCount > 0 {
+					if req.ExcludedIDs == nil {
+						req.ExcludedIDs = make(map[int64]struct{})
+					}
+					req.ExcludedIDs[stickyID] = struct{}{}
+					if stickyID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+						_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	if !req.StickyWeighted {
 		selection, escapedSticky, sessionEscape, err := s.selectBySessionHash(ctx, req)
 		if err != nil {
@@ -657,16 +772,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			// Soft-exclude the slow sticky account for this reselection when peers exist.
 			// Prevents immediately rebinding the same slow account after escape.
 			if sessionEscape.fromAccountID > 0 {
-				peerCount := 0
-				if req.GroupID != nil && s.service != nil {
-					if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
-						for i := range peers {
-							if peers[i].ID != sessionEscape.fromAccountID {
-								peerCount++
-							}
-						}
-					}
-				}
+				peerCount := len(s.peerIDsForStickyEscape(ctx, req, sessionEscape.fromAccountID))
 				if peerCount > 0 {
 					if req.ExcludedIDs == nil {
 						req.ExcludedIDs = make(map[int64]struct{})
@@ -785,15 +891,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	var peerIDs []int64
-	if req.GroupID != nil && s.service != nil {
-		if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
-			peerIDs = make([]int64, 0, len(peers))
-			for i := range peers {
-				peerIDs = append(peerIDs, peers[i].ID)
-			}
-		}
-	}
+	peerIDs := s.peerIDsForStickyEscape(ctx, req, accountID)
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg, peerIDs); shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
@@ -899,6 +997,35 @@ func openAIAccountSchedulingPriority(account *Account) int {
 	return account.Priority
 }
 
+
+// peerIDsForStickyEscape returns other schedulable account IDs in the same group that can
+// actually serve this request (model/capability/transport). Used for TTFT escape decisions so
+// we never "explore" into accounts that cannot take the traffic.
+func (s *defaultOpenAIAccountScheduler) peerIDsForStickyEscape(ctx context.Context, req OpenAIAccountScheduleRequest, stickyAccountID int64) []int64 {
+	if s == nil || s.service == nil || req.GroupID == nil {
+		return nil
+	}
+	peers, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
+	if err != nil || len(peers) == 0 {
+		return nil
+	}
+	out := make([]int64, 0, len(peers))
+	for i := range peers {
+		acc := &peers[i]
+		if acc == nil || acc.ID <= 0 || acc.ID == stickyAccountID {
+			continue
+		}
+		if !s.isAccountRequestCompatible(ctx, acc, req) {
+			continue
+		}
+		if !s.isAccountTransportCompatible(acc, req.RequiredTransport) {
+			continue
+		}
+		out = append(out, acc.ID)
+	}
+	return out
+}
+
 func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	// Prefer this scheduler's stats bag (registered as process-shared in production; private in unit tests).
 	// Fall back to process/Redis snapshot so multi-instance Claude/OpenAI samples still apply.
@@ -930,43 +1057,9 @@ func shouldEscapeStickyFromStats(stats *openAIAccountRuntimeStats, accountID int
 		return "", 0, 0, false, false
 	}
 	ttft, hasTTFT = effectiveTTFTForEscape(ewma, last, hasTTFT || last > 0)
-	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
-		return "ttft", errorRate, ttft, true, true
-	}
-	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
-		bestPeer := 0.0
-		hasPeer := false
-		for _, peerID := range peerAccountIDs {
-			if peerID <= 0 || peerID == accountID {
-				continue
-			}
-			_, peerEWMA, peerHas := stats.snapshot(peerID)
-			peerLast := 0.0
-			if value, found := stats.accounts.Load(peerID); found {
-				if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
-					v := math.Float64frombits(stat.lastTTFTBits.Load())
-					if !math.IsNaN(v) && v > 0 {
-						peerLast = v
-					}
-				}
-			}
-			peerTTFT, peerHas := effectiveTTFTForEscape(peerEWMA, peerLast, peerHas || peerLast > 0)
-			if !peerHas || peerTTFT <= 0 {
-				continue
-			}
-			if !hasPeer || peerTTFT < bestPeer {
-				bestPeer = peerTTFT
-				hasPeer = true
-			}
-		}
-		if hasPeer {
-			minDelta := cfg.relativeMinDelta
-			if minDelta <= 0 {
-				minDelta = 250
-			}
-			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
-				return "ttft_relative", errorRate, ttft, true, true
-			}
+	if hasTTFT {
+		if reason, peerOK := stickyEscapeReasonByFasterPeer(ttft, cfg, accountID, peerAccountIDs, stats); peerOK {
+			return reason, errorRate, ttft, true, true
 		}
 	}
 	if errorRate > cfg.errorRate {
@@ -2647,11 +2740,14 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64
 	if success {
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}
+	// Always record real-request TTFT/error EWMA so sticky escape + plaza work even when
+	// the advanced scheduler flag is off (classic sticky path still needs samples).
 	scheduler := s.getOpenAIAccountScheduler(context.Background())
-	if scheduler == nil {
+	if scheduler != nil {
+		scheduler.ReportResult(accountID, success, firstTokenMs)
 		return
 	}
-	scheduler.ReportResult(accountID, success, firstTokenMs)
+	ReportAccountRuntimeResult(accountID, success, firstTokenMs)
 }
 
 func (s *OpenAIGatewayService) RecordOpenAIAccountSwitch() {
@@ -2699,6 +2795,8 @@ func (s *OpenAIGatewayService) openAIWSLBTopKForRequest(ctx context.Context) int
 }
 
 func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConfig {
+	// Peer-relative sticky escape (preserve cache unless a much faster peer exists).
+	// StickyEscapeTTFTMs is retained for audit/display only and is NOT an absolute hard cut.
 	if s != nil && s.cfg != nil {
 		cfg := s.cfg.Gateway.OpenAIScheduler
 		enabled := cfg.StickyEscapeEnabled
@@ -2706,9 +2804,7 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 			enabled = true
 		}
 		ttftMs := float64(cfg.StickyEscapeTTFTMs)
-		if ttftMs <= 0 {
-			ttftMs = 1500
-		}
+		// 0 means absolute cut disabled. Positive values are audit reference only (not used alone).
 		errorRate := cfg.StickyEscapeErrorRate
 		if errorRate < 0 || errorRate > 1 {
 			errorRate = 0.5
@@ -2720,16 +2816,18 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 			enabled:          enabled,
 			ttftMs:           ttftMs,
 			errorRate:        errorRate,
-			relativeRatio:    1.15,
-			relativeMinDelta: 250,
+			relativeRatio:    1.3,  // peer must be ~30%+ faster
+			relativeMinDelta: 600,  // and at least 600ms absolute gap
+			exploreMs:        5000, // multi-account explore when peers lack TTFT samples
 		}
 	}
 	return openAIStickyEscapeConfig{
 		enabled:          true,
-		ttftMs:           1500,
+		ttftMs:           0,
 		errorRate:        0.5,
-		relativeRatio:    1.15,
-		relativeMinDelta: 250,
+		relativeRatio:    1.3,
+		relativeMinDelta: 600,
+		exploreMs:        5000,
 	}
 }
 
