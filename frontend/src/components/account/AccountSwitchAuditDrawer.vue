@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { listSwitchAudit, type AccountSwitchAuditEvent } from '@/api/admin/accounts'
-import { useToast } from '@/composables/useToast'
+import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   show: boolean
@@ -10,7 +10,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const toast = useToast()
+const appStore = useAppStore()
 const loading = ref(false)
 const items = ref<AccountSwitchAuditEvent[]>([])
 const disclaimer = ref('')
@@ -36,7 +36,7 @@ async function load() {
     disclaimer.value = res.disclaimer || ''
     retentionHours.value = res.retention_hours || 24
   } catch (e: any) {
-    toast.error(e?.message || '加载切号审计失败')
+    appStore.showError(e?.message || '加载切号审计失败')
   } finally {
     loading.value = false
   }
