@@ -377,11 +377,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				failoverClientGone(c)
 				return
 			default: // FailoverExhausted
+				fs.FlushPendingSwitchAudit(c.Request.Context(), "no_available_account")
 				h.handleGeminiFailoverExhausted(c, fs.LastFailoverErr)
 				return
 			}
 		}
 		account := selection.Account
+		fs.RememberSelectedAccount(c.Request.Context(), account.ID, account.Name)
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
@@ -494,6 +496,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				case FailoverContinue:
 					continue
 				case FailoverExhausted:
+					fs.FlushPendingSwitchAudit(c.Request.Context(), "switch_exhausted")
 					h.handleGeminiFailoverExhausted(c, fs.LastFailoverErr)
 					return
 				case FailoverCanceled:

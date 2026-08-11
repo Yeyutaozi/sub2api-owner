@@ -334,10 +334,21 @@ func RecordFailoverSwitchAudit(
 		}
 	}
 	note := fmt.Sprintf("上游失败触发切号 switch=%d/%d status=%d；同账号临时重试不记入", switchCount, maxSwitches, statusCode)
+	if toAccountID > 0 {
+		if strings.TrimSpace(toAccountName) != "" {
+			note += fmt.Sprintf("；目标 #%d %s", toAccountID, strings.TrimSpace(toAccountName))
+		} else {
+			note += fmt.Sprintf("；目标 #%d", toAccountID)
+		}
+	} else {
+		note += "；目标账号尚未选出（候选耗尽/仅单账号/切换预算用尽）"
+	}
+	_, groupID := accountSwitchAuditGroup(ctx)
 	RecordAccountSwitchAudit(AccountSwitchAuditEvent{
 		EventType:        "failover_switch",
 		Reason:           reason,
 		UserID:           userID,
+		GroupID:          groupID,
 		Platform:         platform,
 		Model:            model,
 		RequestID:        requestID,
@@ -349,6 +360,17 @@ func RecordFailoverSwitchAudit(
 		ContextPreserved: true,
 		Note:             note,
 	})
+}
+
+func accountSwitchAuditGroup(ctx context.Context) (int64, *int64) {
+	if ctx == nil {
+		return 0, nil
+	}
+	if g, ok := ctx.Value(ctxkey.Group).(*Group); ok && g != nil && g.ID > 0 {
+		id := g.ID
+		return id, &id
+	}
+	return 0, nil
 }
 
 func accountSwitchAuditContext(ctx context.Context) (userID int64, requestID, model, platform string) {
@@ -379,18 +401,23 @@ func buildAccountSwitchAuditFromEscape(
 	weights *AccountSwitchScoreWeights,
 ) AccountSwitchAuditEvent {
 	userID, requestID, model, platform := accountSwitchAuditContext(ctx)
+	_, ctxGroupID := accountSwitchAuditGroup(ctx)
 	if model == "" {
 		model = strings.TrimSpace(req.RequestedModel)
 	}
 	if platform == "" {
 		platform = strings.TrimSpace(req.Platform)
 	}
+	groupID := req.GroupID
+	if groupID == nil {
+		groupID = ctxGroupID
+	}
 
 	ev := AccountSwitchAuditEvent{
 		EventType:          "sticky_escape",
 		Reason:             "",
 		UserID:             userID,
-		GroupID:            req.GroupID,
+		GroupID:            groupID,
 		Platform:           platform,
 		Model:              model,
 		RequestID:          requestID,

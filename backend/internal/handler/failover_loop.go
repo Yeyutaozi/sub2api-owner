@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,17 @@ const (
 )
 
 // FailoverState 跨循环迭代共享的 failover 状态
+type pendingFailoverSwitchAudit struct {
+	fromAccountID   int64
+	fromAccountName string
+	platform        string
+	statusCode      int
+	reason          string
+	switchCount     int
+	maxSwitches     int
+}
+
+// FailoverState holds failover loop state shared across selection retries.
 type FailoverState struct {
 	SwitchCount           int
 	MaxSwitches           int
@@ -51,6 +63,9 @@ type FailoverState struct {
 	LastFailoverErr       *service.UpstreamFailoverError
 	ForceCacheBilling     bool
 	hasBoundSession       bool
+	selectedAccountID     int64
+	selectedAccountName   string
+	pendingSwitchAudit    *pendingFailoverSwitchAudit
 }
 
 // NewFailoverState 创建 failover 状态
@@ -62,6 +77,63 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 		hasBoundSession:       hasBoundSession,
 	}
 }
+
+// RememberSelectedAccount records the currently selected account and completes any
+// pending failover switch audit with a real TO account id.
+func (s *FailoverState) RememberSelectedAccount(ctx context.Context, accountID int64, accountName string) {
+	if s == nil {
+		return
+	}
+	if s.pendingSwitchAudit != nil {
+		p := s.pendingSwitchAudit
+		s.pendingSwitchAudit = nil
+		service.RecordFailoverSwitchAudit(
+			ctx,
+			p.fromAccountID,
+			p.fromAccountName,
+			accountID,
+			accountName,
+			p.platform,
+			p.statusCode,
+			p.switchCount,
+			p.maxSwitches,
+			p.reason,
+		)
+	}
+	s.selectedAccountID = accountID
+	s.selectedAccountName = accountName
+}
+
+// FlushPendingSwitchAudit writes a pending failover audit when no TO account could
+// be selected (candidates exhausted / switch budget spent).
+func (s *FailoverState) FlushPendingSwitchAudit(ctx context.Context, outcome string) {
+	if s == nil || s.pendingSwitchAudit == nil {
+		return
+	}
+	p := s.pendingSwitchAudit
+	s.pendingSwitchAudit = nil
+	reason := p.reason
+	if strings.TrimSpace(outcome) != "" {
+		if strings.TrimSpace(reason) == "" {
+			reason = outcome
+		} else {
+			reason = reason + ":" + outcome
+		}
+	}
+	service.RecordFailoverSwitchAudit(
+		ctx,
+		p.fromAccountID,
+		p.fromAccountName,
+		0,
+		"",
+		p.platform,
+		p.statusCode,
+		p.switchCount,
+		p.maxSwitches,
+		reason,
+	)
+}
+
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
 // 包含：缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
@@ -126,19 +198,21 @@ func (s *FailoverState) HandleFailoverError(
 		zap.Int("switch_count", s.SwitchCount),
 		zap.Int("max_switches", s.MaxSwitches),
 	)
-	// Admin-visible 24h audit: only real account switches (not same-account temp retries).
-	service.RecordFailoverSwitchAudit(
-		ctx,
-		accountID,
-		"",
-		0,
-		"",
-		platform,
-		failoverErr.StatusCode,
-		s.SwitchCount,
-		s.MaxSwitches,
-		string(failoverErr.Reason),
-	)
+	// Defer audit until next account is selected so TO account is populated.
+	// Same-account temporary retries never reach this branch.
+	fromName := ""
+	if s.selectedAccountID == accountID {
+		fromName = s.selectedAccountName
+	}
+	s.pendingSwitchAudit = &pendingFailoverSwitchAudit{
+		fromAccountID:   accountID,
+		fromAccountName: fromName,
+		platform:        platform,
+		statusCode:      failoverErr.StatusCode,
+		reason:          string(failoverErr.Reason),
+		switchCount:     s.SwitchCount,
+		maxSwitches:     s.MaxSwitches,
+	}
 
 	// Antigravity 平台换号线性递增延时
 	if platform == service.PlatformAntigravity {

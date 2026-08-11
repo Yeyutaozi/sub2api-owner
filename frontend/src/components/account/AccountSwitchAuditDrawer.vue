@@ -52,14 +52,60 @@ function formatTime(v?: string) {
 }
 
 function reasonLabel(r?: string) {
+  const raw = (r || '').trim()
   const map: Record<string, string> = {
     ttft: '首字绝对阈值',
     ttft_relative: '首字相对偏慢',
     error_rate: '错误率',
     concurrency_full: '并发已满',
-    safe_rate: '安全倍率'
+    safe_rate: '安全倍率',
+    upstream_failover: '上游失败切号',
+    upstream_429: '上游 429',
+    upstream_500: '上游 500',
+    upstream_502: '上游 502',
+    upstream_503: '上游 503',
+    rate_limited: '上游限流',
+    no_available_account: '无可用账号',
+    switch_exhausted: '切换次数耗尽'
   }
-  return map[r || ''] || r || '-'
+  if (map[raw]) return map[raw]
+  if (raw.startsWith('upstream_')) {
+    const code = raw.slice('upstream_'.length)
+    return `上游 ${code}`
+  }
+  if (raw.includes(':')) {
+    return raw
+      .split(':')
+      .map((part) => map[part] || part)
+      .join(' · ')
+  }
+  return raw || '-'
+}
+
+function isFailoverEvent(ev: AccountSwitchAuditEvent) {
+  return ev.layer === 'failover' || ev.event_type === 'failover_switch'
+}
+
+function toAccountLabel(ev: AccountSwitchAuditEvent) {
+  if (ev.to_account_id && ev.to_account_id > 0) {
+    return `#${ev.to_account_id} ${ev.to_account_name || ''}`.trim()
+  }
+  return isFailoverEvent(ev) ? '未选出目标账号' : '-'
+}
+
+function routeThresholdText(ev: AccountSwitchAuditEvent) {
+  if (isFailoverEvent(ev)) {
+    return ev.to_account_id && ev.to_account_id > 0
+      ? '上游失败后重选账号 · 完整上下文转发'
+      : '上游失败后重选失败 · 完整上下文仍会转发'
+  }
+  const ttft = ev.threshold_ttft_ms != null ? Math.round(ev.threshold_ttft_ms) : null
+  const rel = ev.relative_ratio != null && ev.relative_ratio > 0 ? ev.relative_ratio : null
+  if (ttft == null && rel == null) return '粘性逃逸'
+  const parts: string[] = []
+  if (ttft != null) parts.push(`阈值 TTFT ${ttft}ms`)
+  if (rel != null) parts.push(`相对 ${rel}x`)
+  return parts.join(' · ')
 }
 
 watch(
@@ -97,6 +143,11 @@ onMounted(() => {
           <option value="error_rate">错误率</option>
           <option value="concurrency_full">并发已满</option>
           <option value="safe_rate">安全倍率</option>
+          <option value="upstream_500">上游 500</option>
+          <option value="upstream_429">上游 429</option>
+          <option value="upstream_502">上游 502</option>
+          <option value="upstream_503">上游 503</option>
+          <option value="upstream_failover">上游失败切号</option>
         </select>
         <button type="button" class="btn btn-primary" :disabled="loading" @click="load">刷新</button>
       </div>
@@ -129,12 +180,13 @@ onMounted(() => {
               <small>FROM</small>
               <strong>#{{ ev.from_account_id || '-' }} {{ ev.from_account_name || '' }}</strong>
               <span v-if="ev.has_from_ttft">TTFT {{ Math.round(ev.from_ttft_ms || 0) }}ms · err {{ ((ev.from_error_rate || 0) * 100).toFixed(1) }}%</span>
+              <span v-else-if="isFailoverEvent(ev)">上游失败源账号</span>
             </div>
             <div class="route-arrow">→</div>
-            <div class="route-node to">
+            <div class="route-node to" :class="{ missing: !ev.to_account_id }">
               <small>TO</small>
-              <strong>#{{ ev.to_account_id || '-' }} {{ ev.to_account_name || '' }}</strong>
-              <span>阈值 TTFT {{ Math.round(ev.threshold_ttft_ms || 0) }}ms · 相对 {{ ev.relative_ratio || '-' }}x</span>
+              <strong>{{ toAccountLabel(ev) }}</strong>
+              <span>{{ routeThresholdText(ev) }}</span>
             </div>
           </div>
 
@@ -331,6 +383,13 @@ onMounted(() => {
 }
 .route-node.from {
   border-left: 3px solid #d97706;
+}
+.route-node.to.missing {
+  border-color: rgba(220, 100, 60, 0.35);
+  background: rgba(255, 244, 236, 0.9);
+}
+.dark .route-node.to.missing {
+  background: rgba(80, 40, 20, 0.35);
 }
 .route-node.to {
   border-left: 3px solid #0f8f72;

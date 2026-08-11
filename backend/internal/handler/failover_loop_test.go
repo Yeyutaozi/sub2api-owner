@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -940,4 +941,73 @@ func TestFailoverClientGone(t *testing.T) {
 	t.Run("nil安全", func(t *testing.T) {
 		require.False(t, failoverClientGone(nil))
 	})
+}
+
+
+func TestRememberSelectedAccountCompletesFailoverAudit(t *testing.T) {
+	// Isolate audit store by recording through public API and filtering by request id.
+	ctx := context.WithValue(context.Background(), ctxkey.UserID, int64(4242))
+	ctx = context.WithValue(ctx, ctxkey.RequestID, "req-failover-to-account")
+	ctx = context.WithValue(ctx, ctxkey.Model, "claude-opus-4-6")
+	ctx = context.WithValue(ctx, ctxkey.Platform, "anthropic")
+
+	fs := NewFailoverState(3, false)
+	fs.RememberSelectedAccount(ctx, 783, "from-acc")
+	mock := &mockTempUnscheduler{}
+	err := newTestFailoverErr(500, false, false)
+	action := fs.HandleFailoverError(ctx, mock, 783, "anthropic", maxSameAccountRetries, err)
+	require.Equal(t, FailoverContinue, action)
+	require.NotNil(t, fs.pendingSwitchAudit)
+
+	// Before TO selection, audit should not yet include completed TO.
+	items := service.ListAccountSwitchAudit(50, 4242, 0, 783, "")
+	for _, it := range items {
+		if it.RequestID == "req-failover-to-account" && it.ToAccountID > 0 {
+			t.Fatalf("unexpected completed audit before TO select: %+v", it)
+		}
+	}
+
+	fs.RememberSelectedAccount(ctx, 900, "to-acc")
+	require.Nil(t, fs.pendingSwitchAudit)
+
+	items = service.ListAccountSwitchAudit(50, 4242, 0, 783, "")
+	found := false
+	for _, it := range items {
+		if it.RequestID == "req-failover-to-account" && it.EventType == "failover_switch" {
+			found = true
+			require.Equal(t, int64(783), it.FromAccountID)
+			require.Equal(t, int64(900), it.ToAccountID)
+			require.Equal(t, "to-acc", it.ToAccountName)
+			require.True(t, it.ContextPreserved)
+			break
+		}
+	}
+	require.True(t, found, "expected completed failover audit with TO account")
+}
+
+func TestFlushPendingSwitchAuditWhenNoTarget(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxkey.UserID, int64(4243))
+	ctx = context.WithValue(ctx, ctxkey.RequestID, "req-failover-no-to")
+	ctx = context.WithValue(ctx, ctxkey.Model, "claude-opus-4-6")
+	ctx = context.WithValue(ctx, ctxkey.Platform, "anthropic")
+
+	fs := NewFailoverState(3, false)
+	fs.RememberSelectedAccount(ctx, 783, "from-acc")
+	mock := &mockTempUnscheduler{}
+	err := newTestFailoverErr(500, false, false)
+	require.Equal(t, FailoverContinue, fs.HandleFailoverError(ctx, mock, 783, "anthropic", maxSameAccountRetries, err))
+	fs.FlushPendingSwitchAudit(ctx, "no_available_account")
+	require.Nil(t, fs.pendingSwitchAudit)
+
+	items := service.ListAccountSwitchAudit(50, 4243, 0, 783, "")
+	found := false
+	for _, it := range items {
+		if it.RequestID == "req-failover-no-to" {
+			found = true
+			require.Equal(t, int64(0), it.ToAccountID)
+			require.Contains(t, it.Note, "目标账号尚未选出")
+			break
+		}
+	}
+	require.True(t, found)
 }
