@@ -1,6 +1,19 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #intro>
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">SIGNAL BOARD</p>
+          <h2 class="desk-board__title">{{ t('admin.announcements.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.announcements.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </template>
+
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
           <!-- Left: Search + Filters -->

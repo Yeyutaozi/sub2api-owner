@@ -2315,7 +2315,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 	require.Equal(t, int64(21102), selection.Account.ID)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 	require.False(t, decision.StickySessionHit)
-	require.Equal(t, int64(21101), cache.sessionBindings["openai:session_hash_sticky_ttft"])
+	// After TTFT escape, sticky is cleared and rebound to the better account so subsequent requests do not stick to the slow one.
+	require.Equal(t, int64(21102), cache.sessionBindings["openai:session_hash_sticky_ttft"])
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -2365,7 +2366,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	require.Equal(t, int64(21202), selection.Account.ID)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 	require.False(t, decision.StickySessionHit)
-	require.Equal(t, int64(21201), cache.sessionBindings["openai:session_hash_sticky_error_rate"])
+	// After error-rate escape, rebind sticky to the newly selected healthy account.
+	require.Equal(t, int64(21202), cache.sessionBindings["openai:session_hash_sticky_error_rate"])
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -2704,7 +2706,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 0.5,
-	})
+	}, nil)
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
 	require.InDelta(t, 0.16, errorRate, 1e-9)
@@ -2717,14 +2719,14 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 1,
-	})
+	}, nil)
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
 	reason, errorRate, observedTTFT, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: errorRate,
-	})
+	}, nil)
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
 	require.InDelta(t, 0.655936, errorRate, 1e-9)
@@ -3689,4 +3691,39 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityWai
 	require.NotNil(t, selection.WaitPlan)
 	require.Equal(t, int64(38011), selection.WaitPlan.AccountID)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+}
+
+
+func TestShouldEscapeStickyAccountRelativeTTFT(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	slowID := int64(101)
+	fastID := int64(102)
+	slow := 5000
+	fast := 800
+	stats.report(slowID, true, &slow)
+	stats.report(fastID, true, &fast)
+	scheduler := &defaultOpenAIAccountScheduler{stats: stats}
+
+	// Absolute threshold high so only relative should fire.
+	reason, _, observed, should := scheduler.shouldEscapeStickyAccount(slowID, openAIStickyEscapeConfig{
+		enabled:          true,
+		ttftMs:           15000,
+		errorRate:        1,
+		relativeRatio:    1.5,
+		relativeMinDelta: 800,
+	}, []int64{slowID, fastID})
+	require.True(t, should)
+	require.Equal(t, "ttft_relative", reason)
+	require.InDelta(t, 5000, observed, 1e-6)
+
+	// Fast account should not escape relative to itself/peers.
+	reason, _, _, should = scheduler.shouldEscapeStickyAccount(fastID, openAIStickyEscapeConfig{
+		enabled:          true,
+		ttftMs:           15000,
+		errorRate:        1,
+		relativeRatio:    1.5,
+		relativeMinDelta: 800,
+	}, []int64{slowID, fastID})
+	require.False(t, should)
+	require.Empty(t, reason)
 }

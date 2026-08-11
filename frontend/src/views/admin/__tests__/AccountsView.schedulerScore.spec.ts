@@ -198,7 +198,7 @@ describe('admin AccountsView scheduler score column', () => {
     await flushPromises()
 
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
-      include_scheduler_score: '0'
+      include_scheduler_score: '1'
     }))
 
     const ungroupedCell = wrapper.find('[data-test="scheduler-score-1"]')
@@ -218,16 +218,19 @@ describe('admin AccountsView scheduler score column', () => {
     expect(groupedCell.text()).toContain('2')
   })
 
-  it('keeps scheduler score hidden for old saved column settings until the admin opts in again', async () => {
-    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats']))
+  it('force-shows scheduler runtime columns when migrating old saved column settings', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats', 'scheduler_score', 'rate_multiplier']))
 
     mountView()
     await flushPromises()
 
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
-      include_scheduler_score: '0'
+      include_scheduler_score: '1'
     }))
-    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toContain('scheduler_score')
+    const hidden = JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')
+    expect(hidden).not.toContain('scheduler_score')
+    expect(hidden).not.toContain('rate_multiplier')
+    expect(localStorage.getItem('account-hidden-columns-version')).toBe('scheduler-runtime-visible-v2')
   })
 
   it('requests scheduler scores when the migrated column settings explicitly show the column', async () => {
@@ -239,6 +242,18 @@ describe('admin AccountsView scheduler score column', () => {
 
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       include_scheduler_score: '1'
+    }))
+  })
+
+  it('skips scheduler score payload when both runtime columns are explicitly hidden after migration', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats', 'scheduler_score', 'rate_multiplier']))
+    localStorage.setItem('account-hidden-columns-version', 'scheduler-runtime-visible-v2')
+
+    mountView()
+    await flushPromises()
+
+    expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      include_scheduler_score: '0'
     }))
   })
 

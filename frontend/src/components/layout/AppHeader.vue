@@ -1,6 +1,6 @@
 <template>
-  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50">
-    <div class="flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
+  <header class="app-header-bar">
+    <div class="flex h-14 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
@@ -11,13 +11,15 @@
           <Icon name="menu" size="md" />
         </button>
 
-        <div class="hidden lg:block">
-          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
-            {{ pageTitle }}
-          </h1>
-          <p v-if="pageDescription" class="text-xs text-gray-500 dark:text-dark-400">
-            {{ pageDescription }}
-          </p>
+        <div class="hidden min-w-0 lg:block">
+          <div class="flex min-w-0 items-center gap-2.5">
+            <span class="page-kicker shrink-0">OPS DESK</span>
+            <span class="protocol-pill shrink-0"><i></i>RELAY</span>
+            <span class="hidden h-4 w-px bg-accent-200/80 dark:bg-dark-600 sm:inline-block" aria-hidden="true"></span>
+            <h1 class="truncate font-display text-[1.02rem] font-semibold tracking-tight text-gray-900 dark:text-white">
+              {{ pageTitle }}
+            </h1>
+          </div>
         </div>
       </div>
 
@@ -32,7 +34,7 @@
           :href="docUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
+          class="hidden items-center gap-1.5 rounded-xl border border-transparent px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-all hover:border-accent-200 hover:bg-white/80 hover:text-gray-900 dark:text-dark-300 dark:hover:border-dark-600 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
         >
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
@@ -42,7 +44,7 @@
         <router-link
           v-if="user && modelPlazaEnabled"
           to="/model-plaza"
-          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
+          class="header-plaza-chip hidden items-center gap-1.5 sm:flex"
         >
           <Icon name="grid" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
@@ -57,7 +59,7 @@
         <!-- Balance Display -->
         <div
           v-if="user"
-          class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
+          class="group relative hidden items-center gap-2 rounded-xl border border-primary-300/50 bg-gradient-to-b from-primary-50 via-white to-signal-50/40 px-3 py-1.5 shadow-sm ring-1 ring-primary-500/10 dark:border-primary-800/40 dark:from-primary-900/25 dark:via-dark-900 dark:to-dark-900 dark:ring-primary-400/10 sm:flex"
         >
           <svg
             class="h-4 w-4 text-primary-600 dark:text-primary-400"

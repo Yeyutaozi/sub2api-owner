@@ -2,8 +2,20 @@
   <AppLayout>
     <div
       data-testid="profile-shell"
-      class="mx-auto max-w-[950px] space-y-6"
+      class="desk-board mx-auto max-w-[950px] space-y-6"
     >
+      <section class="desk-board__intro" aria-label="profile">
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">IDENTITY BAY</p>
+          <h2 class="desk-board__title">{{ t('nav.profile') }}</h2>
+          <p class="desk-board__sub">账户身份、安全与通知偏好</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </section>
       <ProfileInfoCard
         :user="user"
         :linuxdo-enabled="linuxdoOAuthEnabled"

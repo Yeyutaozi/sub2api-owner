@@ -1,6 +1,18 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #intro>
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">ROUTE GROUPS</p>
+          <h2 class="desk-board__title">{{ t('admin.groups.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.groups.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </template>
       <template #filters>
         <div
           class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
@@ -251,6 +263,12 @@
 
           <template #cell-rate_multiplier="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300"
+              >{{ value }}x</span
+            >
+          </template>
+
+          <template #cell-safe_rate_multiplier="{ value }">
+            <span class="text-sm font-medium text-amber-700 dark:text-amber-300"
               >{{ value }}x</span
             >
           </template>
@@ -598,6 +616,21 @@
             data-tour="group-form-multiplier"
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{
+            t("admin.groups.form.safeRateMultiplierLabel")
+          }}</label>
+          <input
+            v-model.number="createForm.safe_rate_multiplier"
+            type="number"
+            step="0.001"
+            min="0.001"
+            required
+            class="input"
+            data-tour="group-form-safe-multiplier"
+          />
+          <p class="input-hint">{{ t("admin.groups.form.safeRateMultiplierHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -2380,6 +2413,20 @@
             :placeholder="t('admin.groups.form.rpmLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{
+            t("admin.groups.form.safeRateMultiplierLabel")
+          }}</label>
+          <input
+            v-model.number="editForm.safe_rate_multiplier"
+            type="number"
+            step="0.001"
+            min="0.001"
+            required
+            class="input"
+          />
+          <p class="input-hint">{{ t("admin.groups.form.safeRateMultiplierHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
           v-if="['openai', 'glm'].includes(editForm.platform)"
@@ -4602,6 +4649,11 @@ const allColumns = computed<Column[]>(() => [
     sortable: true,
   },
   {
+    key: "safe_rate_multiplier",
+    label: t("admin.groups.columns.safeRateMultiplier"),
+    sortable: true,
+  },
+  {
     key: "is_exclusive",
     label: t("admin.groups.columns.type"),
     sortable: true,
@@ -5085,6 +5137,7 @@ const createForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  safe_rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -5437,6 +5490,7 @@ const editForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  safe_rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -6104,6 +6158,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
+  editForm.safe_rate_multiplier = group.safe_rate_multiplier ?? group.rate_multiplier ?? 1;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";

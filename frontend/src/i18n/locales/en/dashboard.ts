@@ -562,7 +562,10 @@ export default {
     card: {
       offers: '{n} group offers',
       bestOffer: 'Best rate',
-      baseRate: 'default {rate}'
+      baseRate: 'default {rate}',
+      groupMountTitle: 'Group offers',
+      groupMountHint: 'Rates, prices and recent first-token latency per group under this model',
+      groupLabel: 'Group'
     },
     filters: {
       platformLabel: 'Platform',
@@ -591,20 +594,26 @@ export default {
       cache: 'Cache',
       cacheWrite: 'Write',
       cacheRead: 'Read',
-      paidPrice: 'Paid price',
-      officialPrice: 'Official price',
-      rate: 'Rate',
-      unitPerMillion: '$ / 1M token',
-      unitPerSecond: 'USD / sec (rate applied)',
-      unitPerRequest: 'USD / clip (rate applied)',
-      perUnitRequest: '/ request',
-      perUnitImage: 'USD / image (rate applied)',
-      perRequest: 'Per request',
-      perImage: 'Per image'
+      paidPrice: 'Final paid price',
+      officialPrice: 'Official reference',
+      rate: 'Group rate',
+      unitPerMillion: 'Unit: USD / 1M tokens',
+      unitPerSecond: 'Unit: USD / second',
+      unitPerRequest: 'Unit: USD / video clip',
+      perUnitRequest: 'Unit: USD / request',
+      perUnitImage: 'Unit: USD / image',
+      perSecond: 'Billed per second',
+      perRequest: 'Billed per video clip',
+      perImage: 'Billed per image',
+      rateAppliedNote: 'Shown amount already includes this group rate (base × rate)',
+      imageBillingHint: 'Charged by number of output images; 1K / 2K / 4K are quality tiers',
+      videoBillingPerSecondHint: 'Charged by generated video duration in seconds',
+      videoBillingPerClipHint: 'Charged by number of output video clips'
     },
     nav: {
       login: 'Sign in',
-      backToDashboard: 'Back to dashboard'
+      backToDashboard: 'Back to dashboard',
+      subtitle: 'Model catalog & group pricing'
     }
   },
 

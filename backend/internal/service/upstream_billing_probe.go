@@ -583,26 +583,53 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, sub2Status, data)
 		}
 		// Same body may be a NewAPI fork that already embeds ratio fields.
-		if data, detected, found := parseNewAPIRateProbeResponse(sub2Body, now); found {
+		if data, _, found := parseNewAPIRateProbeResponse(sub2Body, now); found {
 			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, sub2Status, data)
-		} else if detected {
-			return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, "rate_not_exposed", sub2Retry)
 		}
+		// Do NOT early-return rate_not_exposed here: official NewAPI never puts
+		// ratio on sk usage payloads. Prefer Access Token / further probes first.
 	}
 
-	// Fall through only when Sub2API endpoint is missing / not our schema / method not allowed.
-	// Auth/rate-limit/5xx stay hard failures so we do not double-spend upstream.
+	// Fall through to NewAPI when:
+	// - Sub2API endpoint missing / not our schema / method not allowed
+	// - Sub2API returned 2xx but not our billing schema
+	// - Account is OpenAI-compatible or has NewAPI management creds (even if Sub2 path returned 401/5xx/network)
+	//   Official NewAPI often answers 401/404 on unknown /v1/sub2api/* routes; that must not block
+	//   Access-Token group-ratio probing.
+	accessTokenHint, userIDHint, _ := accountNewAPIAccessCreds(account)
+	hasNewAPIAccessHint := strings.TrimSpace(accessTokenHint) != "" || strings.TrimSpace(userIDHint) != ""
+	isOpenAICompatibleProbe := normalizeOpenAICompatiblePlatform(account.Platform) == PlatformOpenAI ||
+		account.Platform == PlatformOpenAI ||
+		account.Platform == "openai" ||
+		account.Platform == "openai_api"
 	shouldTryNewAPI := false
 	switch {
-	case !sub2OK && (sub2Reason == "unsupported" || sub2Status == http.StatusNotFound || sub2Status == http.StatusMethodNotAllowed):
-		shouldTryNewAPI = true
 	case sub2OK:
 		// HTTP 2xx but not Sub2API schema — try NewAPI path next.
+		shouldTryNewAPI = true
+	case !sub2OK && (sub2Reason == "unsupported" || sub2Status == http.StatusNotFound || sub2Status == http.StatusMethodNotAllowed):
+		shouldTryNewAPI = true
+	case !sub2OK && (hasNewAPIAccessHint || isOpenAICompatibleProbe):
+		// Prefer NewAPI management path over treating Sub2 401/5xx as final.
 		shouldTryNewAPI = true
 	}
 
 	if shouldTryNewAPI {
-		// 2) Official NewAPI token usage (quota only) and forks that may expose ratio.
+		// 2) Prefer NewAPI management Access Token when configured.
+		// Official NewAPI sk endpoints never expose group ratio; going AT-first
+		// avoids confusing 401s on /api/usage/token and wasted round-trips.
+		accessToken, userID, _ := accountNewAPIAccessCreds(account)
+		hasNewAPIAccessCreds := accessToken != "" && userID != ""
+		if hasNewAPIAccessCreds {
+			if data, atStatus, _, _, atOK := s.probeNewAPIAccessTokenRate(
+				ctx, account, normalizedBaseURL, proxyURL, now,
+			); atOK {
+				return s.persistProbeSuccess(ctx, account, intervalMinutes, now, atStatus, data)
+			}
+			// Fall through to sk usage (forks) and report AT error only after both fail.
+		}
+
+		// 3) Official NewAPI token usage (quota only) and forks that may expose ratio.
 		newStatus, newBody, newRetry, newReason, newOK := s.doUpstreamRateProbeGET(
 			ctx, account, normalizedBaseURL, proxyURL, apiKey, "/api/usage/token", now,
 		)
@@ -610,13 +637,61 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 			if data, detected, found := parseNewAPIRateProbeResponse(newBody, now); found {
 				return s.persistProbeSuccess(ctx, account, intervalMinutes, now, newStatus, data)
 			} else if detected {
+				// sk has no ratio; try Access Token if not already preferred-success.
+				if data, atStatus, atRetry, atReason, atOK := s.probeNewAPIAccessTokenRate(
+					ctx, account, normalizedBaseURL, proxyURL, now,
+				); atOK {
+					return s.persistProbeSuccess(ctx, account, intervalMinutes, now, atStatus, data)
+				} else if atReason != "" && atReason != "newapi_access_token_missing" {
+					// Prefer explicit missing-user-id / auth errors over generic rate_not_exposed.
+					statusCode := atStatus
+					if statusCode == 0 {
+						statusCode = newStatus
+					}
+					retry := atRetry
+					if retry <= 0 {
+						retry = newRetry
+					}
+					return s.persistProbeFailure(ctx, account, intervalMinutes, now, statusCode, atReason, retry)
+				}
+				// access token missing entirely
 				return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, "rate_not_exposed", newRetry)
 			}
-			// 2xx body is not recognized — treat as unsupported (manual declared rate).
+			// 2xx body is not recognized - try Access Token then unsupported.
+			if data, atStatus, _, _, atOK := s.probeNewAPIAccessTokenRate(
+				ctx, account, normalizedBaseURL, proxyURL, now,
+			); atOK {
+				return s.persistProbeSuccess(ctx, account, intervalMinutes, now, atStatus, data)
+			}
 			return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, "unsupported", newRetry)
 		}
+
+		// 4) sk path failed (404/401/5xx/network). ALWAYS try Access Token when present —
+		// NewAPI often rejects sk on /api/usage/token while management token works.
+		if data, atStatus, atRetry, atReason, atOK := s.probeNewAPIAccessTokenRate(
+			ctx, account, normalizedBaseURL, proxyURL, now,
+		); atOK {
+			return s.persistProbeSuccess(ctx, account, intervalMinutes, now, atStatus, data)
+		} else if atReason != "" && atReason != "newapi_access_token_missing" {
+			// Report user_id_missing / auth / groups errors so operators know what to fill.
+			statusCode := atStatus
+			if statusCode == 0 {
+				statusCode = newStatus
+				if statusCode == 0 {
+					statusCode = sub2Status
+				}
+			}
+			retry := atRetry
+			if retry <= 0 {
+				retry = newRetry
+				if retry <= 0 {
+					retry = sub2Retry
+				}
+			}
+			return s.persistProbeFailure(ctx, account, intervalMinutes, now, statusCode, atReason, retry)
+		}
+
 		if newReason == "unsupported" || newStatus == http.StatusNotFound || newStatus == http.StatusMethodNotAllowed {
-			// Neither Sub2API billing nor NewAPI usage exposes a rate API.
 			statusCode := newStatus
 			if statusCode == 0 {
 				statusCode = sub2Status
@@ -625,19 +700,26 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 			if retry <= 0 {
 				retry = sub2Retry
 			}
+			// Both management endpoints missing → generic unsupported (not necessarily NewAPI).
 			return s.persistProbeFailure(ctx, account, intervalMinutes, now, statusCode, "unsupported", retry)
 		}
-		// NewAPI request hard-failed; keep its error when Sub2API was merely unsupported.
+
+		// NewAPI sk hard-failed and no usable Access Token path.
 		if !sub2OK && (sub2Reason == "unsupported" || sub2Status == http.StatusNotFound || sub2Status == http.StatusMethodNotAllowed) {
 			return s.persistProbeFailure(ctx, account, intervalMinutes, now, newStatus, newReason, newRetry)
 		}
 	}
-
 	// Sub2API hard failure path (auth / 5xx / network / invalid without NewAPI fallthrough).
 	if !sub2OK {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, sub2Reason, sub2Retry)
 	}
 	return s.persistProbeFailure(ctx, account, intervalMinutes, now, sub2Status, "invalid_response", sub2Retry)
+}
+
+// upstreamRateProbeAuth customizes Authorization for management-token probes.
+type upstreamRateProbeAuth struct {
+	bearerToken  string
+	extraHeaders map[string]string
 }
 
 // doUpstreamRateProbeGET issues a single GET against the upstream base URL path.
@@ -651,7 +733,25 @@ func (s *UpstreamBillingProbeService) doUpstreamRateProbeGET(
 	path string,
 	now time.Time,
 ) (statusCode int, body []byte, retryAfterDuration time.Duration, reason string, ok bool) {
+	return s.doUpstreamRateProbeGETAuth(ctx, account, normalizedBaseURL, proxyURL, path, now, upstreamRateProbeAuth{
+		bearerToken: apiKey,
+	})
+}
+
+func (s *UpstreamBillingProbeService) doUpstreamRateProbeGETAuth(
+	ctx context.Context,
+	account *Account,
+	normalizedBaseURL string,
+	proxyURL string,
+	path string,
+	now time.Time,
+	auth upstreamRateProbeAuth,
+) (statusCode int, body []byte, retryAfterDuration time.Duration, reason string, ok bool) {
+	// NewAPI management paths live at host /api/*; OpenAI base URLs often include /v1.
 	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, path)
+	if strings.HasPrefix(path, "/api/") || path == "/api" {
+		probeURL = buildNewAPIManagementURL(normalizedBaseURL, path)
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, bytes.NewReader(nil))
@@ -661,7 +761,17 @@ func (s *UpstreamBillingProbeService) doUpstreamRateProbeGET(
 	reqCtx := WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI)
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if token := strings.TrimSpace(auth.bearerToken); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range auth.extraHeaders {
+		key := strings.TrimSpace(k)
+		val := strings.TrimSpace(v)
+		if key == "" || val == "" {
+			continue
+		}
+		req.Header.Set(key, val)
+	}
 	account.ApplyHeaderOverrides(req.Header)
 	var tlsProfile *tlsfingerprint.Profile
 	if s.accountTestService.tlsFPProfileService != nil {
@@ -686,10 +796,134 @@ func (s *UpstreamBillingProbeService) doUpstreamRateProbeGET(
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 		return resp.StatusCode, body, retryAfterDuration, "unsupported", false
 	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return resp.StatusCode, body, retryAfterDuration, "auth_failed", false
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, body, retryAfterDuration, "http_error", false
 	}
 	return resp.StatusCode, body, retryAfterDuration, "", true
+}
+
+// accountNewAPIAccessCreds reads optional NewAPI management credentials from extra.
+// user id may be stored as string or number (JSON), so coerce both.
+func accountNewAPIAccessCreds(account *Account) (accessToken, userID, preferredGroup string) {
+	if account == nil {
+		return "", "", ""
+	}
+	accessToken = strings.TrimSpace(account.GetExtraString(AccountExtraNewAPIAccessToken))
+	// Access token itself is always a string secret; user id / group may be numeric JSON.
+	userID = strings.TrimSpace(extraValueAsString(account.Extra, AccountExtraNewAPIUserID))
+	if userID == "" {
+		userID = strings.TrimSpace(account.GetExtraString(AccountExtraNewAPIUserID))
+	}
+	preferredGroup = strings.TrimSpace(extraValueAsString(account.Extra, AccountExtraNewAPIGroup))
+	if preferredGroup == "" {
+		preferredGroup = strings.TrimSpace(account.GetExtraString(AccountExtraNewAPIGroup))
+	}
+	return accessToken, userID, preferredGroup
+}
+
+// extraValueAsString coerces common JSON number/bool/string values from account.extra.
+func extraValueAsString(extra map[string]any, key string) string {
+	if extra == nil {
+		return ""
+	}
+	raw, ok := extra[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		// JSON numbers decode as float64; user ids are integers.
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case json.Number:
+		return strings.TrimSpace(v.String())
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
+}
+
+// probeNewAPIAccessTokenRate uses NewAPI user Access Token + New-Api-User to
+// read /api/user/self/groups ratios. Official sk endpoints never expose ratio.
+func (s *UpstreamBillingProbeService) probeNewAPIAccessTokenRate(
+	ctx context.Context,
+	account *Account,
+	normalizedBaseURL string,
+	proxyURL string,
+	now time.Time,
+) (data map[string]any, statusCode int, retryAfterDuration time.Duration, reason string, ok bool) {
+	accessToken, userID, preferredGroup := accountNewAPIAccessCreds(account)
+	if accessToken == "" {
+		return nil, 0, 0, "newapi_access_token_missing", false
+	}
+	if userID == "" {
+		return nil, 0, 0, "newapi_user_id_missing", false
+	}
+	auth := upstreamRateProbeAuth{
+		bearerToken: accessToken,
+		extraHeaders: map[string]string{
+			"New-Api-User": userID,
+		},
+	}
+
+	// Resolve preferred group: extra.newapi_group > /api/user/self.group > default > first.
+	resolvedGroup := preferredGroup
+	if resolvedGroup == "" {
+		selfStatus, selfBody, selfRetry, selfReason, selfOK := s.doUpstreamRateProbeGETAuth(
+			ctx, account, normalizedBaseURL, proxyURL, "/api/user/self", now, auth,
+		)
+		if selfOK {
+			if g, found := parseNewAPIUserSelfGroup(selfBody); found {
+				resolvedGroup = g
+			}
+		} else if selfReason == "auth_failed" {
+			return nil, selfStatus, selfRetry, "newapi_access_auth_failed", false
+		}
+		_ = selfStatus
+	}
+
+	groupsStatus, groupsBody, groupsRetry, groupsReason, groupsOK := s.doUpstreamRateProbeGETAuth(
+		ctx, account, normalizedBaseURL, proxyURL, "/api/user/self/groups", now, auth,
+	)
+	if !groupsOK {
+		if groupsReason == "auth_failed" {
+			return nil, groupsStatus, groupsRetry, "newapi_access_auth_failed", false
+		}
+		if groupsReason == "unsupported" {
+			return nil, groupsStatus, groupsRetry, "newapi_groups_unsupported", false
+		}
+		return nil, groupsStatus, groupsRetry, groupsReason, false
+	}
+
+	rate, groupName, found := parseNewAPIUserGroupsRate(groupsBody, resolvedGroup)
+	if !found {
+		return nil, groupsStatus, groupsRetry, "newapi_groups_rate_not_found", false
+	}
+	data = buildNormalizedRateProbeData("newapi", rate, now, map[string]any{
+		"source":      "newapi_access_token",
+		"group_name":  groupName,
+		"newapi_user": userID,
+	})
+	return data, groupsStatus, groupsRetry, "", true
 }
 
 func (s *UpstreamBillingProbeService) persistProbeSuccess(
@@ -738,7 +972,13 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 	// rate_not_exposed means the upstream is reachable but does not publish a
 	// group/ratio field (typical official NewAPI). Treat as unsupported so
 	// operators fill manual upstream_declared_rate_multiplier.
-	if reason == "unsupported" || reason == "rate_not_exposed" {
+	if reason == "unsupported" ||
+		reason == "rate_not_exposed" ||
+		reason == "newapi_access_token_missing" ||
+		reason == "newapi_user_id_missing" ||
+		reason == "newapi_groups_unsupported" ||
+		reason == "newapi_groups_rate_not_found" ||
+		reason == "newapi_access_auth_failed" {
 		status = UpstreamBillingProbeStatusUnsupported
 	}
 	snapshot := &UpstreamBillingProbeSnapshot{

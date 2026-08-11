@@ -202,6 +202,16 @@ type AccountSchedulerScore struct {
 	StickyScore           float64 `json:"sticky_score"`
 	StickyScoreInfinity   bool    `json:"sticky_score_infinity"`
 	StickyWeightedEnabled bool    `json:"sticky_weighted_enabled"`
+	// Real-request EWMA observability (no probe / no extra token cost).
+	AvgFirstTokenMs *float64 `json:"avg_first_token_ms,omitempty"`
+	HasTTFT         bool     `json:"has_ttft"`
+	ErrorRate       *float64 `json:"error_rate,omitempty"`
+	RateMultiplier  *float64 `json:"rate_multiplier,omitempty"`
+	LoadRate        *float64 `json:"load_rate,omitempty"`
+	WaitingCount    *int     `json:"waiting_count,omitempty"`
+	Concurrency     *int     `json:"concurrency,omitempty"`
+	// Disclaimer for admin UI next to TTFT.
+	TTFTDisclaimer string `json:"ttft_disclaimer,omitempty"`
 }
 
 type AccountSchedulerGroupScore struct {
@@ -298,12 +308,39 @@ func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, ac
 	}
 	result := make(map[int64]AccountSchedulerScore, len(scores))
 	for accountID, score := range scores {
-		result[accountID] = AccountSchedulerScore{
+		item := AccountSchedulerScore{
 			BaseScore:             score.BaseScore,
 			StickyScore:           score.StickyScore,
 			StickyScoreInfinity:   score.StickyScoreInfinity,
 			StickyWeightedEnabled: score.StickyWeightedEnabled,
+			HasTTFT:               score.HasTTFT,
+			TTFTDisclaimer:        "根据近期真实请求统计，仅供参考（非探测）",
 		}
+		if score.HasTTFT {
+			v := score.AvgFirstTokenMs
+			item.AvgFirstTokenMs = &v
+		}
+		{
+			v := score.ErrorRate
+			item.ErrorRate = &v
+		}
+		{
+			v := score.RateMultiplier
+			item.RateMultiplier = &v
+		}
+		{
+			v := score.LoadRate
+			item.LoadRate = &v
+		}
+		{
+			v := score.WaitingCount
+			item.WaitingCount = &v
+		}
+		{
+			v := score.Concurrency
+			item.Concurrency = &v
+		}
+		result[accountID] = item
 	}
 	return result
 }

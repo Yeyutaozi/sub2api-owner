@@ -931,6 +931,44 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	return nil
 }
 
+// DeclareUpstreamDeclaredRate sets or clears the manual upstream cost multiplier
+// without replacing the rest of account.extra (critical for NewAPI access token fields).
+func (s *adminServiceImpl) DeclareUpstreamDeclaredRate(ctx context.Context, id int64, rate *float64) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	if !isUpstreamBillingProbeAccount(account) {
+		return nil, ErrUpstreamBillingProbeAccountInvalid
+	}
+	updates := map[string]any{}
+	if rate == nil {
+		updates[AccountExtraUpstreamDeclaredRate] = nil
+	} else {
+		if *rate < 0 {
+			return nil, infraerrors.BadRequest("INVALID_UPSTREAM_DECLARED_RATE", "upstream_declared_rate_multiplier must be >= 0")
+		}
+		// Reject non-finite via strconv-style: NaN/Inf compare unequal to themselves after cast checks.
+		r := *rate
+		if r != r || r > 1e12 {
+			return nil, infraerrors.BadRequest("INVALID_UPSTREAM_DECLARED_RATE", "upstream_declared_rate_multiplier must be a finite number >= 0")
+		}
+		updates[AccountExtraUpstreamDeclaredRate] = r
+	}
+	if err := s.UpdateAccountExtra(ctx, id, updates); err != nil {
+		return nil, err
+	}
+	// Reload after key-merge + safe-rate refresh inside UpdateAccountExtra.
+	account, err = s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {

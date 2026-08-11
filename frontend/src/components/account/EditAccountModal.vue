@@ -1700,6 +1700,67 @@
             {{ t('admin.accounts.upstreamBilling.manualDeclaredRateHint') }}
           </p>
         </div>
+        <div class="mt-4 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40">
+          <div>
+            <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessHint') }}
+            </p>
+          </div>
+          <div>
+            <label class="input-label" for="edit-newapi-access-token">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
+            </label>
+            <input
+              id="edit-newapi-access-token"
+              v-model="newapiAccessTokenInput"
+              type="password"
+              autocomplete="off"
+              class="input-field"
+              data-testid="edit-newapi-access-token"
+              :placeholder="t('admin.accounts.upstreamBilling.newapiAccessTokenPlaceholder')"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessTokenHint') }}
+            </p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="input-label" for="edit-newapi-user-id">
+                {{ t('admin.accounts.upstreamBilling.newapiUserId') }}
+              </label>
+              <input
+                id="edit-newapi-user-id"
+                v-model="newapiUserIdInput"
+                type="text"
+                class="input-field"
+                data-testid="edit-newapi-user-id"
+                :placeholder="t('admin.accounts.upstreamBilling.newapiUserIdPlaceholder')"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.newapiUserIdHint') }}
+              </p>
+            </div>
+            <div>
+              <label class="input-label" for="edit-newapi-group">
+                {{ t('admin.accounts.upstreamBilling.newapiGroup') }}
+              </label>
+              <input
+                id="edit-newapi-group"
+                v-model="newapiGroupInput"
+                type="text"
+                class="input-field"
+                data-testid="edit-newapi-group"
+                :placeholder="t('admin.accounts.upstreamBilling.newapiGroupPlaceholder')"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.newapiGroupHint') }}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <OllamaCloudUsageSettings
@@ -2888,6 +2949,9 @@ const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
 const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamDeclaredRateInput = ref<string>('')
+const newapiAccessTokenInput = ref<string>('')
+const newapiUserIdInput = ref<string>('')
+const newapiGroupInput = ref<string>('')
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -3438,6 +3502,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 			: typeof declaredRate === 'string'
 				? declaredRate
 				: ''
+      newapiAccessTokenInput.value =
+        typeof extra?.newapi_access_token === 'string' ? extra.newapi_access_token : ''
+      newapiUserIdInput.value =
+        extra?.newapi_user_id != null ? String(extra.newapi_user_id) : ''
+      newapiGroupInput.value =
+        typeof extra?.newapi_group === 'string' ? extra.newapi_group : ''
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -4770,6 +4840,15 @@ const handleSubmit = async () => {
 				}
 				newExtra.upstream_declared_rate_multiplier = declared
 			}
+			const accessToken = String(newapiAccessTokenInput.value ?? '').trim()
+			const userId = String(newapiUserIdInput.value ?? '').trim()
+			const groupName = String(newapiGroupInput.value ?? '').trim()
+			if (accessToken) newExtra.newapi_access_token = accessToken
+			else delete newExtra.newapi_access_token
+			if (userId) newExtra.newapi_user_id = userId
+			else delete newExtra.newapi_user_id
+			if (groupName) newExtra.newapi_group = groupName
+			else delete newExtra.newapi_group
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100

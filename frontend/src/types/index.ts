@@ -792,6 +792,8 @@ export interface Group {
   description: string | null
   platform: GroupPlatform
   rate_multiplier: number
+  // Independent per-group upstream cost ceiling (not sell rate)
+  safe_rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   max_reasoning_effort?: string // OpenAI/Codex reasoning ceiling; empty means unlimited
   reasoning_effort_mappings?: ReasoningEffortMapping[]
@@ -995,6 +997,7 @@ export interface CreateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  safe_rate_multiplier?: number
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
@@ -1048,6 +1051,7 @@ export interface UpdateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  safe_rate_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType
@@ -1258,7 +1262,7 @@ export interface UpstreamBillingProbeSnapshot {
 
 export type SafeRateStatusCode = 'ok' | 'over_safe' | 'unknown'
 
-/** Admin-visible evaluation of account upstream cost vs group sell baselines. */
+/** Admin-visible evaluation of account upstream cost vs group safe-rate ceilings. */
 export interface SafeRateStatus {
   status: SafeRateStatusCode | string
   upstream_rate?: number | null
@@ -1362,6 +1366,14 @@ export interface Account {
     sticky_score?: number
     sticky_score_infinity?: boolean
     sticky_weighted_enabled: boolean
+    avg_first_token_ms?: number | null
+    has_ttft?: boolean
+    error_rate?: number | null
+    rate_multiplier?: number | null
+    load_rate?: number | null
+    waiting_count?: number | null
+    concurrency?: number | null
+    ttft_disclaimer?: string
   } | null
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
@@ -1462,6 +1474,14 @@ export interface AccountSchedulerGroupScore {
   sticky_score?: number
   sticky_score_infinity?: boolean
   sticky_weighted_enabled: boolean
+  avg_first_token_ms?: number | null
+  has_ttft?: boolean
+  error_rate?: number | null
+  rate_multiplier?: number | null
+  load_rate?: number | null
+  waiting_count?: number | null
+  concurrency?: number | null
+  ttft_disclaimer?: string
 }
 
 // Account Usage types

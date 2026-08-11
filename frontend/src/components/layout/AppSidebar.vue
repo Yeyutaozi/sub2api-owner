@@ -19,7 +19,7 @@
       <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
         <router-link
           :to="homePath"
-          class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
+          class="sidebar-brand-title text-lg font-bold text-white transition-colors hover:text-primary-300"
           @click="handleMenuItemClick(homePath)"
         >
           {{ siteName }}
@@ -33,9 +33,26 @@
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
-        <!-- Admin Section -->
-        <div class="sidebar-section">
-          <template v-for="item in adminNavItems" :key="item.path">
+        <!-- Admin Section: zoned rack -->
+        <div
+          v-for="zone in adminNavZones"
+          :key="zone.id"
+          class="sidebar-section sidebar-section--zone"
+          :data-zone="zone.id"
+        >
+          <div
+            class="sidebar-section-title"
+            :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }"
+            :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+          >
+            <span
+              class="sidebar-section-title-text"
+              :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }"
+            >
+              {{ zone.label }}
+            </span>
+          </div>
+          <template v-for="item in zone.items" :key="item.path">
             <!-- Collapsible group (has children) -->
             <template v-if="item.children?.length">
               <button
@@ -62,7 +79,7 @@
                 </span>
               </button>
               <!-- Children -->
-              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="sidebar-subnav mb-1 ml-4 pl-2">
                 <router-link
                   v-for="child in item.children"
                   :key="child.path"
@@ -148,7 +165,7 @@
     </nav>
 
     <!-- Bottom Section -->
-    <div class="mt-auto border-t border-gray-100 p-3 dark:border-dark-800">
+    <div class="sidebar-footer mt-auto p-3">
       <!-- Theme Toggle -->
       <button
         @click="toggleTheme"
@@ -964,6 +981,59 @@ const adminNavItems = computed((): NavItem[] => {
   return visible
 })
 
+const adminNavZones = computed(() => {
+  const items = adminNavItems.value
+  const zoneDefs: Array<{ id: string; label: string; match: (path: string) => boolean }> = [
+    {
+      id: 'ops',
+      label: 'OPS',
+      match: (path) => path === '/admin/dashboard' || path === '/admin/ops',
+    },
+    {
+      id: 'route',
+      label: 'ROUTE',
+      match: (path) =>
+        path.startsWith('/admin/users') ||
+        path.startsWith('/admin/groups') ||
+        path === '/model-plaza' ||
+        path.startsWith('/admin/channels') ||
+        path.startsWith('/admin/accounts'),
+    },
+    {
+      id: 'market',
+      label: 'MARKET',
+      match: (path) =>
+        path.startsWith('/admin/subscriptions') ||
+        path.startsWith('/admin/redeem') ||
+        path.startsWith('/admin/promo') ||
+        path.startsWith('/admin/token-rewards') ||
+        path.startsWith('/admin/affiliates') ||
+        path.startsWith('/admin/orders'),
+    },
+    {
+      id: 'system',
+      label: 'SYSTEM',
+      match: () => true,
+    },
+  ]
+
+  const buckets: Record<string, NavItem[]> = {
+    ops: [],
+    route: [],
+    market: [],
+    system: [],
+  }
+
+  for (const item of items) {
+    const zone = zoneDefs.find((z) => z.match(item.path)) || zoneDefs[zoneDefs.length - 1]
+    buckets[zone.id].push(item)
+  }
+
+  return zoneDefs
+    .map((z) => ({ id: z.id, label: z.label, items: buckets[z.id] }))
+    .filter((z) => z.items.length > 0)
+})
+
 function toggleSidebar() {
   appStore.toggleSidebar()
 }
@@ -1147,6 +1217,13 @@ onBeforeUnmount(() => {
   min-height: 1.25rem;
   overflow: hidden;
   white-space: nowrap;
+  margin: 0.35rem 0.75rem 0.55rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(90deg, rgba(20,176,163,0.12), transparent 70%);
+  border-left: 2px solid rgba(45, 212, 191, 0.45);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0.12em;
 }
 
 .sidebar-section-title-text {
@@ -1166,14 +1243,10 @@ onBeforeUnmount(() => {
   right: 0.75rem;
   top: 50%;
   height: 1px;
-  background: rgb(229 231 235);
+  background: rgba(148, 163, 184, 0.22);
   opacity: 0;
   transform: translateY(-50%);
   transition: opacity 0.18s ease;
-}
-
-.dark .sidebar-section-title::after {
-  background: rgb(55 65 81);
 }
 
 .sidebar-section-title-text-collapsed {
@@ -1223,4 +1296,32 @@ onBeforeUnmount(() => {
   width: 1.25rem;
   height: 1.25rem;
 }
+
+.sidebar-section--zone {
+  position: relative;
+  margin-top: 0.35rem;
+  padding-top: 0.15rem;
+}
+.sidebar-section--zone + .sidebar-section--zone {
+  margin-top: 0.55rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+  padding-top: 0.55rem;
+}
+.sidebar-section--zone[data-zone="ops"] .sidebar-section-title {
+  border-left-color: #14b0a3;
+  background: linear-gradient(90deg, rgba(20,176,163,0.16), transparent 72%);
+}
+.sidebar-section--zone[data-zone="route"] .sidebar-section-title {
+  border-left-color: #0891b2;
+  background: linear-gradient(90deg, rgba(8,145,178,0.16), transparent 72%);
+}
+.sidebar-section--zone[data-zone="market"] .sidebar-section-title {
+  border-left-color: #d97706;
+  background: linear-gradient(90deg, rgba(217,119,6,0.16), transparent 72%);
+}
+.sidebar-section--zone[data-zone="system"] .sidebar-section-title {
+  border-left-color: #e11d48;
+  background: linear-gradient(90deg, rgba(225,29,72,0.14), transparent 72%);
+}
+
 </style>

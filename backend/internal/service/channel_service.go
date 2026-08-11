@@ -150,11 +150,20 @@ const (
 )
 
 // ChannelService 渠道管理服务
+
+// PlazaAccountSource supplies schedulable accounts for model-plaza attribution.
+// Production uses AccountRepository; tests may inject a narrow stub.
+// When nil, ListPlazaGroups falls back to channel/group catalog (legacy test mode).
+type PlazaAccountSource interface {
+	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
+}
+
 type ChannelService struct {
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	pricingService       *PricingService // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
+	accountSource        PlazaAccountSource // optional; account-based plaza membership
 
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
@@ -172,6 +181,16 @@ func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCa
 	}
 	return s
 }
+
+// SetPlazaAccountSource wires account listing used by model plaza aggregation.
+// Safe to call once at composition root; nil disables account filtering.
+func (s *ChannelService) SetPlazaAccountSource(src PlazaAccountSource) {
+	if s == nil {
+		return
+	}
+	s.accountSource = src
+}
+
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {

@@ -85,6 +85,11 @@ func RateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// SafeRateMultiplier applies equality check predicate on the "safe_rate_multiplier" field. It's identical to SafeRateMultiplierEQ.
+func SafeRateMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSafeRateMultiplier, v))
+}
+
 // PeakRateEnabled applies equality check predicate on the "peak_rate_enabled" field. It's identical to PeakRateEnabledEQ.
 func PeakRateEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldPeakRateEnabled, v))
@@ -608,6 +613,46 @@ func RateMultiplierLT(v float64) predicate.Group {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// SafeRateMultiplierEQ applies the EQ predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSafeRateMultiplier, v))
+}
+
+// SafeRateMultiplierNEQ applies the NEQ predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldSafeRateMultiplier, v))
+}
+
+// SafeRateMultiplierIn applies the In predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldSafeRateMultiplier, vs...))
+}
+
+// SafeRateMultiplierNotIn applies the NotIn predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldSafeRateMultiplier, vs...))
+}
+
+// SafeRateMultiplierGT applies the GT predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldSafeRateMultiplier, v))
+}
+
+// SafeRateMultiplierGTE applies the GTE predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldSafeRateMultiplier, v))
+}
+
+// SafeRateMultiplierLT applies the LT predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldSafeRateMultiplier, v))
+}
+
+// SafeRateMultiplierLTE applies the LTE predicate on the "safe_rate_multiplier" field.
+func SafeRateMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldSafeRateMultiplier, v))
 }
 
 // PeakRateEnabledEQ applies the EQ predicate on the "peak_rate_enabled" field.

@@ -29,3 +29,23 @@ func TestBuildOpenAIEndpointURLPreservesURLComponents(t *testing.T) {
 		})
 	}
 }
+
+
+func TestBuildNewAPIManagementURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     string
+		endpoint string
+		want     string
+	}{
+		{name: "strip v1", base: "https://newapi.example/v1", endpoint: "/api/usage/token", want: "https://newapi.example/api/usage/token"},
+		{name: "root base", base: "https://newapi.example", endpoint: "/api/user/self/groups", want: "https://newapi.example/api/user/self/groups"},
+		{name: "prefix path", base: "https://newapi.example/gateway/v1", endpoint: "/api/user/self", want: "https://newapi.example/gateway/api/user/self"},
+		{name: "already api suffix", base: "https://newapi.example/api", endpoint: "/api/usage/token", want: "https://newapi.example/api/usage/token"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, buildNewAPIManagementURL(tt.base, tt.endpoint))
+		})
+	}
+}

@@ -1,6 +1,18 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
+    <div class="desk-board space-y-5">
+      <section class="desk-board__intro" aria-label="dashboard overview">
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">COMMAND BOARD</p>
+          <h2 class="desk-board__title">{{ t('admin.dashboard.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.dashboard.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </section>
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -10,10 +22,10 @@
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total API Keys -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-cyan card-tint-cyan p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
-                <Icon name="key" size="md" class="text-blue-600 dark:text-blue-400" :stroke-width="2" />
+              <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+                <Icon name="key" size="md" class="text-cyan-700 dark:text-cyan-300" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -30,10 +42,10 @@
           </div>
 
           <!-- Service Accounts -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-primary card-tint-primary p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
-                <Icon name="server" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
+              <div class="rounded-lg bg-primary-100 p-2 dark:bg-primary-900/30">
+                <Icon name="server" size="md" class="text-primary-600 dark:text-primary-400" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -55,10 +67,10 @@
           </div>
 
           <!-- Today Requests -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-emerald card-tint-emerald p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
-                <Icon name="chart" size="md" class="text-green-600 dark:text-green-400" :stroke-width="2" />
+              <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
+                <Icon name="chart" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -75,10 +87,10 @@
           </div>
 
           <!-- New Users Today -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-signal card-tint-signal p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
-                <Icon name="userPlus" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
+              <div class="rounded-lg bg-signal-100 p-2 dark:bg-signal-900/30">
+                <Icon name="userPlus" size="md" class="text-signal-600 dark:text-signal-300" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -98,7 +110,7 @@
         <!-- Row 2: Token Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Today Tokens -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-cyan card-tint-cyan p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
                 <Icon name="cube" size="md" class="text-amber-600 dark:text-amber-400" :stroke-width="2" />
@@ -110,34 +122,22 @@
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
                   {{ formatTokens(stats.today_tokens) }}
                 </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.today_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.today_cost) }}</span
-                  >
+                <p class="cost-triple text-xs">
+                  <span class="text-green-600 dark:text-green-400" :title="t('admin.dashboard.actual')">${{ formatCost(stats.today_actual_cost) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500">/</span>
+                  <span class="text-orange-500 dark:text-orange-400" :title="t('admin.dashboard.accountCost')">${{ formatCost(stats.today_account_cost) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500">/</span>
+                  <span class="text-gray-400 dark:text-gray-500" :title="t('admin.dashboard.standard')">${{ formatCost(stats.today_cost) }}</span>
                 </p>
               </div>
             </div>
           </div>
 
           <!-- Total Tokens -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-primary card-tint-primary p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
-                <Icon name="database" size="md" class="text-indigo-600 dark:text-indigo-400" :stroke-width="2" />
+              <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+                <Icon name="database" size="md" class="text-cyan-600 dark:text-cyan-400" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -146,34 +146,22 @@
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
                   {{ formatTokens(stats.total_tokens) }}
                 </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.total_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.total_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.total_cost) }}</span
-                  >
+                <p class="cost-triple text-xs">
+                  <span class="text-green-600 dark:text-green-400" :title="t('admin.dashboard.actual')">${{ formatCost(stats.total_actual_cost) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500">/</span>
+                  <span class="text-orange-500 dark:text-orange-400" :title="t('admin.dashboard.accountCost')">${{ formatCost(stats.total_account_cost) }}</span>
+                  <span class="text-gray-400 dark:text-gray-500">/</span>
+                  <span class="text-gray-400 dark:text-gray-500" :title="t('admin.dashboard.standard')">${{ formatCost(stats.total_cost) }}</span>
                 </p>
               </div>
             </div>
           </div>
 
           <!-- Performance (RPM/TPM) -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-emerald card-tint-emerald p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-violet-100 p-2 dark:bg-violet-900/30">
-                <Icon name="bolt" size="md" class="text-violet-600 dark:text-violet-400" :stroke-width="2" />
+              <div class="rounded-lg bg-signal-100 p-2 dark:bg-signal-900/30">
+                <Icon name="bolt" size="md" class="text-signal-600 dark:text-signal-400" :stroke-width="2" />
               </div>
               <div class="flex-1">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -186,7 +174,7 @@
                   <span class="text-xs text-gray-500 dark:text-gray-400">RPM</span>
                 </div>
                 <div class="flex items-baseline gap-2">
-                  <p class="text-sm font-semibold text-violet-600 dark:text-violet-400">
+                  <p class="text-sm font-semibold text-signal-600 dark:text-signal-400">
                     {{ formatTokens(stats.tpm) }}
                   </p>
                   <span class="text-xs text-gray-500 dark:text-gray-400">TPM</span>
@@ -196,7 +184,7 @@
           </div>
 
           <!-- Avg Response Time -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-signal card-tint-signal p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
                 <Icon name="clock" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
@@ -217,7 +205,7 @@
         </div>
 
         <!-- Quick Actions -->
-        <div class="card p-4">
+        <div class="card card-rail card-rail-alarm card-tint-alarm p-4">
           <div class="mb-3 flex items-center justify-between">
             <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.dashboard.quickActions') }}
@@ -267,7 +255,7 @@
         <!-- Charts Section -->
         <div class="space-y-6">
           <!-- Date Range Filter -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-cyan card-tint-cyan p-4">
             <div class="flex flex-wrap items-center gap-4">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -317,7 +305,7 @@
           </div>
 
           <!-- User Usage Trend (Full Width) -->
-          <div class="card p-4">
+          <div class="card card-rail card-rail-primary card-tint-primary p-4">
             <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.dashboard.recentUsage') }} (Top 12)
             </h3>
@@ -754,5 +742,64 @@ onMounted(() => {
 })
 </script>
 
+
 <style scoped>
+.desk-board :deep(.card.card-rail) {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  min-height: 108px;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.75) inset,
+    0 16px 32px -26px rgba(15, 23, 32, 0.35);
+}
+/* Keep metric body from colliding with rail/icon chrome */
+.desk-board :deep(.card.card-rail > .flex.items-center) {
+  min-width: 0;
+}
+.desk-board :deep(.card.card-rail > .flex.items-center > div:last-child) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.desk-board :deep(.card.card-rail p.text-xl) {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  font-size: clamp(1.05rem, 1.8vw, 1.45rem);
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.desk-board :deep(.card.card-rail p.text-xs.font-medium) {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+}
+/* Cost triple-line: keep compact without crushing */
+.desk-board :deep(.card.card-rail .cost-triple) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.3rem;
+  align-items: baseline;
+  line-height: 1.35;
+  max-width: 100%;
+}
+.desk-board :deep(.card.card-rail .cost-triple > span) {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+}
+.desk-board :deep(.grid.grid-cols-2.gap-4) {
+  gap: 12px;
+}
+/* metric rack header strip for chart sections */
+.desk-board :deep(.card > .flex.items-center.justify-between),
+.desk-board :deep(.card > div:first-child.flex) {
+  position: relative;
+}
 </style>
+

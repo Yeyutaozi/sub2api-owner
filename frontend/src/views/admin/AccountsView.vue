@@ -174,8 +174,10 @@
           </button>
         </div>
       </template>
-      <template #table>
+      <template #before-table>
         <AccountBulkActionsBar
+          data-bulk-bar
+          class="account-bulk-bar"
           :selected-ids="selIds"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
@@ -187,7 +189,9 @@
           @select-page="selectPage"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      </template>
+      <template #table>
+        <div ref="accountTableRef" class="table-host flex min-h-0 flex-1 flex-col">
         <DataTable
           ref="dataTableRef"
           :columns="cols"
@@ -356,7 +360,9 @@
               :global-probe-enabled="upstreamBillingProbeGloballyEnabled"
               :now="upstreamBillingNow"
               :probing="probingUpstreamBilling.has(row.id)"
+              :declaring="declaringUpstreamRate.has(row.id)"
               @probe="handleProbeUpstreamBilling(row)"
+              @declare-rate="(rate) => handleDeclareUpstreamRate(row, rate)"
             />
           </template>
           <template #cell-priority="{ value }">
@@ -1817,6 +1823,38 @@ const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBilli
     extra: { ...account.extra, upstream_billing_probe: snapshot }
   })
 }
+const declaringUpstreamRate = reactive(new Set<number>())
+const handleDeclareUpstreamRate = async (account: Account, rate: number) => {
+  if (!account?.id || declaringUpstreamRate.has(account.id)) return
+  if (!Number.isFinite(rate) || rate < 0) {
+    appStore.showError(t('admin.accounts.upstreamBilling.manualDeclaredRateHint'))
+    return
+  }
+  declaringUpstreamRate.add(account.id)
+  try {
+    // Dedicated key-merge endpoint: never PUT partial extra (would wipe NewAPI access token etc.).
+    const updated = await adminAPI.accounts.declareUpstreamDeclaredRate(account.id, rate)
+    if (updated) {
+      patchAccountInList(updated)
+    } else {
+      patchAccountInList({
+        ...account,
+        extra: {
+          ...(account.extra || {}),
+          upstream_declared_rate_multiplier: rate
+        }
+      })
+    }
+    appStore.showSuccess(t('common.success'))
+    await refreshUpstreamBillingSortedList?.(true)
+  } catch (error) {
+    console.error('Failed to declare upstream rate:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.upstreamBilling.manualDeclaredRateHint')))
+  } finally {
+    declaringUpstreamRate.delete(account.id)
+  }
+}
+
 const handleProbeUpstreamBilling = async (account: Account) => {
   if (probingUpstreamBilling.has(account.id)) return
   probingUpstreamBilling.add(account.id)

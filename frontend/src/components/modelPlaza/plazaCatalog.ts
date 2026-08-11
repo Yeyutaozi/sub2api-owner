@@ -1,5 +1,7 @@
 /**
  * Flatten groups×models into model cards: one card per model, multi-group offers.
+ * Merge key = kind + vendor + normalized model name (platform string noise ignored).
+ * Offers are de-duplicated by groupId so the same model never appears twice under one group.
  */
 import type {
   ModelPlazaGroup,
@@ -8,6 +10,7 @@ import type {
   PlazaModelKind,
   PlazaVideoPrices
 } from '@/api/modelPlaza'
+import { resolvePlazaVendor } from './plazaVendors'
 
 export interface PlazaOffer {
   groupId: number
@@ -33,7 +36,10 @@ export interface PlazaOffer {
 export interface PlazaModelCard {
   key: string
   name: string
+  /** Display / primary platform string from first offer. */
   platform: string
+  /** Stable vendor id used for merge + shelf grouping. */
+  vendorId: string
   kind: PlazaModelKind | string
   official_pricing: PlazaModel['official_pricing']
   offers: PlazaOffer[]
@@ -58,6 +64,15 @@ export function normalizePlazaKind(m: PlazaModel): PlazaModelKind | string {
   return 'chat'
 }
 
+/** Normalize model name so GPT-4o / gpt-4o / gpt_4o merge into one card. */
+export function normalizeModelKey(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+}
+
 export function buildPlazaModelCards(response: ModelPlazaResponse | null | undefined): PlazaModelCard[] {
   const groups = response?.groups ?? []
   const map = new Map<string, PlazaModelCard>()
@@ -66,13 +81,18 @@ export function buildPlazaModelCards(response: ModelPlazaResponse | null | undef
     const rate = effectiveGroupRate(g)
     for (const model of g.models ?? []) {
       const kind = normalizePlazaKind(model)
-      const key = kind + '::' + model.platform + '::' + model.name
+      const vendor = resolvePlazaVendor(model.platform || g.platform, model.name)
+      const nameKey = normalizeModelKey(model.name)
+      // One card per model family: kind + vendor + normalized name
+      const key = kind + '::' + vendor.id + '::' + nameKey
+
       let card = map.get(key)
       if (!card) {
         card = {
           key,
           name: model.name,
-          platform: model.platform,
+          platform: model.platform || g.platform || vendor.label,
+          vendorId: vendor.id,
           kind,
           official_pricing: model.official_pricing,
           offers: [],
@@ -81,14 +101,25 @@ export function buildPlazaModelCards(response: ModelPlazaResponse | null | undef
           offerCount: 0
         }
         map.set(key, card)
-      } else if (!card.official_pricing && model.official_pricing) {
-        card.official_pricing = model.official_pricing
+      } else {
+        // Prefer a more readable display name if a better-cased variant appears later
+        if (model.name && model.name.length >= card.name.length && /[A-Z]/.test(model.name)) {
+          card.name = model.name
+        }
+        if (!card.official_pricing && model.official_pricing) {
+          card.official_pricing = model.official_pricing
+        }
+      }
+
+      // De-dupe by group: same model must not list the same group twice
+      if (card.offers.some((o) => o.groupId === g.id)) {
+        continue
       }
 
       card.offers.push({
         groupId: g.id,
         groupName: g.name,
-        platform: g.platform,
+        platform: g.platform || model.platform || '',
         description: g.description,
         subscriptionType: g.subscription_type,
         rateMultiplier: g.rate_multiplier,
@@ -114,12 +145,13 @@ export function buildPlazaModelCards(response: ModelPlazaResponse | null | undef
     card.offers.sort(
       (a, b) => a.effectiveRate - b.effectiveRate || a.groupName.localeCompare(b.groupName)
     )
+    card.offerCount = card.offers.length
   }
 
   cards.sort((a, b) => {
     const kr = kindRank(a.kind) - kindRank(b.kind)
     if (kr !== 0) return kr
-    if (a.platform !== b.platform) return a.platform.localeCompare(b.platform)
+    if (a.vendorId !== b.vendorId) return a.vendorId.localeCompare(b.vendorId)
     return a.name.localeCompare(b.name)
   })
   return cards

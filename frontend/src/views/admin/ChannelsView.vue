@@ -1,6 +1,19 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #intro>
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">CHANNEL MAP</p>
+          <h2 class="desk-board__title">{{ t('admin.channels.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.channels.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </template>
+
       <template #filters>
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <!-- Left: Search + Filters -->

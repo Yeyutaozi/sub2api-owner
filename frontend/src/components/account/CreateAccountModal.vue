@@ -1285,6 +1285,67 @@
             {{ t('admin.accounts.upstreamBilling.manualDeclaredRateHint') }}
           </p>
         </div>
+        <div class="mt-4 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40">
+          <div>
+            <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessHint') }}
+            </p>
+          </div>
+          <div>
+            <label class="input-label" for="create-newapi-access-token">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
+            </label>
+            <input
+              id="create-newapi-access-token"
+              v-model="newapiAccessTokenInput"
+              type="password"
+              autocomplete="off"
+              class="input-field"
+              data-testid="create-newapi-access-token"
+              :placeholder="t('admin.accounts.upstreamBilling.newapiAccessTokenPlaceholder')"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.upstreamBilling.newapiAccessTokenHint') }}
+            </p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="input-label" for="create-newapi-user-id">
+                {{ t('admin.accounts.upstreamBilling.newapiUserId') }}
+              </label>
+              <input
+                id="create-newapi-user-id"
+                v-model="newapiUserIdInput"
+                type="text"
+                class="input-field"
+                data-testid="create-newapi-user-id"
+                :placeholder="t('admin.accounts.upstreamBilling.newapiUserIdPlaceholder')"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.newapiUserIdHint') }}
+              </p>
+            </div>
+            <div>
+              <label class="input-label" for="create-newapi-group">
+                {{ t('admin.accounts.upstreamBilling.newapiGroup') }}
+              </label>
+              <input
+                id="create-newapi-group"
+                v-model="newapiGroupInput"
+                type="text"
+                class="input-field"
+                data-testid="create-newapi-group"
+                :placeholder="t('admin.accounts.upstreamBilling.newapiGroupPlaceholder')"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.newapiGroupHint') }}
+              </p>
+            </div>
+          </div>
+        </div>
 
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
@@ -3852,6 +3913,9 @@ const seedanceProviderBaseUrl = computed(() =>
 )
 const upstreamBillingAutoProbeEnabled = ref(true)
 const upstreamDeclaredRateInput = ref<string>('')
+const newapiAccessTokenInput = ref<string>('')
+const newapiUserIdInput = ref<string>('')
+const newapiGroupInput = ref<string>('')
 const seedanceProviderModels = computed(() =>
   form.platform === 'seedance'
     ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
@@ -4836,6 +4900,9 @@ const resetForm = () => {
   seedanceVideoProvider.value = 'fflink'
   upstreamBillingAutoProbeEnabled.value = true
   upstreamDeclaredRateInput.value = ''
+  newapiAccessTokenInput.value = ''
+  newapiUserIdInput.value = ''
+  newapiGroupInput.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5361,6 +5428,12 @@ const handleSubmit = async () => {
       }
       extra.upstream_declared_rate_multiplier = n
     }
+    const accessToken = String(newapiAccessTokenInput.value ?? '').trim()
+    const userId = String(newapiUserIdInput.value ?? '').trim()
+    const groupName = String(newapiGroupInput.value ?? '').trim()
+    if (accessToken) extra.newapi_access_token = accessToken
+    if (userId) extra.newapi_user_id = userId
+    if (groupName) extra.newapi_group = groupName
   }
 
   await doCreateAccount({

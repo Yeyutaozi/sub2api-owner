@@ -14,6 +14,12 @@ const (
 	PlazaKindVideo = "video"
 )
 
+// plazaPricedModel is channel pricing overlay for a model name under a group.
+type plazaPricedModel struct {
+	platform string
+	pricing  *ChannelModelPricing
+}
+
 // PlazaOfficialPricing 模型广场展示用的 LiteLLM 官方参考价（USD per token）。
 // 字段为 nil 表示官方数据中该项缺失（0 视为未配置）。
 type PlazaOfficialPricing struct {
@@ -42,8 +48,8 @@ type PlazaModel struct {
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
 //
-// 与 AvailableGroupRef 相比多了 Description 与 Models；Models 来自该分组关联渠道的
-// 支持模型（按分组平台隔离，防跨平台泄漏）+ 分组开放的图/视频模型。
+// 与 AvailableGroupRef 相比多了 Description 与 Models；Models 以分组内可调度账号实际可承接的模型为准
+// （账号 model_mapping / IsModelSupported），渠道定价仅作价卡叠加；再补齐图/视频元数据。
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
@@ -65,11 +71,16 @@ type PlazaGroup struct {
 
 // ListPlazaGroups 返回模型广场数据：每个活跃分组附带其可用模型与定价。
 //
-// 聚合口径与 ListAvailable 一致（Active 渠道、SupportedModels ∪ 全局定价回落、
-// 平台隔离），并补充：
-//   - FFLink 视频平台：分组开放模型 + 分辨率档位价 + 计费单位（秒/条）
-//   - 允许生图的分组：开放图片模型 + 1K/2K/4K 价
-//   - 同分组同名模型「先见者胜」，渠道无价可被有价升级；媒体模型补齐 Kind/价卡
+// 归属口径（与 GetAvailableModels / 真实账号承接能力对齐）：
+//   - 模型成员资格以「分组内可调度账号」为准（ListSchedulableByGroupID + model_mapping）
+//   - 只要分组内存在声明了 model_mapping 的账号：仅展示映射键并集（含通配展开），
+//     不再用渠道目录/分组开放图视频默认去「发明」账号未开启的模型
+//   - 仅当全部分组账号均为空 mapping / 透传时：才展开开放目录（渠道价卡 ∪ 平台默认 ∪ 开放媒体）
+//   - 最终再经 IsModelSupported 过滤，保证至少一账号能承接
+//   - 分组启用自定义 models_list 时：再与 models_list 求交
+//   - 渠道 SupportedModels 只提供定价叠加，不再单独决定「分组有哪些模型」
+//   - 图/视频价卡仍按分组配置补齐 Kind/分辨率/档位（不新增无账号支持的模型）
+//   - accountSource 未注入时回退旧的渠道+分组目录（仅测试兼容）
 //   - 只返回 Models 非空的分组；分组按 RateMultiplier 升序（同倍率按名称）
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
@@ -109,8 +120,9 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		order = append(order, g.ID)
 	}
 
-	// modelIdx[groupID][modelName] = index into byGroup[groupID].Models
-	modelIdx := make(map[int64]map[string]int, len(groups))
+	// channelPricing[groupID][modelName] = best channel pricing entry (for overlay only).
+	channelPricing := make(map[int64]map[string]plazaPricedModel, len(groups))
+	channelModelNames := make(map[int64][]string, len(groups))
 	for i := range channels {
 		ch := &channels[i]
 		if ch.Status != StatusActive {
@@ -119,51 +131,133 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		ch.normalizeBillingModelSource()
 		supported := ch.SupportedModels()
 		s.fillGlobalPricingFallback(supported)
-
 		for _, gid := range ch.GroupIDs {
 			pg, ok := byGroup[gid]
 			if !ok {
 				continue
 			}
-			idx := modelIdx[gid]
-			if idx == nil {
-				idx = make(map[string]int, len(supported))
-				modelIdx[gid] = idx
+			pm := channelPricing[gid]
+			if pm == nil {
+				pm = make(map[string]plazaPricedModel)
+				channelPricing[gid] = pm
 			}
 			for j := range supported {
 				m := supported[j]
 				if m.Platform != pg.Platform {
 					continue
 				}
-				if at, seen := idx[m.Name]; seen {
-					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
-					if pg.Models[at].Pricing == nil && m.Pricing != nil {
-						pg.Models[at].Pricing = m.Pricing
-						pg.Models[at].Kind = plazaKindFromPricing(m.Pricing)
+				name := strings.TrimSpace(m.Name)
+				if name == "" {
+					continue
+				}
+				if existing, seen := pm[name]; seen {
+					if existing.pricing == nil && m.Pricing != nil {
+						pm[name] = plazaPricedModel{platform: m.Platform, pricing: m.Pricing}
 					}
 					continue
 				}
-				idx[m.Name] = len(pg.Models)
-				pg.Models = append(pg.Models, PlazaModel{
-					Name:     m.Name,
-					Platform: m.Platform,
-					Kind:     plazaKindFromPricing(m.Pricing),
-					Pricing:  m.Pricing,
-				})
+				pm[name] = plazaPricedModel{platform: m.Platform, pricing: m.Pricing}
+				channelModelNames[gid] = append(channelModelNames[gid], name)
 			}
 		}
 	}
 
-	// Inject open media models from groups (video matrix / image tier prices).
-	for _, gid := range order {
-		pg := byGroup[gid]
-		src := sourceGroups[gid]
-		idx := modelIdx[gid]
-		if idx == nil {
-			idx = make(map[string]int)
-			modelIdx[gid] = idx
+	// modelIdx[groupID][modelName] = index into byGroup[groupID].Models
+	modelIdx := make(map[int64]map[string]int, len(groups))
+
+	// Production path: account-based membership. Legacy path when accountSource unset.
+	if s != nil && s.accountSource != nil {
+		for _, gid := range order {
+			pg := byGroup[gid]
+			src := sourceGroups[gid]
+			if src == nil {
+				continue
+			}
+			accounts, aerr := s.accountSource.ListSchedulableByGroupID(ctx, gid)
+			if aerr != nil {
+				return nil, fmt.Errorf("list schedulable accounts for group %d: %w", gid, aerr)
+			}
+			groupAccounts := plazaFilterAccountsForGroup(accounts, src.Platform)
+			if len(groupAccounts) == 0 {
+				// No schedulable account ⇒ group cannot serve any model.
+				continue
+			}
+
+			candidates := plazaCollectCandidateModels(src, groupAccounts, channelModelNames[gid])
+			if src.CustomModelsListEnabled() {
+				candidates = plazaIntersectModelsList(candidates, src.ModelsListConfig.Models)
+			}
+
+			idx := modelIdx[gid]
+			if idx == nil {
+				idx = make(map[string]int)
+				modelIdx[gid] = idx
+			}
+			for _, modelID := range candidates {
+				if !plazaAnyAccountSupportsModel(groupAccounts, modelID) {
+					continue
+				}
+				plazaUpsertModel(pg, idx, modelID, src.Platform, channelPricing[gid])
+			}
+			// Enrich kind/price only — do not invent media models beyond account mappings.
+			// Open-media defaults enter earlier via plazaCollectCandidateModels when
+			// (and only when) every account is unrestricted.
+			appendPlazaMediaModelsOpt(pg, src, idx, false)
+			plazaFilterUnsupportedModels(pg, idx, groupAccounts)
 		}
-		appendPlazaMediaModels(pg, src, idx)
+	} else {
+		// Legacy (tests without accountSource): channel SupportedModels + group media.
+		for i := range channels {
+			ch := &channels[i]
+			if ch.Status != StatusActive {
+				continue
+			}
+			ch.normalizeBillingModelSource()
+			supported := ch.SupportedModels()
+			s.fillGlobalPricingFallback(supported)
+
+			for _, gid := range ch.GroupIDs {
+				pg, ok := byGroup[gid]
+				if !ok {
+					continue
+				}
+				idx := modelIdx[gid]
+				if idx == nil {
+					idx = make(map[string]int, len(supported))
+					modelIdx[gid] = idx
+				}
+				for j := range supported {
+					m := supported[j]
+					if m.Platform != pg.Platform {
+						continue
+					}
+					if at, seen := idx[m.Name]; seen {
+						if pg.Models[at].Pricing == nil && m.Pricing != nil {
+							pg.Models[at].Pricing = m.Pricing
+							pg.Models[at].Kind = plazaKindFromPricing(m.Pricing)
+						}
+						continue
+					}
+					idx[m.Name] = len(pg.Models)
+					pg.Models = append(pg.Models, PlazaModel{
+						Name:     m.Name,
+						Platform: m.Platform,
+						Kind:     plazaKindFromPricing(m.Pricing),
+						Pricing:  m.Pricing,
+					})
+				}
+			}
+		}
+		for _, gid := range order {
+			pg := byGroup[gid]
+			src := sourceGroups[gid]
+			idx := modelIdx[gid]
+			if idx == nil {
+				idx = make(map[string]int)
+				modelIdx[gid] = idx
+			}
+			appendPlazaMediaModels(pg, src, idx)
+		}
 	}
 
 	officialMemo := make(map[string]*PlazaOfficialPricing)
@@ -179,6 +273,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			}
 			return pg.Models[i].Name < pg.Models[j].Name
 		})
+		// Rebuild index after sort for stability of later ops (none currently).
 		for j := range pg.Models {
 			if pg.Models[j].Kind == "" {
 				pg.Models[j].Kind = PlazaKindChat
@@ -200,6 +295,281 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// plazaFilterAccountsForGroup keeps schedulable-list accounts that can serve the group platform.
+func plazaFilterAccountsForGroup(accounts []Account, groupPlatform string) []Account {
+	if len(accounts) == 0 {
+		return nil
+	}
+	out := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		acc := &accounts[i]
+		if groupPlatform == PlatformComposite {
+			if !isConcreteRequestPlatform(acc.Platform) {
+				continue
+			}
+			out = append(out, *acc)
+			continue
+		}
+		if strings.TrimSpace(acc.Platform) != strings.TrimSpace(groupPlatform) {
+			continue
+		}
+		out = append(out, *acc)
+	}
+	return out
+}
+
+// plazaCollectCandidateModels builds the candidate set before IsModelSupported filtering.
+//
+// Membership mirrors gateway GetAvailableModels:
+//   - If any schedulable account declares a non-empty model_mapping (and is not pure
+//     OpenAI passthrough), the plaza only exposes the union of those mapping keys
+//     (plus wildcard expansions against known catalogs). Channel pricing and group
+//     open-media defaults MUST NOT invent models the accounts never enabled.
+//   - If every account is unrestricted (empty mapping / passthrough), expand the
+//     open catalog: channel-priced names ∪ platform defaults ∪ group-open media.
+func plazaCollectCandidateModels(g *Group, accounts []Account, channelModels []string) []string {
+	seen := make(map[string]struct{})
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		// Skip pure wildcard patterns as display names.
+		if strings.Contains(id, "*") {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+	}
+
+	hasAnyMapping := false
+	hasUnrestricted := false
+	for i := range accounts {
+		acc := &accounts[i]
+		// Pure passthrough: model semantics belong to upstream; treat as unrestricted
+		// for catalog expansion only when no mapped account exists in the group.
+		if acc.IsOpenAIPassthroughEnabled() {
+			hasUnrestricted = true
+			continue
+		}
+		mapping := acc.GetModelMapping()
+		if len(mapping) == 0 {
+			// Empty mapping usually means unrestricted (OpenAI OAuth still filters later).
+			hasUnrestricted = true
+			continue
+		}
+		hasAnyMapping = true
+		for key := range mapping {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			if strings.Contains(key, "*") {
+				continue
+			}
+			add(key)
+		}
+	}
+
+	// Expand wildcards from restricted mappings against known catalogs.
+	patterns := plazaAccountWildcardPatterns(accounts)
+	if len(patterns) > 0 {
+		hasAnyMapping = true
+		pool := make([]string, 0, len(channelModels)+32)
+		pool = append(pool, channelModels...)
+		if g != nil {
+			pool = append(pool, defaultModelsListCandidateIDs(g.Platform)...)
+			pool = append(pool, plazaOpenVideoModelIDs(g)...)
+			pool = append(pool, plazaOpenImageModelIDs(g)...)
+		}
+		for _, id := range pool {
+			for _, pat := range patterns {
+				if matchWildcard(pat, id) {
+					add(id)
+					break
+				}
+			}
+		}
+	}
+
+	// Only when NO account declares a mapping do we expand the open catalog.
+	// This matches GetAvailableModels: mapped keys win; unrestricted-only groups
+	// fall back to defaults (channel + platform + open media).
+	if !hasAnyMapping && hasUnrestricted {
+		for _, id := range channelModels {
+			add(id)
+		}
+		if g != nil {
+			for _, id := range defaultModelsListCandidateIDs(g.Platform) {
+				add(id)
+			}
+			for _, id := range plazaOpenVideoModelIDs(g) {
+				add(id)
+			}
+			for _, id := range plazaOpenImageModelIDs(g) {
+				add(id)
+			}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func plazaAccountWildcardPatterns(accounts []Account) []string {
+	var patterns []string
+	seen := make(map[string]struct{})
+	for i := range accounts {
+		mapping := accounts[i].GetModelMapping()
+		for key := range mapping {
+			key = strings.TrimSpace(key)
+			if key == "" || !strings.Contains(key, "*") {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			patterns = append(patterns, key)
+		}
+	}
+	return patterns
+}
+
+func plazaIntersectModelsList(candidates, modelsList []string) []string {
+	if len(modelsList) == 0 {
+		return candidates
+	}
+	allowed := make([]string, 0, len(modelsList))
+	for _, raw := range modelsList {
+		raw = strings.TrimSpace(raw)
+		if raw != "" {
+			allowed = append(allowed, raw)
+		}
+	}
+	if len(allowed) == 0 {
+		return candidates
+	}
+	out := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, model := range candidates {
+		if !plazaModelsListAllows(allowed, model) {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	// Also include exact models_list entries that accounts may serve even if not in candidates.
+	for _, model := range allowed {
+		if strings.Contains(model, "*") {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	return out
+}
+
+func plazaModelsListAllows(patterns []string, model string) bool {
+	for _, pattern := range patterns {
+		if pattern == model {
+			return true
+		}
+		if strings.HasSuffix(pattern, "*") && strings.HasPrefix(model, strings.TrimSuffix(pattern, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+func plazaAnyAccountSupportsModel(accounts []Account, modelID string) bool {
+	for i := range accounts {
+		if accounts[i].IsModelSupported(modelID) {
+			return true
+		}
+	}
+	return false
+}
+
+func plazaUpsertModel(pg *PlazaGroup, idx map[string]int, modelID, platform string, priced map[string]plazaPricedModel) {
+	if pg == nil || idx == nil {
+		return
+	}
+	var pricing *ChannelModelPricing
+	plat := platform
+	if priced != nil {
+		if pm, ok := priced[modelID]; ok {
+			pricing = pm.pricing
+			if pm.platform != "" {
+				plat = pm.platform
+			}
+		}
+	}
+	kind := plazaKindFromPricing(pricing)
+	if kind == PlazaKindChat {
+		// Prefer media kind hints when model id looks like image/video.
+		if looksLikeImageModelID(modelID) {
+			kind = PlazaKindImage
+		} else if _, ok := ffLinkVideoModelProfileFor(modelID); ok {
+			kind = PlazaKindVideo
+		} else if IsFFLinkVideoPlatform(platform) {
+			kind = PlazaKindVideo
+		}
+	}
+	if at, seen := idx[modelID]; seen {
+		if pg.Models[at].Pricing == nil && pricing != nil {
+			pg.Models[at].Pricing = pricing
+			if pg.Models[at].Kind == "" || pg.Models[at].Kind == PlazaKindChat {
+				pg.Models[at].Kind = kind
+			}
+		}
+		return
+	}
+	idx[modelID] = len(pg.Models)
+	pg.Models = append(pg.Models, PlazaModel{
+		Name:     modelID,
+		Platform: plat,
+		Kind:     kind,
+		Pricing:  pricing,
+	})
+}
+
+func plazaFilterUnsupportedModels(pg *PlazaGroup, idx map[string]int, accounts []Account) {
+	if pg == nil || len(pg.Models) == 0 {
+		return
+	}
+	kept := make([]PlazaModel, 0, len(pg.Models))
+	newIdx := make(map[string]int, len(pg.Models))
+	for i := range pg.Models {
+		m := pg.Models[i]
+		if !plazaAnyAccountSupportsModel(accounts, m.Name) {
+			continue
+		}
+		newIdx[m.Name] = len(kept)
+		kept = append(kept, m)
+	}
+	pg.Models = kept
+	// refresh caller's idx map
+	for k := range idx {
+		delete(idx, k)
+	}
+	for k, v := range newIdx {
+		idx[k] = v
+	}
 }
 
 func plazaKindFromPricing(p *ChannelModelPricing) string {
@@ -227,9 +597,19 @@ func plazaKindRank(kind string) int {
 	}
 }
 
-// appendPlazaMediaModels adds group-open video/image models that are not already
-// present from channel SupportedModels.
+// appendPlazaMediaModels enriches already-admitted models with video/image price
+// cards and kind metadata. It does NOT invent new model membership: membership is
+// decided earlier by account mappings (production) or channel catalog (legacy).
+//
+// Legacy path (accountSource unset) still relies on this helper to inject open
+// media models when groups enable image/video generation with no channel pricing.
+// Production path passes inventMedia=false so open-media defaults cannot bypass
+// account model_mapping.
 func appendPlazaMediaModels(pg *PlazaGroup, g *Group, idx map[string]int) {
+	appendPlazaMediaModelsOpt(pg, g, idx, true)
+}
+
+func appendPlazaMediaModelsOpt(pg *PlazaGroup, g *Group, idx map[string]int, inventMedia bool) {
 	if pg == nil || g == nil || idx == nil {
 		return
 	}
@@ -240,7 +620,7 @@ func appendPlazaMediaModels(pg *PlazaGroup, g *Group, idx map[string]int) {
 			prices := plazaVideoPricesForModel(g, modelID)
 			resolutions := plazaVideoResolutionsForModel(modelID)
 			if at, seen := idx[modelID]; seen {
-				// Enrich channel-derived entry with video price card.
+				// Enrich existing entry with video price card.
 				if pg.Models[at].Kind == "" || pg.Models[at].Kind == PlazaKindChat {
 					pg.Models[at].Kind = PlazaKindVideo
 				}
@@ -253,6 +633,9 @@ func appendPlazaMediaModels(pg *PlazaGroup, g *Group, idx map[string]int) {
 				if pg.Models[at].VideoPrices == nil {
 					pg.Models[at].VideoPrices = prices
 				}
+				continue
+			}
+			if !inventMedia {
 				continue
 			}
 			idx[modelID] = len(pg.Models)
@@ -280,6 +663,9 @@ func appendPlazaMediaModels(pg *PlazaGroup, g *Group, idx map[string]int) {
 				if pg.Models[at].ImagePrices == nil {
 					pg.Models[at].ImagePrices = imagePrices
 				}
+				continue
+			}
+			if !inventMedia {
 				continue
 			}
 			idx[modelID] = len(pg.Models)

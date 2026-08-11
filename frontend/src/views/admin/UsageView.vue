@@ -1,28 +1,44 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
+    <div class="desk-board space-y-5">
+      <section class="desk-board__intro" aria-label="usage overview">
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">TRAFFIC DESK</p>
+          <h2 class="desk-board__title">{{ t('usage.title') }}</h2>
+          <p class="desk-board__sub">{{ t('usage.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </section>
+
       <UsageStatsCards :stats="usageStats" />
       <!-- Charts Section -->
       <div class="space-y-4">
-        <div class="card p-4">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
-              <DateRangePicker
-                v-model:start-date="startDate"
-                v-model:end-date="endDate"
-                @change="onDateRangeChange"
-              />
-            </div>
-            <div class="ml-auto flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
-              <div class="w-28">
-                <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+        <div class="instrument-panel">
+          <div class="instrument-panel__body">
+            <p class="instrument-panel__title">RANGE · GRANULARITY</p>
+            <div class="flex flex-wrap items-center gap-4">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
+                <DateRangePicker
+                  v-model:start-date="startDate"
+                  v-model:end-date="endDate"
+                  @change="onDateRangeChange"
+                />
+              </div>
+              <div class="ml-auto flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
+                <div class="w-28">
+                  <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="desk-chart-grid grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ModelDistributionChart
             v-model:source="modelDistributionSource"
             v-model:metric="modelDistributionMetric"
@@ -46,7 +62,7 @@
             :filters="breakdownFilters"
           />
         </div>
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="desk-chart-grid grid grid-cols-1 gap-6 lg:grid-cols-2">
           <EndpointDistributionChart
             v-model:source="endpointDistributionSource"
             v-model:metric="endpointDistributionMetric"
@@ -65,17 +81,16 @@
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
-      <div class="card">
-        <div class="flex flex-wrap items-center border-b border-gray-200 px-2 dark:border-dark-700 sm:px-4">
+      <div class="desk-panel">
+        <div class="desk-tabs" role="tablist" aria-label="usage details">
           <button
             v-for="tab in detailTabs"
             :key="tab.key"
             type="button"
+            role="tab"
             data-testid="usage-detail-tab"
-            class="-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:px-4"
-            :class="activeTab === tab.key
-              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-dark-500 dark:hover:text-gray-200'"
+            class="desk-tab"
+            :class="{ 'is-active': activeTab === tab.key }"
             @click="switchTab(tab.key)"
           >
             <Icon :name="tab.icon" size="sm" />

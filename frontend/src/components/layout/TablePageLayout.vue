@@ -1,25 +1,36 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile }">
-    <!-- 固定区域：操作按钮 -->
-    <div v-if="$slots.actions" class="layout-section-fixed">
-      <slot name="actions" />
-    </div>
+  <div class="desk-board ops-desk" :class="{ 'is-mobile': isMobile }">
+    <section v-if="$slots.intro" class="desk-board__intro ops-desk__intro" aria-label="page intro">
+      <slot name="intro" />
+    </section>
 
-    <!-- 固定区域：搜索和过滤器 -->
-    <div v-if="$slots.filters" class="layout-section-fixed">
-      <slot name="filters" />
-    </div>
-
-    <!-- 滚动区域：表格 -->
-    <div class="layout-section-scrollable">
-      <div class="card table-scroll-container">
-        <slot name="table" />
+    <div class="ops-console" :class="{ 'is-mobile': isMobile, 'has-intro': !!$slots.intro }">
+      <div v-if="$slots.actions" class="ops-console__actions">
+        <div class="ops-console__actions-inner">
+          <slot name="actions" />
+        </div>
       </div>
-    </div>
 
-    <!-- 固定区域：分页器 -->
-    <div v-if="$slots.pagination" class="layout-section-fixed">
-      <slot name="pagination" />
+      <div v-if="$slots.filters" class="ops-console__filters">
+        <div class="ops-console__filters-body">
+          <slot name="filters" />
+        </div>
+      </div>
+
+      <div class="ops-console__surface">
+        <div class="ops-console__table-frame">
+          <div v-if="$slots['before-table']" class="ops-console__before-table">
+            <slot name="before-table" />
+          </div>
+          <div class="ops-console__table-scroll">
+            <slot name="table" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="$slots.pagination" class="ops-console__pager">
+        <slot name="pagination" />
+      </div>
     </div>
   </div>
 </template>
@@ -44,65 +55,124 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 桌面端：Flexbox 布局 */
-.table-page-layout {
-  @apply flex flex-col gap-6;
-  height: calc(100vh - 64px - 4rem); /* 减去 header + lg:p-8 的上下padding */
+.ops-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.layout-section-fixed {
-  @apply flex-shrink-0;
+.ops-desk__intro {
+  margin-bottom: 0;
 }
 
-.layout-section-scrollable {
-  @apply flex-1 min-h-0 flex flex-col;
+.ops-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 64px - 3.5rem);
+  min-height: 420px;
 }
 
-/* 表格滚动容器 - 增强版表体滚动方案 */
-.table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full bg-white dark:bg-dark-800 rounded-2xl border border-gray-200 dark:border-dark-700 shadow-sm;
+.ops-console.has-intro {
+  height: calc(100vh - 64px - 3.5rem - 108px);
 }
 
-.table-scroll-container :deep(.table-wrapper) {
-  @apply flex-1 overflow-x-auto overflow-y-auto;
-  /* 确保横向滚动条显示在最底部 */
-  scrollbar-gutter: stable;
+.ops-console__actions {
+  flex-shrink: 0;
 }
 
-.table-scroll-container :deep(table) {
-  @apply w-full;
-  min-width: max-content; /* 关键：确保表格宽度根据内容撑开，从而触发横向滚动 */
-  display: table; /* 使用标准 table 布局以支持 sticky 列 */
+.ops-console__actions-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
-.table-scroll-container :deep(thead) {
-  @apply bg-gray-50/80 dark:bg-dark-800/80 backdrop-blur-sm;
+.ops-console__filters {
+  flex-shrink: 0;
+  border: 1px solid rgba(11, 18, 32, 0.1);
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff, #eef2f8);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 14px 28px -24px rgba(11,18,32,0.32);
 }
 
-.table-scroll-container :deep(tbody) {
-  /* 保持默认 table-row-group 显示，不使用 block */
+:global(.dark) .ops-console__filters {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(28, 36, 48, 0.9), rgba(18, 24, 32, 0.94));
+  box-shadow: none;
 }
 
-.table-scroll-container :deep(th) {
-  @apply px-5 py-4 text-left text-sm font-medium text-gray-600 dark:text-dark-300 border-b border-gray-200 dark:border-dark-700;
+.ops-console__filters-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
-.table-scroll-container :deep(td) {
-  @apply px-5 py-4 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-dark-800;
+.ops-console__surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
-/* 移动端：恢复正常滚动 */
-.table-page-layout.mobile-mode .table-scroll-container {
-  @apply h-auto overflow-visible border-none shadow-none bg-transparent;
+.ops-console__table-frame {
+  flex: 1;
+  min-height: min(420px, 48vh);
+  border-radius: 16px;
+  border: 1px solid rgba(11, 18, 32, 0.1);
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 22px 42px -30px rgba(11,18,32,0.42);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.table-page-layout.mobile-mode .layout-section-scrollable {
-  @apply flex-none min-h-fit;
+.ops-console__before-table {
+  flex-shrink: 0;
+  padding: 10px 12px 0;
 }
 
-.table-page-layout.mobile-mode .table-scroll-container :deep(table) {
-  @apply flex-none;
-  display: table;
-  min-width: 100%;
+:global(.dark) .ops-console__table-frame {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(14, 20, 30, 0.92);
+  box-shadow: none;
+}
+
+.ops-console__table-scroll {
+  flex: 1 1 auto;
+  min-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-console__pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 6px 4px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(238,242,248,0.9));
+  border: 1px solid rgba(11, 18, 32, 0.06);
+}
+
+:global(.dark) .ops-console__pager {
+  background: rgba(18, 24, 32, 0.55);
+  border-color: rgba(148, 163, 184, 0.1);
+}
+
+.ops-console.is-mobile {
+  height: auto;
+  min-height: 0;
+}
+
+.ops-console.is-mobile.has-intro {
+  height: auto;
 }
 </style>
+

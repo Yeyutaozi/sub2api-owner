@@ -189,6 +189,27 @@ func newOpenAIAccountRuntimeStats() *openAIAccountRuntimeStats {
 	return &openAIAccountRuntimeStats{}
 }
 
+// Process-local OpenAI account runtime stats used by live scheduling.
+// Admin score snapshots read this without issuing any upstream probes.
+var sharedOpenAIAccountRuntimeStats atomic.Pointer[openAIAccountRuntimeStats]
+
+func registerOpenAIAccountRuntimeStats(stats *openAIAccountRuntimeStats) {
+	if stats == nil {
+		return
+	}
+	sharedOpenAIAccountRuntimeStats.Store(stats)
+}
+
+// SnapshotOpenAIAccountRuntime returns EWMA error-rate and TTFT from real requests.
+// hasTTFT is false when the account has no first-token sample yet.
+func SnapshotOpenAIAccountRuntime(accountID int64) (errorRate float64, ttftMs float64, hasTTFT bool) {
+	stats := sharedOpenAIAccountRuntimeStats.Load()
+	if stats == nil {
+		return 0, 0, false
+	}
+	return stats.snapshot(accountID)
+}
+
 func (s *openAIAccountRuntimeStats) loadOrCreate(accountID int64) *openAIAccountRuntimeStat {
 	if value, ok := s.accounts.Load(accountID); ok {
 		stat, _ := value.(*openAIAccountRuntimeStat)
@@ -350,9 +371,11 @@ func (b *openAISelectionProbeBudget) wasAttempted(accountID int64) bool {
 }
 
 type openAIStickyEscapeConfig struct {
-	enabled   bool
-	ttftMs    float64
-	errorRate float64
+	enabled          bool
+	ttftMs           float64
+	errorRate        float64
+	relativeRatio    float64 // escape if sticky TTFT > bestPeer * ratio
+	relativeMinDelta float64 // and sticky-bestPeer > this (ms)
 }
 
 func newDefaultOpenAIAccountScheduler(service *OpenAIGatewayService, stats *openAIAccountRuntimeStats) OpenAIAccountScheduler {
@@ -505,14 +528,26 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
+	var peerIDs []int64
+	if req.GroupID != nil && s.service != nil {
+		if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
+			peerIDs = make([]int64, 0, len(peers))
+			for i := range peers {
+				peerIDs = append(peerIDs, peers[i].ID)
+			}
+		}
+	}
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg, peerIDs); shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"reason", reason,
 			"error_rate", errorRate,
 			"ttft", ttft,
 		)
-		return nil, true, nil
+		// Drop sticky binding so load-balance can rebind to a faster account.
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		// Return escaped=false so subsequent selection may rebind sticky to the better account.
+		return nil, false, nil
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
@@ -577,13 +612,40 @@ func openAIAccountSchedulingPriority(account *Account) int {
 	return account.Priority
 }
 
-func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
+func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	if !cfg.enabled || s == nil || s.stats == nil || accountID <= 0 {
 		return "", 0, 0, false
 	}
 	errorRate, ttft, hasTTFT := s.stats.snapshot(accountID)
-	if hasTTFT && ttft > cfg.ttftMs {
+	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
 		return "ttft", errorRate, ttft, true
+	}
+	// Relative escape: sticky is meaningfully slower than best peer with TTFT sample.
+	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
+		bestPeer := 0.0
+		hasPeer := false
+		for _, peerID := range peerAccountIDs {
+			if peerID <= 0 || peerID == accountID {
+				continue
+			}
+			_, peerTTFT, peerHas := s.stats.snapshot(peerID)
+			if !peerHas || peerTTFT <= 0 {
+				continue
+			}
+			if !hasPeer || peerTTFT < bestPeer {
+				bestPeer = peerTTFT
+				hasPeer = true
+			}
+		}
+		if hasPeer {
+			minDelta := cfg.relativeMinDelta
+			if minDelta <= 0 {
+				minDelta = 250
+			}
+			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
+				return "ttft_relative", errorRate, ttft, true
+			}
+		}
 	}
 	if errorRate > cfg.errorRate {
 		return "error_rate", errorRate, ttft, true
@@ -934,10 +996,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		loadFactor := 1 - clamp01(float64(item.loadInfo.LoadRate)/100.0)
 		queueFactor := 1 - clamp01(float64(item.loadInfo.WaitingCount)/float64(maxWaiting))
 		errorFactor := 1 - clamp01(item.errorRate)
-		ttftFactor := 0.5
-		if item.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
-			ttftFactor = 1 - clamp01((item.ttft-minTTFT)/(maxTTFT-minTTFT))
-		}
+		ttftFactor := openAIAccountTTFTFactor(item.ttft, item.hasTTFT, hasTTFTSample, minTTFT, maxTTFT)
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
 			if end := item.account.SessionWindowEnd; end != nil && now.Before(*end) {
@@ -971,7 +1030,24 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 				item.score += weights.Previous
 			}
 			if req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
-				item.score += weights.SessionSticky
+				// Do not soft-pin sticky accounts that already fail absolute/relative TTFT escape.
+				escapeCfg := openAIStickyEscapeConfig{}
+				if s != nil && s.service != nil {
+					escapeCfg = s.service.openAIStickyEscapeConfig()
+				}
+				peerIDs := make([]int64, 0, len(candidates))
+				for i := range candidates {
+					if candidates[i].account != nil {
+						peerIDs = append(peerIDs, candidates[i].account.ID)
+					}
+				}
+				skipStickyBonus := false
+				if _, _, _, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, escapeCfg, peerIDs); shouldEscape {
+					skipStickyBonus = true
+				}
+				if !skipStickyBonus {
+					item.score += weights.SessionSticky
+				}
 			}
 		}
 	}
@@ -1004,8 +1080,22 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		ranked := selectTopKOpenAICandidates(pool, groupTopK)
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
+			escapeCfg := openAIStickyEscapeConfig{}
+			if s != nil && s.service != nil {
+				escapeCfg = s.service.openAIStickyEscapeConfig()
+			}
+			peerIDs := make([]int64, 0, len(pool))
+			for i := range pool {
+				if pool[i].account != nil {
+					peerIDs = append(peerIDs, pool[i].account.ID)
+				}
+			}
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 				if stickyID <= 0 {
+					continue
+				}
+				// Slow sticky accounts must not jump the queue ahead of faster peers.
+				if _, _, _, shouldEscape := s.shouldEscapeStickyAccount(stickyID, escapeCfg, peerIDs); shouldEscape {
 					continue
 				}
 				for i, candidate := range ranked {
@@ -1211,6 +1301,19 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	if !req.StickyWeighted {
 		return nil, nil
 	}
+	escapeCfg := openAIStickyEscapeConfig{}
+	if s != nil && s.service != nil {
+		escapeCfg = s.service.openAIStickyEscapeConfig()
+	}
+	var peerIDs []int64
+	if req.GroupID != nil && s.service != nil {
+		if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
+			peerIDs = make([]int64, 0, len(peers))
+			for i := range peers {
+				peerIDs = append(peerIDs, peers[i].ID)
+			}
+		}
+	}
 	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 		if accountID <= 0 {
 			continue
@@ -1219,6 +1322,10 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			if _, excluded := req.ExcludedIDs[accountID]; excluded {
 				continue
 			}
+		}
+		// Do not hard-fallback onto sticky accounts that should already escape by TTFT.
+		if _, _, _, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg, peerIDs); shouldEscape {
+			continue
 		}
 		account, err := s.service.getSchedulableAccount(ctx, accountID)
 		if err != nil || account == nil {
@@ -1976,6 +2083,7 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
 			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			registerOpenAIAccountRuntimeStats(s.openaiAccountStats)
 		}
 		if s.openaiScheduler == nil {
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
@@ -2263,7 +2371,7 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 		}
 		ttftMs := float64(cfg.StickyEscapeTTFTMs)
 		if ttftMs <= 0 {
-			ttftMs = 15000
+			ttftMs = 1500
 		}
 		errorRate := cfg.StickyEscapeErrorRate
 		if errorRate < 0 || errorRate > 1 {
@@ -2273,15 +2381,19 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 			errorRate = 0.5
 		}
 		return openAIStickyEscapeConfig{
-			enabled:   enabled,
-			ttftMs:    ttftMs,
-			errorRate: errorRate,
+			enabled:          enabled,
+			ttftMs:           ttftMs,
+			errorRate:        errorRate,
+			relativeRatio:    1.15,
+			relativeMinDelta: 250,
 		}
 	}
 	return openAIStickyEscapeConfig{
-		enabled:   true,
-		ttftMs:    15000,
-		errorRate: 0.5,
+		enabled:          true,
+		ttftMs:           1500,
+		errorRate:        0.5,
+		relativeRatio:    1.15,
+		relativeMinDelta: 250,
 	}
 }
 
@@ -2305,12 +2417,12 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeights() GatewayOpenAIWSSchedul
 		Load:          1.0,
 		Queue:         0.7,
 		ErrorRate:     0.8,
-		TTFT:          0.5,
+		TTFT:          1.4,
 		Reset:         0.0,
 		QuotaHeadroom: 0.0,
 		UpstreamCost:  0.0,
 		Previous:      5.0,
-		SessionSticky: 3.0,
+		SessionSticky: 1.6,
 	}
 }
 
@@ -2393,6 +2505,14 @@ type OpenAIAccountSchedulerScoreSnapshot struct {
 	StickyScore           float64
 	StickyScoreInfinity   bool
 	StickyWeightedEnabled bool
+	// Runtime observability from real request EWMA (no probe).
+	AvgFirstTokenMs float64
+	HasTTFT         bool
+	ErrorRate       float64
+	RateMultiplier  float64
+	LoadRate        float64
+	WaitingCount    int
+	Concurrency     int
 }
 
 func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshot(
@@ -2440,12 +2560,13 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		if loadInfo == nil {
 			loadInfo = &AccountLoadInfo{AccountID: account.ID}
 		}
+		errorRate, ttft, hasTTFT := SnapshotOpenAIAccountRuntime(account.ID)
 		candidates = append(candidates, openAIAccountCandidateScore{
 			account:   account,
 			loadInfo:  loadInfo,
-			errorRate: 0,
-			ttft:      0,
-			hasTTFT:   false,
+			errorRate: errorRate,
+			ttft:      ttft,
+			hasTTFT:   hasTTFT,
 		})
 	}
 	if len(candidates) == 0 {
@@ -2454,6 +2575,8 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 
 	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account), openAIAccountSchedulingPriority(candidates[0].account)
 	maxWaiting := 1
+	minTTFT, maxTTFT := 0.0, 0.0
+	hasTTFTSample := false
 	for i := range candidates {
 		candidate := &candidates[i]
 		candidate.priority = openAIAccountSchedulingPriority(candidate.account)
@@ -2465,6 +2588,19 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		}
 		if candidate.loadInfo.WaitingCount > maxWaiting {
 			maxWaiting = candidate.loadInfo.WaitingCount
+		}
+		if candidate.hasTTFT && candidate.ttft > 0 {
+			if !hasTTFTSample {
+				minTTFT, maxTTFT = candidate.ttft, candidate.ttft
+				hasTTFTSample = true
+			} else {
+				if candidate.ttft < minTTFT {
+					minTTFT = candidate.ttft
+				}
+				if candidate.ttft > maxTTFT {
+					maxTTFT = candidate.ttft
+				}
+			}
 		}
 	}
 
@@ -2508,8 +2644,8 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		}
 		loadFactor := 1 - clamp01(float64(candidate.loadInfo.LoadRate)/100.0)
 		queueFactor := 1 - clamp01(float64(candidate.loadInfo.WaitingCount)/float64(maxWaiting))
-		errorFactor := 1.0
-		ttftFactor := 0.5
+		errorFactor := 1 - clamp01(candidate.errorRate)
+		ttftFactor := openAIAccountTTFTFactor(candidate.ttft, candidate.hasTTFT, hasTTFTSample, minTTFT, maxTTFT)
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
 			if end := candidate.account.SessionWindowEnd; end != nil && now.Before(*end) {
@@ -2540,6 +2676,13 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 			BaseScore:             baseScore,
 			StickyWeightedEnabled: stickyWeightedEnabled,
 			StickyScoreInfinity:   !stickyWeightedEnabled,
+			AvgFirstTokenMs:       candidate.ttft,
+			HasTTFT:               candidate.hasTTFT,
+			ErrorRate:             candidate.errorRate,
+			RateMultiplier:        candidate.account.BillingRateMultiplier(),
+			LoadRate:              float64(candidate.loadInfo.LoadRate),
+			WaitingCount:          candidate.loadInfo.WaitingCount,
+			Concurrency:           candidate.loadInfo.CurrentConcurrency,
 		}
 		if stickyWeightedEnabled {
 			score.StickyScore = baseScore + weights.Previous + weights.SessionSticky
@@ -2727,6 +2870,28 @@ func openAIQuotaWindowResetAny(extra map[string]any, now time.Time, windows ...s
 		}
 	}
 	return false
+}
+
+// openAIAccountTTFTFactor maps first-token latency into [0,1].
+// Faster accounts score higher. Combines relative ranking (within the candidate pool)
+// with a soft absolute scale so small TTFT gaps remain decisive.
+func openAIAccountTTFTFactor(ttft float64, hasTTFT, hasSample bool, minTTFT, maxTTFT float64) float64 {
+	// Unmeasured accounts get a mild penalty vs peers that already have samples.
+	if !hasTTFT || !hasSample || ttft <= 0 {
+		return 0.36
+	}
+
+	// Absolute: ~150ms ~= 1.0, ~2.5s+ ~= 0. Steeper so slow first-token accounts drop faster.
+	absNorm := clamp01((ttft - 150.0) / 2350.0)
+	absFactor := math.Pow(1-absNorm, 1.45)
+
+	if maxTTFT > minTTFT {
+		relNorm := clamp01((ttft - minTTFT) / (maxTTFT - minTTFT))
+		// power > 1: amplify mid/slow gaps (more first-token sensitive).
+		relFactor := math.Pow(1-relNorm, 1.5)
+		return 0.64*relFactor + 0.36*absFactor
+	}
+	return absFactor
 }
 
 func clamp01(value float64) float64 {

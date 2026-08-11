@@ -1,29 +1,45 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
+    <div class="desk-board space-y-5">
+      <section class="desk-board__intro" aria-label="usage overview">
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">USAGE DESK</p>
+          <h2 class="desk-board__title">{{ t('usage.title') }}</h2>
+          <p class="desk-board__sub">{{ t('usage.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </section>
+
       <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
-        <div class="card p-4">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
-              <DateRangePicker
-                v-model:start-date="startDate"
-                v-model:end-date="endDate"
-                @change="onDateRangeChange"
-              />
-            </div>
-            <div class="ml-auto flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
-              <div class="w-28">
-                <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+        <div class="instrument-panel">
+          <div class="instrument-panel__body">
+            <p class="instrument-panel__title">RANGE · GRANULARITY</p>
+            <div class="flex flex-wrap items-center gap-4">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
+                <DateRangePicker
+                  v-model:start-date="startDate"
+                  v-model:end-date="endDate"
+                  @change="onDateRangeChange"
+                />
+              </div>
+              <div class="ml-auto flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
+                <div class="w-28">
+                  <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="desk-chart-grid grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ModelDistributionChart
             v-model:metric="modelDistributionMetric"
             :model-stats="requestedModelStats"
@@ -47,7 +63,7 @@
           />
         </div>
 
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="desk-chart-grid grid grid-cols-1 gap-6 lg:grid-cols-2">
           <EndpointDistributionChart
             v-model:source="endpointDistributionSource"
             v-model:metric="endpointDistributionMetric"
@@ -66,7 +82,7 @@
         </div>
       </div>
 
-      <div class="card p-6">
+      <div class="desk-panel p-4 sm:p-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">

@@ -502,7 +502,7 @@ const baseSettingsResponse = {
   openai_advanced_scheduler_effective_weight_load: "1",
   openai_advanced_scheduler_effective_weight_queue: "0.7",
   openai_advanced_scheduler_effective_weight_error_rate: "0.8",
-  openai_advanced_scheduler_effective_weight_ttft: "0.5",
+  openai_advanced_scheduler_effective_weight_ttft: "1.5",
   openai_advanced_scheduler_effective_weight_reset: "0",
   openai_advanced_scheduler_effective_weight_quota_headroom: "0",
   openai_advanced_scheduler_effective_weight_upstream_cost: "0",

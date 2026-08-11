@@ -117,6 +117,27 @@ func (_u *GroupUpdate) AddRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetSafeRateMultiplier sets the "safe_rate_multiplier" field.
+func (_u *GroupUpdate) SetSafeRateMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetSafeRateMultiplier()
+	_u.mutation.SetSafeRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSafeRateMultiplier sets the "safe_rate_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableSafeRateMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetSafeRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSafeRateMultiplier adds value to the "safe_rate_multiplier" field.
+func (_u *GroupUpdate) AddSafeRateMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddSafeRateMultiplier(v)
+	return _u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_u *GroupUpdate) SetPeakRateEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetPeakRateEnabled(v)
@@ -1336,6 +1357,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.SafeRateMultiplier(); ok {
+		_spec.SetField(group.FieldSafeRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSafeRateMultiplier(); ok {
+		_spec.AddField(group.FieldSafeRateMultiplier, field.TypeFloat64, value)
+	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
 	}
@@ -1984,6 +2011,27 @@ func (_u *GroupUpdateOne) SetNillableRateMultiplier(v *float64) *GroupUpdateOne 
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *GroupUpdateOne) AddRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetSafeRateMultiplier sets the "safe_rate_multiplier" field.
+func (_u *GroupUpdateOne) SetSafeRateMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetSafeRateMultiplier()
+	_u.mutation.SetSafeRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSafeRateMultiplier sets the "safe_rate_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableSafeRateMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetSafeRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSafeRateMultiplier adds value to the "safe_rate_multiplier" field.
+func (_u *GroupUpdateOne) AddSafeRateMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddSafeRateMultiplier(v)
 	return _u
 }
 
@@ -3235,6 +3283,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SafeRateMultiplier(); ok {
+		_spec.SetField(group.FieldSafeRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSafeRateMultiplier(); ok {
+		_spec.AddField(group.FieldSafeRateMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)

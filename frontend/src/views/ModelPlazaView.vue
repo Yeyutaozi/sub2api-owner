@@ -73,9 +73,10 @@ onMounted(async () => {
 .mp-page {
   min-height: 100vh;
   background:
-    radial-gradient(58rem 28rem at 8% -8%, rgb(45 212 191 / 0.09), transparent 58%),
-    radial-gradient(42rem 24rem at 96% 0%, rgb(14 116 144 / 0.07), transparent 52%),
-    linear-gradient(180deg, #f4f7fb 0%, #eef3f8 42%, #f7f9fc 100%);
+    radial-gradient(58rem 28rem at 8% -8%, rgb(45 212 191 / 0.14), transparent 58%),
+    radial-gradient(42rem 24rem at 96% 0%, rgb(251 191 36 / 0.12), transparent 52%),
+    radial-gradient(36rem 22rem at 70% 100%, rgb(244 63 94 / 0.07), transparent 55%),
+    linear-gradient(180deg, #f2f7f6 0%, #f7f4ee 48%, #f8f7fb 100%);
 }
 
 .mp-page__main {

@@ -3,6 +3,7 @@ package admin
 import (
 	"strconv"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -120,3 +121,28 @@ func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
 	}
 	response.Success(c, gin.H{"results": h.upstreamBillingProbe.ProbeAccounts(c.Request.Context(), accountIDs)})
 }
+
+type declareUpstreamDeclaredRateRequest struct {
+	Rate *float64 `json:"rate"`
+}
+
+// DeclareUpstreamDeclaredRate key-merges manual upstream cost rate for NewAPI / unsupported probes.
+func (h *AccountHandler) DeclareUpstreamDeclaredRate(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req declareUpstreamDeclaredRateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	account, err := h.adminService.DeclareUpstreamDeclaredRate(c.Request.Context(), accountID, req.Rate)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.AccountFromService(account))
+}
+

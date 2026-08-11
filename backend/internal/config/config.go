@@ -1235,7 +1235,7 @@ func (w GatewayOpenAIWSSchedulerScoreWeights) IsValid() bool {
 type GatewayOpenAISchedulerConfig struct {
 	// StickyEscapeEnabled: 是否允许 session_hash sticky 在账号健康度劣化时临时逃逸
 	StickyEscapeEnabled bool `mapstructure:"sticky_escape_enabled"`
-	// StickyEscapeTTFTMs: TTFT EWMA 超过该阈值时跳过 sticky
+	// StickyEscapeTTFTMs: TTFT EWMA 超过该阈值时跳过 sticky（更敏感：默认 1500ms 绝对阈值 + 相对 1.15x，避免慢首字账号被粘住）
 	StickyEscapeTTFTMs int `mapstructure:"sticky_escape_ttft_ms"`
 	// StickyEscapeErrorRate: 错误率 EWMA 超过该阈值时跳过 sticky
 	StickyEscapeErrorRate float64 `mapstructure:"sticky_escape_error_rate"`
@@ -1707,7 +1707,8 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 	cfg.Server.TrustedProxiesConfigured = trustedProxiesConfigured
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs == 0 {
-		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+		// Sensitive default: sticky should not pin multi-second-slow accounts.
+		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 1500
 	}
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate == 0 {
 		cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
@@ -2303,12 +2304,12 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.load", 1.0)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.queue", 0.7)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.error_rate", 0.8)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 0.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 2.5)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.0)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.quota_headroom", 0.0)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.upstream_cost", 0.0)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.previous_response", 5.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 3.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 1.5)
 	// OpenAI HTTP upstream protocol strategy
 	viper.SetDefault("gateway.openai_http2.enabled", true)
 	viper.SetDefault("gateway.openai_http2.allow_proxy_fallback_to_http1", true)

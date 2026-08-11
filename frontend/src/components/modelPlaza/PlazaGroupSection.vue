@@ -1,10 +1,10 @@
 <template>
   <section
-    class="rounded-2xl border bg-white shadow-card dark:bg-dark-800/50"
+    class="desk-panel overflow-hidden"
     :class="[platformBorderStrongClass(group.platform)]"
   >
     <!-- 分组头部:名称/平台/倍率徽章/专属/订阅徽章 + 描述 -->
-    <header class="border-b border-gray-100 px-5 py-4 dark:border-dark-700/60">
+    <header class="desk-panel-head !items-start px-5 py-4">
       <div class="flex flex-wrap items-center gap-2">
         <GroupBadge
           :name="group.name"
@@ -20,14 +20,14 @@
         />
         <span
           v-if="group.is_exclusive"
-          class="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600 dark:bg-purple-900/20 dark:text-purple-400"
+          class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/20 dark:text-primary-300"
         >
           <Icon name="shield" size="xs" class="h-3 w-3" />
           {{ t('modelPlaza.badges.exclusive') }}
         </span>
         <span
           v-if="group.subscription_type === 'subscription'"
-          class="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-600 dark:bg-violet-900/20 dark:text-violet-400"
+          class="inline-flex items-center rounded-md bg-signal-50 px-2 py-0.5 text-xs font-medium text-signal-700 dark:bg-signal-900/20 dark:text-signal-300"
         >
           {{ t('modelPlaza.badges.subscription') }}
         </span>
@@ -43,7 +43,7 @@
         {{ peakNote }}
       </p>
       <p
-        class="mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 dark:border-dark-600 dark:bg-dark-900/40 dark:text-dark-300"
+        class="mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-signal-200/80 bg-signal-50 px-2.5 py-1 text-xs text-signal-800 dark:border-signal-800/40 dark:bg-signal-900/20 dark:text-signal-200"
         :title="group.ttft_disclaimer || t('modelPlaza.detail.ttftDisclaimer')"
         data-testid="plaza-group-ttft"
       >

@@ -542,7 +542,7 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     title: '模型广场',
-    description: '按模型浏览全站开放目录：同模型合并展示不同分组倍率与价格；视频按画质、按秒/按条计价',
+    description: '以模型为主：同一模型只出现一次，下方挂载各分组报价、倍率与近期首字（仅供参考）；视频按画质、按秒/按条计价',
     loading: '加载中...',
     empty: '暂无可展示的模型',
     loadFailed: '加载模型广场失败',
@@ -567,7 +567,10 @@ export default {
     card: {
       offers: '{n} 个分组报价',
       bestOffer: '最优报价',
-      baseRate: '默认 {rate}'
+      baseRate: '默认 {rate}',
+      groupMountTitle: '分组报价',
+      groupMountHint: '同一模型下各分组价格与近期首字，便于比价',
+      groupLabel: '分组'
     },
     filters: {
       platformLabel: '平台',
@@ -596,20 +599,26 @@ export default {
       cache: '缓存',
       cacheWrite: '写入',
       cacheRead: '读取',
-      paidPrice: '实付价格(折后)',
-      officialPrice: '官方价格',
-      rate: '折扣倍率',
-      unitPerMillion: '$ / 1M token',
-      unitPerSecond: 'USD / 秒（已乘分组倍率）',
-      unitPerRequest: 'USD / 条（已乘分组倍率）',
-      perUnitRequest: '/ 次',
-      perUnitImage: 'USD / 张（已乘分组倍率）',
-      perRequest: '按次计费',
-      perImage: '按图片计费'
+      paidPrice: '折后实付价',
+      officialPrice: '官方参考价',
+      rate: '分组折扣倍率',
+      unitPerMillion: '单位：美元 / 百万 Token',
+      unitPerSecond: '单位：美元 / 秒',
+      unitPerRequest: '单位：美元 / 条视频',
+      perUnitRequest: '单位：美元 / 次',
+      perUnitImage: '单位：美元 / 张图片',
+      perSecond: '按秒计费',
+      perRequest: '按条视频计费',
+      perImage: '按张图片计费',
+      rateAppliedNote: '下方金额已含本分组折扣倍率（基础价 × 倍率）',
+      imageBillingHint: '按输出图片张数结算；1K / 2K / 4K 为清晰度档位',
+      videoBillingPerSecondHint: '按生成视频时长（秒）结算',
+      videoBillingPerClipHint: '按输出视频条数结算'
     },
     nav: {
       login: '登录',
-      backToDashboard: '回到后台'
+      backToDashboard: '返回后台',
+      subtitle: '模型目录与分组报价'
     }
   },
 

@@ -42,8 +42,10 @@
             </p>
             <div v-if="selectedKeyId" class="cc-topbar__meta">
               <span v-if="userBalance != null" class="cc-topbar__balance" :title="t('creazyCanvas.key.balanceHint')">
-                <em>{{ t('creazyCanvas.key.balance') }}</em>
-                <strong>{{ formatMoney(userBalance) }}</strong>
+                <span class="cc-topbar__balance-label">{{ t('creazyCanvas.key.balance') }}</span>
+                <strong class="cc-topbar__balance-value">
+                  <span class="cc-topbar__balance-currency">$</span>{{ formatMoney(userBalance) }}
+                </strong>
               </span>
               <p class="cc-topbar__hint">{{ t('creazyCanvas.key.selectOnlyHint') }}</p>
             </div>
@@ -2189,9 +2191,17 @@ const showTaskTray = computed(
 function formatMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(Number(n))) return ''
   const v = Number(n)
-  if (Math.abs(v) >= 100) return v.toFixed(2)
-  if (Math.abs(v) >= 1) return v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+  const abs = Math.abs(v)
+  let raw = ''
+  if (abs >= 100) raw = v.toFixed(2)
+  else if (abs >= 1) raw = v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+  else raw = v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+  // 大额余额加千分位，提升可读性（如 999998.55 -> 999,998.55）
+  const neg = raw.startsWith('-')
+  const body = neg ? raw.slice(1) : raw
+  const [intPart, decPart] = body.split('.')
+  const withSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return (neg ? '-' : '') + withSep + (decPart != null ? '.' + decPart : '')
 }
 
 function pickPrice(prices: Record<string, number | null | undefined> | undefined, keys: string[]): number | null {
@@ -6027,7 +6037,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* =========================================================
-   Creazy Canvas — Stage Console
+   Creazy Canvas / Stage Console
    Media-first workbench: cool graphite, cyan signal, stage bezels.
    ========================================================= */
 
@@ -6044,10 +6054,10 @@ onBeforeUnmount(() => {
   --cc-surface-3: #f1f5f9;
   --cc-stage: #0b1220;
   --cc-stage-2: #111827;
-  --cc-accent: #0f766e;
-  --cc-accent-2: #0e7490;
-  --cc-accent-bright: #2dd4bf;
-  --cc-accent-soft: #ccfbf1;
+  --cc-accent: #1d4ed8;
+  --cc-accent-2: #2563eb;
+  --cc-accent-bright: #60a5fa;
+  --cc-accent-soft: #dbeafe;
   --cc-ok: #059669;
   --cc-ok-soft: #d1fae5;
   --cc-warn: #d97706;
@@ -6060,9 +6070,9 @@ onBeforeUnmount(() => {
   --cc-radius-sm: 12px;
   --cc-shadow: 0 1px 0 rgb(15 23 42 / 0.04), 0 10px 30px -18px rgb(15 23 42 / 0.28);
   --cc-shadow-lg: 0 2px 4px rgb(15 23 42 / 0.05), 0 24px 48px -28px rgb(15 23 42 / 0.35);
-  --cc-font: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-  --cc-display: "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --cc-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  --cc-font: "IBM Plex Sans", "Source Sans 3", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --cc-display: "Outfit", "Space Grotesk", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --cc-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   position: relative;
   margin: 0 auto;
   max-width: 84rem;
@@ -6080,9 +6090,9 @@ onBeforeUnmount(() => {
   pointer-events: none;
   z-index: -1;
   background:
-    radial-gradient(58rem 28rem at 8% -8%, rgb(45 212 191 / 0.09), transparent 58%),
-    radial-gradient(42rem 24rem at 96% 0%, rgb(14 116 144 / 0.07), transparent 52%),
-    linear-gradient(180deg, #f4f7fb 0%, #eef3f8 42%, #f7f9fc 100%);
+    radial-gradient(58rem 28rem at 8% -8%, rgb(37 99 235 / 0.08), transparent 58%),
+    radial-gradient(42rem 24rem at 96% 0%, rgb(180 83 9 / 0.06), transparent 52%),
+    linear-gradient(180deg, #e8eef7 0%, #dfe7f2 42%, #eef3f8 100%);
 }
 :global(.dark) .cc-shell::before {
   background:
@@ -6105,10 +6115,10 @@ onBeforeUnmount(() => {
   --cc-surface-3: #162033;
   --cc-stage: #05080f;
   --cc-stage-2: #0b1220;
-  --cc-accent: #2dd4bf;
-  --cc-accent-2: #22d3ee;
-  --cc-accent-bright: #5eead4;
-  --cc-accent-soft: #134e4a;
+  --cc-accent: #a5b4fc;
+  --cc-accent-2: #60a5fa;
+  --cc-accent-bright: #bfdbfe;
+  --cc-accent-soft: #1e3a8a;
   --cc-ok: #34d399;
   --cc-ok-soft: #064e3b;
   --cc-warn: #fbbf24;
@@ -6124,25 +6134,75 @@ onBeforeUnmount(() => {
 /* Top bar */
 .cc-topbar {
   position: relative;
-  border: 1px solid var(--cc-line);
-  border-radius: calc(var(--cc-radius) + 4px);
+  border: 1px solid rgba(11, 18, 32, 0.45);
+  border-radius: calc(var(--cc-radius) + 2px);
   background:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 55%, transparent), transparent 55%),
-    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 96%, #fff), var(--cc-surface));
-  box-shadow: var(--cc-shadow);
+    radial-gradient(120% 140% at 100% 0%, rgba(37, 99, 235, 0.28), transparent 45%),
+    radial-gradient(90% 120% at 0% 100%, rgba(180, 83, 9, 0.16), transparent 42%),
+    linear-gradient(135deg, #101a2b 0%, #15233a 48%, #0f1728 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 36px -28px rgba(11, 18, 32, 0.75);
   overflow: hidden;
+  color: #e2e8f0;
 }
 .cc-topbar::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(180deg, var(--cc-accent-bright), var(--cc-accent) 45%, #0369a1);
+  width: 5px;
+  background: linear-gradient(180deg, #60a5fa, #2563eb 45%, #b45309);
 }
 :global(.dark) .cc-topbar {
   background:
-    radial-gradient(100% 80% at 0% 0%, color-mix(in srgb, var(--cc-accent-soft) 45%, transparent), transparent 50%),
-    linear-gradient(180deg, var(--cc-surface-2), var(--cc-surface));
+    radial-gradient(120% 140% at 100% 0%, rgba(37, 99, 235, 0.22), transparent 45%),
+    linear-gradient(135deg, #0c1422 0%, #121c2e 100%);
+}
+/* forge topbar text */
+.cc-topbar .cc-eyebrow { color: #93c5fd !important; }
+.cc-topbar .cc-topbar__title { color: #f8fafc !important; }
+.cc-topbar .cc-topbar__sub { color: #9fb0c8 !important; }
+.cc-topbar .cc-topbar__key-label { color: #bfdbfe !important; }
+.cc-topbar .cc-topbar__hint,
+.cc-topbar .cc-topbar__empty { color: #8fa0b8 !important; }
+.cc-topbar .cc-topbar__balance {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.88)) !important;
+  border: 1px solid rgba(250, 204, 21, 0.45) !important;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.35), 0 8px 18px rgba(2, 6, 23, 0.28) !important;
+  color: #f8fafc !important;
+}
+.cc-topbar .cc-topbar__balance-label,
+.cc-topbar .cc-topbar__balance em {
+  color: #fde68a !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+}
+.cc-topbar .cc-topbar__balance-value,
+.cc-topbar .cc-topbar__balance strong {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35) !important;
+}
+.cc-topbar .cc-topbar__balance-currency {
+  color: #facc15 !important;
+  margin-right: 0.08em;
+}
+.cc-topbar .cc-topbar__select,
+.cc-topbar select.input {
+  background: rgba(255,255,255,0.1) !important;
+  border-color: rgba(147,197,253,0.35) !important;
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+}
+.cc-topbar .cc-topbar__select option {
+  color: #0b1220;
+  background: #fff;
+}
+.cc-topbar .cc-topbar__key {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(148,163,184,0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
 }
 .cc-topbar__main {
   display: grid;
@@ -6269,17 +6329,45 @@ onBeforeUnmount(() => {
 .cc-topbar__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.7rem; }
 .cc-topbar__balance {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  padding: 0.2rem 0.55rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.34rem 0.7rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--cc-accent-soft) 70%, var(--cc-surface));
-  border: 1px solid color-mix(in srgb, var(--cc-accent) 24%, var(--cc-line));
-  font-size: 0.78rem;
-  color: var(--cc-ink);
+  background: linear-gradient(180deg, #0f172a, #111827);
+  border: 1px solid rgba(250, 204, 21, 0.42);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  font-size: 0.8rem;
+  color: #f8fafc;
+  max-width: 100%;
 }
-.cc-topbar__balance em { font-style: normal; color: var(--cc-muted); font-size: 0.7rem; }
-.cc-topbar__balance strong { font-family: var(--cc-mono); font-weight: 700; color: var(--cc-accent); font-size: 0.86rem; }
+.cc-topbar__balance-label,
+.cc-topbar__balance em {
+  font-style: normal;
+  color: #fde68a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.cc-topbar__balance-value,
+.cc-topbar__balance strong {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--cc-mono);
+  font-weight: 800;
+  color: #ffffff;
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.cc-topbar__balance-currency {
+  color: #facc15;
+  font-size: 0.82em;
+  font-weight: 800;
+  margin-right: 0.05em;
+}
 .cc-topbar__hint { margin: 0; flex: 1 1 12rem; font-size: 0.72rem; line-height: 1.4; color: var(--cc-faint); }
 
 .cc-pill {

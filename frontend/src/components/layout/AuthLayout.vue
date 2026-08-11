@@ -168,21 +168,21 @@ onBeforeUnmount(() => {
   --ink: #0a1213;
   --muted: #536562;
   --rule: #b7c5c2;
-  --cobalt: #176bff;
-  --coral: #ef6b45;
-  --mint: #68dfbd;
-  --shell: #071012;
-  --shell-raised: #0e1a1d;
+  --cobalt: #14b0a3;
+  --coral: #e11d48;
+  --mint: #2dd4bf;
+  --shell: #081018;
+  --shell-raised: #0c141c;
   --shell-ink: #eef7f5;
   --shell-muted: #8ba09d;
   --shell-rule: #29403f;
-  --auth-signal: var(--cobalt);
-  --auth-panel: #0d191c;
-  --auth-field: #142326;
+  --auth-signal: #14b0a3;
+  --auth-panel: #0c141c;
+  --auth-field: #122029;
   --auth-ink: #eef7f5;
   --auth-muted: #a5b7b3;
   --auth-rule: #314846;
-  --auth-accent: #6f91ff;
+  --auth-accent: #14b0a3;
   --auth-cycle: 8.4s;
   display: flex;
   position: relative;
@@ -207,9 +207,9 @@ onBeforeUnmount(() => {
   --ink: #eef5f3;
   --muted: #99aaa6;
   --rule: #2a3938;
-  --cobalt: #6f91ff;
-  --coral: #ff8768;
-  --mint: #42d5b5;
+  --cobalt: #2dd4bf;
+  --coral: #fb7185;
+  --mint: #5eead4;
   --shell: #04090b;
   --shell-raised: #0a1316;
   --shell-rule: #243837;
@@ -218,7 +218,7 @@ onBeforeUnmount(() => {
   --auth-ink: #eef7f5;
   --auth-muted: #9eb0ac;
   --auth-rule: #293d3b;
-  --auth-accent: #7898ff;
+  --auth-accent: #2dd4bf;
 }
 
 .workbench-header,

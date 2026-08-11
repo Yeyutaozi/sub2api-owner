@@ -21854,6 +21854,8 @@ type GroupMutation struct {
 	description                             *string
 	rate_multiplier                         *float64
 	addrate_multiplier                      *float64
+	safe_rate_multiplier                    *float64
+	addsafe_rate_multiplier                 *float64
 	peak_rate_enabled                       *bool
 	peak_start                              *string
 	peak_end                                *string
@@ -22307,6 +22309,62 @@ func (m *GroupMutation) AddedRateMultiplier() (r float64, exists bool) {
 func (m *GroupMutation) ResetRateMultiplier() {
 	m.rate_multiplier = nil
 	m.addrate_multiplier = nil
+}
+
+// SetSafeRateMultiplier sets the "safe_rate_multiplier" field.
+func (m *GroupMutation) SetSafeRateMultiplier(f float64) {
+	m.safe_rate_multiplier = &f
+	m.addsafe_rate_multiplier = nil
+}
+
+// SafeRateMultiplier returns the value of the "safe_rate_multiplier" field in the mutation.
+func (m *GroupMutation) SafeRateMultiplier() (r float64, exists bool) {
+	v := m.safe_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSafeRateMultiplier returns the old "safe_rate_multiplier" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldSafeRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSafeRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSafeRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSafeRateMultiplier: %w", err)
+	}
+	return oldValue.SafeRateMultiplier, nil
+}
+
+// AddSafeRateMultiplier adds f to the "safe_rate_multiplier" field.
+func (m *GroupMutation) AddSafeRateMultiplier(f float64) {
+	if m.addsafe_rate_multiplier != nil {
+		*m.addsafe_rate_multiplier += f
+	} else {
+		m.addsafe_rate_multiplier = &f
+	}
+}
+
+// AddedSafeRateMultiplier returns the value that was added to the "safe_rate_multiplier" field in this mutation.
+func (m *GroupMutation) AddedSafeRateMultiplier() (r float64, exists bool) {
+	v := m.addsafe_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSafeRateMultiplier resets all changes to the "safe_rate_multiplier" field.
+func (m *GroupMutation) ResetSafeRateMultiplier() {
+	m.safe_rate_multiplier = nil
+	m.addsafe_rate_multiplier = nil
 }
 
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
@@ -25055,7 +25113,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 55)
+	fields := make([]string, 0, 56)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25073,6 +25131,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
+	}
+	if m.safe_rate_multiplier != nil {
+		fields = append(fields, group.FieldSafeRateMultiplier)
 	}
 	if m.peak_rate_enabled != nil {
 		fields = append(fields, group.FieldPeakRateEnabled)
@@ -25241,6 +25302,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.Description()
 	case group.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case group.FieldSafeRateMultiplier:
+		return m.SafeRateMultiplier()
 	case group.FieldPeakRateEnabled:
 		return m.PeakRateEnabled()
 	case group.FieldPeakStart:
@@ -25360,6 +25423,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldDescription(ctx)
 	case group.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case group.FieldSafeRateMultiplier:
+		return m.OldSafeRateMultiplier(ctx)
 	case group.FieldPeakRateEnabled:
 		return m.OldPeakRateEnabled(ctx)
 	case group.FieldPeakStart:
@@ -25508,6 +25573,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRateMultiplier(v)
+		return nil
+	case group.FieldSafeRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSafeRateMultiplier(v)
 		return nil
 	case group.FieldPeakRateEnabled:
 		v, ok := value.(bool)
@@ -25863,6 +25935,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
 	}
+	if m.addsafe_rate_multiplier != nil {
+		fields = append(fields, group.FieldSafeRateMultiplier)
+	}
 	if m.addpeak_rate_multiplier != nil {
 		fields = append(fields, group.FieldPeakRateMultiplier)
 	}
@@ -25933,6 +26008,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case group.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case group.FieldSafeRateMultiplier:
+		return m.AddedSafeRateMultiplier()
 	case group.FieldPeakRateMultiplier:
 		return m.AddedPeakRateMultiplier()
 	case group.FieldDailyLimitUsd:
@@ -25988,6 +26065,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case group.FieldSafeRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSafeRateMultiplier(v)
 		return nil
 	case group.FieldPeakRateMultiplier:
 		v, ok := value.(float64)
@@ -26272,6 +26356,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case group.FieldSafeRateMultiplier:
+		m.ResetSafeRateMultiplier()
 		return nil
 	case group.FieldPeakRateEnabled:
 		m.ResetPeakRateEnabled()

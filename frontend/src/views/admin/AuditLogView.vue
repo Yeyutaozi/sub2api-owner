@@ -1,6 +1,19 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #intro>
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">AUDIT TAPE</p>
+          <h2 class="desk-board__title">{{ t('admin.audit.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.audit.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </template>
+
       <!-- Filters -->
       <template #filters>
         <div class="card p-4 sm:p-6">

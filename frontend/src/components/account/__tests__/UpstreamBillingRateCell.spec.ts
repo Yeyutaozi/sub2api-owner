@@ -377,4 +377,53 @@ describe('UpstreamBillingRateCell', () => {
     )
     expect(wrapper.text()).not.toContain('-admin.accounts.upstreamBilling.unsupported')
   })
+
+  it('shows manual declared rate when probe does not expose ratio', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_declared_rate_multiplier: 1.25,
+            upstream_billing_probe: {
+              status: 'unsupported',
+              last_error: 'rate_not_exposed',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('1.25x')
+    expect(wrapper.get('[data-testid="upstream-billing-source-badge"]').text()).toContain(
+      'admin.accounts.upstreamBilling.badgeManual'
+    )
+  })
+
+  it('emits declare-rate from quick declare when rate is missing', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('0.9')
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe: {
+              status: 'unsupported',
+              last_error: 'rate_not_exposed',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    await wrapper.get('[data-testid="upstream-billing-quick-declare"]').trigger('click')
+    expect(promptSpy).toHaveBeenCalled()
+    expect(wrapper.emitted('declare-rate')?.[0]).toEqual([0.9])
+    promptSpy.mockRestore()
+  })
+
 })

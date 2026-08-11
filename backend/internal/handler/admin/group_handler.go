@@ -99,7 +99,8 @@ type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
 	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse minimax grokimagine composite"`
-	RateMultiplier   float64            `json:"rate_multiplier"`
+	RateMultiplier     float64  `json:"rate_multiplier"`
+	SafeRateMultiplier float64  `json:"safe_rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
@@ -161,7 +162,8 @@ type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
 	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok glm seedance ltx happyhorse minimax grokimagine composite"`
-	RateMultiplier   *float64           `json:"rate_multiplier"`
+	RateMultiplier     *float64 `json:"rate_multiplier"`
+	SafeRateMultiplier *float64 `json:"safe_rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -487,6 +489,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		SafeRateMultiplier:              req.SafeRateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
@@ -608,6 +611,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		SafeRateMultiplier:              req.SafeRateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,

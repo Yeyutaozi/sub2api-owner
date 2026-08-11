@@ -1,19 +1,25 @@
 <template>
-  <header
-    class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50"
-  >
+  <header class="mp-nav">
     <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
-      <!-- 左:站点 logo + 名称 -->
+      <!-- Left: site logo + name -->
       <div class="flex min-w-0 items-center gap-3">
         <template v-if="settings">
           <span
-            class="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-200 dark:bg-dark-800 dark:ring-dark-700"
+            class="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-primary-200/70 dark:bg-dark-800 dark:ring-primary-800/40"
           >
             <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
           </span>
-          <span class="truncate text-base font-semibold text-gray-950 dark:text-white">
-            {{ siteName }}
-          </span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="truncate font-display text-base font-semibold tracking-tight text-gray-950 dark:text-white">
+                {{ siteName }}
+              </span>
+              <span class="protocol-pill shrink-0"><i></i>PLAZA</span>
+            </div>
+            <p class="mt-0.5 hidden text-[11px] text-gray-500 dark:text-dark-400 sm:block">
+              {{ t('modelPlaza.nav.subtitle') }}
+            </p>
+          </div>
         </template>
         <template v-else>
           <span class="h-9 w-9 flex-shrink-0 animate-pulse rounded-xl bg-gray-200 dark:bg-dark-700" aria-hidden="true"></span>
@@ -21,18 +27,18 @@
         </template>
       </div>
 
-      <!-- 右:登录 / 回到后台 -->
+      <!-- Right: login / back -->
       <RouterLink
         v-if="isAuthenticated"
         :to="backTarget"
-        class="inline-flex flex-shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary-500/25 transition-all duration-200 hover:from-primary-600 hover:to-primary-700 hover:shadow-lg hover:shadow-primary-500/30 active:scale-[0.98] dark:shadow-primary-500/20"
+        class="btn btn-primary btn-sm"
       >
         {{ t('modelPlaza.nav.backToDashboard') }}
       </RouterLink>
       <RouterLink
         v-else
         :to="{ path: '/login', query: { redirect: '/model-plaza' } }"
-        class="inline-flex flex-shrink-0 items-center justify-center rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-teal-700/20 transition-all duration-200 hover:bg-teal-800 hover:shadow-lg active:scale-[0.98]"
+        class="btn btn-primary btn-sm"
       >
         {{ t('modelPlaza.nav.login') }}
       </RouterLink>
@@ -59,3 +65,22 @@ const siteLogo = computed(() =>
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const backTarget = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
 </script>
+
+<style scoped>
+.mp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid rgba(15, 23, 32, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 247, 246, 0.78));
+  backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.dark .mp-nav {
+  border-bottom-color: rgba(51, 65, 85, 0.55);
+  background: linear-gradient(180deg, rgba(15, 23, 32, 0.92), rgba(8, 13, 19, 0.82));
+  box-shadow: none;
+}
+</style>

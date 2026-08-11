@@ -93,7 +93,7 @@ export default {
       upstreamErrors: 'Upstream Errors',
       errorCountExcl429529: 'Error Count (excl 429/529)',
       sla: 'SLA (excl business limits)',
-      businessLimited: 'business_limited:',
+      businessLimited: 'Business limited',
       errors: 'Errors',
       errorRate: 'error_rate:',
       upstreamRate: 'upstream_rate:',

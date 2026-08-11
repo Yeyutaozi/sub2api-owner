@@ -1,6 +1,19 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #intro>
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">USER REGISTRY</p>
+          <h2 class="desk-board__title">{{ t('admin.users.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.users.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </template>
+
       <!-- Single Row: Search, Filters, and Actions -->
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">

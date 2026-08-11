@@ -1,14 +1,18 @@
-﻿package service
+package service
 
 import (
 	"testing"
 	"time"
 )
 
-func TestGroupSafeRateBaselineAlignsWithSellRate(t *testing.T) {
-	g := &Group{RateMultiplier: 1.2}
+func TestGroupSafeRateBaselineUsesIndependentSafeRate(t *testing.T) {
+	g := &Group{RateMultiplier: 2.0, SafeRateMultiplier: 1.2}
 	if got := GroupSafeRateBaseline(g); got != 1.2 {
-		t.Fatalf("baseline=%v want 1.2", got)
+		t.Fatalf("baseline=%v want independent 1.2 (not sell 2.0)", got)
+	}
+	g2 := &Group{RateMultiplier: 0.5, SafeRateMultiplier: 0}
+	if got := GroupSafeRateBaseline(g2); got != 1 {
+		t.Fatalf("zero SafeRateMultiplier fallback=%v want 1", got)
 	}
 	if got := GroupSafeRateBaseline(nil); got != 1 {
 		t.Fatalf("nil baseline=%v want 1", got)
@@ -69,7 +73,7 @@ func TestResolveAccountUpstreamCostRateProbeAndManual(t *testing.T) {
 
 func TestFilterAccountsByGroupSafeRate(t *testing.T) {
 	now := time.Now().UTC()
-	group := &Group{ID: 1, RateMultiplier: 1.0}
+	group := &Group{ID: 1, RateMultiplier: 2.0, SafeRateMultiplier: 1.0}
 	cheap := Account{ID: 1, Extra: map[string]any{AccountExtraUpstreamDeclaredRate: 0.8}}
 	equal := Account{ID: 2, Extra: map[string]any{AccountExtraUpstreamDeclaredRate: 1.0}}
 	expensive := Account{ID: 3, Extra: map[string]any{AccountExtraUpstreamDeclaredRate: 1.2}}
@@ -90,8 +94,8 @@ func TestBuildSafeRateStatusOverGroups(t *testing.T) {
 	now := time.Now().UTC()
 	account := &Account{Extra: map[string]any{AccountExtraUpstreamDeclaredRate: 1.2}}
 	groups := []*Group{
-		{ID: 10, RateMultiplier: 1.0},
-		{ID: 11, RateMultiplier: 1.5},
+		{ID: 10, RateMultiplier: 2.0, SafeRateMultiplier: 1.0},
+		{ID: 11, RateMultiplier: 0.5, SafeRateMultiplier: 1.5},
 	}
 	status := BuildSafeRateStatus(account, groups, now)
 	if status.Status != SafeRateStatusOverSafe {

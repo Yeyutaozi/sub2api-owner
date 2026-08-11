@@ -91,6 +91,8 @@ type AdminService interface {
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
 	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
+	// DeclareUpstreamDeclaredRate key-merges manual upstream cost rate and refreshes safe-rate badge.
+	DeclareUpstreamDeclaredRate(ctx context.Context, id int64, rate *float64) (*Account, error)
 	DeleteAccount(ctx context.Context, id int64) error
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
 	ClearAccountError(ctx context.Context, id int64) (*Account, error)
@@ -214,7 +216,9 @@ type CreateGroupInput struct {
 	Name             string
 	Description      string
 	Platform         string
-	RateMultiplier   float64
+	RateMultiplier     float64
+	// SafeRateMultiplier independent upstream cost ceiling; <=0 rejected. Defaults to RateMultiplier when omitted via pointer path not used here.
+	SafeRateMultiplier float64
 	IsExclusive      bool
 	SubscriptionType string   // standard/subscription
 	DailyLimitUSD    *float64 // 日限额 (USD)
@@ -278,7 +282,8 @@ type UpdateGroupInput struct {
 	Name             string
 	Description      *string
 	Platform         string
-	RateMultiplier   *float64 // 使用指针以支持设置为0
+	RateMultiplier     *float64
+	SafeRateMultiplier *float64 // 使用指针以支持设置为0
 	IsExclusive      *bool
 	Status           string
 	SubscriptionType string   // standard/subscription

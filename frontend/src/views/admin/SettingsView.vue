@@ -1,6 +1,18 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl space-y-6">
+    <div class="desk-board mx-auto max-w-6xl space-y-5">
+      <section class="desk-board__intro" aria-label="settings">
+        <div class="desk-board__intro-copy">
+          <p class="page-kicker">CONTROL ROOM</p>
+          <h2 class="desk-board__title">{{ t('admin.settings.title') }}</h2>
+          <p class="desk-board__sub">{{ t('admin.settings.description') }}</p>
+        </div>
+        <div class="desk-board__signal" aria-hidden="true">
+          <span class="desk-board__signal-seg is-ok"></span>
+          <span class="desk-board__signal-seg is-warn"></span>
+          <span class="desk-board__signal-seg is-alarm"></span>
+        </div>
+      </section>
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <div
@@ -12,6 +24,7 @@
       <form v-else @submit.prevent="saveSettings" class="space-y-6" novalidate>
         <!-- Tab Navigation -->
         <div class="settings-tabs-shell">
+          <div class="settings-tabs-kicker">CONTROL RAILS</div>
           <nav
             class="settings-tabs-scroll"
             role="tablist"
@@ -9124,7 +9137,7 @@ const openAIAdvancedSchedulerWeightFields = computed<
     {
       key: "openai_advanced_scheduler_weight_ttft",
       label: t("admin.settings.openaiExperimentalScheduler.ttftWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_ttft", "0.5"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_ttft", "1.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_reset",
@@ -12141,6 +12154,46 @@ watch(
 .settings-tab-label {
   @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
 }
+
+.settings-tabs-kicker {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-family: ui-monospace, Cascadia Mono, Consolas, monospace;
+  color: #0e8f88;
+  padding: 10px 14px 0;
+}
+.settings-tabs-shell {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(20, 176, 163, 0.14);
+  background:
+    linear-gradient(90deg, rgba(20,176,163,0.06), transparent 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.96), rgba(244,250,248,0.92));
+  box-shadow: 0 1px 0 rgba(15,23,32,0.03), 0 18px 36px -30px rgba(15,23,32,0.28);
+}
+.settings-tabs-shell::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #14b0a3, #d97706 55%, #e11d48);
+}
+.dark .settings-tabs-shell {
+  border-color: rgba(45, 212, 191, 0.14);
+  background:
+    linear-gradient(90deg, rgba(20,176,163,0.08), transparent 24%),
+    linear-gradient(180deg, rgba(15,23,32,0.9), rgba(15,23,32,0.75));
+}
+.settings-tab-active {
+  background: linear-gradient(180deg, rgba(20,176,163,0.14), rgba(20,176,163,0.05)) !important;
+  color: #0f766e !important;
+  box-shadow: inset 0 -2px 0 #14b0a3;
+}
+
 </style>
 
 <style>

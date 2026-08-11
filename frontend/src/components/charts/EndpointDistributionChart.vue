@@ -1,5 +1,5 @@
 <template>
-  <div class="card p-4">
+  <div class="card chart-desk p-4">
     <div class="mb-4 flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
         {{ title || t('usage.endpointDistribution') }}
@@ -71,19 +71,19 @@
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
-    <div v-else-if="displayEndpointStats.length > 0 && chartData" class="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
-      <div class="h-48 w-48 shrink-0">
+    <div v-else-if="displayEndpointStats.length > 0 && chartData" class="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-6">
+      <div class="chart-canvas-box h-48 w-48 shrink-0">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
-        <table class="w-full text-xs">
+      <div class="chart-legend-scroll max-h-48 w-full min-w-0 flex-1 overflow-auto">
+        <table class="chart-legend-table w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
-              <th class="pb-2 text-left">{{ t('usage.endpoint') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
+              <th class="pb-2 pr-3 text-left whitespace-nowrap">{{ t('usage.endpoint') }}</th>
+              <th class="pb-2 pl-3 text-right whitespace-nowrap">{{ t('admin.dashboard.requests') }}</th>
+              <th class="pb-2 pl-3 text-right whitespace-nowrap">{{ t('admin.dashboard.tokens') }}</th>
+              <th class="pb-2 pl-3 text-right whitespace-nowrap">{{ t('admin.dashboard.actual') }}</th>
+              <th class="pb-2 pl-3 text-right whitespace-nowrap">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -211,6 +211,23 @@ const toggleBreakdown = async (endpoint: string) => {
   }
 }
 
+
+const toPieNumber = (value: unknown): number => {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? Math.max(0, n) : 0
+}
+
+/** Chart.js doughnut 对全 0 数据不绘制扇区；此时回退到请求数保证可见 */
+const pieValues = <T,>(
+  items: T[],
+  metricPicker: (item: T) => unknown,
+  requestPicker: (item: T) => unknown
+): number[] => {
+  const metricVals = items.map((item) => toPieNumber(metricPicker(item)))
+  if (metricVals.some((v) => v > 0)) return metricVals
+  return items.map((item) => toPieNumber(requestPicker(item)))
+}
+
 const chartColors = [
   '#3b82f6',
   '#10b981',
@@ -245,9 +262,7 @@ const chartData = computed(() => {
     labels: displayEndpointStats.value.map((item) => item.endpoint),
     datasets: [
       {
-        data: displayEndpointStats.value.map((item) =>
-          props.metric === 'actual_cost' ? item.actual_cost : item.total_tokens
-        ),
+        data: pieValues(displayEndpointStats.value, (item) => props.metric === 'actual_cost' ? item.actual_cost : item.total_tokens, (item) => item.requests),
         backgroundColor: chartColors.slice(0, displayEndpointStats.value.length),
         borderWidth: 0
       }

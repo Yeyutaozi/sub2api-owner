@@ -1,86 +1,130 @@
-/** @type {import('tailwindcss').Config} */
+﻿/** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // 主色调 - Teal/Cyan 青色系
         primary: {
-          50: '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          300: '#5eead4',
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          600: '#0d9488',
-          700: '#0f766e',
-          800: '#115e59',
-          900: '#134e4a',
-          950: '#042f2e'
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
+          950: '#172554'
         },
-        // 辅助色 - 深蓝灰
+        signal: {
+          50: '#fbf6f0',
+          100: '#f4e7d4',
+          200: '#e8cba8',
+          300: '#d9a671',
+          400: '#cd8648',
+          500: '#c26d2d',
+          600: '#a85424',
+          700: '#8a4020',
+          800: '#71361f',
+          900: '#5d2e1d'
+        },
+        alarm: {
+          50: '#fff1f2',
+          100: '#ffe4e6',
+          200: '#fecdd3',
+          300: '#fda4af',
+          400: '#fb7185',
+          500: '#e11d48',
+          600: '#be123c',
+          700: '#9f1239',
+          800: '#881337',
+          900: '#4c0519'
+        },
         accent: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a',
-          950: '#020617'
+          50: '#f7f6f3',
+          100: '#eceae4',
+          200: '#d9d5cb',
+          300: '#bfb8aa',
+          400: '#a09686',
+          500: '#867c6d',
+          600: '#6d6458',
+          700: '#585247',
+          800: '#3c3832',
+          900: '#24221e',
+          950: '#141311'
         },
-        // 深色模式背景
         dark: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a',
-          950: '#020617'
+          50: '#f5f6f7',
+          100: '#e6e9ec',
+          200: '#c9d0d6',
+          300: '#a3aeb8',
+          400: '#748492',
+          500: '#586978',
+          600: '#455462',
+          700: '#384552',
+          800: '#1c2430',
+          900: '#121820',
+          950: '#0b0f14'
         }
       },
       fontFamily: {
         sans: [
+          '"IBM Plex Sans"',
+          'Segoe UI',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
-          'Segoe UI',
-          'Roboto',
-          'Helvetica Neue',
-          'Arial',
           'PingFang SC',
-          'Hiragino Sans GB',
-          'Microsoft YaHei',
+          'Microsoft YaHei UI',
           'sans-serif'
         ],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+        display: [
+          'Space Grotesk',
+          'Sora',
+          'Outfit',
+          '"IBM Plex Sans"',
+          'Segoe UI',
+          'system-ui',
+          'PingFang SC',
+          'Microsoft YaHei UI',
+          'sans-serif'
+        ],
+        mono: [
+          '"JetBrains Mono"',
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          'monospace'
+        ]
       },
       boxShadow: {
-        glass: '0 8px 32px rgba(0, 0, 0, 0.08)',
-        'glass-sm': '0 4px 16px rgba(0, 0, 0, 0.06)',
-        glow: '0 0 20px rgba(20, 184, 166, 0.25)',
-        'glow-lg': '0 0 40px rgba(20, 184, 166, 0.35)',
-        card: '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)',
-        'card-hover': '0 10px 40px rgba(0, 0, 0, 0.08)',
-        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+        glass: '0 12px 40px rgba(17, 20, 24, 0.08)',
+        'glass-sm': '0 6px 18px rgba(17, 20, 24, 0.06)',
+        glow: '0 0 0 4px rgba(79, 70, 229, 0.14)',
+        'glow-lg': '0 0 0 6px rgba(15, 159, 148, 0.16)',
+        card: '0 1px 0 rgba(17,20,24,0.04), 0 14px 34px -22px rgba(17,20,24,0.28)',
+        'card-hover': '0 1px 0 rgba(17,20,24,0.05), 0 24px 42px -22px rgba(17,20,24,0.34)',
+        'inner-glow': 'inset 0 1px 0 rgba(255,255,255,0.55)',
+        desk: '0 0 0 1px rgba(17,20,24,0.05), 0 18px 36px -24px rgba(17,20,24,0.22)'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+        'gradient-primary': 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+        'gradient-dark': 'linear-gradient(160deg, #161d27 0%, #0b0f14 100%)',
         'gradient-glass':
-          'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+          'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 100%)',
+        'gradient-signal': 'linear-gradient(90deg, #0f9f94 0%, #c26d2d 100%)',
         'mesh-gradient':
-          'radial-gradient(at 40% 20%, rgba(20, 184, 166, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(20, 184, 166, 0.08) 0px, transparent 50%)'
+          'radial-gradient(at 8% 0%, rgba(15,159,148,0.10) 0px, transparent 42%), radial-gradient(at 96% 4%, rgba(194,109,45,0.08) 0px, transparent 40%), radial-gradient(at 50% 100%, rgba(17,20,24,0.04) 0px, transparent 48%)',
+        'desk-grid':
+          'linear-gradient(rgba(17,20,24,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(17,20,24,0.035) 1px, transparent 1px)'
+      },
+      backgroundSize: {
+        'desk-grid': '32px 32px'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
@@ -118,8 +162,8 @@ export default {
           '100%': { backgroundPosition: '200% 0' }
         },
         glow: {
-          '0%': { boxShadow: '0 0 20px rgba(20, 184, 166, 0.25)' },
-          '100%': { boxShadow: '0 0 30px rgba(20, 184, 166, 0.4)' }
+          '0%': { boxShadow: '0 0 0 4px rgba(15, 159, 148, 0.10)' },
+          '100%': { boxShadow: '0 0 0 6px rgba(15, 159, 148, 0.18)' }
         }
       },
       backdropBlur: {
@@ -132,3 +176,8 @@ export default {
   },
   plugins: []
 }
+
+
+
+
+

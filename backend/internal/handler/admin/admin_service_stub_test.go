@@ -521,6 +521,11 @@ func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, upd
 	return nil
 }
 
+
+func (s *stubAdminService) DeclareUpstreamDeclaredRate(ctx context.Context, id int64, rate *float64) (*service.Account, error) {
+	return nil, nil
+}
+
 func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }

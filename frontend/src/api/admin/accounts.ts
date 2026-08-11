@@ -871,6 +871,16 @@ export async function setUpstreamBillingProbeEnabled(id: number, enabled: boolea
   await apiClient.put(`/admin/accounts/${id}/upstream-billing-probe`, { enabled })
 }
 
+export async function declareUpstreamDeclaredRate(
+  id: number,
+  rate: number | null
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/upstream-declared-rate`, {
+    rate
+  })
+  return data
+}
+
 export async function probeUpstreamBilling(id: number): Promise<UpstreamBillingProbeResult> {
   const { data } = await apiClient.post<UpstreamBillingProbeResult>(`/admin/accounts/${id}/upstream-billing-probe`)
   return data
@@ -978,6 +988,7 @@ export const accountsAPI = {
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
+  declareUpstreamDeclaredRate,
   probeUpstreamBilling,
   probeUpstreamBillingBatch,
   getOllamaCloudUsageSettings,

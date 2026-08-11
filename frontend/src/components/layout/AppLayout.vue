@@ -1,22 +1,18 @@
-<template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
-    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
-
-    <!-- Sidebar -->
+﻿<template>
+  <div class="app-shell text-gray-900 dark:text-gray-100">
+    <div class="app-shell-bg" aria-hidden="true"></div>
     <AppSidebar />
-
-    <!-- Main Content Area -->
     <div
-      class="relative min-h-screen transition-all duration-300"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
+      class="app-main-panel relative min-h-screen transition-all duration-300"
+      :class="[sidebarCollapsed ? 'lg:ml-[76px]' : 'lg:ml-64']"
     >
-      <!-- Header -->
       <AppHeader />
-
-      <!-- Main Content -->
-      <main class="p-4 md:p-6 lg:p-8">
-        <slot />
+      <main class="relative px-3 py-3 md:px-5 md:py-4 lg:px-6 lg:py-5 desk-main-shell">
+        <div class="relative relay-stage">
+          <div class="relay-stage__inner">
+            <slot />
+          </div>
+        </div>
       </main>
     </div>
   </div>

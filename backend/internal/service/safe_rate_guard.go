@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"fmt"
@@ -9,12 +9,19 @@ import (
 
 const (
 	// SafeRateOverReasonPrefix marks accounts filtered/cut because upstream cost rate
-	// exceeds the group's selling rate baseline.
+	// exceeds the group's independent safe-rate ceiling.
 	SafeRateOverReasonPrefix = "RATE_OVER_SAFE"
 
 	// AccountExtraUpstreamDeclaredRate is the manual fallback when remote probe is unsupported.
 	// Account-level only (not per model).
 	AccountExtraUpstreamDeclaredRate = "upstream_declared_rate_multiplier"
+
+	// NewAPI management Access Token path (official sk /api/usage/token has quota only).
+	// Requires both token and user id per NewAPI docs (Authorization + New-Api-User).
+	AccountExtraNewAPIAccessToken = "newapi_access_token"
+	AccountExtraNewAPIUserID      = "newapi_user_id"
+	// Optional preferred group name when the token user belongs to multiple groups.
+	AccountExtraNewAPIGroup       = "newapi_group"
 
 	// AccountExtraSafeRateStatus stores admin-visible safe-rate evaluation.
 	AccountExtraSafeRateStatus = "safe_rate_status"
@@ -31,7 +38,7 @@ type SafeRateStatus struct {
 	Status           string    `json:"status"` // ok | over_safe | unknown
 	UpstreamRate     *float64  `json:"upstream_rate,omitempty"`
 	Source           string    `json:"source,omitempty"`
-	SafeRateBaseline *float64  `json:"safe_rate_baseline,omitempty"` // min sell rate among bound groups when known
+	SafeRateBaseline *float64  `json:"safe_rate_baseline,omitempty"` // min group safe_rate_multiplier among bound groups when known
 	OverGroupIDs     []int64   `json:"over_group_ids,omitempty"`
 	CheckedAt        time.Time `json:"checked_at"`
 	Message          string    `json:"message,omitempty"`
@@ -43,16 +50,18 @@ const (
 	SafeRateStatusUnknown  = "unknown"
 )
 
-// GroupSafeRateBaseline returns the safe-rate threshold for a group.
-// Product rule: default safe rate aligns with selling rate (rate_multiplier).
+// GroupSafeRateBaseline returns the independent safe-rate ceiling for a group.
+// Product rule: use groups.safe_rate_multiplier only (not sell rate_multiplier).
+// Invalid/zero values fall back to 1.0 so misconfiguration never disables the guard silently.
 func GroupSafeRateBaseline(group *Group) float64 {
 	if group == nil {
 		return 1
 	}
-	if group.RateMultiplier < 0 || math.IsNaN(group.RateMultiplier) || math.IsInf(group.RateMultiplier, 0) {
+	v := group.SafeRateMultiplier
+	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 		return 1
 	}
-	return group.RateMultiplier
+	return v
 }
 
 // ResolveAccountUpstreamCostRate returns the best-known upstream cost multiplier
@@ -83,7 +92,7 @@ func ResolveAccountUpstreamCostRate(account *Account, now time.Time) (rate float
 	return 0, SafeRateSourceUnknown, false
 }
 
-// ExceedsGroupSafeRate reports whether upstream cost is strictly above the group sell baseline.
+// ExceedsGroupSafeRate reports whether upstream cost is strictly above the group safe-rate ceiling.
 // Equal rates are allowed (break-even). Unknown rates never exceed.
 func ExceedsGroupSafeRate(upstreamRate float64, hasUpstream bool, safeBaseline float64) bool {
 	if !hasUpstream {
@@ -111,7 +120,7 @@ func IsAccountOverGroupSafeRate(account *Account, group *Group, now time.Time) b
 }
 
 // FilterAccountsByGroupSafeRate drops accounts whose known upstream cost exceeds
-// the group's selling-rate baseline. Unknown rates are kept.
+// the group's safe-rate ceiling. Unknown rates are kept.
 func FilterAccountsByGroupSafeRate(accounts []Account, group *Group, now time.Time) []Account {
 	if group == nil || len(accounts) == 0 {
 		return accounts
@@ -194,13 +203,13 @@ func BuildSafeRateStatus(account *Account, groups []*Group, now time.Time) SafeR
 		status.Status = SafeRateStatusOverSafe
 		status.OverGroupIDs = overIDs
 		status.Message = fmt.Sprintf(
-			"%s: upstream=%.4f exceeds sell baseline on %d group(s)",
+			"%s: upstream=%.4f exceeds safe rate on %d group(s)",
 			SafeRateOverReasonPrefix, rate, len(overIDs),
 		)
 		return status
 	}
 	status.Status = SafeRateStatusOK
-	status.Message = "upstream rate within group sell baselines"
+	status.Message = "upstream rate within group safe-rate ceilings"
 	return status
 }
 
@@ -217,7 +226,7 @@ func IsSafeRateOverReason(reason string) bool {
 // FormatSafeRateOverReason builds a stable temp-unschedulable reason string.
 func FormatSafeRateOverReason(upstreamRate, safeBaseline float64, groupID int64) string {
 	return fmt.Sprintf(
-		"%s: upstream=%.4f sell=%.4f group_id=%d",
+		"%s: upstream=%.4f safe=%.4f group_id=%d",
 		SafeRateOverReasonPrefix, upstreamRate, safeBaseline, groupID,
 	)
 }

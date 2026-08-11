@@ -20,6 +20,61 @@ func newPlazaChannelService(channels []Channel, groups []Group, pricing *Pricing
 	return svc
 }
 
+
+// stubPlazaAccountSource implements PlazaAccountSource for unit tests.
+type stubPlazaAccountSource struct {
+	byGroup map[int64][]Account
+	err     error
+}
+
+func (s *stubPlazaAccountSource) ListSchedulableByGroupID(_ context.Context, groupID int64) ([]Account, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.byGroup == nil {
+		return nil, nil
+	}
+	return append([]Account(nil), s.byGroup[groupID]...), nil
+}
+
+func newPlazaChannelServiceWithAccounts(channels []Channel, groups []Group, pricing *PricingService, accounts map[int64][]Account) *ChannelService {
+	svc := newPlazaChannelService(channels, groups, pricing)
+	svc.SetPlazaAccountSource(&stubPlazaAccountSource{byGroup: accounts})
+	return svc
+}
+
+func plazaMappedAccount(id int64, platform string, models ...string) Account {
+	mapping := make(map[string]any, len(models))
+	for _, m := range models {
+		mapping[m] = m
+	}
+	return Account{
+		ID:          id,
+		Name:        "acc",
+		Platform:    platform,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"api_key": "k", "model_mapping": mapping},
+	}
+}
+
+func plazaUnrestrictedAccount(id int64, platform string) Account {
+	return Account{
+		ID:          id,
+		Name:        "acc",
+		Platform:    platform,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"api_key": "k"},
+	}
+}
+
+
 func plazaPricedChannel(id int64, name string, groupIDs []int64, platform string, models ...string) Channel {
 	return Channel{
 		ID:       id,
@@ -278,5 +333,177 @@ func TestListPlazaGroups_AvgFirstTokenAlwaysPresent(t *testing.T) {
 	if out[0].TTFTDisclaimer == "" {
 		t.Fatal("expected disclaimer")
 	}
+}
+
+
+func TestListPlazaGroups_AccountMappingIsSourceOfTruth(t *testing.T) {
+	// Channel catalog lists image2 + claude, but group accounts only enable claude.
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, PlatformOpenAI, "gpt-4o", "gpt-image-2"),
+	}
+	groups := []Group{
+		{
+			ID: 10, Name: "g-img", Platform: PlatformOpenAI, RateMultiplier: 1,
+			AllowImageGeneration: true,
+			Status:               StatusActive,
+		},
+	}
+	accounts := map[int64][]Account{
+		10: {
+			plazaMappedAccount(1, PlatformOpenAI, "gpt-4o"),
+			plazaMappedAccount(2, PlatformOpenAI, "gpt-4o-mini"),
+		},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, accounts)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	names := make([]string, 0, len(out[0].Models))
+	for _, m := range out[0].Models {
+		names = append(names, m.Name)
+	}
+	require.Contains(t, names, "gpt-4o")
+	require.Contains(t, names, "gpt-4o-mini")
+	require.NotContains(t, names, "gpt-image-2", "accounts do not enable image2")
+	require.NotContains(t, names, "gpt-image-1", "defaults must not invent image models without account support")
+}
+
+func TestListPlazaGroups_SameModelOnlyOnGroupsWithSupportingAccounts(t *testing.T) {
+	// Shared channel attaches both groups, but only group A accounts support 5.6.
+	channels := []Channel{
+		plazaPricedChannel(1, "shared", []int64{10, 20}, PlatformOpenAI, "gpt-5.6", "gpt-4o"),
+	}
+	groups := []Group{
+		{ID: 10, Name: "g-a", Platform: PlatformOpenAI, RateMultiplier: 1, Status: StatusActive},
+		{ID: 20, Name: "g-b", Platform: PlatformOpenAI, RateMultiplier: 1.2, Status: StatusActive},
+	}
+	accounts := map[int64][]Account{
+		10: {plazaMappedAccount(1, PlatformOpenAI, "gpt-5.6", "gpt-4o")},
+		20: {plazaMappedAccount(2, PlatformOpenAI, "gpt-4o")},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, accounts)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	byName := map[string]PlazaGroup{}
+	for _, g := range out {
+		byName[g.Name] = g
+	}
+	require.Contains(t, byName, "g-a")
+	require.Contains(t, byName, "g-b")
+
+	aNames := modelNames(byName["g-a"])
+	bNames := modelNames(byName["g-b"])
+	require.Contains(t, aNames, "gpt-5.6")
+	require.NotContains(t, bNames, "gpt-5.6")
+	require.Contains(t, bNames, "gpt-4o")
+}
+
+func TestListPlazaGroups_UnrestrictedAccountUsesCatalogButStillSchedulable(t *testing.T) {
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, PlatformOpenAI, "gpt-4o"),
+	}
+	groups := []Group{
+		{
+			ID: 10, Name: "g", Platform: PlatformOpenAI, RateMultiplier: 1, Status: StatusActive,
+			AllowImageGeneration: true,
+		},
+	}
+	accounts := map[int64][]Account{
+		10: {plazaUnrestrictedAccount(1, PlatformOpenAI)},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, accounts)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	names := modelNames(out[0])
+	require.Contains(t, names, "gpt-4o")
+	// Unrestricted can serve default image models when group allows image generation.
+	require.Contains(t, names, "gpt-image-2")
+}
+
+
+func TestListPlazaGroups_MixedMappedAndUnrestrictedUsesMappingOnly(t *testing.T) {
+	// One unrestricted account must NOT expand image catalog when another account
+	// already declares an explicit model_mapping (align with GetAvailableModels).
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, PlatformOpenAI, "gpt-4o", "gpt-image-2"),
+	}
+	groups := []Group{
+		{
+			ID: 10, Name: "mixed", Platform: PlatformOpenAI, RateMultiplier: 1,
+			AllowImageGeneration: true, Status: StatusActive,
+		},
+	}
+	accounts := map[int64][]Account{
+		10: {
+			plazaMappedAccount(1, PlatformOpenAI, "gpt-4o"),
+			plazaUnrestrictedAccount(2, PlatformOpenAI),
+		},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, accounts)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	names := modelNames(out[0])
+	require.Contains(t, names, "gpt-4o")
+	require.NotContains(t, names, "gpt-image-2", "mapped keys win over unrestricted catalog expansion")
+	require.NotContains(t, names, "gpt-image-1")
+}
+
+func TestListPlazaGroups_ChannelCatalogDoesNotInventForMappedGroup(t *testing.T) {
+	// Shared channel prices gpt-5.6 for both groups; only group A enables it on accounts.
+	channels := []Channel{
+		plazaPricedChannel(1, "shared", []int64{10, 20}, PlatformOpenAI, "gpt-5.6", "gpt-image-2"),
+	}
+	groups := []Group{
+		{ID: 10, Name: "g-a", Platform: PlatformOpenAI, RateMultiplier: 1, Status: StatusActive, AllowImageGeneration: true},
+		{ID: 20, Name: "g-b", Platform: PlatformOpenAI, RateMultiplier: 1, Status: StatusActive, AllowImageGeneration: true},
+	}
+	accounts := map[int64][]Account{
+		10: {
+			plazaMappedAccount(1, PlatformOpenAI, "gpt-5.6", "gpt-4o"),
+			plazaMappedAccount(2, PlatformOpenAI, "gpt-5.6"),
+		},
+		20: {
+			plazaMappedAccount(3, PlatformOpenAI, "gpt-4o"),
+			plazaMappedAccount(4, PlatformOpenAI, "gpt-4o-mini"),
+		},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, accounts)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	byName := map[string]PlazaGroup{}
+	for _, g := range out {
+		byName[g.Name] = g
+	}
+	aNames := modelNames(byName["g-a"])
+	bNames := modelNames(byName["g-b"])
+	require.Contains(t, aNames, "gpt-5.6")
+	require.NotContains(t, aNames, "gpt-image-2")
+	require.NotContains(t, bNames, "gpt-5.6")
+	require.NotContains(t, bNames, "gpt-image-2")
+	require.Contains(t, bNames, "gpt-4o")
+	require.Contains(t, bNames, "gpt-4o-mini")
+}
+
+func TestListPlazaGroups_NoSchedulableAccountsHidesGroup(t *testing.T) {
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, PlatformOpenAI, "gpt-4o"),
+	}
+	groups := []Group{
+		{ID: 10, Name: "g", Platform: PlatformOpenAI, RateMultiplier: 1, Status: StatusActive},
+	}
+	svc := newPlazaChannelServiceWithAccounts(channels, groups, nil, map[int64][]Account{10: {}})
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 0)
+}
+
+func modelNames(g PlazaGroup) []string {
+	out := make([]string, 0, len(g.Models))
+	for _, m := range g.Models {
+		out = append(out, m.Name)
+	}
+	return out
 }
 

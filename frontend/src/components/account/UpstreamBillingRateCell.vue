@@ -1,20 +1,27 @@
 <template>
-  <div v-if="eligible" class="flex h-6 min-w-[7rem] items-center gap-1">
+  <div v-if="eligible" class="flex min-h-6 min-w-[8.5rem] items-center gap-1">
     <HelpTooltip class="-ml-1" width-class="w-max max-w-[calc(100vw-2rem)]" data-testid="upstream-billing-details">
       <template #trigger>
         <span
           class="cursor-help border-b border-dotted border-gray-300 text-sm font-medium dark:border-dark-600"
-          :class="hasEffectiveRate ? 'font-mono text-gray-800 dark:text-gray-200' : statusClass || 'text-gray-400 dark:text-gray-500'"
+          :class="primaryClass"
           data-testid="upstream-billing-rate"
         >
           {{ primaryValue }}
         </span>
       </template>
       <div class="space-y-1">
-        <template v-if="hasEffectiveRate && data">
+        <p v-if="rateSourceLabel" data-testid="upstream-billing-source">
+          {{ t('admin.accounts.upstreamBilling.rateSource') }}
+          <span class="font-medium">{{ rateSourceLabel }}</span>
+        </p>
+        <template v-if="hasProbeEffectiveRate && data">
           <p>{{ t('admin.accounts.upstreamBilling.groupRate', { value: data.group_rate_multiplier }) }}</p>
           <p v-if="data.user_rate_multiplier != null">
             {{ t('admin.accounts.upstreamBilling.userRate', { value: data.user_rate_multiplier }) }}
+          </p>
+          <p v-if="data.group_name">
+            {{ t('admin.accounts.upstreamBilling.probedGroup', { value: data.group_name }) }}
           </p>
           <p>
             {{
@@ -30,6 +37,12 @@
           </p>
           <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
           <p>{{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot?.received_at) }) }}</p>
+        </template>
+        <template v-else-if="declaredRate != null">
+          <p data-testid="upstream-billing-declared-rate">
+            {{ t('admin.accounts.upstreamBilling.declaredRateValue', { value: declaredRate }) }}
+          </p>
+          <p class="text-xs opacity-80">{{ t('admin.accounts.upstreamBilling.declaredRateHintShort') }}</p>
         </template>
         <template v-else-if="stale && lastDetectedRate != null">
           <p data-testid="upstream-billing-last-rate">
@@ -72,9 +85,22 @@
           <span :class="safeRateClass">{{ safeRateLabel }}</span>
           <template v-if="safeRateDetail"> · {{ safeRateDetail }}</template>
         </p>
+        <p class="mt-2 border-t border-white/15 pt-2 text-xs opacity-80">
+          {{ t('admin.accounts.upstreamBilling.newapiAccessHint') }}
+        </p>
       </div>
     </HelpTooltip>
-    <span v-if="hasEffectiveRate && statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
+
+    <span
+      v-if="sourceBadge"
+      class="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold"
+      :class="sourceBadgeClass"
+      data-testid="upstream-billing-source-badge"
+    >
+      {{ sourceBadge }}
+    </span>
+
+    <span v-if="hasDisplayRate && statusLabel && !sourceBadge" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
       {{ statusLabel }}
     </span>
     <span
@@ -85,6 +111,19 @@
     >
       {{ t('admin.accounts.upstreamBilling.overSafeBadge') }}
     </span>
+
+    <button
+      v-if="canQuickDeclare"
+      type="button"
+      class="inline-flex h-6 items-center rounded px-1.5 text-[10px] font-semibold text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-900/30"
+      :disabled="declaring"
+      data-testid="upstream-billing-quick-declare"
+      :title="t('admin.accounts.upstreamBilling.quickDeclareHint')"
+      @click="quickDeclare"
+    >
+      {{ declaring ? '…' : t('admin.accounts.upstreamBilling.quickDeclare') }}
+    </button>
+
     <button
       type="button"
       class="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
@@ -101,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -111,21 +150,34 @@ const props = withDefaults(defineProps<{
   account: Account
   now: number
   probing?: boolean
+  declaring?: boolean
   globalProbeEnabled?: boolean
 }>(), {
-  globalProbeEnabled: true
+  globalProbeEnabled: true,
+  declaring: false
 })
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'probe'): void
+  (event: 'declare-rate', rate: number): void
 }>()
 
 const { t } = useI18n()
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
+const declaringLocal = ref(false)
+const declaring = computed(() => props.declaring || declaringLocal.value)
+
 const eligible = computed(() => props.account.platform === 'openai' && props.account.type === 'apikey')
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
 const probeEnabled = computed(() => props.account.extra?.upstream_billing_probe_enabled === true)
+
+const declaredRate = computed(() => {
+  const raw = props.account.extra?.upstream_declared_rate_multiplier
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN
+  return Number.isFinite(n) && n >= 0 ? Number(n) : null
+})
+
 const safeRateStatus = computed<SafeRateStatus | undefined>(() => {
   const raw = props.account.extra?.safe_rate_status
   if (!raw || typeof raw !== 'object') return undefined
@@ -235,32 +287,119 @@ const elapsedSinceLastSuccess = computed(() => {
   if (elapsedHours < 24) return t('admin.accounts.upstreamBilling.hoursAgo', { count: elapsedHours })
   return t('admin.accounts.upstreamBilling.daysAgo', { count: Math.floor(elapsedHours / 24) })
 })
-const effectiveRate = computed(() => {
-  if (!validTimestamps.value || stale.value || !['ok', 'failed'].includes(snapshot.value?.status ?? '')) return '-'
+const probeEffectiveRate = computed(() => {
+  if (!validTimestamps.value || stale.value || !['ok', 'failed'].includes(snapshot.value?.status ?? '')) return null
   const value = currentEffectiveRate.value
-  return value == null ? '-' : `${Number(value.toPrecision(12))}x`
+  return value == null || !Number.isFinite(value) ? null : Number(value.toPrecision(12))
+})
+const hasProbeEffectiveRate = computed(() => probeEffectiveRate.value != null)
+const displayRate = computed(() => {
+  if (probeEffectiveRate.value != null) return probeEffectiveRate.value
+  if (declaredRate.value != null) return declaredRate.value
+  return null
+})
+const hasDisplayRate = computed(() => displayRate.value != null)
+const rateSource = computed<'probe' | 'manual' | 'unknown'>(() => {
+  if (probeEffectiveRate.value != null) return 'probe'
+  if (declaredRate.value != null) return 'manual'
+  // fall back to safe_rate_status source when present
+  const src = safeRateStatus.value?.source
+  if (src === 'probe' || src === 'manual') return src
+  return 'unknown'
+})
+const rateSourceLabel = computed(() => {
+  if (rateSource.value === 'probe') return t('admin.accounts.upstreamBilling.sourceProbe')
+  if (rateSource.value === 'manual') return t('admin.accounts.upstreamBilling.sourceManual')
+  return ''
+})
+const sourceBadge = computed(() => {
+  if (rateSource.value === 'probe' && hasDisplayRate.value) return t('admin.accounts.upstreamBilling.badgeProbe')
+  if (rateSource.value === 'manual' && hasDisplayRate.value) return t('admin.accounts.upstreamBilling.badgeManual')
+  return ''
+})
+const sourceBadgeClass = computed(() => {
+  if (rateSource.value === 'probe') {
+    return 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+  }
+  if (rateSource.value === 'manual') {
+    return 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+  }
+  return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300'
 })
 const statusLabel = computed(() => {
-  if (!snapshot.value) return t('admin.accounts.upstreamBilling.notProbed')
+  if (hasDisplayRate.value && rateSource.value === 'manual' && snapshot.value?.status === 'unsupported') {
+    // Still show short note that auto probe is unsupported when using manual rate.
+    if (snapshot.value.last_error === 'rate_not_exposed' || snapshot.value.last_error?.startsWith('newapi_')) {
+      return t('admin.accounts.upstreamBilling.usingManualFallback')
+    }
+  }
+  if (!snapshot.value) {
+    return declaredRate.value != null ? '' : t('admin.accounts.upstreamBilling.notProbed')
+  }
   if (snapshot.value.status === 'unsupported') {
     if (snapshot.value.last_error === 'rate_not_exposed') {
       return t('admin.accounts.upstreamBilling.rateNotExposed')
     }
+    if (snapshot.value.last_error === 'newapi_user_id_missing') {
+      return t('admin.accounts.upstreamBilling.newapiUserIdMissing')
+    }
+    if (snapshot.value.last_error === 'newapi_access_auth_failed') {
+      return t('admin.accounts.upstreamBilling.newapiAccessAuthFailed')
+    }
+    if (snapshot.value.last_error?.startsWith('newapi_')) {
+      return t('admin.accounts.upstreamBilling.newapiAccessFailed')
+    }
     return t('admin.accounts.upstreamBilling.unsupported')
   }
   if (stale.value) return t('admin.accounts.upstreamBilling.stale')
-  if (snapshot.value.status === 'failed') return t('admin.accounts.upstreamBilling.failed')
+  if (snapshot.value.status === 'failed') {
+    if (snapshot.value.last_error === 'auth_failed') {
+      return t('admin.accounts.upstreamBilling.newapiSkAuthOrMissingAccess')
+    }
+    return t('admin.accounts.upstreamBilling.failed')
+  }
   return ''
 })
 const statusClass = computed(() => {
-  if (!snapshot.value) return 'text-gray-400 dark:text-gray-500'
-  if (snapshot.value.status === 'unsupported') return 'text-gray-500 dark:text-gray-400'
+  if (!snapshot.value && declaredRate.value == null) return 'text-gray-400 dark:text-gray-500'
+  if (snapshot.value?.status === 'unsupported') return 'text-gray-500 dark:text-gray-400'
   if (stale.value) return 'text-amber-600 dark:text-amber-400'
-  if (snapshot.value.status === 'failed') return 'text-red-600 dark:text-red-400'
+  if (snapshot.value?.status === 'failed') return 'text-red-600 dark:text-red-400'
   return ''
 })
-const hasEffectiveRate = computed(() => effectiveRate.value !== '-')
-const primaryValue = computed(() => hasEffectiveRate.value ? effectiveRate.value : statusLabel.value || '-')
+const primaryValue = computed(() => {
+  if (displayRate.value != null) return `${displayRate.value}x`
+  return statusLabel.value || '-'
+})
+const primaryClass = computed(() => {
+  if (hasDisplayRate.value) return 'font-mono text-gray-800 dark:text-gray-200'
+  return statusClass.value || 'text-gray-400 dark:text-gray-500'
+})
+const canQuickDeclare = computed(() => {
+  if (!eligible.value) return false
+  if (declaredRate.value != null) return false
+  if (probeEffectiveRate.value != null) return false
+  // Offer quick declare whenever auto probe has no usable rate (NewAPI official sk cannot expose ratio).
+  const err = snapshot.value?.last_error
+  if (!snapshot.value) return true
+  if (snapshot.value?.status === 'unsupported') return true
+  if (snapshot.value?.status === 'failed') return true
+  if (err === 'rate_not_exposed' || (typeof err === 'string' && err.startsWith('newapi_'))) return true
+  return false
+})
+const quickDeclare = () => {
+  const raw = window.prompt(t('admin.accounts.upstreamBilling.quickDeclarePrompt'), '1.0')
+  if (raw == null) return
+  const n = Number(String(raw).trim())
+  if (!Number.isFinite(n) || n < 0) {
+    window.alert(t('admin.accounts.upstreamBilling.manualDeclaredRateHint'))
+    return
+  }
+  declaringLocal.value = true
+  emit('declare-rate', n)
+  // parent owns loading state; clear local after tick
+  window.setTimeout(() => { declaringLocal.value = false }, 800)
+}
 const formatDate = (value?: string) => value
   ? new Date(value).toLocaleString(undefined, {
       month: '2-digit',
