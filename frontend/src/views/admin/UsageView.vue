@@ -102,7 +102,9 @@
           <template #after-reset>
             <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
               <button
-                @click="showColumnDropdown = !showColumnDropdown"
+                ref="columnTriggerRef"
+                type="button"
+                @click="toggleColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
               >
@@ -111,26 +113,33 @@
                 </svg>
                 <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
               </button>
-              <div
-                v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-              >
-                <button
-                  v-for="col in currentToggleableColumns"
-                  :key="col.key"
-                  @click="toggleCurrentColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              <Teleport to="body">
+                <div
+                  v-if="showColumnDropdown"
+                  ref="columnMenuRef"
+                  class="fixed z-[100000020] max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  :style="columnDropdownStyle"
+                  @click.stop
+                  @mousedown.stop
                 >
-                  <span>{{ col.label }}</span>
-                  <Icon
-                    v-if="isCurrentColumnVisible(col.key)"
-                    name="check"
-                    size="sm"
-                    class="text-primary-500"
-                    :stroke-width="2"
-                  />
-                </button>
-              </div>
+                  <button
+                    v-for="col in currentToggleableColumns"
+                    :key="col.key"
+                    type="button"
+                    @click="toggleCurrentColumn(col.key)"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  >
+                    <span>{{ col.label }}</span>
+                    <Icon
+                      v-if="isCurrentColumnVisible(col.key)"
+                      name="check"
+                      size="sm"
+                      class="text-primary-500"
+                      :stroke-width="2"
+                    />
+                  </button>
+                </div>
+              </Teleport>
             </div>
           </template>
         </UsageFilters>
@@ -848,11 +857,35 @@ const openError = (id: number) => { selectedErrorId.value = id; showErrorModal.v
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
+const columnTriggerRef = ref<HTMLElement | null>(null)
+const columnMenuRef = ref<HTMLElement | null>(null)
+const columnDropdownStyle = ref<Record<string, string>>({})
+
+const updateColumnDropdownPosition = () => {
+  const el = columnTriggerRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const width = 192
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+  const spaceBelow = window.innerHeight - rect.bottom
+  const preferTop = spaceBelow < 240 && rect.top > spaceBelow
+  columnDropdownStyle.value = preferTop
+    ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 4}px` }
+    : { left: `${left}px`, top: `${rect.bottom + 4}px` }
+}
+
+const toggleColumnDropdown = () => {
+  showColumnDropdown.value = !showColumnDropdown.value
+  if (showColumnDropdown.value) {
+    updateColumnDropdownPosition()
+  }
+}
 
 const handleColumnClickOutside = (event: MouseEvent) => {
-  if (columnDropdownRef.value && !columnDropdownRef.value.contains(event.target as HTMLElement)) {
-    showColumnDropdown.value = false
-  }
+  const target = event.target as Node
+  if (columnDropdownRef.value?.contains(target)) return
+  if (columnMenuRef.value?.contains(target)) return
+  showColumnDropdown.value = false
 }
 
 onMounted(() => {

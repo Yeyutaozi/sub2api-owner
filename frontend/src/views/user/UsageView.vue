@@ -19,7 +19,7 @@
       <div class="space-y-4">
         <div class="instrument-panel">
           <div class="instrument-panel__body">
-            <p class="instrument-panel__title">RANGE · GRANULARITY</p>
+            <p class="instrument-panel__title">RANGE 路 GRANULARITY</p>
             <div class="flex flex-wrap items-center gap-4">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
@@ -147,28 +147,35 @@
             <div class="relative" ref="columnDropdownRef">
               <button
                 type="button"
-                @click="showColumnDropdown = !showColumnDropdown"
+                ref="columnTriggerRef"
+                @click="toggleColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
               >
                 <Icon name="grid" size="sm" />
                 <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
               </button>
-              <div
-                v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-              >
-                <button
-                  v-for="col in currentToggleableColumns"
-                  :key="col.key"
-                  type="button"
-                  @click="toggleCurrentColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              <Teleport to="body">
+                <div
+                  v-if="showColumnDropdown"
+                  ref="columnMenuRef"
+                  class="fixed z-[100000020] max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  :style="columnDropdownStyle"
+                  @click.stop
+                  @mousedown.stop
                 >
-                  <span>{{ col.label }}</span>
-                  <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
-                </button>
-              </div>
+                  <button
+                    v-for="col in currentToggleableColumns"
+                    :key="col.key"
+                    type="button"
+                    @click="toggleCurrentColumn(col.key)"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  >
+                    <span>{{ col.label }}</span>
+                    <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                  </button>
+                </div>
+              </Teleport>
             </div>
             <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
               {{ exporting ? t('usage.exporting') : t('usage.exportCsv') }}
@@ -303,7 +310,7 @@ const errorKeyOptions = computed<SelectOption[]>(() => [
   ...apiKeys.value.map((k) => ({ value: k.id, label: k.name })),
 ])
 
-// 模型候选取自当前已加载错误中出现过的模型；creatable 允许输入任意片段做后端模糊。
+// 妯″瀷鍊欓€夊彇鑷綋鍓嶅凡鍔犺浇閿欒涓嚭鐜拌繃鐨勬ā鍨嬶紱creatable 鍏佽杈撳叆浠绘剰鐗囨鍋氬悗绔ā绯娿€?
 const errorModelOptions = computed<SelectOption[]>(() => {
   const seen = new Set<string>()
   const opts: SelectOption[] = []
@@ -323,8 +330,8 @@ const errorCategoryOptions = computed<SelectOption[]>(() => [
   ...errorCategoryCodes.map((c) => ({ value: c, label: t('usage.errors.categories.' + c) })),
 ])
 
-// 状态码候选用固定常用列表(与管理端 UsageFilters 共用常量),不受当前页数据限制:
-// 后端 status_code 过滤对全量生效,若只列当前页出现过的码,用户就选不到仅在后续页的码。
+// 鐘舵€佺爜鍊欓€夌敤鍥哄畾甯哥敤鍒楄〃(涓庣鐞嗙 UsageFilters 鍏辩敤甯搁噺),涓嶅彈褰撳墠椤垫暟鎹檺鍒?
+// 鍚庣 status_code 杩囨护瀵瑰叏閲忕敓鏁?鑻ュ彧鍒楀綋鍓嶉〉鍑虹幇杩囩殑鐮?鐢ㄦ埛灏遍€変笉鍒颁粎鍦ㄥ悗缁〉鐨勭爜銆?
 const errorStatusOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.errors.allStatuses') },
   ...COMMON_ERROR_STATUS_CODES.map((c) => ({ value: c, label: String(c) })),
@@ -753,12 +760,12 @@ const loadSavedColumns = () => {
   }
 }
 
-// 错误请求 tab 独立列设置(机制同用量列设置,存储互不影响)
+// 閿欒璇锋眰 tab 鐙珛鍒楄缃?鏈哄埗鍚岀敤閲忓垪璁剧疆,瀛樺偍浜掍笉褰卞搷)
 const ERR_ALWAYS_VISIBLE = ['status', 'created_at']
 const ERR_DEFAULT_HIDDEN_COLUMNS = ['user_agent']
 const ERR_HIDDEN_COLUMNS_KEY = 'user-usage-error-hidden-columns'
 
-// key 须与 UserErrorRequestsTable 的 allColumns 一致
+// key 椤讳笌 UserErrorRequestsTable 鐨?allColumns 涓€鑷?
 const errAllColumns = computed<Column[]>(() => [
   { key: 'key_name', label: t('usage.errors.keyName') },
   { key: 'model', label: t('usage.errors.model') },
@@ -799,7 +806,7 @@ const loadSavedErrColumns = () => {
   }
 }
 
-// 列设置下拉按当前 tab 分发
+// 鍒楄缃笅鎷夋寜褰撳墠 tab 鍒嗗彂
 const currentToggleableColumns = computed(() =>
   activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
 )
@@ -812,10 +819,35 @@ const toggleCurrentColumn = (key: string) => {
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
-const handleColumnClickOutside = (event: MouseEvent) => {
-  if (columnDropdownRef.value && !columnDropdownRef.value.contains(event.target as HTMLElement)) {
-    showColumnDropdown.value = false
+const columnTriggerRef = ref<HTMLElement | null>(null)
+const columnMenuRef = ref<HTMLElement | null>(null)
+const columnDropdownStyle = ref<Record<string, string>>({})
+
+const updateColumnDropdownPosition = () => {
+  const el = columnTriggerRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const width = 192
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+  const spaceBelow = window.innerHeight - rect.bottom
+  const preferTop = spaceBelow < 240 && rect.top > spaceBelow
+  columnDropdownStyle.value = preferTop
+    ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 4}px` }
+    : { left: `${left}px`, top: `${rect.bottom + 4}px` }
+}
+
+const toggleColumnDropdown = () => {
+  showColumnDropdown.value = !showColumnDropdown.value
+  if (showColumnDropdown.value) {
+    updateColumnDropdownPosition()
   }
+}
+
+const handleColumnClickOutside = (event: MouseEvent) => {
+  const target = event.target as Node
+  if (columnDropdownRef.value?.contains(target)) return
+  if (columnMenuRef.value?.contains(target)) return
+  showColumnDropdown.value = false
 }
 
 const loadFilterOptions = async () => {
