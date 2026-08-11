@@ -21,6 +21,62 @@ import (
 )
 
 // SelectAccount 选择账号（粘性会话+优先级）
+
+// softExcludeStickyAccount prevents load-balance from immediately reselecting an account
+// that was just abandoned by sticky TTFT/error escape. Context/messages are never modified
+// by sticky escape — only the upstream account binding changes.
+func softExcludeStickyAccount(excludedIDs map[int64]struct{}, accountID int64) map[int64]struct{} {
+	if accountID <= 0 {
+		return excludedIDs
+	}
+	if excludedIDs == nil {
+		excludedIDs = make(map[int64]struct{}, 1)
+	}
+	excludedIDs[accountID] = struct{}{}
+	return excludedIDs
+}
+
+// applyGatewayStickyEscapeIfNeeded evaluates shared TTFT/error runtime stats and, when escape
+// fires, clears the sticky binding, soft-excludes the slow account, and records a 24h audit entry.
+// Callers must still release any concurrency slot they already acquired for the sticky account.
+// Request body/conversation is always forwarded unchanged (Claude/Gemini have no account-bound
+// previous_response anchors).
+func (s *GatewayService) applyGatewayStickyEscapeIfNeeded(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	sessionHash string,
+	account *Account,
+	peerIDs []int64,
+	peers []*Account,
+	layer string,
+	excludedIDs map[int64]struct{},
+) (escaped bool, nextExcluded map[int64]struct{}) {
+	nextExcluded = excludedIDs
+	if account == nil || account.ID <= 0 {
+		return false, nextExcluded
+	}
+	reason, errRate, ttft, escape := shouldEscapeStickyByRuntime(account.ID, gatewayStickyEscapeConfig(), peerIDs)
+	if !escape {
+		return false, nextExcluded
+	}
+	if s.cache != nil && sessionHash != "" {
+		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+	}
+	slog.Info("gateway_sticky_escape",
+		"account_id", account.ID,
+		"reason", reason,
+		"ttft_ms", ttft,
+		"session", shortSessionHash(sessionHash),
+		"layer", layer,
+		"context_carry", "full_messages_unchanged",
+	)
+	RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+	nextExcluded = softExcludeStickyAccount(excludedIDs, account.ID)
+	return true, nextExcluded
+}
+
 func (s *GatewayService) SelectAccount(ctx context.Context, groupID *int64, sessionHash string) (*Account, error) {
 	return s.SelectAccountForModel(ctx, groupID, sessionHash, "")
 }
@@ -368,22 +424,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 											peerIDs = append(peerIDs, peer.ID)
 										}
 									}
-									if reason, _, ttft, escape := shouldEscapeStickyByRuntime(stickyAccountID, gatewayStickyEscapeConfig(), peerIDs); escape {
+									peers := append([]*Account(nil), routingCandidates...)
+									if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, platform, requestedModel, sessionHash, stickyAccount, peerIDs, peers, "routing", excludedIDs); escaped {
 										result.ReleaseFunc()
-										_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-										slog.Info("gateway_sticky_escape",
-											"account_id", stickyAccountID,
-											"reason", reason,
-											"ttft_ms", ttft,
-											"session", shortSessionHash(sessionHash),
-											"layer", "routing",
-										)
-										{
-											// routingCandidates is already []*Account
-											peers := append([]*Account(nil), routingCandidates...)
-											errRate, _, _ := SnapshotOpenAIAccountRuntime(stickyAccountID)
-											RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, stickyAccount, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
-										}
+										excludedIDs = nextExcluded
 										stickyCacheMissReason = "ttft_escape"
 									} else {
 										if s.debugModelRoutingEnabled() {
@@ -596,26 +640,15 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							for peerID := range accountByID {
 								peerIDs = append(peerIDs, peerID)
 							}
-							if reason, _, ttft, escape := shouldEscapeStickyByRuntime(accountID, gatewayStickyEscapeConfig(), peerIDs); escape {
-								result.ReleaseFunc()
-								_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-								slog.Info("gateway_sticky_escape",
-									"account_id", accountID,
-									"reason", reason,
-									"ttft_ms", ttft,
-									"session", shortSessionHash(sessionHash),
-									"layer", "no_routing",
-								)
-								{
-									peers := make([]*Account, 0, len(accountByID))
-									for _, peer := range accountByID {
-										if peer != nil {
-											peers = append(peers, peer)
-										}
-									}
-									errRate, _, _ := SnapshotOpenAIAccountRuntime(accountID)
-									RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+							peers := make([]*Account, 0, len(accountByID))
+							for _, peer := range accountByID {
+								if peer != nil {
+									peers = append(peers, peer)
 								}
+							}
+							if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, platform, requestedModel, sessionHash, account, peerIDs, peers, "no_routing", excludedIDs); escaped {
+								result.ReleaseFunc()
+								excludedIDs = nextExcluded
 								// fall through to Layer 2 load-aware selection
 							} else {
 								if s.cache != nil {
@@ -1874,23 +1907,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						}
 						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 							peerIDs := append([]int64(nil), routingAccountIDs...)
-							if reason, _, ttft, escape := shouldEscapeStickyByRuntime(accountID, gatewayStickyEscapeConfig(), peerIDs); escape {
-								_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-								slog.Info("gateway_sticky_escape",
-									"account_id", accountID,
-									"reason", reason,
-									"ttft_ms", ttft,
-									"session", shortSessionHash(sessionHash),
-									"layer", "legacy_routing",
-								)
-								{
-									errRate, _, _ := SnapshotOpenAIAccountRuntime(accountID)
-									var fromAcc *Account
-									if account != nil {
-										fromAcc = account
-									}
-									RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, fromAcc, nil, nil, ttft, errRate, gatewayStickyEscapeConfig())
-								}
+							if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, platform, requestedModel, sessionHash, account, peerIDs, nil, "legacy_routing", excludedIDs); escaped {
+								excludedIDs = nextExcluded
 							} else {
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
@@ -2012,7 +2030,20 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
-						return account, nil
+						// Escape slow sticky before hard-returning; soft-exclude so load-balance picks a peer.
+						// Full conversation/messages still forward unchanged after switch.
+						var peerIDs []int64
+						if accountsLoaded {
+							peerIDs = make([]int64, 0, len(accounts))
+							for i := range accounts {
+								peerIDs = append(peerIDs, accounts[i].ID)
+							}
+						}
+						if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, platform, requestedModel, sessionHash, account, peerIDs, nil, "legacy_sticky", excludedIDs); escaped {
+							excludedIDs = nextExcluded
+						} else {
+							return account, nil
+						}
 					}
 				}
 			}
@@ -2152,10 +2183,15 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 						}
 						if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
 							if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
-								if s.debugModelRoutingEnabled() {
-									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
+								peerIDs := append([]int64(nil), routingAccountIDs...)
+								if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, nativePlatform, requestedModel, sessionHash, account, peerIDs, nil, "legacy_mixed_routing", excludedIDs); escaped {
+									excludedIDs = nextExcluded
+								} else {
+									if s.debugModelRoutingEnabled() {
+										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
+									}
+									return account, nil
 								}
-								return account, nil
 							}
 						}
 					}
@@ -2273,7 +2309,18 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
-							return account, nil
+							var peerIDs []int64
+							if accountsLoaded {
+								peerIDs = make([]int64, 0, len(accounts))
+								for i := range accounts {
+									peerIDs = append(peerIDs, accounts[i].ID)
+								}
+							}
+							if escaped, nextExcluded := s.applyGatewayStickyEscapeIfNeeded(ctx, groupID, nativePlatform, requestedModel, sessionHash, account, peerIDs, nil, "legacy_mixed_sticky", excludedIDs); escaped {
+								excludedIDs = nextExcluded
+							} else {
+								return account, nil
+							}
 						}
 					}
 				}

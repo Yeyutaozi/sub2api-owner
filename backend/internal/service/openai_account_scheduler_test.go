@@ -2279,13 +2279,16 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
 	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
 	concurrencyCache := schedulerTestConcurrencyCache{acquireResults: map[int64]bool{21102: true}}
+	stats := newOpenAIAccountRuntimeStats()
+	prevShared := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prevShared) })
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
 		cache:              cache,
 		cfg:                cfg,
 		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 		concurrencyService: NewConcurrencyService(concurrencyCache),
-		openaiAccountStats: newOpenAIAccountRuntimeStats(),
+		openaiAccountStats: stats,
 	}
 	fastTTFT := 14999
 	svc.openaiAccountStats.report(21101, true, &fastTTFT)
@@ -2334,15 +2337,20 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
 	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
 	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+	stats := newOpenAIAccountRuntimeStats()
+	// Ensure getOpenAIAccountScheduler keeps this bag (registerOpenAIAccountRuntimeStats prefers shared).
+	prevShared := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prevShared) })
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
 		cache:              cache,
 		cfg:                cfg,
 		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{21202: true}}),
-		openaiAccountStats: newOpenAIAccountRuntimeStats(),
+		openaiAccountStats: stats,
 	}
-	for i := 0; i < 3; i++ {
+	// errorAlpha=0.25: 2 fails -> 0.4375 (<0.5 sticky); 3 fails -> 0.578125 (>0.5 escape)
+	for i := 0; i < 2; i++ {
 		svc.openaiAccountStats.report(21201, false, nil)
 	}
 	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_error_rate", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
@@ -2355,9 +2363,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
-	for i := 0; i < 2; i++ {
-		svc.openaiAccountStats.report(21201, false, nil)
-	}
+	svc.openaiAccountStats.report(21201, false, nil)
 
 	selection, decision, err = svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_error_rate", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
@@ -2709,7 +2715,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	}, nil)
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
-	require.InDelta(t, 0.16, errorRate, 1e-9)
+	require.InDelta(t, 0.1875, errorRate, 1e-9)
 	require.InDelta(t, 15000, observedTTFT, 1e-9)
 
 	for i := 0; i < 4; i++ {
@@ -2729,7 +2735,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	}, nil)
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
-	require.InDelta(t, 0.655936, errorRate, 1e-9)
+	require.InDelta(t, 0.742919921875, errorRate, 1e-9)
 	require.InDelta(t, 15000, observedTTFT, 1e-9)
 }
 
@@ -3174,8 +3180,8 @@ func TestOpenAIAccountRuntimeStats_ReportAndSnapshot(t *testing.T) {
 
 	errorRate, ttft, hasTTFT := stats.snapshot(1001)
 	require.True(t, hasTTFT)
-	require.InDelta(t, 0.36, errorRate, 1e-9)
-	require.InDelta(t, 120.0, ttft, 1e-9)
+	require.InDelta(t, 0.4375, errorRate, 1e-9)
+	require.InDelta(t, 155.0, ttft, 1e-9)
 	require.Equal(t, 1, stats.size())
 }
 
@@ -3696,6 +3702,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityWai
 
 func TestShouldEscapeStickyAccountRelativeTTFT(t *testing.T) {
 	stats := newOpenAIAccountRuntimeStats()
+	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 	slowID := int64(101)
 	fastID := int64(102)
 	slow := 5000

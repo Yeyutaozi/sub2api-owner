@@ -89,6 +89,8 @@ func ProvideRouter(
 
 	// Account switch audit: share 24h logs across instances via Redis.
 	service.SetAccountSwitchAuditRedis(redisClient)
+	// Account runtime TTFT/error EWMA: share across instances so sticky escape works multi-pod.
+	service.SetAccountRuntimeRedis(redisClient)
 
 	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 }

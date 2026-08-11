@@ -8,7 +8,8 @@ import (
 
 func TestBuildOpenAIAccountSchedulerScoreSnapshotUsesRuntimeTTFT(t *testing.T) {
 	stats := newOpenAIAccountRuntimeStats()
-	registerOpenAIAccountRuntimeStats(stats)
+	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 
 	fast := 180
 	slow := 2400
@@ -43,7 +44,9 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshotUsesRuntimeTTFT(t *testing.T) {
 }
 
 func TestSnapshotOpenAIAccountRuntimeEmpty(t *testing.T) {
-	registerOpenAIAccountRuntimeStats(newOpenAIAccountRuntimeStats())
+	prev := sharedOpenAIAccountRuntimeStats.Swap(newOpenAIAccountRuntimeStats())
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
+	SetAccountRuntimeRedis(nil)
 	errRate, ttft, has := SnapshotOpenAIAccountRuntime(42)
 	require.Equal(t, 0.0, errRate)
 	require.Equal(t, 0.0, ttft)

@@ -534,6 +534,11 @@ func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, re
 
 func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
 	body, _ := s.readUpstreamErrorBody(resp)
+	// Feed sticky-escape error EWMA for Claude/Gemini/etc so slow/failing accounts can unstick
+	// the same way OpenAI does. No probe cost — only real upstream failures.
+	if account != nil && account.ID > 0 {
+		ReportAccountRuntimeResult(account.ID, false, nil)
+	}
 	if len(requestedModel) > 0 {
 		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
 		return

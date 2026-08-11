@@ -183,6 +183,7 @@ type openAIAccountRuntimeStats struct {
 type openAIAccountRuntimeStat struct {
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
+	lastTTFTBits      atomic.Uint64
 }
 
 func newOpenAIAccountRuntimeStats() *openAIAccountRuntimeStats {
@@ -211,12 +212,52 @@ func registerOpenAIAccountRuntimeStats(stats *openAIAccountRuntimeStats) *openAI
 
 // SnapshotOpenAIAccountRuntime returns EWMA error-rate and TTFT from real requests.
 // hasTTFT is false when the account has no first-token sample yet.
+// Multi-instance: falls back to Redis-shared EWMA when this process has no local sample.
 func SnapshotOpenAIAccountRuntime(accountID int64) (errorRate float64, ttftMs float64, hasTTFT bool) {
 	stats := sharedOpenAIAccountRuntimeStats.Load()
-	if stats == nil {
-		return 0, 0, false
+	if stats != nil {
+		errorRate, ttftMs, hasTTFT = stats.snapshot(accountID)
+		if hasTTFT {
+			return errorRate, ttftMs, true
+		}
 	}
-	return stats.snapshot(accountID)
+	if snap, ok := loadAccountRuntimeFromRedis(accountID); ok {
+		hydrateLocalRuntimeFromSnapshot(accountID, snap)
+		if snap.hasTTFT {
+			return snap.errorRate, snap.ttftMs, true
+		}
+		if snap.errorRate > 0 {
+			return snap.errorRate, 0, false
+		}
+	}
+	return errorRate, ttftMs, hasTTFT
+}
+
+// SnapshotOpenAIAccountRuntimeDetailed returns EWMA + last TTFT sample for sticky escape.
+func SnapshotOpenAIAccountRuntimeDetailed(accountID int64) (errorRate float64, ttftMs float64, lastTTFT float64, hasTTFT bool) {
+	errorRate, ttftMs, hasTTFT = SnapshotOpenAIAccountRuntime(accountID)
+	if accountID <= 0 {
+		return 0, 0, 0, false
+	}
+	if stats := sharedOpenAIAccountRuntimeStats.Load(); stats != nil {
+		if value, ok := stats.accounts.Load(accountID); ok {
+			if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+				last := math.Float64frombits(stat.lastTTFTBits.Load())
+				if !math.IsNaN(last) && last > 0 {
+					lastTTFT = last
+				}
+			}
+		}
+	}
+	if lastTTFT <= 0 {
+		if snap, ok := loadAccountRuntimeFromRedis(accountID); ok && snap.lastTTFT > 0 {
+			lastTTFT = snap.lastTTFT
+			if !hasTTFT && snap.hasTTFT {
+				errorRate, ttftMs, hasTTFT = snap.errorRate, snap.ttftMs, true
+			}
+		}
+	}
+	return errorRate, ttftMs, lastTTFT, hasTTFT
 }
 
 // ensureSharedAccountRuntimeStats lazily initializes the process-wide TTFT/error EWMA store.
@@ -237,24 +278,28 @@ func ensureSharedAccountRuntimeStats() *openAIAccountRuntimeStats {
 
 // ReportAccountRuntimeResult records real-request success/error and optional first-token latency
 // for any platform account. Used by sticky escape and TTFT-aware selection (OpenAI + Claude).
+// Dual-writes process-local EWMA and Redis so multi-instance sticky escape sees the same samples.
 func ReportAccountRuntimeResult(accountID int64, success bool, firstTokenMs *int) {
 	if accountID <= 0 {
 		return
 	}
 	stats := ensureSharedAccountRuntimeStats()
-	if stats == nil {
-		return
+	if stats != nil {
+		stats.report(accountID, success, firstTokenMs)
 	}
-	stats.report(accountID, success, firstTokenMs)
+	// Best-effort shared state; never block billing path on Redis failure.
+	_ = persistAccountRuntimeToRedis(accountID, success, firstTokenMs)
 }
 
 // shouldEscapeStickyByRuntime decides whether a sticky account should be abandoned based on
 // EWMA first-token latency / error rate from real traffic (no probe cost).
+// Escape uses max(EWMA, last_sample) so a single multi-second hang is enough to unstick.
 func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	if !cfg.enabled || accountID <= 0 {
 		return "", 0, 0, false
 	}
-	errorRate, ttft, hasTTFT := SnapshotOpenAIAccountRuntime(accountID)
+	errorRate, ewma, last, hasTTFT := SnapshotOpenAIAccountRuntimeDetailed(accountID)
+	ttft, hasTTFT = effectiveTTFTForEscape(ewma, last, hasTTFT)
 	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
 		return "ttft", errorRate, ttft, true
 	}
@@ -265,7 +310,8 @@ func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, 
 			if peerID <= 0 || peerID == accountID {
 				continue
 			}
-			_, peerTTFT, peerHas := SnapshotOpenAIAccountRuntime(peerID)
+			_, peerEWMA, peerLast, peerHas := SnapshotOpenAIAccountRuntimeDetailed(peerID)
+			peerTTFT, peerHas := effectiveTTFTForEscape(peerEWMA, peerLast, peerHas)
 			if !peerHas || peerTTFT <= 0 {
 				continue
 			}
@@ -326,6 +372,7 @@ func (s *openAIAccountRuntimeStats) loadOrCreate(accountID int64) *openAIAccount
 
 	stat := &openAIAccountRuntimeStat{}
 	stat.ttftEWMABits.Store(math.Float64bits(math.NaN()))
+	stat.lastTTFTBits.Store(math.Float64bits(math.NaN()))
 	actual, loaded := s.accounts.LoadOrStore(accountID, stat)
 	if !loaded {
 		s.accountCount.Add(1)
@@ -353,17 +400,17 @@ func (s *openAIAccountRuntimeStats) report(accountID int64, success bool, firstT
 	if s == nil || accountID <= 0 {
 		return
 	}
-	const alpha = 0.2
 	stat := s.loadOrCreate(accountID)
 
 	errorSample := 1.0
 	if success {
 		errorSample = 0.0
 	}
-	updateEWMAAtomic(&stat.errorRateEWMABits, errorSample, alpha)
+	updateEWMAAtomic(&stat.errorRateEWMABits, errorSample, accountRuntimeErrorAlpha)
 
 	if firstTokenMs != nil && *firstTokenMs > 0 {
 		ttft := float64(*firstTokenMs)
+		stat.lastTTFTBits.Store(math.Float64bits(ttft))
 		ttftBits := math.Float64bits(ttft)
 		for {
 			oldBits := stat.ttftEWMABits.Load()
@@ -373,6 +420,10 @@ func (s *openAIAccountRuntimeStats) report(accountID int64, success bool, firstT
 					break
 				}
 				continue
+			}
+			alpha := accountRuntimeTTFTAlphaDown
+			if ttft > oldValue {
+				alpha = accountRuntimeTTFTAlphaUp
 			}
 			newValue := alpha*ttft + (1-alpha)*oldValue
 			if stat.ttftEWMABits.CompareAndSwap(oldBits, math.Float64bits(newValue)) {
@@ -574,6 +625,12 @@ func (s *defaultOpenAIAccountScheduler) Select(
 					}
 					// Fall through to load-balance. StickyPreviousHit stays false so handlers
 					// strip previous_response_id and continue with full input context.
+					if len(peerIDs) > 1 {
+						if req.ExcludedIDs == nil {
+							req.ExcludedIDs = make(map[int64]struct{})
+						}
+						req.ExcludedIDs[escapeMeta.fromAccountID] = struct{}{}
+					}
 					selection = nil
 				}
 			}
@@ -597,6 +654,26 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 		if sessionEscape != nil {
 			escapeMeta = sessionEscape
+			// Soft-exclude the slow sticky account for this reselection when peers exist.
+			// Prevents immediately rebinding the same slow account after escape.
+			if sessionEscape.fromAccountID > 0 {
+				peerCount := 0
+				if req.GroupID != nil && s.service != nil {
+					if peers, peerErr := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform); peerErr == nil {
+						for i := range peers {
+							if peers[i].ID != sessionEscape.fromAccountID {
+								peerCount++
+							}
+						}
+					}
+				}
+				if peerCount > 0 {
+					if req.ExcludedIDs == nil {
+						req.ExcludedIDs = make(map[int64]struct{})
+					}
+					req.ExcludedIDs[sessionEscape.fromAccountID] = struct{}{}
+				}
+			}
 		}
 		if selection != nil && selection.Account != nil {
 			decision.Layer = openAIAccountScheduleLayerSessionSticky
@@ -823,8 +900,79 @@ func openAIAccountSchedulingPriority(account *Account) int {
 }
 
 func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
-	// Shared runtime snapshot covers both OpenAI reports and Claude/gateway reports.
+	// Prefer this scheduler's stats bag (registered as process-shared in production; private in unit tests).
+	// Fall back to process/Redis snapshot so multi-instance Claude/OpenAI samples still apply.
+	if s != nil && s.stats != nil {
+		if reason, errorRate, ttft, shouldEscape, ok := shouldEscapeStickyFromStats(s.stats, accountID, cfg, peerAccountIDs); ok {
+			return reason, errorRate, ttft, shouldEscape
+		}
+	}
 	return shouldEscapeStickyByRuntime(accountID, cfg, peerAccountIDs)
+}
+
+// shouldEscapeStickyFromStats evaluates escape using a concrete stats bag (no Redis hop).
+// ok=false when the bag has no useful samples for this account (caller may fall back).
+func shouldEscapeStickyFromStats(stats *openAIAccountRuntimeStats, accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool, ok bool) {
+	if stats == nil || accountID <= 0 || !cfg.enabled {
+		return "", 0, 0, false, false
+	}
+	errorRate, ewma, hasTTFT := stats.snapshot(accountID)
+	last := 0.0
+	if value, found := stats.accounts.Load(accountID); found {
+		if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+			v := math.Float64frombits(stat.lastTTFTBits.Load())
+			if !math.IsNaN(v) && v > 0 {
+				last = v
+			}
+		}
+	}
+	if !hasTTFT && errorRate <= 0 && last <= 0 {
+		return "", 0, 0, false, false
+	}
+	ttft, hasTTFT = effectiveTTFTForEscape(ewma, last, hasTTFT || last > 0)
+	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
+		return "ttft", errorRate, ttft, true, true
+	}
+	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
+		bestPeer := 0.0
+		hasPeer := false
+		for _, peerID := range peerAccountIDs {
+			if peerID <= 0 || peerID == accountID {
+				continue
+			}
+			_, peerEWMA, peerHas := stats.snapshot(peerID)
+			peerLast := 0.0
+			if value, found := stats.accounts.Load(peerID); found {
+				if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+					v := math.Float64frombits(stat.lastTTFTBits.Load())
+					if !math.IsNaN(v) && v > 0 {
+						peerLast = v
+					}
+				}
+			}
+			peerTTFT, peerHas := effectiveTTFTForEscape(peerEWMA, peerLast, peerHas || peerLast > 0)
+			if !peerHas || peerTTFT <= 0 {
+				continue
+			}
+			if !hasPeer || peerTTFT < bestPeer {
+				bestPeer = peerTTFT
+				hasPeer = true
+			}
+		}
+		if hasPeer {
+			minDelta := cfg.relativeMinDelta
+			if minDelta <= 0 {
+				minDelta = 250
+			}
+			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
+				return "ttft_relative", errorRate, ttft, true, true
+			}
+		}
+	}
+	if errorRate > cfg.errorRate {
+		return "error_rate", errorRate, ttft, true, true
+	}
+	return "", errorRate, ttft, false, true
 }
 
 type openAIAccountCandidateScore struct {
@@ -2006,10 +2154,23 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, success bool, firstTokenMs *int) {
-	if s == nil || s.stats == nil {
+	if s == nil || accountID <= 0 {
 		return
 	}
-	s.stats.report(accountID, success, firstTokenMs)
+	if s.stats != nil {
+		s.stats.report(accountID, success, firstTokenMs)
+	}
+	// Multi-instance: keep Redis EWMA in sync so other pods can escape slow sticky accounts.
+	// Avoid double-writing the process-local shared bag when s.stats is already registered as shared.
+	shared := sharedOpenAIAccountRuntimeStats.Load()
+	if shared != nil && shared != s.stats {
+		shared.report(accountID, success, firstTokenMs)
+	} else if shared == nil {
+		// Ensure a process bag exists for Claude/gateway Snapshot readers even before scheduler init.
+		ReportAccountRuntimeResult(accountID, success, firstTokenMs)
+		return
+	}
+	_ = persistAccountRuntimeToRedis(accountID, success, firstTokenMs)
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportSwitch() {

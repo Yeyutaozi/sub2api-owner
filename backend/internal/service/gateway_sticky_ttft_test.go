@@ -3,8 +3,9 @@ package service
 import "testing"
 
 func TestShouldEscapeStickyByRuntime_AbsoluteAndRelative(t *testing.T) {
-	// isolate shared stats via register return value
-	stats := registerOpenAIAccountRuntimeStats(newOpenAIAccountRuntimeStats())
+	stats := newOpenAIAccountRuntimeStats()
+	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 
 	slowID, fastID := int64(91001), int64(91002)
 	slow := 12000
@@ -31,7 +32,9 @@ func TestShouldEscapeStickyByRuntime_AbsoluteAndRelative(t *testing.T) {
 }
 
 func TestShouldEscapeStickyByRuntime_RelativeUnderAbsolute(t *testing.T) {
-	stats := registerOpenAIAccountRuntimeStats(newOpenAIAccountRuntimeStats())
+	stats := newOpenAIAccountRuntimeStats()
+	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 	slowID, fastID := int64(93001), int64(93002)
 	// Both under absolute 5s, but sticky is >1.15x peer with delta >300ms.
 	slow, fast := 4000, 2000
@@ -49,7 +52,9 @@ func TestShouldEscapeStickyByRuntime_RelativeUnderAbsolute(t *testing.T) {
 }
 
 func TestAccountTTFTForSortPrefersFaster(t *testing.T) {
-	stats := registerOpenAIAccountRuntimeStats(newOpenAIAccountRuntimeStats())
+	stats := newOpenAIAccountRuntimeStats()
+	prev := sharedOpenAIAccountRuntimeStats.Swap(stats)
+	t.Cleanup(func() { sharedOpenAIAccountRuntimeStats.Store(prev) })
 	a, b := int64(92001), int64(92002)
 	fast, slow := 800, 7000
 	stats.report(a, true, &fast)

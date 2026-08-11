@@ -585,7 +585,14 @@ export default {
       noPricing: 'Pricing not configured',
       peakNote: 'Peak window {window} rate ×{multiplier}',
       avgFirstToken: 'Avg first token',
-      ttftDisclaimer: 'Based on recent requests; for reference only'
+      ttftShort: 'TTFT',
+      ttftDisclaimer: 'Based on recent requests; for reference only',
+      ttftGrade: {
+        good: 'Fast',
+        warn: 'Fair',
+        slow: 'Slow',
+        critical: 'Very slow'
+      }
     },
     table: {
       model: 'Model',

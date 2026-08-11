@@ -590,7 +590,14 @@ export default {
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}',
       avgFirstToken: '平均首字',
-      ttftDisclaimer: '根据近期请求统计，仅供参考'
+      ttftShort: '首字',
+      ttftDisclaimer: '根据近期请求统计，仅供参考',
+      ttftGrade: {
+        good: '快',
+        warn: '偏慢',
+        slow: '慢',
+        critical: '很慢'
+      }
     },
     table: {
       model: '模型',

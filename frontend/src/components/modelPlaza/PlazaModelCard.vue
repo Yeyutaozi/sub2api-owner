@@ -67,10 +67,15 @@
             <div class="mp-offer__metrics">
               <span class="mp-offer__rate mono" :title="t('modelPlaza.table.rate')">{{ formatRate(offer.effectiveRate) }}</span>
               <span
-                class="mp-offer__ttft mono"
+                class="mp-offer__ttft"
+                :data-tone="ttftTone(offer.avgFirstTokenMs)"
                 data-testid="plaza-offer-ttft"
-                :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')"
-              >{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
+                :title="ttftTitle(offer)"
+              >
+                <span class="mp-offer__ttft-kicker">{{ t('modelPlaza.detail.ttftShort') }}</span>
+                <span class="mp-offer__ttft-value mono">{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
+                <span v-if="ttftTone(offer.avgFirstTokenMs) !== 'unknown'" class="mp-offer__ttft-grade">{{ ttftGradeLabel(offer.avgFirstTokenMs) }}</span>
+              </span>
             </div>
           </div>
 
@@ -161,11 +166,15 @@
             </div>
             <div
               class="mp-metric mp-metric--ttft"
-              :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')"
+              :data-tone="ttftTone(offer.avgFirstTokenMs)"
+              :title="ttftTitle(offer)"
               data-testid="plaza-offer-ttft"
             >
-              <span class="mp-metric__label">{{ t('modelPlaza.detail.avgFirstToken') }}</span>
-              <span class="mp-metric__value">{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
+              <span class="mp-metric__label">
+                {{ t('modelPlaza.detail.avgFirstToken') }}
+                <em v-if="ttftTone(offer.avgFirstTokenMs) !== 'unknown'" class="mp-metric__grade">{{ ttftGradeLabel(offer.avgFirstTokenMs) }}</em>
+              </span>
+              <span class="mp-metric__value mono">{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
             </div>
           </div>
         </div>
@@ -255,6 +264,10 @@ import {
 } from './plazaCatalog'
 import PlazaVendorMark from './PlazaVendorMark.vue'
 import { resolvePlazaVendor } from './plazaVendors'
+import {
+  firstTokenSeverity,
+  type LatencySeverity
+} from '@/utils/latencyHealth'
 
 const props = defineProps<{
   card: PlazaModelCard
@@ -375,6 +388,29 @@ function formatFirstToken(ms: number | null | undefined): string {
   if (!Number.isFinite(n) || n <= 0) return emDash
   if (n >= 1000) return (n / 1000).toFixed(1) + 's'
   return Math.round(n) + 'ms'
+}
+
+type TtftTone = LatencySeverity | 'unknown'
+
+function ttftTone(ms: number | null | undefined): TtftTone {
+  const n = Number(ms || 0)
+  if (!Number.isFinite(n) || n <= 0) return 'unknown'
+  return firstTokenSeverity(n)
+}
+
+function ttftGradeLabel(ms: number | null | undefined): string {
+  const tone = ttftTone(ms)
+  if (tone === 'unknown') return ''
+  return t(`modelPlaza.detail.ttftGrade.${tone}`)
+}
+
+function ttftTitle(offer: PlazaOffer): string {
+  const base = offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')
+  const tone = ttftTone(offer.avgFirstTokenMs)
+  if (tone === 'unknown') return base
+  const grade = t(`modelPlaza.detail.ttftGrade.${tone}`)
+  const value = formatFirstToken(offer.avgFirstTokenMs)
+  return `${t('modelPlaza.detail.avgFirstToken')}: ${value} (${grade}) · ${base}`
 }
 
 function formatRes(res: string): string {
@@ -659,9 +695,69 @@ function peakWindow(offer: PlazaOffer): string {
 .mp-offer__names { min-width:0; }
 .mp-offer__group { display:block; font-size:12.5px; font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 .mp-offer__pills { display:flex; flex-wrap:wrap; gap:4px; margin-top:3px; }
-.mp-offer__metrics { display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex:0 0 auto; }
+.mp-offer__metrics { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex:0 0 auto; }
 .mp-offer__rate { font-size:12px; font-weight:750; color:#0f766e; }
-.mp-offer__ttft { font-size:11px; font-weight:650; color:#64748b; }
+.mp-offer__ttft {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  line-height: 1.15;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+.mp-offer__ttft-kicker {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.78;
+}
+.mp-offer__ttft-value {
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mp-offer__ttft-grade {
+  font-size: 10px;
+  font-weight: 750;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.mp-offer__ttft[data-tone="good"] {
+  color: #047857;
+  background: linear-gradient(180deg, #ecfdf5, #d1fae5);
+  border-color: #6ee7b7;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+.mp-offer__ttft[data-tone="warn"] {
+  color: #b45309;
+  background: linear-gradient(180deg, #fffbeb, #fef3c7);
+  border-color: #fcd34d;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+.mp-offer__ttft[data-tone="slow"] {
+  color: #c2410c;
+  background: linear-gradient(180deg, #fff7ed, #ffedd5);
+  border-color: #fdba74;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.12);
+}
+.mp-offer__ttft[data-tone="critical"] {
+  color: #b91c1c;
+  background: linear-gradient(180deg, #fef2f2, #fee2e2);
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.12);
+}
+.mp-offer__ttft[data-tone="unknown"] {
+  color: #64748b;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
 .mp-offer__prices { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
 .mp-chip-price--xs { padding:2px 6px !important; font-size:10.5px !important; }
 .mp-chip-price--xs em { font-size:9.5px !important; }
@@ -673,7 +769,31 @@ function peakWindow(offer: PlazaOffer): string {
 :global(.dark) .mp-multi { background: linear-gradient(180deg, #0b1220, #111827); border-top-color:#243041; }
 :global(.dark) .mp-offer { background:#0b1220; border-color:#243041; }
 :global(.dark) .mp-offer__group { color:#e2e8f0; }
-:global(.dark) .mp-offer__ttft { color:#94a3b8; }
+:global(.dark) .mp-offer__ttft[data-tone="good"] {
+  color: #6ee7b7;
+  background: linear-gradient(180deg, rgba(6, 78, 59, 0.45), rgba(6, 95, 70, 0.25));
+  border-color: rgba(52, 211, 153, 0.45);
+}
+:global(.dark) .mp-offer__ttft[data-tone="warn"] {
+  color: #fbbf24;
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.4), rgba(146, 64, 14, 0.22));
+  border-color: rgba(251, 191, 36, 0.4);
+}
+:global(.dark) .mp-offer__ttft[data-tone="slow"] {
+  color: #fb923c;
+  background: linear-gradient(180deg, rgba(124, 45, 18, 0.42), rgba(154, 52, 18, 0.22));
+  border-color: rgba(251, 146, 60, 0.4);
+}
+:global(.dark) .mp-offer__ttft[data-tone="critical"] {
+  color: #fca5a5;
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.45), rgba(153, 27, 27, 0.25));
+  border-color: rgba(248, 113, 113, 0.45);
+}
+:global(.dark) .mp-offer__ttft[data-tone="unknown"] {
+  color: #94a3b8;
+  background: #0f172a;
+  border-color: #334155;
+}
 :global(.dark) .mp-multi__title { color:#94a3b8; }
 
 .mp-solo { padding: 10px 12px 12px; }
@@ -731,7 +851,89 @@ function peakWindow(offer: PlazaOffer): string {
   color: var(--mp-ink);
 }
 .mp-metric--rate .mp-metric__value { color: #047857; }
-.mp-metric--ttft .mp-metric__value { color: #c2410c; }
+.mp-metric--ttft {
+  min-width: 92px;
+  border-width: 1.5px;
+}
+.mp-metric--ttft .mp-metric__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mp-metric__grade {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.mp-metric--ttft .mp-metric__value {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.mp-metric--ttft[data-tone="good"] {
+  color: #047857;
+  background: linear-gradient(180deg, #ecfdf5, #fff);
+  border-color: #6ee7b7;
+}
+.mp-metric--ttft[data-tone="good"] .mp-metric__value { color: #047857; }
+.mp-metric--ttft[data-tone="warn"] {
+  color: #b45309;
+  background: linear-gradient(180deg, #fffbeb, #fff);
+  border-color: #fcd34d;
+}
+.mp-metric--ttft[data-tone="warn"] .mp-metric__value { color: #b45309; }
+.mp-metric--ttft[data-tone="slow"] {
+  color: #c2410c;
+  background: linear-gradient(180deg, #fff7ed, #fff);
+  border-color: #fdba74;
+}
+.mp-metric--ttft[data-tone="slow"] .mp-metric__value { color: #c2410c; }
+.mp-metric--ttft[data-tone="critical"] {
+  color: #b91c1c;
+  background: linear-gradient(180deg, #fef2f2, #fff);
+  border-color: #fca5a5;
+}
+.mp-metric--ttft[data-tone="critical"] .mp-metric__value { color: #b91c1c; }
+.mp-metric--ttft[data-tone="unknown"] {
+  color: #64748b;
+  background: #fff;
+  border-color: var(--mp-line);
+}
+.mp-metric--ttft[data-tone="unknown"] .mp-metric__value { color: #64748b; }
+:global(.dark) .mp-metric--ttft[data-tone="good"] {
+  color: #6ee7b7;
+  background: linear-gradient(180deg, rgba(6, 78, 59, 0.35), #0b1220);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+:global(.dark) .mp-metric--ttft[data-tone="good"] .mp-metric__value { color: #6ee7b7; }
+:global(.dark) .mp-metric--ttft[data-tone="warn"] {
+  color: #fbbf24;
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.32), #0b1220);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+:global(.dark) .mp-metric--ttft[data-tone="warn"] .mp-metric__value { color: #fbbf24; }
+:global(.dark) .mp-metric--ttft[data-tone="slow"] {
+  color: #fb923c;
+  background: linear-gradient(180deg, rgba(124, 45, 18, 0.32), #0b1220);
+  border-color: rgba(251, 146, 60, 0.35);
+}
+:global(.dark) .mp-metric--ttft[data-tone="slow"] .mp-metric__value { color: #fb923c; }
+:global(.dark) .mp-metric--ttft[data-tone="critical"] {
+  color: #fca5a5;
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.35), #0b1220);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+:global(.dark) .mp-metric--ttft[data-tone="critical"] .mp-metric__value { color: #fca5a5; }
+:global(.dark) .mp-metric--ttft[data-tone="unknown"] {
+  color: #94a3b8;
+  background: #0b1220;
+  border-color: #243041;
+}
+:global(.dark) .mp-metric--ttft[data-tone="unknown"] .mp-metric__value { color: #94a3b8; }
 .mp-price-row {
   display: flex;
   flex-wrap: wrap;
