@@ -135,18 +135,25 @@
               <p v-else class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</p>
             </div>
 
-            <div v-else class="mp-token-grid">
-              <div class="mp-token-cell">
-                <div class="mp-token-cell__k">{{ t('modelPlaza.table.input') }}</div>
-                <div class="mp-token-cell__v">{{ paidToken(offer, 'input_price') }}</div>
+            <div v-else class="mp-price-block">
+              <div class="mp-price-block__bar">
+                <span class="mp-price-block__mode">{{ t('modelPlaza.table.perToken') }}</span>
+                <span class="mp-price-block__unit">{{ t('modelPlaza.table.unitPerMillion') }}</span>
               </div>
-              <div class="mp-token-cell">
-                <div class="mp-token-cell__k">{{ t('modelPlaza.table.output') }}</div>
-                <div class="mp-token-cell__v">{{ paidToken(offer, 'output_price') }}</div>
-              </div>
-              <div class="mp-token-cell">
-                <div class="mp-token-cell__k">{{ t('modelPlaza.table.cache') }}</div>
-                <div class="mp-token-cell__v">{{ cachePaid(offer) }}</div>
+              <p class="mp-price-block__hint">{{ t('modelPlaza.table.tokenBillingHint') }} · {{ t('modelPlaza.table.rateAppliedNote') }}</p>
+              <div class="mp-token-grid mp-token-grid--inblock">
+                <div class="mp-token-cell">
+                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.input') }}</div>
+                  <div class="mp-token-cell__v">{{ paidToken(offer, 'input_price') }}<span class="mp-token-cell__u">$/M</span></div>
+                </div>
+                <div class="mp-token-cell">
+                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.output') }}</div>
+                  <div class="mp-token-cell__v">{{ paidToken(offer, 'output_price') }}<span class="mp-token-cell__u">$/M</span></div>
+                </div>
+                <div class="mp-token-cell">
+                  <div class="mp-token-cell__k">{{ t('modelPlaza.table.cache') }}</div>
+                  <div class="mp-token-cell__v">{{ cachePaid(offer) }}<span class="mp-token-cell__u">$/M</span></div>
+                </div>
               </div>
             </div>
 
@@ -445,6 +452,8 @@ function peakWindow(offer: PlazaOffer): string {
 .mp-price-cell__k{display:block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mp-faint)}
 .mp-price-cell__v{display:block;margin-top:4px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;font-weight:750;color:var(--mp-ink);font-variant-numeric:tabular-nums}
 .mp-token-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.mp-token-grid--inblock{margin:8px 10px 10px}
+.mp-token-cell__u{margin-left:4px;font-size:10px;font-weight:700;color:#64748b;font-family:inherit}
 .mp-token-cell{border-radius:10px;border:1px solid var(--mp-line);background:#fff;padding:8px 9px;min-width:0}
 .mp-token-cell__k{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-faint)}
 .mp-token-cell__v{margin-top:3px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-weight:750;color:var(--mp-ink);word-break:break-word}

@@ -55,12 +55,17 @@ export function effectiveGroupRate(
 }
 
 export function normalizePlazaKind(m: PlazaModel): PlazaModelKind | string {
-  if (m.kind) return m.kind
+  // Explicit kind from backend wins, except chat+image_prices mis-hints for dual models.
+  if (m.kind && m.kind !== 'chat' && m.kind !== 'text') return m.kind
   if (m.video_prices || m.video_billing_unit) return 'video'
-  if (m.image_prices) return 'image'
-  const mode = m.pricing?.billing_mode
-  if (mode === 'image') return 'image'
+  const mode = String(m.pricing?.billing_mode || '').toLowerCase()
   if (mode === 'video') return 'video'
+  // Token/chat pricing is $/M — never classify as image just because image_prices is attached.
+  if (mode === 'token' || (m.pricing && (m.pricing.input_price != null || m.pricing.output_price != null))) {
+    return m.kind === 'text' ? 'text' : 'chat'
+  }
+  if (mode === 'image' || m.image_prices) return 'image'
+  if (m.kind) return m.kind
   return 'chat'
 }
 
