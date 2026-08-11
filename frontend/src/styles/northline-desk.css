@@ -1083,81 +1083,118 @@ html.dark .ops-group-chip {
   box-shadow: 0 18px 36px -28px rgba(0, 0, 0, 0.7);
 }
 
-.desk-tabs {
+/* Usage detail tabs: segmented control (icon + label side-by-side, never jammed) */
+.desk-tabs,
+.usage-detail-tabs {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
-  gap: 6px;
-  padding: 10px 12px 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.72), rgba(248, 250, 252, 0.4));
-}
-
-.dark .desk-tabs {
-  border-bottom-color: rgba(148, 163, 184, 0.12);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.55), rgba(15, 23, 42, 0.2));
-}
-
-.desk-tab {
-  position: relative;
-  display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-bottom: -1px;
-  padding: 0.7rem 0.95rem;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, rgba(241, 245, 249, 0.95), rgba(248, 250, 252, 0.72));
+}
+
+.dark .desk-tabs,
+.dark .usage-detail-tabs {
+  border-bottom-color: rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.28));
+}
+
+.desk-tab,
+.usage-detail-tab {
+  position: relative;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+  margin: 0;
+  padding: 0.5rem 0.95rem;
   border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 12px 12px 0 0;
+  border-radius: 999px;
   background: transparent;
   color: #64748b;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
-.desk-tab:hover {
+.desk-tab:hover,
+.usage-detail-tab:hover {
   color: #0f172a;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(148, 163, 184, 0.28);
 }
 
-.dark .desk-tab {
+.dark .desk-tab,
+.dark .usage-detail-tab {
   color: #94a3b8;
 }
 
-.dark .desk-tab:hover {
+.dark .desk-tab:hover,
+.dark .usage-detail-tab:hover {
   color: #e2e8f0;
-  background: rgba(30, 41, 59, 0.55);
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(148, 163, 184, 0.22);
 }
 
-.desk-tab.is-active {
+.desk-tab.is-active,
+.usage-detail-tab.is-active {
   color: #1d4ed8;
   background: #ffffff;
-  border-color: rgba(15, 23, 42, 0.1);
-  box-shadow: 0 -1px 0 #ffffff inset;
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 0 0 3px rgba(59, 130, 246, 0.08);
 }
 
-.desk-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #2563eb, #0ea5e9);
+.desk-tab.is-active::after,
+.usage-detail-tab.is-active::after {
+  display: none;
 }
 
-.dark .desk-tab.is-active {
+.dark .desk-tab.is-active,
+.dark .usage-detail-tab.is-active {
   color: #93c5fd;
-  background: rgba(15, 23, 42, 0.92);
-  border-color: rgba(148, 163, 184, 0.16);
-  box-shadow: none;
+  background: rgba(15, 23, 42, 0.95);
+  border-color: rgba(96, 165, 250, 0.38);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
-.dark .desk-tab.is-active::after {
-  background: linear-gradient(90deg, #60a5fa, #38bdf8);
+.usage-detail-tab__icon,
+.desk-tab svg,
+.usage-detail-tab svg {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
+.usage-detail-tab__label {
+  display: inline-block;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 640px) {
+  .desk-tab,
+  .usage-detail-tab {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8125rem;
+  }
 }
 
 .instrument-panel__title {

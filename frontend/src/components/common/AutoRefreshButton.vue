@@ -89,12 +89,14 @@ const updateMenuPosition = () => {
   if (!el) return
   const rect = el.getBoundingClientRect()
   const width = 176
+  const menuHeight = menuRef.value?.offsetHeight || 180
   const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
   const spaceBelow = window.innerHeight - rect.bottom
-  const preferTop = spaceBelow < 180 && rect.top > spaceBelow
-  menuStyle.value = preferTop
-    ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 4}px` }
-    : { left: `${left}px`, top: `${rect.bottom + 4}px` }
+  const preferTop = spaceBelow < menuHeight + 8 && rect.top > spaceBelow
+  let top = preferTop ? rect.top - menuHeight - 4 : rect.bottom + 4
+  const maxTop = Math.max(8, window.innerHeight - menuHeight - 8)
+  top = Math.min(Math.max(8, top), maxTop)
+  menuStyle.value = { left: `${left}px`, top: `${top}px` }
 }
 
 function handleClickOutside(event: MouseEvent) {

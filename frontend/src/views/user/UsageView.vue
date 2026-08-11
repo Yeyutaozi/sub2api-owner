@@ -828,12 +828,14 @@ const updateColumnDropdownPosition = () => {
   if (!el) return
   const rect = el.getBoundingClientRect()
   const width = 192
+  const menuHeight = columnMenuRef.value?.offsetHeight || 240
   const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
   const spaceBelow = window.innerHeight - rect.bottom
-  const preferTop = spaceBelow < 240 && rect.top > spaceBelow
-  columnDropdownStyle.value = preferTop
-    ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 4}px` }
-    : { left: `${left}px`, top: `${rect.bottom + 4}px` }
+  const preferTop = spaceBelow < menuHeight + 8 && rect.top > spaceBelow
+  let top = preferTop ? rect.top - menuHeight - 4 : rect.bottom + 4
+  const maxTop = Math.max(8, window.innerHeight - menuHeight - 8)
+  top = Math.min(Math.max(8, top), maxTop)
+  columnDropdownStyle.value = { left: `${left}px`, top: `${top}px` }
 }
 
 const toggleColumnDropdown = () => {

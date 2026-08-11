@@ -82,19 +82,20 @@
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
       <div class="desk-panel">
-        <div class="desk-tabs" role="tablist" aria-label="usage details">
+        <div class="usage-detail-tabs desk-tabs" role="tablist" aria-label="usage details">
           <button
             v-for="tab in detailTabs"
             :key="tab.key"
             type="button"
             role="tab"
             data-testid="usage-detail-tab"
-            class="desk-tab"
+            class="usage-detail-tab desk-tab"
             :class="{ 'is-active': activeTab === tab.key }"
+            :aria-selected="activeTab === tab.key"
             @click="switchTab(tab.key)"
           >
-            <Icon :name="tab.icon" size="sm" />
-            {{ tab.label }}
+            <Icon :name="tab.icon" size="sm" class="usage-detail-tab__icon" />
+            <span class="usage-detail-tab__label">{{ tab.label }}</span>
           </button>
         </div>
 
@@ -866,12 +867,14 @@ const updateColumnDropdownPosition = () => {
   if (!el) return
   const rect = el.getBoundingClientRect()
   const width = 192
+  const menuHeight = columnMenuRef.value?.offsetHeight || 240
   const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
   const spaceBelow = window.innerHeight - rect.bottom
-  const preferTop = spaceBelow < 240 && rect.top > spaceBelow
-  columnDropdownStyle.value = preferTop
-    ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 4}px` }
-    : { left: `${left}px`, top: `${rect.bottom + 4}px` }
+  const preferTop = spaceBelow < menuHeight + 8 && rect.top > spaceBelow
+  let top = preferTop ? rect.top - menuHeight - 4 : rect.bottom + 4
+  const maxTop = Math.max(8, window.innerHeight - menuHeight - 8)
+  top = Math.min(Math.max(8, top), maxTop)
+  columnDropdownStyle.value = { left: `${left}px`, top: `${top}px` }
 }
 
 const toggleColumnDropdown = () => {

@@ -298,7 +298,8 @@ const calculateDropdownPosition = () => {
     const spaceBelow = window.innerHeight - triggerRect.value.bottom
     const spaceAbove = triggerRect.value.top
 
-    if (spaceBelow < dropdownHeight + 8 && spaceAbove > dropdownHeight) {
+    // Prefer below when trigger is in view; only flip above when clearly better
+    if (spaceBelow < dropdownHeight + 8 && spaceAbove > spaceBelow && spaceAbove > 120) {
       dropdownPosition.value = 'top'
     } else {
       dropdownPosition.value = 'bottom'
@@ -310,36 +311,58 @@ const dropdownStyle = computed(() => {
   if (!triggerRect.value) return {}
 
   const rect = triggerRect.value
-  const viewportRight = Math.max(dropdownViewportPadding, window.innerWidth - dropdownViewportPadding)
+  const pad = dropdownViewportPadding
+  const viewportRight = Math.max(pad, window.innerWidth - pad)
   const preferredWidth = Math.max(dropdownMinimumWidth, rect.width)
   let left = rect.left
   // Prefer left-align to trigger; flip left if would overflow right edge
   if (left + preferredWidth > viewportRight) {
-    left = Math.max(dropdownViewportPadding, viewportRight - preferredWidth)
+    left = Math.max(pad, viewportRight - preferredWidth)
   }
-  left = Math.min(Math.max(dropdownViewportPadding, left), viewportRight)
+  left = Math.min(Math.max(pad, left), viewportRight)
   const availableWidth = Math.max(0, viewportRight - left)
   const minWidth = Math.min(preferredWidth, availableWidth)
+
+  // Keep dropdown fully inside the viewport vertically
+  const estimatedHeight = dropdownRef.value?.offsetHeight || 280
+  let top: number
+  if (dropdownPosition.value === 'top') {
+    top = rect.top - estimatedHeight - 4
+  } else {
+    top = rect.bottom + 4
+  }
+  const maxTop = Math.max(pad, window.innerHeight - estimatedHeight - pad)
+  top = Math.min(Math.max(pad, top), maxTop)
 
   const style: Record<string, string> = {
     position: 'fixed',
     left: `${left}px`,
+    top: `${top}px`,
     minWidth: `${minWidth}px`,
     maxWidth: `${availableWidth}px`,
     zIndex: '100000020'
   }
 
-  if (dropdownPosition.value === 'top') {
-    style.bottom = `${window.innerHeight - rect.top + 4}px`
-  } else {
-    style.top = `${rect.bottom + 4}px`
-  }
-
   return style
 })
 
+const onViewportChange = () => {
+  if (!isOpen.value) return
+  updateTriggerRect()
+  calculateDropdownPosition()
+}
+
 const toggle = () => {
   isOpen.value = !isOpen.value
+  if (isOpen.value) {
+    // Keep trigger visible so fixed positioning is meaningful
+    triggerRef.value?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    updateTriggerRect()
+    nextTick(() => {
+      calculateDropdownPosition()
+      updateTriggerRect()
+    })
+  }
 }
 
 const apply = () => {
@@ -385,12 +408,13 @@ watch(
 
 watch(isOpen, (open) => {
   if (open) {
+    updateTriggerRect()
     calculateDropdownPosition()
-    window.addEventListener('scroll', updateTriggerRect, { capture: true, passive: true })
-    window.addEventListener('resize', calculateDropdownPosition)
+    window.addEventListener('scroll', onViewportChange, { capture: true, passive: true })
+    window.addEventListener('resize', onViewportChange)
   } else {
-    window.removeEventListener('scroll', updateTriggerRect, { capture: true })
-    window.removeEventListener('resize', calculateDropdownPosition)
+    window.removeEventListener('scroll', onViewportChange, { capture: true })
+    window.removeEventListener('resize', onViewportChange)
   }
 })
 
@@ -404,8 +428,8 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleEscape)
-  window.removeEventListener('scroll', updateTriggerRect, { capture: true })
-  window.removeEventListener('resize', calculateDropdownPosition)
+  window.removeEventListener('scroll', onViewportChange, { capture: true })
+  window.removeEventListener('resize', onViewportChange)
 })
 </script>
 
