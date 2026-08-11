@@ -499,6 +499,87 @@ func TestListPlazaGroups_NoSchedulableAccountsHidesGroup(t *testing.T) {
 	require.Len(t, out, 0)
 }
 
+
+func TestFillPlazaMissingPricing_NormalizedCrossGroupAndMedia(t *testing.T) {
+	in := 3e-6
+	out := 1.5e-5
+	v720 := 0.12
+	i1k := 0.04
+	svc := &ChannelService{}
+
+	byGroup := map[int64]*PlazaGroup{
+		1: {
+			ID: 1, Name: "alpha",
+			Models: []PlazaModel{
+				{
+					Name: "GPT-5.6",
+					Kind: PlazaKindChat,
+					Pricing: &ChannelModelPricing{
+						BillingMode: BillingModeToken,
+						InputPrice:  &in,
+						OutputPrice: &out,
+					},
+				},
+				{
+					Name:             "seedance-2.0",
+					Kind:             PlazaKindVideo,
+					VideoBillingUnit: "second",
+					VideoResolutions: []string{"720p"},
+					VideoPrices:      &VideoModelPrice{Price720P: &v720},
+				},
+				{
+					Name:        "gpt-image-2",
+					Kind:        PlazaKindImage,
+					ImagePrices: map[string]*float64{"1K": &i1k},
+				},
+			},
+		},
+		2: {
+			ID: 2, Name: "beta",
+			Models: []PlazaModel{
+				{Name: "gpt_5.6", Kind: PlazaKindChat, Pricing: nil},
+				{Name: "Seedance-2.0", Kind: PlazaKindVideo},
+				{Name: "GPT Image 2", Kind: PlazaKindImage},
+			},
+		},
+	}
+	svc.fillPlazaMissingPricing(byGroup, []int64{1, 2})
+
+	beta := byGroup[2]
+	require.Len(t, beta.Models, 3)
+
+	require.NotNil(t, beta.Models[0].Pricing)
+	require.NotNil(t, beta.Models[0].Pricing.InputPrice)
+	require.InDelta(t, in, *beta.Models[0].Pricing.InputPrice, 1e-15)
+	require.InDelta(t, out, *beta.Models[0].Pricing.OutputPrice, 1e-15)
+
+	require.True(t, plazaVideoPricesUsable(beta.Models[1].VideoPrices))
+	require.NotNil(t, beta.Models[1].VideoPrices.Price720P)
+	require.InDelta(t, v720, *beta.Models[1].VideoPrices.Price720P, 1e-12)
+	require.Equal(t, "second", beta.Models[1].VideoBillingUnit)
+
+	require.True(t, plazaImagePricesUsable(beta.Models[2].ImagePrices))
+	require.NotNil(t, beta.Models[2].ImagePrices["1K"])
+	require.InDelta(t, i1k, *beta.Models[2].ImagePrices["1K"], 1e-12)
+}
+
+func TestPlazaLookupPriced_CaseInsensitive(t *testing.T) {
+	in := 1e-6
+	priced := map[string]plazaPricedModel{
+		"gpt-5.6": {platform: PlatformOpenAI, pricing: &ChannelModelPricing{InputPrice: &in}},
+	}
+	pm, ok := plazaLookupPriced(priced, "GPT_5.6")
+	require.True(t, ok)
+	require.NotNil(t, pm.pricing)
+	require.InDelta(t, in, *pm.pricing.InputPrice, 1e-15)
+}
+
+func TestPlazaNormalizeModelKey(t *testing.T) {
+	require.Equal(t, "gpt-5.6", plazaNormalizeModelKey("GPT_5.6"))
+	require.Equal(t, "gpt-5.6", plazaNormalizeModelKey(" gpt 5.6 "))
+	require.Equal(t, "seedance-2.0", plazaNormalizeModelKey("Seedance-2.0"))
+}
+
 func modelNames(g PlazaGroup) []string {
 	out := make([]string, 0, len(g.Models))
 	for _, m := range g.Models {

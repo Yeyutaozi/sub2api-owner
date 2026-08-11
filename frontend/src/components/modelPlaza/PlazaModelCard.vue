@@ -27,9 +27,9 @@
               </span>
               <span class="mp-card__chip mp-card__chip--rate">
                 <template v-if="card.minRate !== card.maxRate">
-                  {{ formatRate(card.minRate) }} – {{ formatRate(card.maxRate) }}
+                  {{ formatRate(card.minRate) }} - {{ formatRate(card.maxRate) }}
                 </template>
-                <template v-else>{{ formatRate(card.minRate) }}</template>
+                <template v-else>{{ formatRate(card.minRate) }} · </template>
               </span>
             </div>
           </div>
@@ -37,95 +37,101 @@
       </div>
     </header>
 
-    <!-- Multi-group: dense comparison table (avoids tall stacked tickets) -->
-    <div v-if="card.offerCount > 1" class="mp-compare" data-testid="plaza-model-groups">
-      <div class="mp-compare__bar">
-        <span class="mp-compare__title">{{ t('modelPlaza.card.groupMountTitle') }}</span>
-        <span class="mp-compare__hint">{{ t('modelPlaza.card.groupMountHint') }}</span>
+    <!-- Multi-group: compact stacked rows (stay in grid, no full-bleed) -->
+    <div v-if="card.offerCount > 1" class="mp-multi" data-testid="plaza-model-groups">
+      <div class="mp-multi__bar">
+        <span class="mp-multi__title">{{ t('modelPlaza.card.groupMountTitle') }}</span>
+        <span class="mp-multi__count">{{ card.offerCount }}</span>
       </div>
-      <div class="mp-compare__scroll">
-        <table class="mp-compare__table" :data-kind="card.kind">
-          <thead>
-            <tr>
-              <th class="col-group">{{ t('modelPlaza.card.groupLabel') }}</th>
-              <th class="col-rate">{{ t('modelPlaza.table.rate') }}</th>
-              <th class="col-ttft" :title="t('modelPlaza.detail.ttftDisclaimer')">{{ t('modelPlaza.detail.avgFirstToken') }}</th>
-              <template v-if="card.kind === 'video'">
-                <th
-                  v-for="res in multiVideoResolutions"
-                  :key="'h-v-' + res"
-                  class="col-price"
-                >{{ formatRes(res) }}</th>
-              </template>
-              <template v-else-if="card.kind === 'image'">
-                <th
-                  v-for="tier in multiImageTiers"
-                  :key="'h-i-' + tier"
-                  class="col-price"
-                >{{ formatImageTier(tier) }}</th>
-              </template>
-              <template v-else>
-                <th class="col-price">{{ t('modelPlaza.table.input') }} <span class="u">$/M</span></th>
-                <th class="col-price">{{ t('modelPlaza.table.output') }} <span class="u">$/M</span></th>
-                <th class="col-price">{{ t('modelPlaza.table.cache') }} <span class="u">$/M</span></th>
-              </template>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(offer, idx) in card.offers"
-              :key="offer.groupId"
-              :class="{ 'is-best': isBestOffer(idx) }"
-              data-testid="plaza-offer-panel"
-              :style="groupTicketStyle(idx)"
-            >
-              <td class="col-group">
-                <div class="mp-row-name">
-                  <span class="mp-row-dot" aria-hidden="true" />
-                  <span class="mp-row-name__text" :title="offer.groupName">{{ offer.groupName }}</span>
-                </div>
-                <div class="mp-row-pills">
+      <div class="mp-multi__list">
+        <div
+          v-for="(offer, idx) in card.offers"
+          :key="offer.groupId"
+          class="mp-offer"
+          :class="{ 'is-best': isBestOffer(idx) }"
+          data-testid="plaza-offer-panel"
+          :style="groupTicketStyle(idx)"
+        >
+          <div class="mp-offer__main">
+            <div class="mp-offer__identity">
+              <span class="mp-offer__dot" aria-hidden="true" />
+              <div class="mp-offer__names">
+                <span class="mp-offer__group" :title="offer.groupName">{{ offer.groupName }}</span>
+                <div class="mp-offer__pills">
                   <span v-if="isBestOffer(idx)" class="mp-pill mp-pill--best">{{ t('modelPlaza.card.bestOffer') }}</span>
                   <span v-if="offer.isExclusive" class="mp-pill mp-pill--exclusive">{{ t('modelPlaza.badges.exclusive') }}</span>
-                  <span v-if="offer.subscriptionType === 'subscription'" class="mp-pill mp-pill--sub">{{ t('modelPlaza.badges.subscription') }}</span>
                   <span v-if="tokenPriceSource(offer) === 'fallback'" class="mp-pill mp-pill--est" :title="t('modelPlaza.table.priceFallbackShort')">{{ t('modelPlaza.table.priceEstimateBadge') }}</span>
                 </div>
-              </td>
-              <td class="col-rate mono">{{ formatRate(offer.effectiveRate) }}</td>
-              <td class="col-ttft mono" data-testid="plaza-offer-ttft" :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')">
-                {{ formatFirstToken(offer.avgFirstTokenMs) }}
-              </td>
-              <template v-if="card.kind === 'video'">
-                <td
-                  v-for="res in multiVideoResolutions"
-                  :key="offer.groupId + '-v-' + res"
-                  class="col-price mono"
-                  :class="{ 'is-empty': !hasVideoPrice(offer, res) }"
-                >{{ formatVideoPrice(offer, res) }}</td>
-              </template>
-              <template v-else-if="card.kind === 'image'">
-                <td
-                  v-for="tier in multiImageTiers"
-                  :key="offer.groupId + '-i-' + tier"
-                  class="col-price mono"
-                  :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
-                >{{ formatImagePrice(offer, tier) }}</td>
-              </template>
-              <template v-else>
-                <td class="col-price mono">{{ paidToken(offer, 'input_price') }}</td>
-                <td class="col-price mono">{{ paidToken(offer, 'output_price') }}</td>
-                <td class="col-price mono">{{ cachePaid(offer) }}</td>
-              </template>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </div>
+            <div class="mp-offer__metrics">
+              <span class="mp-offer__rate mono" :title="t('modelPlaza.table.rate')">{{ formatRate(offer.effectiveRate) }}</span>
+              <span
+                class="mp-offer__ttft mono"
+                data-testid="plaza-offer-ttft"
+                :title="offer.ttftDisclaimer || t('modelPlaza.detail.ttftDisclaimer')"
+              >{{ formatFirstToken(offer.avgFirstTokenMs) }}</span>
+            </div>
+          </div>
+
+          <div v-if="card.kind === 'video'" class="mp-offer__prices">
+            <span
+              v-for="res in multiVideoResolutions.length ? multiVideoResolutions : videoResolutions(offer)"
+              :key="offer.groupId + '-mv-' + res"
+              class="mp-chip-price mp-chip-price--xs"
+              :class="{ 'is-empty': !hasVideoPrice(offer, res) }"
+            >
+              <em>{{ formatRes(res) }}</em>
+              <strong>{{ formatVideoPrice(offer, res) }}</strong>
+            </span>
+            <span v-if="!(multiVideoResolutions.length || videoResolutions(offer).length)" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+          </div>
+          <div v-else-if="card.kind === 'image'" class="mp-offer__prices">
+            <template v-if="hasImageConfiguredPrice(offer) || siblingImagePrices">
+              <span
+                v-for="tier in multiImageTiers.length ? multiImageTiers : imageTiers(offer)"
+                :key="offer.groupId + '-mi-' + tier"
+                class="mp-chip-price mp-chip-price--xs"
+                :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
+              >
+                <em>{{ formatImageTier(tier) }}</em>
+                <strong>{{ formatImagePrice(offer, tier) }}</strong>
+              </span>
+            </template>
+            <template v-else-if="hasTokenLikePrice(offer)">
+              <span class="mp-chip-price mp-chip-price--xs" :class="{ 'is-empty': paidToken(offer, 'input_price') === emDash }">
+                <em>{{ t('modelPlaza.table.input') }}</em>
+                <strong>{{ paidToken(offer, 'input_price') }} <i>$/M</i></strong>
+              </span>
+              <span class="mp-chip-price mp-chip-price--xs" :class="{ 'is-empty': paidToken(offer, 'output_price') === emDash }">
+                <em>{{ t('modelPlaza.table.output') }}</em>
+                <strong>{{ paidToken(offer, 'output_price') }} <i>$/M</i></strong>
+              </span>
+            </template>
+            <span v-else class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+          </div>
+          <div v-else class="mp-offer__prices mp-offer__prices--token">
+            <span class="mp-chip-price mp-chip-price--xs" :class="{ 'is-empty': paidToken(offer, 'input_price') === emDash }">
+              <em>{{ t('modelPlaza.table.input') }}</em>
+              <strong>{{ paidToken(offer, 'input_price') }} <i>$/M</i></strong>
+            </span>
+            <span class="mp-chip-price mp-chip-price--xs" :class="{ 'is-empty': paidToken(offer, 'output_price') === emDash }">
+              <em>{{ t('modelPlaza.table.output') }}</em>
+              <strong>{{ paidToken(offer, 'output_price') }} <i>$/M</i></strong>
+            </span>
+            <span class="mp-chip-price mp-chip-price--xs" :class="{ 'is-empty': cachePaid(offer) === emDash }">
+              <em>{{ t('modelPlaza.table.cache') }}</em>
+              <strong>{{ cachePaid(offer) }} <i>$/M</i></strong>
+            </span>
+          </div>
+        </div>
       </div>
-      <p class="mp-compare__note">
-        <template v-if="card.kind === 'video'">{{ videoHint(card.offers[0]) }} · </template>
-        <template v-else-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
-        <template v-else>{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
+      <p class="mp-multi__note">
+        <template v-if="card.kind === 'video'">{{ t('modelPlaza.table.videoBillingPerClipHint') }} · </template>
+          <template v-else-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
+          <template v-else>{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
         {{ t('modelPlaza.table.rateAppliedNote') }}
-        <span v-if="hasAnyFallback" class="mp-compare__fallback"> · {{ t('modelPlaza.table.priceFallbackNote') }}</span>
+        <span v-if="hasAnyFallback" class="mp-multi__fallback"> · {{ t('modelPlaza.table.priceFallbackNote') }}</span>
       </p>
     </div>
 
@@ -177,16 +183,29 @@
           <span v-if="!videoResolutions(offer).length" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
         </div>
         <div v-else-if="card.kind === 'image'" class="mp-price-row">
-          <span
-            v-for="tier in imageTiers(offer)"
-            :key="offer.groupId + '-si-' + tier"
-            class="mp-chip-price"
-            :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
-          >
-            <em>{{ formatImageTier(tier) }}</em>
-            <strong>{{ formatImagePrice(offer, tier) }}</strong>
-          </span>
-          <span v-if="!hasImageConfiguredPrice(offer)" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+          <template v-if="hasImageConfiguredPrice(offer) || siblingImagePrices">
+            <span
+              v-for="tier in imageTiers(offer)"
+              :key="offer.groupId + '-si-' + tier"
+              class="mp-chip-price"
+              :class="{ 'is-empty': formatImagePrice(offer, tier) === emDash }"
+            >
+              <em>{{ formatImageTier(tier) }}</em>
+              <strong>{{ formatImagePrice(offer, tier) }}</strong>
+            </span>
+          </template>
+          <template v-else-if="hasTokenLikePrice(offer)">
+            <span class="mp-chip-price" :class="{ 'is-empty': paidToken(offer, 'input_price') === emDash }">
+              <em>{{ t('modelPlaza.table.input') }}</em>
+              <strong>{{ paidToken(offer, 'input_price') }} <i>$/M</i></strong>
+            </span>
+            <span class="mp-chip-price" :class="{ 'is-empty': paidToken(offer, 'output_price') === emDash }">
+              <em>{{ t('modelPlaza.table.output') }}</em>
+              <strong>{{ paidToken(offer, 'output_price') }} <i>$/M</i></strong>
+            </span>
+            <span v-if="tokenPriceSource(offer) === 'fallback'" class="mp-pill mp-pill--est">{{ t('modelPlaza.table.priceEstimateBadge') }}</span>
+          </template>
+          <span v-else class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
         </div>
         <div v-else class="mp-price-row mp-price-row--token">
           <span class="mp-chip-price">
@@ -311,6 +330,26 @@ const siblingTokenBase = computed(() => {
   return null
 })
 
+/** Sibling video/image matrices for multi-group cards missing local prices. */
+const siblingVideoPrices = computed(() => {
+  for (const o of props.card.offers) {
+    const prices = o.model.video_prices
+    if (!prices) continue
+    if (VIDEO_RESOLUTION_KEYS.some((k) => prices[k] != null)) return prices
+  }
+  return null
+})
+
+const siblingImagePrices = computed(() => {
+  for (const o of props.card.offers) {
+    const prices = o.model.image_prices
+    if (!prices) continue
+    if (Object.values(prices).some((v) => v != null)) return prices
+  }
+  return null
+})
+
+
 function groupTicketStyle(idx: number): Record<string, string> {
   const a = GROUP_ACCENTS[idx % GROUP_ACCENTS.length]
   return {
@@ -358,6 +397,16 @@ function hasImageConfiguredPrice(offer: PlazaOffer): boolean {
   return tiers.some((tier) => formatImagePrice(offer, tier) !== emDash)
 }
 
+function hasTokenLikePrice(offer: PlazaOffer): boolean {
+  return (
+    resolveTokenBase(offer, 'input_price') != null ||
+    resolveTokenBase(offer, 'output_price') != null ||
+    resolveTokenBase(offer, 'cache_write_price') != null ||
+    resolveTokenBase(offer, 'cache_read_price') != null
+  )
+}
+
+
 function formatImageTier(tier: string): string {
   const raw = String(tier || '').trim()
   if (!raw || raw === emDash) return emDash
@@ -372,7 +421,7 @@ function videoResolutions(offer: PlazaOffer): string[] {
   if (listed.length) {
     return VIDEO_RESOLUTION_KEYS.filter((k) => listed.includes(k)) as string[]
   }
-  const prices = offer.model.video_prices
+  const prices = offer.model.video_prices || siblingVideoPrices.value
   if (!prices) return []
   return VIDEO_RESOLUTION_KEYS.filter((k) => prices[k] != null) as string[]
 }
@@ -400,7 +449,7 @@ function formatVideoPrice(offer: PlazaOffer, res: string): string {
 }
 
 function imageTiers(offer: PlazaOffer): string[] {
-  const prices = offer.model.image_prices
+  const prices = offer.model.image_prices || siblingImagePrices.value
   if (!prices) {
     if (offer.model.pricing?.billing_mode === 'image') {
       const labels = (offer.model.pricing.intervals || [])
@@ -422,6 +471,10 @@ function formatImagePrice(offer: PlazaOffer, tier: string): string {
   if (prices && prices[tier] != null) {
     return formatScaled(Number(prices[tier]) * offer.effectiveRate, 1, MIN_DECIMALS)
   }
+  const sib = siblingImagePrices.value
+  if (sib && sib[tier] != null) {
+    return formatScaled(Number(sib[tier]) * offer.effectiveRate, 1, MIN_DECIMALS)
+  }
   if (offer.model.pricing?.billing_mode === 'image') {
     const hit = (offer.model.pricing.intervals || []).find((i) => i.tier_label === tier)
     const v = hit?.per_request_price ?? offer.model.pricing.per_request_price
@@ -433,7 +486,7 @@ function formatImagePrice(offer: PlazaOffer, tier: string): string {
 
 type TokenField = 'input_price' | 'output_price' | 'cache_write_price' | 'cache_read_price'
 
-/** Resolve base unit price: own pricing → sibling group → official. */
+/** Resolve base unit price: own pricing -> sibling group -> official. */
 function resolveTokenBase(offer: PlazaOffer, field: TokenField): number | null {
   const own = offer.model.pricing?.[field]
   if (own != null) return Number(own)
@@ -448,7 +501,15 @@ function resolveTokenBase(offer: PlazaOffer, field: TokenField): number | null {
 }
 
 function tokenPriceSource(offer: PlazaOffer): 'channel' | 'fallback' | 'none' {
-  if (props.card.kind === 'video' || props.card.kind === 'image') return 'channel'
+  // media matrix counts as channel pricing
+  if (props.card.kind === 'video' && (offer.model.video_prices || siblingVideoPrices.value)) {
+    const prices = offer.model.video_prices || siblingVideoPrices.value
+    if (prices && Object.values(prices).some((v) => v != null)) {
+      return offer.model.video_prices ? 'channel' : 'fallback'
+    }
+  }
+  if (props.card.kind === 'image' && hasImageConfiguredPrice(offer)) return 'channel'
+  if (props.card.kind === 'image' && siblingImagePrices.value) return 'fallback'
   const p = offer.model.pricing
   if (p && (p.input_price != null || p.output_price != null || p.cache_write_price != null || p.cache_read_price != null)) {
     return 'channel'
@@ -484,7 +545,7 @@ function officialToken(v: number | null | undefined): string {
 function peakWindow(offer: PlazaOffer): string {
   const a = offer.peakStart || '?'
   const b = offer.peakEnd || '?'
-  return a + '–' + b
+  return a + ' - ' + b
 }
 
 </script>
@@ -579,100 +640,42 @@ function peakWindow(offer: PlazaOffer): string {
 .mp-card__chip--rate { color: #047857; background: #ecfdf5; border-color: #a7f3d0; }
 
 /* Dense multi-group compare */
-.mp-compare { padding: 8px 10px 10px; background: linear-gradient(180deg, #f8fafc, #fff); }
-.mp-compare__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 10px;
-  margin-bottom: 6px;
-  padding: 0 2px;
-}
-.mp-compare__title { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mp-faint); }
-.mp-compare__hint { font-size: 11px; color: var(--mp-muted); }
-.mp-compare__scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--mp-line); background: #fff; }
-.mp-compare__table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  min-width: 520px;
-  font-size: 12px;
-}
-.mp-compare__table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 8px 10px;
-  text-align: left;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #64748b;
-  background: #f1f5f9;
-  border-bottom: 1px solid var(--mp-line);
-  white-space: nowrap;
-}
-.mp-compare__table thead th .u { text-transform: none; font-weight: 700; color: #94a3b8; margin-left: 2px; }
-.mp-compare__table tbody td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #eef2f7;
-  vertical-align: middle;
-  color: var(--mp-ink);
-}
-.mp-compare__table tbody tr:last-child td { border-bottom: 0; }
-.mp-compare__table tbody tr.is-best { background: linear-gradient(90deg, color-mix(in srgb, var(--group-soft, #ecfdf5) 55%, #fff), #fff); }
-.mp-compare__table tbody tr:hover { background: #f8fafc; }
-.col-group { min-width: 148px; max-width: 220px; }
-.col-rate, .col-ttft { width: 72px; white-space: nowrap; }
-.col-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.col-price.is-empty { color: var(--mp-faint); }
-.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 750; font-variant-numeric: tabular-nums; }
-.col-rate.mono { color: #047857; }
-.col-ttft.mono { color: #c2410c; }
-.mp-row-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.mp-row-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--group-color, #0f766e);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-soft, #ccfbf1) 80%, transparent);
-}
-.mp-row-name__text {
-  font-weight: 750;
-  font-size: 12px;
-  line-height: 1.25;
-  color: var(--mp-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mp-row-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.mp-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 750;
-  border: 1px solid transparent;
-}
-.mp-pill--best { color: #047857; background: #d1fae5; border-color: #a7f3d0; }
-.mp-pill--exclusive { color: #7c3aed; background: #ede9fe; border-color: #ddd6fe; }
-.mp-pill--sub { color: #1d4ed8; background: #dbeafe; border-color: #bfdbfe; }
-.mp-pill--est { color: #b45309; background: #fef3c7; border-color: #fde68a; }
-.mp-compare__note {
-  margin: 8px 2px 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--mp-muted);
-}
-.mp-compare__fallback { color: #b45309; font-weight: 650; }
 
-/* Solo compact */
+.mp-multi { padding: 6px 8px 8px; background: linear-gradient(180deg, #f8fafc, #fff); border-top: 1px solid var(--mp-line, #e5e7eb); }
+.mp-multi__bar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
+.mp-multi__title { font-family: var(--fc-mono, ui-monospace, monospace); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:#64748b; }
+.mp-multi__count { min-width:22px; height:22px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#0f766e; background:#ccfbf1; border:1px solid #99f6e4; }
+.mp-multi__list { display:flex; flex-direction:column; gap:4px; max-height:210px; overflow:auto; padding-right:2px; }
+.mp-offer {
+  border-radius:10px;
+  border:1px solid color-mix(in srgb, var(--group-color, #0f766e) 22%, var(--mp-line, #e5e7eb));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--group-soft, #ccfbf1) 42%, #fff), #fff);
+  padding:5px 7px;
+}
+.mp-offer.is-best { box-shadow: inset 3px 0 0 var(--group-color, #0f766e); }
+.mp-offer__main { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; align-items:center; }
+.mp-offer__identity { display:flex; gap:8px; min-width:0; align-items:flex-start; }
+.mp-offer__dot { width:8px; height:8px; margin-top:5px; border-radius:999px; background:var(--group-color,#0f766e); box-shadow:0 0 0 3px color-mix(in srgb, var(--group-soft,#ccfbf1) 80%, transparent); flex:0 0 auto; }
+.mp-offer__names { min-width:0; }
+.mp-offer__group { display:block; font-size:12.5px; font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.mp-offer__pills { display:flex; flex-wrap:wrap; gap:4px; margin-top:3px; }
+.mp-offer__metrics { display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex:0 0 auto; }
+.mp-offer__rate { font-size:12px; font-weight:750; color:#0f766e; }
+.mp-offer__ttft { font-size:11px; font-weight:650; color:#64748b; }
+.mp-offer__prices { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.mp-chip-price--xs { padding:2px 6px !important; font-size:10.5px !important; }
+.mp-chip-price--xs em { font-size:9.5px !important; }
+.mp-chip-price--xs strong { font-size:11px !important; }
+.mp-chip-price--xs i { font-style:normal; font-size:9px; opacity:.7; margin-left:2px; }
+.mp-empty-price { font-size:11px; color:#94a3b8; }
+.mp-multi__note { margin:6px 0 0; font-size:10.5px; line-height:1.4; color:#94a3b8; }
+.mp-multi__fallback { color:#b45309; font-weight:650; }
+:global(.dark) .mp-multi { background: linear-gradient(180deg, #0b1220, #111827); border-top-color:#243041; }
+:global(.dark) .mp-offer { background:#0b1220; border-color:#243041; }
+:global(.dark) .mp-offer__group { color:#e2e8f0; }
+:global(.dark) .mp-offer__ttft { color:#94a3b8; }
+:global(.dark) .mp-multi__title { color:#94a3b8; }
+
 .mp-solo { padding: 10px 12px 12px; }
 .mp-group {
   border-radius: 12px;
@@ -820,18 +823,13 @@ function peakWindow(offer: PlazaOffer): string {
 }
 @media (max-width: 720px) {
   .mp-group__top { grid-template-columns: 1fr; }
-  .mp-compare__table { min-width: 480px; }
 }
 :global(.dark) .mp-card { background: #111827; border-color: #243041; box-shadow: none; }
 :global(.dark) .mp-card__head,
-:global(.dark) .mp-compare,
 :global(.dark) .mp-card__official { background: #0f172a; border-color: #243041; }
-:global(.dark) .mp-compare__scroll,
 :global(.dark) .mp-group,
 :global(.dark) .mp-metric,
 :global(.dark) .mp-chip-price { background: #0b1220; border-color: #243041; }
-:global(.dark) .mp-compare__table thead th { background: #0b1220; color: #94a3b8; border-color: #243041; }
-:global(.dark) .mp-compare__table tbody td { border-color: #1f2937; color: #e5eef8; }
 :global(.dark) .mp-card__name,
 :global(.dark) .mp-group__name,
 :global(.dark) .mp-metric__value,

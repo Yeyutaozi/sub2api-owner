@@ -193,11 +193,20 @@ func newOpenAIAccountRuntimeStats() *openAIAccountRuntimeStats {
 // Admin score snapshots read this without issuing any upstream probes.
 var sharedOpenAIAccountRuntimeStats atomic.Pointer[openAIAccountRuntimeStats]
 
-func registerOpenAIAccountRuntimeStats(stats *openAIAccountRuntimeStats) {
-	if stats == nil {
-		return
+func registerOpenAIAccountRuntimeStats(stats *openAIAccountRuntimeStats) *openAIAccountRuntimeStats {
+	if existing := sharedOpenAIAccountRuntimeStats.Load(); existing != nil {
+		return existing
 	}
-	sharedOpenAIAccountRuntimeStats.Store(stats)
+	if stats == nil {
+		stats = newOpenAIAccountRuntimeStats()
+	}
+	if sharedOpenAIAccountRuntimeStats.CompareAndSwap(nil, stats) {
+		return stats
+	}
+	if existing := sharedOpenAIAccountRuntimeStats.Load(); existing != nil {
+		return existing
+	}
+	return stats
 }
 
 // SnapshotOpenAIAccountRuntime returns EWMA error-rate and TTFT from real requests.
@@ -208,6 +217,98 @@ func SnapshotOpenAIAccountRuntime(accountID int64) (errorRate float64, ttftMs fl
 		return 0, 0, false
 	}
 	return stats.snapshot(accountID)
+}
+
+// ensureSharedAccountRuntimeStats lazily initializes the process-wide TTFT/error EWMA store.
+// OpenAI scheduler registers its own instance; Claude/gateway paths may report before that.
+func ensureSharedAccountRuntimeStats() *openAIAccountRuntimeStats {
+	if stats := sharedOpenAIAccountRuntimeStats.Load(); stats != nil {
+		return stats
+	}
+	stats := newOpenAIAccountRuntimeStats()
+	if sharedOpenAIAccountRuntimeStats.CompareAndSwap(nil, stats) {
+		return stats
+	}
+	if again := sharedOpenAIAccountRuntimeStats.Load(); again != nil {
+		return again
+	}
+	return stats
+}
+
+// ReportAccountRuntimeResult records real-request success/error and optional first-token latency
+// for any platform account. Used by sticky escape and TTFT-aware selection (OpenAI + Claude).
+func ReportAccountRuntimeResult(accountID int64, success bool, firstTokenMs *int) {
+	if accountID <= 0 {
+		return
+	}
+	stats := ensureSharedAccountRuntimeStats()
+	if stats == nil {
+		return
+	}
+	stats.report(accountID, success, firstTokenMs)
+}
+
+// shouldEscapeStickyByRuntime decides whether a sticky account should be abandoned based on
+// EWMA first-token latency / error rate from real traffic (no probe cost).
+func shouldEscapeStickyByRuntime(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
+	if !cfg.enabled || accountID <= 0 {
+		return "", 0, 0, false
+	}
+	errorRate, ttft, hasTTFT := SnapshotOpenAIAccountRuntime(accountID)
+	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
+		return "ttft", errorRate, ttft, true
+	}
+	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
+		bestPeer := 0.0
+		hasPeer := false
+		for _, peerID := range peerAccountIDs {
+			if peerID <= 0 || peerID == accountID {
+				continue
+			}
+			_, peerTTFT, peerHas := SnapshotOpenAIAccountRuntime(peerID)
+			if !peerHas || peerTTFT <= 0 {
+				continue
+			}
+			if !hasPeer || peerTTFT < bestPeer {
+				bestPeer = peerTTFT
+				hasPeer = true
+			}
+		}
+		if hasPeer {
+			minDelta := cfg.relativeMinDelta
+			if minDelta <= 0 {
+				minDelta = 250
+			}
+			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
+				return "ttft_relative", errorRate, ttft, true
+			}
+		}
+	}
+	if errorRate > cfg.errorRate {
+		return "error_rate", errorRate, ttft, true
+	}
+	return "", errorRate, ttft, false
+}
+
+// gatewayStickyEscapeConfig is used by Claude/Gemini gateway sticky sessions.
+// Absolute threshold is looser than OpenAI (Claude TTFT often multi-second); relative escape stays sensitive.
+func gatewayStickyEscapeConfig() openAIStickyEscapeConfig {
+	return openAIStickyEscapeConfig{
+		enabled:          true,
+		ttftMs:           15000,
+		errorRate:        0.5,
+		relativeRatio:    1.15,
+		relativeMinDelta: 500,
+	}
+}
+
+// accountTTFTForSort returns TTFT ms for sorting; missing samples sort last.
+func accountTTFTForSort(accountID int64) float64 {
+	_, ttft, has := SnapshotOpenAIAccountRuntime(accountID)
+	if !has || ttft <= 0 {
+		return 1e18
+	}
+	return ttft
 }
 
 func (s *openAIAccountRuntimeStats) loadOrCreate(accountID int64) *openAIAccountRuntimeStat {
@@ -613,44 +714,8 @@ func openAIAccountSchedulingPriority(account *Account) int {
 }
 
 func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig, peerAccountIDs []int64) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
-	if !cfg.enabled || s == nil || s.stats == nil || accountID <= 0 {
-		return "", 0, 0, false
-	}
-	errorRate, ttft, hasTTFT := s.stats.snapshot(accountID)
-	if hasTTFT && cfg.ttftMs > 0 && ttft > cfg.ttftMs {
-		return "ttft", errorRate, ttft, true
-	}
-	// Relative escape: sticky is meaningfully slower than best peer with TTFT sample.
-	if hasTTFT && cfg.relativeRatio > 1 && len(peerAccountIDs) > 0 {
-		bestPeer := 0.0
-		hasPeer := false
-		for _, peerID := range peerAccountIDs {
-			if peerID <= 0 || peerID == accountID {
-				continue
-			}
-			_, peerTTFT, peerHas := s.stats.snapshot(peerID)
-			if !peerHas || peerTTFT <= 0 {
-				continue
-			}
-			if !hasPeer || peerTTFT < bestPeer {
-				bestPeer = peerTTFT
-				hasPeer = true
-			}
-		}
-		if hasPeer {
-			minDelta := cfg.relativeMinDelta
-			if minDelta <= 0 {
-				minDelta = 250
-			}
-			if ttft > bestPeer*cfg.relativeRatio && (ttft-bestPeer) > minDelta {
-				return "ttft_relative", errorRate, ttft, true
-			}
-		}
-	}
-	if errorRate > cfg.errorRate {
-		return "error_rate", errorRate, ttft, true
-	}
-	return "", errorRate, ttft, false
+	// Shared runtime snapshot covers both OpenAI reports and Claude/gateway reports.
+	return shouldEscapeStickyByRuntime(accountID, cfg, peerAccountIDs)
 }
 
 type openAIAccountCandidateScore struct {
@@ -2082,8 +2147,9 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	}
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
-			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
-			registerOpenAIAccountRuntimeStats(s.openaiAccountStats)
+			s.openaiAccountStats = registerOpenAIAccountRuntimeStats(newOpenAIAccountRuntimeStats())
+		} else {
+			s.openaiAccountStats = registerOpenAIAccountRuntimeStats(s.openaiAccountStats)
 		}
 		if s.openaiScheduler == nil {
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)

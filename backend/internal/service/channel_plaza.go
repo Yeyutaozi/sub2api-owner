@@ -516,12 +516,10 @@ func plazaUpsertModel(pg *PlazaGroup, idx map[string]int, modelID, platform stri
 	}
 	var pricing *ChannelModelPricing
 	plat := platform
-	if priced != nil {
-		if pm, ok := priced[modelID]; ok {
-			pricing = pm.pricing
-			if pm.platform != "" {
-				plat = pm.platform
-			}
+	if pm, ok := plazaLookupPriced(priced, modelID); ok {
+		pricing = pm.pricing
+		if pm.platform != "" {
+			plat = pm.platform
 		}
 	}
 	kind := plazaKindFromPricing(pricing)
@@ -830,16 +828,91 @@ func plazaImagePricesForGroup(g *Group) map[string]*float64 {
 }
 
 
+// plazaNormalizeModelKey aligns plaza model names for cross-group matching.
+// Mirrors frontend normalizeModelKey: lower-case, collapse spaces/underscores to '-'.
+func plazaNormalizeModelKey(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(name))
+	prevDash := false
+	for _, r := range name {
+		switch {
+		case r == ' ' || r == '_' || r == '\t' || r == '\n' || r == '\r':
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		case r == '-':
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		default:
+			b.WriteRune(r)
+			prevDash = false
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	return out
+}
+
+// plazaLookupPriced finds channel pricing overlay for a model id with exact then
+// case/normalize-insensitive match so account model ids still get channel prices.
+func plazaLookupPriced(priced map[string]plazaPricedModel, modelID string) (plazaPricedModel, bool) {
+	if priced == nil {
+		return plazaPricedModel{}, false
+	}
+	if pm, ok := priced[modelID]; ok {
+		return pm, true
+	}
+	key := plazaNormalizeModelKey(modelID)
+	if key == "" {
+		return plazaPricedModel{}, false
+	}
+	for k, pm := range priced {
+		if plazaNormalizeModelKey(k) == key {
+			return pm, true
+		}
+	}
+	return plazaPricedModel{}, false
+}
+
+func plazaVideoPricesUsable(p *VideoModelPrice) bool {
+	if p == nil {
+		return false
+	}
+	return p.Price480P != nil || p.Price720P != nil || p.Price1080P != nil ||
+		p.Price1440P != nil || p.Price2160P != nil
+}
+
+func plazaImagePricesUsable(prices map[string]*float64) bool {
+	if len(prices) == 0 {
+		return false
+	}
+	for _, v := range prices {
+		if v != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // fillPlazaMissingPricing fills nil/empty model Pricing for plaza display only.
-// Priority: (1) same model name pricing already present on another group
+// Priority: (1) same model (normalized name) pricing already present on another group
 // (2) LiteLLM synthesize via pricingService.
-// Does not invent image/video group matrices; only token/channel pricing overlays.
+// Also copies video/image group price matrices across same-name models so multi-group
+// cards do not show empty prices when only one group has the matrix configured.
 func (s *ChannelService) fillPlazaMissingPricing(byGroup map[int64]*PlazaGroup, order []int64) {
 	if byGroup == nil {
 		return
 	}
-	// First pass: collect usable base pricing by model name.
+	// First pass: collect usable bases by normalized model name.
 	baseByName := make(map[string]*ChannelModelPricing)
+	videoByName := make(map[string]*PlazaModel)
+	imageByName := make(map[string]*PlazaModel)
 	for _, gid := range order {
 		pg := byGroup[gid]
 		if pg == nil {
@@ -847,15 +920,26 @@ func (s *ChannelService) fillPlazaMissingPricing(byGroup map[int64]*PlazaGroup, 
 		}
 		for i := range pg.Models {
 			m := &pg.Models[i]
-			if pricingNeedsFallback(m.Pricing) {
+			key := plazaNormalizeModelKey(m.Name)
+			if key == "" {
 				continue
 			}
-			name := strings.TrimSpace(m.Name)
-			if name == "" {
-				continue
+			if !pricingNeedsFallback(m.Pricing) {
+				if _, ok := baseByName[key]; !ok {
+					baseByName[key] = m.Pricing
+				}
 			}
-			if _, ok := baseByName[name]; !ok {
-				baseByName[name] = m.Pricing
+			if plazaVideoPricesUsable(m.VideoPrices) {
+				if _, ok := videoByName[key]; !ok {
+					cp := *m
+					videoByName[key] = &cp
+				}
+			}
+			if plazaImagePricesUsable(m.ImagePrices) {
+				if _, ok := imageByName[key]; !ok {
+					cp := *m
+					imageByName[key] = &cp
+				}
 			}
 		}
 	}
@@ -867,30 +951,55 @@ func (s *ChannelService) fillPlazaMissingPricing(byGroup map[int64]*PlazaGroup, 
 		}
 		for i := range pg.Models {
 			m := &pg.Models[i]
-			if !pricingNeedsFallback(m.Pricing) {
+			key := plazaNormalizeModelKey(m.Name)
+			if key == "" {
 				continue
 			}
-			name := strings.TrimSpace(m.Name)
-			if name == "" {
-				continue
-			}
-			if p, ok := baseByName[name]; ok && p != nil {
-				m.Pricing = p
-				if m.Kind == "" || m.Kind == PlazaKindChat {
-					m.Kind = plazaKindFromPricing(p)
+
+			if pricingNeedsFallback(m.Pricing) {
+				if p, ok := baseByName[key]; ok && p != nil {
+					m.Pricing = p
+					if m.Kind == "" || m.Kind == PlazaKindChat {
+						m.Kind = plazaKindFromPricing(p)
+					}
+				} else if s != nil && s.pricingService != nil {
+					lp := s.pricingService.GetModelPricing(m.Name)
+					if lp != nil {
+						synthesized := synthesizePricingFromLiteLLM(lp, m.Pricing)
+						if !pricingNeedsFallback(synthesized) {
+							m.Pricing = synthesized
+							if m.Kind == "" || m.Kind == PlazaKindChat {
+								m.Kind = plazaKindFromPricing(m.Pricing)
+							}
+						}
+					}
 				}
-				continue
 			}
-			if s == nil || s.pricingService == nil {
-				continue
+
+			if !plazaVideoPricesUsable(m.VideoPrices) {
+				if src, ok := videoByName[key]; ok && src != nil {
+					m.VideoPrices = src.VideoPrices
+					if m.VideoBillingUnit == "" {
+						m.VideoBillingUnit = src.VideoBillingUnit
+					}
+					if len(m.VideoResolutions) == 0 && len(src.VideoResolutions) > 0 {
+						m.VideoResolutions = append([]string(nil), src.VideoResolutions...)
+					}
+					if m.Kind == "" || m.Kind == PlazaKindChat {
+						m.Kind = PlazaKindVideo
+					}
+				}
 			}
-			lp := s.pricingService.GetModelPricing(name)
-			if lp == nil {
-				continue
-			}
-			m.Pricing = synthesizePricingFromLiteLLM(lp, m.Pricing)
-			if m.Kind == "" || m.Kind == PlazaKindChat {
-				m.Kind = plazaKindFromPricing(m.Pricing)
+
+			if !plazaImagePricesUsable(m.ImagePrices) {
+				if src, ok := imageByName[key]; ok && src != nil {
+					m.ImagePrices = src.ImagePrices
+					if m.Kind == "" || m.Kind == PlazaKindChat {
+						if m.Pricing == nil || m.Pricing.BillingMode == BillingModeImage {
+							m.Kind = PlazaKindImage
+						}
+					}
+				}
 			}
 		}
 	}

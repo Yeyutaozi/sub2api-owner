@@ -361,10 +361,30 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 										"session", shortSessionHash(sessionHash),
 										"result", "slot_acquired",
 									)
-									if s.debugModelRoutingEnabled() {
-										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
+									// Escape slow sticky accounts using real TTFT EWMA (no probe cost).
+									peerIDs := make([]int64, 0, len(routingCandidates))
+									for _, peer := range routingCandidates {
+										if peer != nil {
+											peerIDs = append(peerIDs, peer.ID)
+										}
 									}
-									return s.newSelectionResult(ctx, stickyAccount, true, result.ReleaseFunc, nil)
+									if reason, _, ttft, escape := shouldEscapeStickyByRuntime(stickyAccountID, gatewayStickyEscapeConfig(), peerIDs); escape {
+										result.ReleaseFunc()
+										_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+										slog.Info("gateway_sticky_escape",
+											"account_id", stickyAccountID,
+											"reason", reason,
+											"ttft_ms", ttft,
+											"session", shortSessionHash(sessionHash),
+											"layer", "routing",
+										)
+										stickyCacheMissReason = "ttft_escape"
+									} else {
+										if s.debugModelRoutingEnabled() {
+											logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
+										}
+										return s.newSelectionResult(ctx, stickyAccount, true, result.ReleaseFunc, nil)
+									}
 								}
 							}
 
@@ -443,6 +463,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					a, b := routingAvailable[i], routingAvailable[j]
 					if a.account.Priority != b.account.Priority {
 						return a.account.Priority < b.account.Priority
+					}
+					// Prefer faster first-token accounts within same priority.
+					ta, tb := accountTTFTForSort(a.account.ID), accountTTFTForSort(b.account.ID)
+					if ta != tb {
+						return ta < tb
 					}
 					if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 						return a.loadInfo.LoadRate < b.loadInfo.LoadRate
@@ -560,10 +585,28 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 								"session", shortSessionHash(sessionHash),
 								"result", "slot_acquired",
 							)
-							if s.cache != nil {
-								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+							// Escape slow sticky accounts using real TTFT EWMA (no probe cost).
+							peerIDs := make([]int64, 0, len(accountByID))
+							for peerID := range accountByID {
+								peerIDs = append(peerIDs, peerID)
 							}
-							return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+							if reason, _, ttft, escape := shouldEscapeStickyByRuntime(accountID, gatewayStickyEscapeConfig(), peerIDs); escape {
+								result.ReleaseFunc()
+								_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+								slog.Info("gateway_sticky_escape",
+									"account_id", accountID,
+									"reason", reason,
+									"ttft_ms", ttft,
+									"session", shortSessionHash(sessionHash),
+									"layer", "no_routing",
+								)
+								// fall through to Layer 2 load-aware selection
+							} else {
+								if s.cache != nil {
+									_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+								}
+								return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+							}
 						}
 					} else {
 						slog.Debug("sticky.layer1_5_no_routing_slot_busy",
@@ -1611,6 +1654,10 @@ func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 		if a.Priority != b.Priority {
 			return a.Priority < b.Priority
 		}
+		ta, tb := accountTTFTForSort(a.ID), accountTTFTForSort(b.ID)
+		if ta != tb {
+			return ta < tb
+		}
 		switch {
 		case a.LastUsedAt == nil && b.LastUsedAt != nil:
 			return true
@@ -1810,10 +1857,22 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
 						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
-							if s.debugModelRoutingEnabled() {
-								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
+							peerIDs := append([]int64(nil), routingAccountIDs...)
+							if reason, _, ttft, escape := shouldEscapeStickyByRuntime(accountID, gatewayStickyEscapeConfig(), peerIDs); escape {
+								_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
+								slog.Info("gateway_sticky_escape",
+									"account_id", accountID,
+									"reason", reason,
+									"ttft_ms", ttft,
+									"session", shortSessionHash(sessionHash),
+									"layer", "legacy_routing",
+								)
+							} else {
+								if s.debugModelRoutingEnabled() {
+									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
+								}
+								return account, nil
 							}
-							return account, nil
 						}
 					}
 				}

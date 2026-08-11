@@ -1063,3 +1063,117 @@ html.dark .ops-group-chip {
     linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.82));
   box-shadow: 0 18px 36px -30px rgba(0, 0, 0, 0.75);
 }
+
+
+/* -------- Usage desk detail panel + tabs (admin usage) -------- */
+.desk-panel {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 18px 36px -28px rgba(15, 23, 42, 0.42);
+  overflow: hidden;
+}
+
+.dark .desk-panel {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.9));
+  box-shadow: 0 18px 36px -28px rgba(0, 0, 0, 0.7);
+}
+
+.desk-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.72), rgba(248, 250, 252, 0.4));
+}
+
+.dark .desk-tabs {
+  border-bottom-color: rgba(148, 163, 184, 0.12);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.55), rgba(15, 23, 42, 0.2));
+}
+
+.desk-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: -1px;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.desk-tab:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.dark .desk-tab {
+  color: #94a3b8;
+}
+
+.dark .desk-tab:hover {
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.55);
+}
+
+.desk-tab.is-active {
+  color: #1d4ed8;
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 -1px 0 #ffffff inset;
+}
+
+.desk-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #0ea5e9);
+}
+
+.dark .desk-tab.is-active {
+  color: #93c5fd;
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: none;
+}
+
+.dark .desk-tab.is-active::after {
+  background: linear-gradient(90deg, #60a5fa, #38bdf8);
+}
+
+.instrument-panel__title {
+  margin: 0 0 0.65rem;
+  font-family: var(--fc-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dark .instrument-panel__title {
+  color: #94a3b8;
+}
+
+.desk-chart-grid > * {
+  min-width: 0;
+}

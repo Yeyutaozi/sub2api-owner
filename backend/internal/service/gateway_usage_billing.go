@@ -1096,6 +1096,9 @@ func (s *GatewayService) buildRecordUsageLog(
 		usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
 	}
 
+	if result != nil && account != nil {
+		ReportAccountRuntimeResult(account.ID, true, result.FirstTokenMs)
+	}
 	if result.FirstTokenMs != nil && apiKey != nil && apiKey.GroupID != nil {
 		ReportGroupFirstToken(*apiKey.GroupID, *result.FirstTokenMs)
 	}
