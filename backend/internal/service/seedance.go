@@ -43,7 +43,9 @@ var huiquCamelCaseResponseKeyPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 var huiquAbsoluteURLPattern = regexp.MustCompile(`(?i)(?:https?:)?//[^\s"'<>\\]+`)
 var huiquSensitiveAssignmentPattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|token|sig|signature|credential|secret)\s*[=:]\s*)[^\s,;"'}]+`)
 var huiquInternalModelPattern = regexp.MustCompile(`(?i)\bsd2-mx933-720(?:-fast)?-(?:1|5|10|15)s\b`)
-var huiquProviderNamePattern = regexp.MustCompile(`(?i)\b(?:huiqu|bjhuiqu)\b`)
+var huiquProviderNamePattern = regexp.MustCompile(`(?i)\b(?:huiqu|bjhuiqu|xmanway)\b`)
+var seedanceVendorHTTPPrefixPattern = regexp.MustCompile(`(?i)^\s*(?:xmanway|weijin(?:api)?|huiqu|bjhuiqu|one[\s_-]?api|upstream provider)\s*(?:HTTP\s*\d+\s*)?:\s*`)
+var seedanceHTTPStatusPrefixPattern = regexp.MustCompile(`(?i)^\s*HTTP\s*\d+\s*:\s*`)
 
 func ValidateSeedanceAccountConfiguration(platform, accountType string, credentials map[string]any) error {
 	if !IsFFLinkVideoPlatform(platform) {
@@ -2132,9 +2134,118 @@ func MapSeedancePublicTaskStatus(status string) string {
 func SeedanceUpstreamErrorMessage(body []byte) string {
 	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	if message == "" {
-		return "Seedance upstream request failed"
+		message = strings.TrimSpace(string(body))
+	}
+	message = scrubSeedancePublicErrorMessage(message)
+	if message == "" {
+		return "Video request failed"
 	}
 	return sanitizeUpstreamErrorMessage(message)
+}
+
+// SeedancePublicUpstreamError maps provider failures to platform-owned codes/messages.
+// Readable validation details are kept for clients; vendor names and nested JSON are stripped.
+func SeedancePublicUpstreamError(statusCode int, body []byte) (code string, message string) {
+	message = SeedanceUpstreamErrorMessage(body)
+	code = "upstream_error"
+
+	upstreamCode := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	// Nested bodies sometimes put the real code inside error.message JSON.
+	if nested := strings.TrimSpace(extractUpstreamErrorMessage(body)); strings.HasPrefix(nested, "{") {
+		if innerCode := strings.ToLower(strings.TrimSpace(seedanceErrorCodeFromJSON(nested))); innerCode != "" {
+			upstreamCode = innerCode
+		}
+	}
+	if upstreamCode == "" {
+		raw := strings.TrimSpace(string(body))
+		if strings.HasPrefix(raw, "{") {
+			upstreamCode = strings.ToLower(strings.TrimSpace(seedanceErrorCodeFromJSON(raw)))
+		}
+	}
+
+	switch upstreamCode {
+	case "adapter_error", "invalid_request", "invalid_request_error", "invalid_parameter", "bad_request":
+		code = "invalid_request"
+	default:
+		if statusCode >= 400 && statusCode < 500 {
+			code = "invalid_request"
+		}
+	}
+	return code, message
+}
+
+func seedanceErrorCodeFromJSON(raw string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return ""
+	}
+	if errObj, ok := payload["error"].(map[string]any); ok {
+		if code, ok := errObj["code"].(string); ok {
+			return code
+		}
+		if msg, ok := errObj["message"].(string); ok {
+			msg = strings.TrimSpace(msg)
+			if strings.HasPrefix(msg, "{") {
+				var nested map[string]any
+				if json.Unmarshal([]byte(msg), &nested) == nil {
+					if nestedErr, ok := nested["error"].(map[string]any); ok {
+						if code, ok := nestedErr["code"].(string); ok {
+							return code
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func unwrapSeedanceNestedErrorMessage(message string) string {
+	msg := strings.TrimSpace(message)
+	for i := 0; i < 5; i++ {
+		if !strings.HasPrefix(msg, "{") {
+			break
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(msg), &payload); err != nil {
+			break
+		}
+		next := ""
+		if errObj, ok := payload["error"].(map[string]any); ok {
+			if m, ok := errObj["message"].(string); ok {
+				next = strings.TrimSpace(m)
+			}
+		}
+		if next == "" {
+			if m, ok := payload["message"].(string); ok {
+				next = strings.TrimSpace(m)
+			}
+		}
+		if next == "" || next == msg {
+			break
+		}
+		msg = next
+	}
+	return msg
+}
+
+func scrubSeedancePublicErrorMessage(message string) string {
+	msg := unwrapSeedanceNestedErrorMessage(message)
+	msg = strings.TrimSpace(redactHuiquSeedanceErrorText(msg))
+	msg = weijinPrivateNamePattern.ReplaceAllString(msg, "upstream provider")
+	for i := 0; i < 5; i++ {
+		cleaned := seedanceVendorHTTPPrefixPattern.ReplaceAllString(msg, "")
+		cleaned = seedanceHTTPStatusPrefixPattern.ReplaceAllString(cleaned, "")
+		cleaned = strings.TrimSpace(cleaned)
+		cleaned = seedanceVendorHTTPPrefixPattern.ReplaceAllString(cleaned, "")
+		cleaned = seedanceHTTPStatusPrefixPattern.ReplaceAllString(cleaned, "")
+		cleaned = strings.TrimSpace(cleaned)
+		if cleaned == msg {
+			break
+		}
+		msg = cleaned
+	}
+	return msg
 }
 
 func sanitizeSeedanceUpstreamErrorBody(body []byte) []byte {

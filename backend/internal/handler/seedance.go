@@ -1615,10 +1615,13 @@ func (h *OpenAIGatewayHandler) writeSeedanceForwardError(c *gin.Context, err err
 		if status < 400 || status > 599 {
 			status = http.StatusBadGateway
 		}
-		seedanceError(c, status, "upstream_error", service.SeedanceUpstreamErrorMessage(upstreamErr.Body))
+		// Keep user-readable upstream validation messages (e.g. resolution limits),
+		// but map codes to platform-owned values and scrub vendor names.
+		code, message := service.SeedancePublicUpstreamError(status, upstreamErr.Body)
+		seedanceError(c, status, code, message)
 		return
 	}
-	seedanceError(c, http.StatusBadGateway, "upstream_error", "Seedance upstream request failed")
+	seedanceError(c, http.StatusBadGateway, "upstream_error", "Video request failed")
 }
 
 func seedanceError(c *gin.Context, status int, code string, message string) {

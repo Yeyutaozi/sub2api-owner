@@ -31,7 +31,7 @@ const (
 	weijinVideoTaskPath   = "/v1/videos"
 )
 
-var weijinPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:weijin|weijinapi|one[\s_-]?api|oneapi)\b`)
+var weijinPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:weijin|weijinapi|xmanway|one[\s_-]?api|oneapi)\b`)
 
 func isWeijinVideoModel(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {

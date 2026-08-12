@@ -187,6 +187,25 @@ func TestWeijinFaceModelsAllowNineThreeThreeMedia(t *testing.T) {
 	}
 }
 
+
+func TestSeedancePublicUpstreamErrorKeepsReadableAdapterMessage(t *testing.T) {
+	body := []byte(`{"error":{"code":"adapter_error","message":"Xmanway HTTP 400: 参考视频分辨率必须在 480p 和 720p 之间"}}`)
+	code, msg := SeedancePublicUpstreamError(400, body)
+	require.Equal(t, "invalid_request", code)
+	require.Equal(t, "参考视频分辨率必须在 480p 和 720p 之间", msg)
+	require.NotContains(t, strings.ToLower(msg), "xmanway")
+
+	nested := []byte(`{"error":{"code":"upstream_error","message":"{\"error\":{\"code\":\"adapter_error\",\"message\":\"Xmanway HTTP 400: 参考视频分辨率必须在 480p 和 720p 之间\"}}"}}`)
+	code, msg = SeedancePublicUpstreamError(400, nested)
+	require.Equal(t, "invalid_request", code)
+	require.Equal(t, "参考视频分辨率必须在 480p 和 720p 之间", msg)
+	require.NotContains(t, strings.ToLower(msg), "xmanway")
+
+	// plain text body path (some providers store extracted message bytes only)
+	plain := []byte(`Xmanway HTTP 400: 参考视频分辨率必须在 480p 和 720p 之间`)
+	require.Equal(t, "参考视频分辨率必须在 480p 和 720p 之间", SeedanceUpstreamErrorMessage(plain))
+}
+
 func TestSanitizeWeijinSeedanceUpstreamErrorBodyScrubsVendor(t *testing.T) {
 	body := []byte(`{"error":{"message":"weijinapi upstream failed at https://www.weijinapi.top/v1/videos one-api channel","code":"upstream_error"}}`)
 	sanitized := sanitizeWeijinSeedanceUpstreamErrorBody(body)
