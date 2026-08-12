@@ -698,7 +698,8 @@ export default {
         hint: '选择内部协议适配器。已有账号保持原渠道；新账号请选择 API Key 所属渠道。',
         fflink: 'FFLink（旧渠道）',
         huiqu: '汇取云 MX933',
-        ximei: '西梅 Developer API V3'
+        ximei: '西梅 Developer API V3',
+        weijin: 'Seedance 特惠（Weijin）'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

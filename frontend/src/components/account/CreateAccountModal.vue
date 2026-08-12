@@ -1194,6 +1194,7 @@
             <option v-if="form.platform === 'seedance'" value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
             <option v-if="form.platform === 'seedance'" value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
+            <option v-if="form.platform === 'seedance'" value="weijin">{{ t('admin.accounts.videoProvider.weijin') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>

@@ -638,7 +638,8 @@ export default {
         hint: 'Select the internal protocol adapter. Keep existing accounts on their current provider; choose the provider that issued the API key.',
         fflink: 'FFLink (legacy)',
         huiqu: 'Huiqu MX933',
-        ximei: 'Ximei Developer API V3'
+        ximei: 'Ximei Developer API V3',
+        weijin: 'Seedance Special Offer (Weijin)'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

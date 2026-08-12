@@ -1484,6 +1484,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if provider == VideoProviderXimei {
 		return s.forwardXimeiSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
+	if provider == VideoProviderWeijin {
+		return s.forwardWeijinSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
@@ -1774,7 +1777,7 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	if status, ok := job["status"].(string); ok {
 		job["status"] = MapSeedancePublicTaskStatus(status)
 	}
-	if provider == VideoProviderXimei && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+	if (provider == VideoProviderXimei || provider == VideoProviderWeijin) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
 		job["error"] = map[string]any{"message": "Video generation failed"}
 	}
 	synthesizeHuiquResult := func() {
@@ -2044,7 +2047,7 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 		response["content"] = map[string]any{"video_url": strings.TrimSpace(contentURL)}
 	}
 	if internalStatus == SeedanceTaskStatusFailed {
-		if provider == VideoProviderXimei {
+		if provider == VideoProviderXimei || provider == VideoProviderWeijin {
 			response["error"] = map[string]any{"message": "Video generation failed"}
 			return response, nil
 		}

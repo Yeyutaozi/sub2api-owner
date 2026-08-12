@@ -103,12 +103,12 @@ func isSeedanceMixedImageModel(model string) bool {
 	if ok && profile.Platform == PlatformSeedance {
 		return true
 	}
-	return isHuiquVideoModel(model) || isXimeiVideoModel(model)
+	return isHuiquVideoModel(model) || isXimeiVideoModel(model) || isWeijinVideoModel(model)
 }
 
 func IsOpaqueSeedanceVideoProvider(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case VideoProviderHuiqu, VideoProviderXimei:
+	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin:
 		return true
 	default:
 		return false
