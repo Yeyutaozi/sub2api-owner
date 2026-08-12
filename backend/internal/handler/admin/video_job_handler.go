@@ -189,6 +189,31 @@ func (h *VideoJobHandler) Kill(c *gin.Context) {
 	response.Success(c, toAdminVideoJobDTO(item))
 }
 
+// ForceFail POST /admin/video-jobs/:job_id/force-fail
+func (h *VideoJobHandler) ForceFail(c *gin.Context) {
+	if h == nil || h.gateway == nil {
+		response.Error(c, http.StatusServiceUnavailable, "video job admin is unavailable")
+		return
+	}
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if jobID == "" {
+		response.BadRequest(c, "job_id is required")
+		return
+	}
+	var req killVideoJobRequest
+	_ = c.ShouldBindJSON(&req)
+	item, err := h.gateway.AdminForceFailSeedanceVideoJob(c.Request.Context(), jobID, req.Reason)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			response.Error(c, http.StatusNotFound, "video job not found")
+			return
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, toAdminVideoJobDTO(item))
+}
+
 func toAdminVideoJobDTO(item *service.SeedanceTaskAdminItem) adminVideoJobDTO {
 	if item == nil {
 		return adminVideoJobDTO{}

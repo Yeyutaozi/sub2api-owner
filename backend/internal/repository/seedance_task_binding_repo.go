@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -619,10 +620,19 @@ func (r *usageLogRepository) ListAdminSeedanceTaskBindings(
 	if search := strings.TrimSpace(filters.Search); search != "" {
 		pattern := "%" + search + "%"
 		p1, p2, p3, p4, p5 := next(pattern), next(pattern), next(pattern), next(pattern), next(pattern)
-		where = append(where, fmt.Sprintf(
-			"(binding.job_id ILIKE %s OR binding.upstream_job_id ILIKE %s OR COALESCE(u.email, '') ILIKE %s OR COALESCE(u.username, '') ILIKE %s OR binding.model ILIKE %s)",
-			p1, p2, p3, p4, p5,
-		))
+		clauses := []string{
+			fmt.Sprintf("binding.job_id ILIKE %s", p1),
+			fmt.Sprintf("binding.upstream_job_id ILIKE %s", p2),
+			fmt.Sprintf("COALESCE(u.email, '') ILIKE %s", p3),
+			fmt.Sprintf("COALESCE(u.username, '') ILIKE %s", p4),
+			fmt.Sprintf("binding.model ILIKE %s", p5),
+			fmt.Sprintf("CAST(binding.user_id AS TEXT) = %s", next(search)),
+		}
+		// Exact numeric user_id match helps admin search by platform user id.
+		if userID, err := strconv.ParseInt(search, 10, 64); err == nil && userID > 0 {
+			clauses = append(clauses, "binding.user_id = "+next(userID))
+		}
+		where = append(where, "("+strings.Join(clauses, " OR ")+")")
 	}
 	whereSQL := strings.Join(where, " AND ")
 

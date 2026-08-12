@@ -1,9 +1,9 @@
 export default {
   videoJobs: {
     title: 'Video Jobs',
-    description: 'Inspect prompts, reference materials, results, and user/group for all video generation jobs. Search by job ID, sync upstream status, and force-kill stuck tasks.',
-    searchPlaceholder: 'Search job ID / upstream ID / user / model',
-    jobIdPlaceholder: 'Exact job ID',
+    description: 'Inspect prompts, reference materials, results, and user/group for all video generation jobs. Search by platform task ID or user, sync upstream status, force-fail or kill stuck tasks.',
+    searchPlaceholder: 'Platform task ID / user email / username / user ID / model',
+    jobIdPlaceholder: 'Exact platform task ID',
     modelPlaceholder: 'Model name',
     filters: {
       allStatus: 'All statuses',
@@ -40,7 +40,8 @@ export default {
       refresh: 'Refresh',
       detail: 'Details',
       sync: 'Sync upstream',
-      kill: 'Kill task',
+      kill: 'Kill (cancel)',
+      forceFail: 'Force fail',
       openResult: 'Open result'
     },
     empty: {
@@ -100,6 +101,10 @@ export default {
       killFailed: 'Failed to kill task',
       killConfirmTitle: 'Kill this task?',
       killConfirmMessage: 'Best-effort cancel upstream, mark local status as cancelled, and trigger refund settlement. Already settled jobs will not be refunded again.',
+      forceFailSuccess: 'Task marked failed; refund settlement attempted',
+      forceFailFailed: 'Failed to force-fail task',
+      forceFailConfirmTitle: 'Force fail this task?',
+      forceFailConfirmMessage: 'Best-effort cancel upstream, mark local status as failed, and trigger refund settlement. Already settled jobs will not be refunded again.',
       copyOk: 'Copied',
       copyFail: 'Copy failed'
     }

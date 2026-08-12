@@ -76,6 +76,13 @@ export const videoJobsApi = {
       { reason: reason || 'admin killed task' }
     )
     return data
+  },
+  async forceFail(jobId: string, reason?: string): Promise<AdminVideoJob> {
+    const { data } = await apiClient.post<AdminVideoJob>(
+      `/admin/video-jobs/${encodeURIComponent(jobId)}/force-fail`,
+      { reason: reason || 'admin forced failure' }
+    )
+    return data
   }
 }
 

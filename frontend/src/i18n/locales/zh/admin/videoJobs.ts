@@ -1,9 +1,9 @@
 export default {
   videoJobs: {
     title: '视频任务',
-    description: '查看所有视频生成任务的提示词、参考素材、结果与用户/分组信息；支持按任务 ID 搜索、同步上游状态与强制结束任务。',
-    searchPlaceholder: '搜索任务 ID / 上游 ID / 用户 / 模型',
-    jobIdPlaceholder: '精确任务 ID',
+    description: '查看所有视频生成任务的提示词、参考素材、结果与用户/分组信息；支持按平台任务 ID 或用户搜索，同步上游状态，强制失败或结束任务。',
+    searchPlaceholder: '平台任务 ID / 用户邮箱 / 用户名 / 用户ID / 模型',
+    jobIdPlaceholder: '精确平台任务 ID',
     modelPlaceholder: '模型名',
     filters: {
       allStatus: '全部状态',
@@ -40,7 +40,8 @@ export default {
       refresh: '刷新',
       detail: '详情',
       sync: '同步上游',
-      kill: '结束任务',
+      kill: '结束(取消)',
+      forceFail: '强制失败',
       openResult: '打开结果'
     },
     empty: {
@@ -100,6 +101,10 @@ export default {
       killFailed: '结束任务失败',
       killConfirmTitle: '确认结束任务？',
       killConfirmMessage: '将尽量取消上游任务，并把本地状态标记为已取消，同时触发退款结算。已结算任务不会重复退款。',
+      forceFailSuccess: '任务已标记失败并尝试退款结算',
+      forceFailFailed: '强制失败操作失败',
+      forceFailConfirmTitle: '确认强制失败？',
+      forceFailConfirmMessage: '将尽量取消上游任务，并把本地状态标记为失败，同时触发退款结算。已结算任务不会重复退款。',
       copyOk: '已复制',
       copyFail: '复制失败'
     }

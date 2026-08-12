@@ -129,6 +129,30 @@ func (s *OpenAIGatewayService) AdminKillSeedanceVideoJob(ctx context.Context, jo
 	return s.AdminGetSeedanceVideoJob(ctx, jobID)
 }
 
+func (s *OpenAIGatewayService) AdminForceFailSeedanceVideoJob(ctx context.Context, jobID, reason string) (*SeedanceTaskAdminItem, error) {
+	item, err := s.AdminGetSeedanceVideoJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, errors.New("seedance task binding not found")
+	}
+	if !item.SettledAt.IsZero() {
+		return item, nil
+	}
+
+	binding := item.SeedanceTaskBinding
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "admin forced failure"
+	}
+	s.adminBestEffortCancelUpstream(ctx, &binding)
+	if _, err := s.adminRefundAndSettle(ctx, &binding, SeedanceTaskStatusFailed, reason); err != nil {
+		return nil, err
+	}
+	return s.AdminGetSeedanceVideoJob(ctx, jobID)
+}
+
 func (s *OpenAIGatewayService) adminBestEffortCancelUpstream(ctx context.Context, binding *SeedanceTaskBinding) {
 	if s == nil || s.accountRepo == nil || binding == nil || binding.AccountID <= 0 {
 		return

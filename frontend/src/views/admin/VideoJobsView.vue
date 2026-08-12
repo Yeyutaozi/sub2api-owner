@@ -116,6 +116,13 @@
               </button>
               <button
                 class="btn btn-danger btn-sm"
+                :disabled="actionLoadingId === row.job_id || !!row.settled_at"
+                @click="confirmForceFail(row)"
+              >
+                {{ t('admin.videoJobs.actions.forceFail') }}
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
                 :disabled="!!row.settled_at || actionLoadingId === row.job_id"
                 @click="confirmKill(row)"
               >
@@ -218,6 +225,14 @@
             v-if="detail && !detail.settled_at"
             class="btn btn-danger"
             :disabled="actionLoadingId === detail.job_id"
+            @click="confirmForceFail(detail)"
+          >
+            {{ t('admin.videoJobs.actions.forceFail') }}
+          </button>
+          <button
+            v-if="detail && !detail.settled_at"
+            class="btn btn-secondary"
+            :disabled="actionLoadingId === detail.job_id"
             @click="confirmKill(detail)"
           >
             {{ t('admin.videoJobs.actions.kill') }}
@@ -233,6 +248,15 @@
       danger
       @confirm="doKill"
       @cancel="killTarget = null"
+    />
+
+    <ConfirmDialog
+      :show="!!forceFailTarget"
+      :title="t('admin.videoJobs.messages.forceFailConfirmTitle')"
+      :message="t('admin.videoJobs.messages.forceFailConfirmMessage')"
+      danger
+      @confirm="doForceFail"
+      @cancel="forceFailTarget = null"
     />
   </AppLayout>
 </template>

@@ -712,6 +712,7 @@ func registerVideoJobRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		videoJobs.GET("/:job_id", h.Admin.VideoJob.Get)
 		videoJobs.POST("/:job_id/sync", h.Admin.VideoJob.Sync)
 		videoJobs.POST("/:job_id/kill", h.Admin.VideoJob.Kill)
+		videoJobs.POST("/:job_id/force-fail", h.Admin.VideoJob.ForceFail)
 	}
 }
 
