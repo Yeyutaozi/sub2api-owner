@@ -45,6 +45,7 @@ type AdminHandlers struct {
 	AgentWorkerHost        *admin.AgentWorkerHostHandler
 	AgentApp               *admin.AgentAppHandler
 	AgentArtifactStorage   *admin.AgentArtifactStorageHandler
+	VideoJob               *admin.VideoJobHandler
 }
 
 // Handlers contains all HTTP handlers

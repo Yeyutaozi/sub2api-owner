@@ -50,6 +50,7 @@ func ProvideAdminHandlers(
 	agentWorkerHostHandler *admin.AgentWorkerHostHandler,
 	agentAppHandler *admin.AgentAppHandler,
 	agentArtifactStorageHandler *admin.AgentArtifactStorageHandler,
+	videoJobHandler *admin.VideoJobHandler,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
@@ -93,6 +94,7 @@ func ProvideAdminHandlers(
 		AgentWorkerHost:        agentWorkerHostHandler,
 		AgentApp:               agentAppHandler,
 		AgentArtifactStorage:   agentArtifactStorageHandler,
+		VideoJob:               videoJobHandler,
 	}
 }
 
@@ -276,6 +278,7 @@ var ProviderSet = wire.NewSet(
 	ProvideSystemHandler,
 	admin.NewSubscriptionHandler,
 	admin.NewUsageHandler,
+	admin.NewVideoJobHandler,
 	admin.NewUserAttributeHandler,
 	admin.NewErrorPassthroughHandler,
 	admin.NewTLSFingerprintProfileHandler,

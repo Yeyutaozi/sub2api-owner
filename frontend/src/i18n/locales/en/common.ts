@@ -155,6 +155,7 @@ export default {
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
     creazyCanvas: 'Creazy Canvas',
+    videoJobs: 'Video Jobs',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',

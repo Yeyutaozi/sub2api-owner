@@ -16,6 +16,7 @@ var _ service.SeedanceTaskBindingRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskFallbackRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskCancellationRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskSettlementRepository = (*usageLogRepository)(nil)
+var _ service.SeedanceTaskAdminRepository = (*usageLogRepository)(nil)
 
 const seedanceTaskBindingSelectColumns = `
 		id, user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
@@ -566,4 +567,263 @@ func firstSeedanceBindingValue(values ...string) string {
 		}
 	}
 	return ""
+}
+
+
+func (r *usageLogRepository) ListAdminSeedanceTaskBindings(
+	ctx context.Context,
+	filters service.SeedanceTaskAdminFilters,
+	page, pageSize int,
+) ([]service.SeedanceTaskAdminItem, int64, error) {
+	if r == nil || r.sql == nil {
+		return nil, 0, errors.New("seedance task admin repository is unavailable")
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	where := []string{"1=1"}
+	args := make([]any, 0, 16)
+	next := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if jobID := strings.TrimSpace(filters.JobID); jobID != "" {
+		where = append(where, "binding.job_id = "+next(jobID))
+	}
+	if filters.UserID > 0 {
+		where = append(where, "binding.user_id = "+next(filters.UserID))
+	}
+	if filters.GroupID > 0 {
+		where = append(where, "binding.group_id = "+next(filters.GroupID))
+	}
+	if filters.APIKeyID > 0 {
+		where = append(where, "binding.api_key_id = "+next(filters.APIKeyID))
+	}
+	if status := strings.TrimSpace(filters.Status); status != "" {
+		where = append(where, "binding.task_status = "+next(status))
+	}
+	if model := strings.TrimSpace(filters.Model); model != "" {
+		where = append(where, "binding.model = "+next(model))
+	}
+	if filters.UnsettledOnly {
+		where = append(where, "binding.settled_at IS NULL")
+	}
+	if search := strings.TrimSpace(filters.Search); search != "" {
+		pattern := "%" + search + "%"
+		p1, p2, p3, p4, p5 := next(pattern), next(pattern), next(pattern), next(pattern), next(pattern)
+		where = append(where, fmt.Sprintf(
+			"(binding.job_id ILIKE %s OR binding.upstream_job_id ILIKE %s OR COALESCE(u.email, '') ILIKE %s OR COALESCE(u.username, '') ILIKE %s OR binding.model ILIKE %s)",
+			p1, p2, p3, p4, p5,
+		))
+	}
+	whereSQL := strings.Join(where, " AND ")
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM fflink_video_job_bindings AS binding
+		LEFT JOIN users AS u ON u.id = binding.user_id
+		WHERE ` + whereSQL
+	var total int64
+	countRows, err := r.sql.QueryContext(ctx, countQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count admin seedance task bindings: %w", err)
+	}
+	if !countRows.Next() {
+		_ = countRows.Close()
+		return nil, 0, fmt.Errorf("count admin seedance task bindings: no rows")
+	}
+	if err := countRows.Scan(&total); err != nil {
+		_ = countRows.Close()
+		return nil, 0, fmt.Errorf("count admin seedance task bindings: %w", err)
+	}
+	if err := countRows.Close(); err != nil {
+		return nil, 0, fmt.Errorf("count admin seedance task bindings: %w", err)
+	}
+
+	offset := (page - 1) * pageSize
+	limitPH := next(pageSize)
+	offsetPH := next(offset)
+	listQuery := `
+		SELECT ` + seedanceTaskBindingReturningColumns + `,
+			COALESCE(u.email, ''), COALESCE(u.username, ''),
+			COALESCE(g.name, ''), COALESCE(k.name, '')
+		FROM fflink_video_job_bindings AS binding
+		LEFT JOIN users AS u ON u.id = binding.user_id
+		LEFT JOIN groups AS g ON g.id = binding.group_id
+		LEFT JOIN api_keys AS k ON k.id = binding.api_key_id
+		WHERE ` + whereSQL + `
+		ORDER BY binding.created_at DESC, binding.id DESC
+		LIMIT ` + limitPH + ` OFFSET ` + offsetPH
+
+	rows, err := r.sql.QueryContext(ctx, listQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list admin seedance task bindings: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]service.SeedanceTaskAdminItem, 0, pageSize)
+	for rows.Next() {
+		item, scanErr := scanAdminSeedanceTaskBinding(rows)
+		if scanErr != nil {
+			return nil, 0, fmt.Errorf("scan admin seedance task binding: %w", scanErr)
+		}
+		items = append(items, *item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate admin seedance task bindings: %w", err)
+	}
+	return items, total, nil
+}
+
+func (r *usageLogRepository) GetAdminSeedanceTaskBindingByJobID(
+	ctx context.Context,
+	jobID string,
+) (*service.SeedanceTaskAdminItem, error) {
+	if r == nil || r.sql == nil {
+		return nil, errors.New("seedance task admin repository is unavailable")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return nil, errors.New("job_id is required")
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT `+seedanceTaskBindingReturningColumns+`,
+			COALESCE(u.email, ''), COALESCE(u.username, ''),
+			COALESCE(g.name, ''), COALESCE(k.name, '')
+		FROM fflink_video_job_bindings AS binding
+		LEFT JOIN users AS u ON u.id = binding.user_id
+		LEFT JOIN groups AS g ON g.id = binding.group_id
+		LEFT JOIN api_keys AS k ON k.id = binding.api_key_id
+		WHERE binding.job_id = $1
+		ORDER BY binding.created_at DESC, binding.id DESC
+		LIMIT 1
+	`, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("get admin seedance task binding: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("get admin seedance task binding: %w", err)
+		}
+		return nil, errors.New("seedance task binding not found")
+	}
+	item, err := scanAdminSeedanceTaskBinding(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scan admin seedance task binding: %w", err)
+	}
+	return item, nil
+}
+
+func (r *usageLogRepository) ForceCompleteSeedanceTaskSettlement(
+	ctx context.Context,
+	id int64,
+	update service.SeedanceTaskSettlementUpdate,
+) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("seedance task admin repository is unavailable")
+	}
+	if id <= 0 {
+		return false, errors.New("seedance task id is invalid")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE fflink_video_job_bindings
+		SET task_status = $2,
+		    next_poll_at = COALESCE($3, next_poll_at),
+		    last_polled_at = NOW(),
+		    settled_at = $4,
+		    refunded_at = $5,
+		    refund_status = $6,
+		    refund_attempts = $7,
+		    settlement_attempts = $8,
+		    last_error = NULLIF($9, ''),
+		    settlement_claimed_at = NULL,
+		    settlement_claimed_by = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND settled_at IS NULL
+	`, id, strings.TrimSpace(update.TaskStatus), update.NextPollAt, update.SettledAt, update.RefundedAt,
+		strings.TrimSpace(update.RefundStatus), update.RefundAttempts, update.SettlementAttempts,
+		strings.TrimSpace(update.LastError))
+	if err != nil {
+		return false, fmt.Errorf("force complete seedance task settlement: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("force complete seedance task settlement rows: %w", err)
+	}
+	return rows == 1, nil
+}
+
+func scanAdminSeedanceTaskBinding(scanner seedanceTaskBindingScanner) (*service.SeedanceTaskAdminItem, error) {
+	binding := &service.SeedanceTaskBinding{}
+	var fallbackLeaseUntil sql.NullTime
+	var lastPolledAt sql.NullTime
+	var settledAt sql.NullTime
+	var refundedAt sql.NullTime
+	var settlementClaimedAt sql.NullTime
+	var userEmail, username, groupName, apiKeyName string
+	if err := scanner.Scan(
+		&binding.ID,
+		&binding.UserID,
+		&binding.APIKeyID,
+		&binding.GroupID,
+		&binding.AccountID,
+		&binding.JobID,
+		&binding.UpstreamJobID,
+		&binding.Model,
+		&binding.FallbackModel,
+		&binding.FallbackStatus,
+		&binding.FallbackClaimToken,
+		&fallbackLeaseUntil,
+		&binding.RequestSnapshot,
+		&binding.TaskStatus,
+		&binding.NextPollAt,
+		&lastPolledAt,
+		&settledAt,
+		&refundedAt,
+		&binding.RefundStatus,
+		&binding.RefundAttempts,
+		&binding.SettlementAttempts,
+		&settlementClaimedAt,
+		&binding.SettlementClaimedBy,
+		&binding.LastError,
+		&binding.CreatedAt,
+		&binding.UpdatedAt,
+		&userEmail,
+		&username,
+		&groupName,
+		&apiKeyName,
+	); err != nil {
+		return nil, err
+	}
+	if fallbackLeaseUntil.Valid {
+		binding.FallbackLeaseUntil = fallbackLeaseUntil.Time
+	}
+	if lastPolledAt.Valid {
+		binding.LastPolledAt = lastPolledAt.Time
+	}
+	if settledAt.Valid {
+		binding.SettledAt = settledAt.Time
+	}
+	if refundedAt.Valid {
+		binding.RefundedAt = refundedAt.Time
+	}
+	if settlementClaimedAt.Valid {
+		binding.SettlementClaimedAt = settlementClaimedAt.Time
+	}
+	return &service.SeedanceTaskAdminItem{
+		SeedanceTaskBinding: *binding,
+		UserEmail:           userEmail,
+		Username:            username,
+		GroupName:           groupName,
+		APIKeyName:          apiKeyName,
+	}, nil
 }

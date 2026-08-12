@@ -241,11 +241,22 @@ func (w *SeedanceSettlementWorker) process(ctx context.Context, binding *Seedanc
 	inspection, err := w.inspectTask(ctx, binding)
 	if err != nil {
 		log.Warn("seedance.settlement_poll_failed", zap.Error(err), zap.Int64("account_id", binding.AccountID))
+		// If the job has been unsettled for too long, force-fail so billing
+		// cannot stay locked in "generating" after upstream is gone.
+		if seedanceBindingExceedsSettlementMaxAge(binding, time.Now().UTC()) {
+			w.processFailed(ctx, binding, joinSeedanceSettlementErrors(err.Error(), "task polling timed out; marked failed for settlement"))
+			return
+		}
 		w.reschedule(ctx, binding, firstNonEmptyString(binding.TaskStatus, SeedanceTaskStatusUnknown), err.Error(), true)
 		return
 	}
 	switch inspection.Status {
 	case SeedanceTaskStatusQueued, SeedanceTaskStatusRunning:
+		if seedanceBindingExceedsSettlementMaxAge(binding, time.Now().UTC()) {
+			// Upstream may keep reporting in-progress forever for dead tasks.
+			w.processFailed(ctx, binding, firstNonEmptyString(inspection.Error, "task exceeded maximum generation window; marked failed for settlement"))
+			return
+		}
 		w.reschedule(ctx, binding, inspection.Status, "", false)
 	case SeedanceTaskStatusSucceeded:
 		w.settleWithoutRefund(ctx, binding, SeedanceTaskStatusSucceeded)

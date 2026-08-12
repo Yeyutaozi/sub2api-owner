@@ -7,6 +7,7 @@ import settings from './settings'
 import audit from './audit'
 import tokenRewards from './tokenRewards'
 import promptAudit from './promptAudit'
+import videoJobs from './videoJobs'
 
 export default {
   ...overview,
@@ -18,4 +19,5 @@ export default {
   ...audit,
   ...tokenRewards,
   ...promptAudit,
+  ...videoJobs,
 }

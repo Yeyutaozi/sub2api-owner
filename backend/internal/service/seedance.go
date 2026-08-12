@@ -287,6 +287,34 @@ type SeedanceTaskSettlementRepository interface {
 	CompleteSeedanceTaskSettlement(ctx context.Context, id int64, workerID string, update SeedanceTaskSettlementUpdate) (bool, error)
 }
 
+// SeedanceTaskAdminFilters controls admin video-job listing.
+type SeedanceTaskAdminFilters struct {
+	JobID         string
+	UserID        int64
+	GroupID       int64
+	APIKeyID      int64
+	Status        string
+	Model         string
+	UnsettledOnly bool
+	Search        string
+}
+
+// SeedanceTaskAdminItem is a binding row enriched for the admin desk.
+type SeedanceTaskAdminItem struct {
+	SeedanceTaskBinding
+	UserEmail  string
+	Username   string
+	GroupName  string
+	APIKeyName string
+}
+
+// SeedanceTaskAdminRepository provides cross-user admin access to video jobs.
+type SeedanceTaskAdminRepository interface {
+	ListAdminSeedanceTaskBindings(ctx context.Context, filters SeedanceTaskAdminFilters, page, pageSize int) ([]SeedanceTaskAdminItem, int64, error)
+	GetAdminSeedanceTaskBindingByJobID(ctx context.Context, jobID string) (*SeedanceTaskAdminItem, error)
+	ForceCompleteSeedanceTaskSettlement(ctx context.Context, id int64, update SeedanceTaskSettlementUpdate) (bool, error)
+}
+
 type seedanceIdempotencyKeyContextKey struct{}
 
 func WithSeedanceIdempotencyKey(ctx context.Context, key string) context.Context {
