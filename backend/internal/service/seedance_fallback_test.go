@@ -216,3 +216,61 @@ func TestRestoreSeedanceFallbackRequestAllowsLegacyVariableDurationSnapshot(t *t
 	require.NoError(t, err)
 	require.Equal(t, SeedanceMX933LegacyModel, upstreamModel)
 }
+
+func TestSnapshotSeedanceRequestAlwaysStoresMaterials(t *testing.T) {
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "测试卡人脸中文提示词",
+		Resolution:      VideoBillingResolution720P,
+		DurationSeconds: 5,
+		AspectRatio:     "16:9",
+		StartFrameURL:   "https://media.example/face-start.png",
+		References: []SeedanceReferenceImage{
+			{URL: "https://media.example/face-ref.png", Strength: "high"},
+		},
+		StoredMedia: []SeedanceStoredMediaReference{{
+			Slot: seedanceStoredMediaImage, Index: 0,
+			StorageProvider: "cos", Bucket: "media",
+			ObjectKey: "agent-artifacts/seedance/inputs/task/9/8/face.png",
+			DeleteAfterSettlement: true,
+		}},
+	}
+	snapshot, err := SnapshotSeedanceFallbackRequest(info)
+	require.NoError(t, err)
+	require.NotEmpty(t, snapshot)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(snapshot, &raw))
+	require.Equal(t, "测试卡人脸中文提示词", raw["prompt"])
+	require.Equal(t, "https://media.example/face-start.png", raw["start_frame_url"])
+
+	refs, ok := raw["image_references"].([]any)
+	require.True(t, ok)
+	require.Len(t, refs, 1)
+	ref0, ok := refs[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "https://media.example/face-ref.png", ref0["url"])
+	require.Equal(t, "high", ref0["strength"])
+	_, hasLegacyURL := ref0["URL"]
+	require.False(t, hasLegacyURL, "reference json must use lowercase url")
+}
+
+func TestParseSeedanceRequestSnapshotNormalizesLegacyCapitalURL(t *testing.T) {
+	// Simulate historical snapshots marshalled without json tags.
+	legacy := []byte(`{
+		"prompt":"legacy face prompt",
+		"resolution":"720p",
+		"duration_seconds":8,
+		"image_references":[{"URL":"https://media.example/legacy.png","Strength":"medium"}],
+		"stored_media":[{"slot":"image_reference","index":0,"storage_provider":"cos","bucket":"b","object_key":"k","delete_after_settlement":true}]
+	}`)
+	parsed := ParseSeedanceRequestSnapshot(legacy)
+	require.Equal(t, "legacy face prompt", parsed["prompt"])
+	refs, ok := parsed["image_references"].([]any)
+	require.True(t, ok)
+	require.Len(t, refs, 1)
+	ref0 := refs[0].(map[string]any)
+	require.Equal(t, "https://media.example/legacy.png", ref0["url"])
+	require.Equal(t, "medium", ref0["strength"])
+}
+

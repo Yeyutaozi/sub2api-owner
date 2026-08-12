@@ -170,18 +170,18 @@ type SeedanceRequestInfo struct {
 }
 
 type SeedanceReferenceImage struct {
-	URL      string
-	Strength string
+	URL      string `json:"url"`
+	Strength string `json:"strength,omitempty"`
 }
 
 type SeedanceReferenceVideo struct {
-	URL             string
-	DurationSeconds float64
+	URL             string  `json:"url"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
 type SeedanceReferenceAudio struct {
-	URL             string
-	DurationSeconds float64
+	URL             string  `json:"url"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
 // SeedanceStoredMediaReference ties a request media slot to the durable object

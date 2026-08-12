@@ -263,6 +263,28 @@ func ParseSeedanceRequestSnapshot(snapshot []byte) map[string]any {
 	if len(snapshot) == 0 {
 		return out
 	}
+	// Prefer the typed snapshot so legacy capitalised JSON keys (URL/Strength)
+	// and mixed cleanup-only payloads normalize to stable admin-facing fields.
+	var typed seedanceFallbackSnapshot
+	if err := json.Unmarshal(snapshot, &typed); err == nil {
+		if typed.Prompt != "" ||
+			typed.StartFrameURL != "" ||
+			typed.EndFrameURL != "" ||
+			typed.Resolution != "" ||
+			typed.AspectRatio != "" ||
+			typed.DurationSeconds > 0 ||
+			typed.PromptEnhance != nil ||
+			len(typed.References) > 0 ||
+			len(typed.VideoReferences) > 0 ||
+			len(typed.AudioReferences) > 0 ||
+			len(typed.StoredMedia) > 0 {
+			if normalized, err := json.Marshal(typed); err == nil {
+				if err := json.Unmarshal(normalized, &out); err == nil {
+					return out
+				}
+			}
+		}
+	}
 	var raw map[string]any
 	if err := json.Unmarshal(snapshot, &raw); err != nil {
 		out["raw"] = string(snapshot)

@@ -232,6 +232,7 @@
                 <audio v-else-if="item.kind === 'audio'" :src="item.url" class="w-full" controls />
                 <span v-else class="break-all text-xs text-primary-600">{{ item.url }}</span>
               </a>
+              <div v-else-if="item.note" class="break-all text-xs text-gray-500">{{ item.note }}</div>
               <div v-else class="text-xs text-gray-400">-</div>
             </div>
           </div>
@@ -443,8 +444,16 @@ function handlePageSizeChange(pageSize: number) {
   void loadJobs()
 }
 
-function openDetail(row: AdminVideoJob) {
+async function openDetail(row: AdminVideoJob) {
   detail.value = row
+  // Refresh full job so prompt/materials use the latest normalized snapshot.
+  try {
+    const fresh = await videoJobsApi.get(row.job_id)
+    detail.value = fresh
+    replaceJob(fresh)
+  } catch {
+    // Keep list row as a degraded detail if the detail fetch fails.
+  }
 }
 
 async function syncJob(row: AdminVideoJob) {
@@ -643,28 +652,104 @@ function snapshotField(job: AdminVideoJob, key: string) {
   return String(val)
 }
 
+function mediaURL(ref: any): string {
+  if (ref == null) return ''
+  if (typeof ref === 'string') return ref.trim()
+  if (typeof ref !== 'object') return String(ref || '').trim()
+  const candidates = [ref.url, ref.URL, ref.href, ref.src]
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  // Nested public media shapes: { image: { url }, video: { url }, audio: { url } }
+  for (const nestedKey of ['image', 'video', 'audio', 'media']) {
+    const nested = (ref as any)[nestedKey]
+    if (nested && typeof nested === 'object') {
+      const nestedURL = mediaURL(nested)
+      if (nestedURL) return nestedURL
+    }
+  }
+  return ''
+}
+
+function materialKindFromSlot(slot: string): 'image' | 'video' | 'audio' | 'link' {
+  const s = String(slot || '').toLowerCase()
+  if (s.includes('video')) return 'video'
+  if (s.includes('audio')) return 'audio'
+  if (s.includes('image') || s.includes('frame')) return 'image'
+  return 'link'
+}
+
 function materialItems(job: AdminVideoJob) {
   const snap = job.request_snapshot || {}
-  const items: Array<{ key: string; label: string; url: string; kind: 'image' | 'video' | 'audio' | 'link' }> = []
-  const start = String(snap.start_frame_url || '')
-  const end = String(snap.end_frame_url || '')
-  if (start) items.push({ key: 'start', label: t('admin.videoJobs.material.startFrame'), url: start, kind: 'image' })
-  if (end) items.push({ key: 'end', label: t('admin.videoJobs.material.endFrame'), url: end, kind: 'image' })
-  const images = Array.isArray(snap.image_references) ? snap.image_references : []
+  const items: Array<{ key: string; label: string; url: string; kind: 'image' | 'video' | 'audio' | 'link'; note?: string }> = []
+  const seen = new Set<string>()
+  const pushItem = (key: string, label: string, url: string, kind: 'image' | 'video' | 'audio' | 'link', note?: string) => {
+    const normalizedURL = String(url || '').trim()
+    const dedupe = `${kind}|${normalizedURL || note || key}`
+    if (seen.has(dedupe)) return
+    seen.add(dedupe)
+    items.push({ key, label, url: normalizedURL, kind, note })
+  }
+
+  const start = mediaURL(snap.start_frame_url) || mediaURL((snap as any).StartFrameURL)
+  const end = mediaURL(snap.end_frame_url) || mediaURL((snap as any).EndFrameURL)
+  if (start) pushItem('start', t('admin.videoJobs.material.startFrame'), start, 'image')
+  if (end) pushItem('end', t('admin.videoJobs.material.endFrame'), end, 'image')
+
+  const images = Array.isArray(snap.image_references)
+    ? snap.image_references
+    : Array.isArray((snap as any).References)
+      ? (snap as any).References
+      : []
   images.forEach((ref: any, i: number) => {
-    const url = String(ref?.url || ref || '')
-    if (url) items.push({ key: 'img-' + i, label: t('admin.videoJobs.material.image') + ' #' + (i + 1), url, kind: 'image' })
+    const url = mediaURL(ref)
+    if (url) pushItem('img-' + i, t('admin.videoJobs.material.image') + ' #' + (i + 1), url, 'image')
   })
-  const videos = Array.isArray(snap.video_references) ? snap.video_references : []
+
+  const videos = Array.isArray(snap.video_references)
+    ? snap.video_references
+    : Array.isArray((snap as any).VideoReferences)
+      ? (snap as any).VideoReferences
+      : []
   videos.forEach((ref: any, i: number) => {
-    const url = String(ref?.url || ref || '')
-    if (url) items.push({ key: 'vid-' + i, label: t('admin.videoJobs.material.video') + ' #' + (i + 1), url, kind: 'video' })
+    const url = mediaURL(ref)
+    if (url) pushItem('vid-' + i, t('admin.videoJobs.material.video') + ' #' + (i + 1), url, 'video')
   })
-  const audios = Array.isArray(snap.audio_references) ? snap.audio_references : []
+
+  const audios = Array.isArray(snap.audio_references)
+    ? snap.audio_references
+    : Array.isArray((snap as any).AudioReferences)
+      ? (snap as any).AudioReferences
+      : []
   audios.forEach((ref: any, i: number) => {
-    const url = String(ref?.url || ref || '')
-    if (url) items.push({ key: 'aud-' + i, label: t('admin.videoJobs.material.audio') + ' #' + (i + 1), url, kind: 'audio' })
+    const url = mediaURL(ref)
+    if (url) pushItem('aud-' + i, t('admin.videoJobs.material.audio') + ' #' + (i + 1), url, 'audio')
   })
+
+  // Legacy/cleanup-only snapshots may only keep object storage references.
+  const stored = Array.isArray(snap.stored_media) ? snap.stored_media : []
+  stored.forEach((ref: any, i: number) => {
+    const slot = String(ref?.slot || ref?.Slot || 'media')
+    const index = Number(ref?.index ?? ref?.Index ?? i)
+    const objectKey = String(ref?.object_key || ref?.ObjectKey || '').trim()
+    const url = mediaURL(ref)
+    if (!url && !objectKey) return
+    const kind = materialKindFromSlot(slot)
+    const labelBase =
+      kind === 'video'
+        ? t('admin.videoJobs.material.video')
+        : kind === 'audio'
+          ? t('admin.videoJobs.material.audio')
+          : t('admin.videoJobs.material.image')
+    pushItem(
+      'stored-' + slot + '-' + index + '-' + i,
+      `${labelBase} (${slot}${Number.isFinite(index) ? '#' + (index + 1) : ''})`,
+      url,
+      kind,
+      objectKey || undefined
+    )
+  })
+
   return items
 }
 

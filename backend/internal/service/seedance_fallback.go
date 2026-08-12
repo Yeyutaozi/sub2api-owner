@@ -93,12 +93,13 @@ func SeedanceFallbackModelFor(model, resolution string, duration int) (string, b
 	}
 }
 
+// SnapshotSeedanceFallbackRequest persists the user-visible request shape for
+// Huiqu fallback restore, temporary media cleanup after settlement, and the
+// admin video job desk (prompt + reference materials). It is stored for every
+// Seedance-compatible video task, not only fallback-eligible models.
 func SnapshotSeedanceFallbackRequest(info *SeedanceRequestInfo) ([]byte, error) {
 	if info == nil {
 		return nil, errors.New("seedance request info is required")
-	}
-	if _, ok := SeedanceFallbackModelFor(info.Model, info.Resolution, info.DurationSeconds); !ok {
-		return nil, nil
 	}
 	snapshot := seedanceFallbackSnapshot{
 		Prompt:          info.Prompt,

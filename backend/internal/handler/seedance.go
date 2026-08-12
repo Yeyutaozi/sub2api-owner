@@ -137,14 +137,15 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		seedanceError(c, http.StatusInternalServerError, "media_snapshot_failed", "Failed to prepare reference media cleanup")
 		return
 	}
-	var fallbackSnapshot []byte
-	if fallbackEligible {
-		fallbackSnapshot, err = service.SnapshotSeedanceFallbackRequest(requestInfo)
-		if err != nil {
-			seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
-			return
-		}
+	// Always persist the full request snapshot so admin can inspect prompt and
+	// reference materials for every provider/model (including Weijin/Ximei and
+	// non-fallback Huiqu paths). Fallback restore continues to use the same shape.
+	requestSnapshot, err := service.SnapshotSeedanceFallbackRequest(requestInfo)
+	if err != nil {
+		seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
 	}
+	fallbackSnapshot := requestSnapshot
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	failedAccountIDs := make(map[int64]struct{})
@@ -270,10 +271,17 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		result.BillingModel = requestInfo.Model
 		bindingFallbackStatus := ""
 		bindingFallbackModel := ""
-		bindingSnapshot := mediaCleanupSnapshot
+		// Prefer full request snapshot (prompt + media URLs + stored_media).
+		// Fall back to cleanup-only snapshot for defensive compatibility.
+		bindingSnapshot := requestSnapshot
+		if len(bindingSnapshot) == 0 {
+			bindingSnapshot = mediaCleanupSnapshot
+		}
 		if fallbackEligible && (fallbackActive || !account.IsHuiquVideo()) {
 			bindingFallbackModel = fallbackModel
-			bindingSnapshot = fallbackSnapshot
+			if len(fallbackSnapshot) > 0 {
+				bindingSnapshot = fallbackSnapshot
+			}
 			bindingFallbackStatus = service.SeedanceFallbackStatusReady
 			if fallbackActive {
 				bindingFallbackStatus = service.SeedanceFallbackStatusActive
