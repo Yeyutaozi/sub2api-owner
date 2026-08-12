@@ -120,10 +120,7 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if prompt != "" {
 		body["prompt"] = prompt
 	}
-	// Mirror public audio=true when requested or when reference audio is provided.
-	if info.GenerateAudio || len(audios) > 0 {
-		body["audio"] = true
-	}
+	// Weijin create schema only accepts images/videos/audios arrays; do not send boolean audio.
 	if len(images) > 0 {
 		body["images"] = images
 	}

@@ -121,7 +121,8 @@ func TestWeijinUpstreamModelEnforcesFixedResolutionAndDuration(t *testing.T) {
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(body, &payload))
-	require.Equal(t, true, payload["audio"])
+	_, hasAudio := payload["audio"]
+	require.False(t, hasAudio, "Weijin create must not send boolean audio field")
 }
 
 func TestBuildWeijinRequestForwardsFullMixedMediaLoad(t *testing.T) {
@@ -154,7 +155,8 @@ func TestBuildWeijinRequestForwardsFullMixedMediaLoad(t *testing.T) {
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(body, &payload))
-	require.Equal(t, true, payload["audio"])
+	_, hasAudio := payload["audio"]
+	require.False(t, hasAudio, "Weijin create must not send boolean audio field")
 	require.Len(t, payload["images"].([]any), 9)
 	require.Len(t, payload["videos"].([]any), 3)
 	require.Equal(t, []any{
