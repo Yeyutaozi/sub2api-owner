@@ -1,8 +1,9 @@
-﻿package service
+package service
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -113,11 +114,75 @@ func TestWeijinUpstreamModelEnforcesFixedResolutionAndDuration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, SeedanceWeijinFaceRef480pModel, model)
 
-	_, err = buildWeijinVideoCreateRequest(&SeedanceRequestInfo{
+	body, err := buildWeijinVideoCreateRequest(&SeedanceRequestInfo{
 		Model: SeedanceWeijinFaceRef720pModel, Prompt: "x", DurationSeconds: 5,
 		Resolution: VideoBillingResolution720P, AspectRatio: "16:9", GenerateAudio: true,
 	}, SeedanceWeijinFaceRef720pModel)
-	require.Error(t, err)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, true, payload["audio"])
+}
+
+func TestBuildWeijinRequestForwardsFullMixedMediaLoad(t *testing.T) {
+	images := make([]SeedanceReferenceImage, 9)
+	for i := range images {
+		images[i] = SeedanceReferenceImage{URL: fmt.Sprintf("https://example.com/img%d.png", i+1)}
+	}
+	videos := make([]SeedanceReferenceVideo, 3)
+	for i := range videos {
+		videos[i] = SeedanceReferenceVideo{URL: fmt.Sprintf("https://example.com/v%d.mp4", i+1)}
+	}
+	audios := make([]SeedanceReferenceAudio, 3)
+	for i := range audios {
+		audios[i] = SeedanceReferenceAudio{URL: fmt.Sprintf("https://example.com/a%d.mp3", i+1)}
+	}
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "测试卡人脸，参考图中人物保持身份一致，缓慢转头，口型随参考音频自然变化，无字幕无水印",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		GenerateAudio:   true,
+		References:      images,
+		VideoReferences: videos,
+		AudioReferences: audios,
+	}
+	require.NoError(t, validateFFLinkVideoRequestInfo(info))
+
+	body, err := buildWeijinVideoCreateRequest(info, SeedanceWeijinFaceRef720pModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, true, payload["audio"])
+	require.Len(t, payload["images"].([]any), 9)
+	require.Len(t, payload["videos"].([]any), 3)
+	require.Equal(t, []any{
+		"https://example.com/a1.mp3",
+		"https://example.com/a2.mp3",
+		"https://example.com/a3.mp3",
+	}, payload["audios"].([]any))
+}
+
+func TestWeijinFaceModelsAllowNineThreeThreeMedia(t *testing.T) {
+	for _, model := range []string{SeedanceWeijinFaceRef480pModel, SeedanceWeijinFaceRef720pModel} {
+		res := VideoBillingResolution480P
+		if model == SeedanceWeijinFaceRef720pModel {
+			res = VideoBillingResolution720P
+		}
+		info := &SeedanceRequestInfo{
+			Model: model, Prompt: "face test", DurationSeconds: 5, Resolution: res, AspectRatio: "16:9",
+			GenerateAudio: true,
+			References: make([]SeedanceReferenceImage, 9),
+			VideoReferences: make([]SeedanceReferenceVideo, 3),
+			AudioReferences: make([]SeedanceReferenceAudio, 3),
+		}
+		require.NoError(t, validateFFLinkVideoRequestInfo(info), model)
+
+		tooManyAudio := *info
+		tooManyAudio.AudioReferences = make([]SeedanceReferenceAudio, 4)
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyAudio), "at most 3 reference audio files")
+	}
 }
 
 func TestSanitizeWeijinSeedanceUpstreamErrorBodyScrubsVendor(t *testing.T) {

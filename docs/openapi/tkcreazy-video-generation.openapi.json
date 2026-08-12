@@ -1570,44 +1570,218 @@
                   }
                 },
                 "oneFaceRef480p": {
-                  "summary": "seedance2.0-one-face-reference-480p（固定480p，Seedance特惠）",
+                  "summary": "seedance2.0-one-face-reference-480p｜固定480p｜Seedance特惠｜图/视频/音频综合参考",
                   "value": {
                     "model": "seedance2.0-one-face-reference-480p",
-                    "prompt": "测试卡人脸风格，正面特写，人物表情自然平静，肤色真实，光线均匀，镜头稳定，无字幕无水印",
+                    "prompt": "测试卡人脸风格，正面特写，保持参考图人物身份与五官一致，人物表情自然平静，肤色真实，光线均匀，镜头稳定；口型随参考人声自然变化，无字幕无水印",
                     "resolution": "480p",
                     "duration": 5,
                     "aspect_ratio": "16:9",
-                    "audio": false,
+                    "audio": true,
                     "guidances": {
                       "image_reference": [
                         {
                           "image": {
-                            "url": "https://replace.invalid/one-face-reference-media-url-from-upload",
+                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
                             "type": "UPLOADED"
                           },
                           "order": 1
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 2
+                        }
+                      ],
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 4
+                          }
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 3
+                          }
                         }
                       ]
                     }
                   }
                 },
                 "oneFaceRef720p": {
-                  "summary": "seedance2.0-one-face-reference-720p（固定720p，Seedance特惠）",
+                  "summary": "seedance2.0-one-face-reference-720p｜固定720p｜Seedance特惠｜图/视频/音频综合参考",
                   "value": {
                     "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "测试卡人脸风格，正面特写，人物表情自然平静，肤色真实，光线均匀，镜头稳定，无字幕无水印",
+                    "prompt": "测试卡人脸风格，正面特写，保持参考图人物身份与五官一致，人物表情自然平静，肤色真实，光线均匀，镜头稳定；口型随参考人声自然变化，无字幕无水印",
                     "resolution": "720p",
                     "duration": 5,
                     "aspect_ratio": "16:9",
-                    "audio": false,
+                    "audio": true,
                     "guidances": {
                       "image_reference": [
                         {
                           "image": {
-                            "url": "https://replace.invalid/one-face-reference-media-url-from-upload",
+                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
                             "type": "UPLOADED"
                           },
                           "order": 1
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 2
+                        }
+                      ],
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 4
+                          }
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 3
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "oneFaceRef720pFullLoad": {
+                  "summary": "seedance2.0-one-face-reference-720p｜固定720p｜满载 9图+3视频+3音频",
+                  "value": {
+                    "model": "seedance2.0-one-face-reference-720p",
+                    "prompt": "测试卡人脸风格，保持多张参考图中人物身份一致，参考视频的转头节奏与运镜，口型与参考人声同步，背景保留轻环境声，无字幕无水印",
+                    "resolution": "720p",
+                    "duration": 5,
+                    "aspect_ratio": "16:9",
+                    "audio": true,
+                    "guidances": {
+                      "image_reference": [
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 1
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 2
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-03-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 3
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-04-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 4
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-05-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 5
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-06-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 6
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-07-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 7
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-08-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 8
+                        },
+                        {
+                          "image": {
+                            "url": "https://replace.invalid/one-face-image-09-media-url-from-upload",
+                            "type": "UPLOADED"
+                          },
+                          "order": 9
+                        }
+                      ],
+                      "video_reference_base": [
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 4
+                          }
+                        },
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/one-face-video-02-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 4
+                          }
+                        },
+                        {
+                          "video": {
+                            "url": "https://replace.invalid/one-face-video-03-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 4
+                          }
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 3
+                          }
+                        },
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/one-face-audio-02-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 3
+                          }
+                        },
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/one-face-audio-03-media-url-from-upload",
+                            "type": "UPLOADED",
+                            "duration_seconds": 3
+                          }
                         }
                       ]
                     }
@@ -4659,22 +4833,47 @@
           "guidances"
         ],
         "additionalProperties": false,
-        "description": "公开模型 seedance2.0-one-face-reference-480p 属于 seedance特惠 分组，分辨率由模型名固定为 480p，按秒计费；客户端仍使用本文档定义的统一公开字段，只需切换 model 与 API Key 分组。duration 支持 4-15 的整数秒，省略时为 5 秒。本模型不支持生成音轨（audio 必须为 false 或省略），不支持 audio_reference。参考图（含首帧/尾帧）合计最多 9 张，参考视频最多 3 个，全部参考素材合计不超过 12 个。参考素材优先使用 POST /videos/uploads 返回的完整 media_url；也可填可公网访问的 HTTPS 图片 URL。prompt 可写 @ImageN / @VideoN 引用素材编号；未填写时平台按上传顺序自动注入。创建与查询始终显示客户提交的公开 model。特惠分组与普通 Seedance 分组隔离。",
+        "description": "公开模型 seedance2.0-one-face-reference-480p 属于 seedance特惠 分组，分辨率由模型名固定为 480p，按秒计费；客户端仍使用本文档定义的统一公开字段，只需切换 model 与 API Key 分组。duration 支持 4-15 的整数秒，省略时为 5 秒。参考图（含首帧/尾帧）合计最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部参考素材合计不超过 15 个（支持满载 9 图 + 3 视频 + 3 音频）。使用 audio_reference 时必须显式填写 audio=true。参考素材优先使用 POST /videos/uploads 返回的完整 media_url；也可填可公网访问的 HTTPS URL。prompt 可写 @ImageN / @VideoN / @AudioN 引用素材编号；未填写时平台按上传顺序自动注入。创建与查询始终显示客户提交的公开 model。特惠分组与普通 Seedance 分组隔离。",
         "example": {
           "model": "seedance2.0-one-face-reference-480p",
-          "prompt": "测试卡人脸风格，正面特写，人物表情自然平静，肤色真实，光线均匀，镜头稳定，无字幕无水印",
+          "prompt": "测试卡人脸风格，正面特写，保持参考图人物身份与五官一致，人物表情自然平静，肤色真实，光线均匀，镜头稳定；口型随参考人声自然变化，无字幕无水印",
           "resolution": "480p",
           "duration": 5,
           "aspect_ratio": "16:9",
-          "audio": false,
+          "audio": true,
           "guidances": {
             "image_reference": [
               {
                 "image": {
-                  "url": "https://replace.invalid/one-face-reference-media-url-from-upload",
+                  "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
                   "type": "UPLOADED"
                 },
                 "order": 1
+              },
+              {
+                "image": {
+                  "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
+                  "type": "UPLOADED"
+                },
+                "order": 2
+              }
+            ],
+            "video_reference_base": [
+              {
+                "video": {
+                  "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
+                  "type": "UPLOADED",
+                  "duration_seconds": 4
+                }
+              }
+            ],
+            "audio_reference": [
+              {
+                "audio": {
+                  "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
+                  "type": "UPLOADED",
+                  "duration_seconds": 3
+                }
               }
             ]
           }
@@ -4723,12 +4922,12 @@
           "audio": {
             "type": "boolean",
             "default": false,
-            "description": "本模型不支持生成音轨；必须为 false 或省略。"
+            "description": "是否请求输出同步音轨。使用 audio_reference 时必须显式填写 true；参考音频不会自动开启音轨。"
           },
           "image_url": {
             "type": "string",
             "format": "uri",
-            "description": "首帧兼容字段。填写 POST /videos/uploads 返回的完整 media_url。不要与 start_frame_url 或 end_frame_url 同时填写；可与 guidances.image_reference 组合，但全部参考素材合计不超过 12。"
+            "description": "首帧兼容字段。填写 POST /videos/uploads 返回的完整 media_url。不要与 start_frame_url 或 end_frame_url 同时填写；可与 guidances.image_reference 组合，但全部参考素材合计不超过 15。"
           },
           "start_frame_url": {
             "type": "string",
@@ -4743,7 +4942,7 @@
           "guidances": {
             "type": "object",
             "additionalProperties": false,
-            "description": "参考素材容器。参考建议至少提供 1 张参考图。图片（含首尾帧）合计最多 9，视频最多 3，全部素材合计不超过 12；不支持 audio_reference。",
+            "description": "参考素材容器。建议至少提供 1 张清晰人脸参考图。图片（含首尾帧）合计最多 9，视频最多 3，音频最多 3，全部素材合计不超过 15；支持满载 9 图 + 3 视频 + 3 音频。",
             "properties": {
               "image_reference": {
                 "type": "array",
@@ -4762,6 +4961,15 @@
                 "items": {
                   "$ref": "#/components/schemas/SeedanceTimedVideoReference"
                 }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考音频最多 3 个。使用本字段时必须同时设置 audio=true。建议填写上传响应中的完整 media_url；若上传响应含 duration_seconds，建议原样回填。",
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
+                }
               }
             }
           }
@@ -4776,22 +4984,47 @@
           "guidances"
         ],
         "additionalProperties": false,
-        "description": "公开模型 seedance2.0-one-face-reference-720p 属于 seedance特惠 分组，分辨率由模型名固定为 720p，按秒计费；客户端仍使用本文档定义的统一公开字段，只需切换 model 与 API Key 分组。duration 支持 4-15 的整数秒，省略时为 5 秒。本模型不支持生成音轨（audio 必须为 false 或省略），不支持 audio_reference。参考图（含首帧/尾帧）合计最多 9 张，参考视频最多 3 个，全部参考素材合计不超过 12 个。参考素材优先使用 POST /videos/uploads 返回的完整 media_url；也可填可公网访问的 HTTPS 图片 URL。prompt 可写 @ImageN / @VideoN 引用素材编号；未填写时平台按上传顺序自动注入。创建与查询始终显示客户提交的公开 model。特惠分组与普通 Seedance 分组隔离。",
+        "description": "公开模型 seedance2.0-one-face-reference-720p 属于 seedance特惠 分组，分辨率由模型名固定为 720p，按秒计费；客户端仍使用本文档定义的统一公开字段，只需切换 model 与 API Key 分组。duration 支持 4-15 的整数秒，省略时为 5 秒。参考图（含首帧/尾帧）合计最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部参考素材合计不超过 15 个（支持满载 9 图 + 3 视频 + 3 音频）。使用 audio_reference 时必须显式填写 audio=true。参考素材优先使用 POST /videos/uploads 返回的完整 media_url；也可填可公网访问的 HTTPS URL。prompt 可写 @ImageN / @VideoN / @AudioN 引用素材编号；未填写时平台按上传顺序自动注入。创建与查询始终显示客户提交的公开 model。特惠分组与普通 Seedance 分组隔离。",
         "example": {
           "model": "seedance2.0-one-face-reference-720p",
-          "prompt": "测试卡人脸风格，正面特写，人物表情自然平静，肤色真实，光线均匀，镜头稳定，无字幕无水印",
+          "prompt": "测试卡人脸风格，正面特写，保持参考图人物身份与五官一致，人物表情自然平静，肤色真实，光线均匀，镜头稳定；口型随参考人声自然变化，无字幕无水印",
           "resolution": "720p",
           "duration": 5,
           "aspect_ratio": "16:9",
-          "audio": false,
+          "audio": true,
           "guidances": {
             "image_reference": [
               {
                 "image": {
-                  "url": "https://replace.invalid/one-face-reference-media-url-from-upload",
+                  "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
                   "type": "UPLOADED"
                 },
                 "order": 1
+              },
+              {
+                "image": {
+                  "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
+                  "type": "UPLOADED"
+                },
+                "order": 2
+              }
+            ],
+            "video_reference_base": [
+              {
+                "video": {
+                  "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
+                  "type": "UPLOADED",
+                  "duration_seconds": 4
+                }
+              }
+            ],
+            "audio_reference": [
+              {
+                "audio": {
+                  "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
+                  "type": "UPLOADED",
+                  "duration_seconds": 3
+                }
               }
             ]
           }
@@ -4840,12 +5073,12 @@
           "audio": {
             "type": "boolean",
             "default": false,
-            "description": "本模型不支持生成音轨；必须为 false 或省略。"
+            "description": "是否请求输出同步音轨。使用 audio_reference 时必须显式填写 true；参考音频不会自动开启音轨。"
           },
           "image_url": {
             "type": "string",
             "format": "uri",
-            "description": "首帧兼容字段。填写 POST /videos/uploads 返回的完整 media_url。不要与 start_frame_url 或 end_frame_url 同时填写；可与 guidances.image_reference 组合，但全部参考素材合计不超过 12。"
+            "description": "首帧兼容字段。填写 POST /videos/uploads 返回的完整 media_url。不要与 start_frame_url 或 end_frame_url 同时填写；可与 guidances.image_reference 组合，但全部参考素材合计不超过 15。"
           },
           "start_frame_url": {
             "type": "string",
@@ -4860,7 +5093,7 @@
           "guidances": {
             "type": "object",
             "additionalProperties": false,
-            "description": "参考素材容器。参考建议至少提供 1 张参考图。图片（含首尾帧）合计最多 9，视频最多 3，全部素材合计不超过 12；不支持 audio_reference。",
+            "description": "参考素材容器。建议至少提供 1 张清晰人脸参考图。图片（含首尾帧）合计最多 9，视频最多 3，音频最多 3，全部素材合计不超过 15；支持满载 9 图 + 3 视频 + 3 音频。",
             "properties": {
               "image_reference": {
                 "type": "array",
@@ -4878,6 +5111,15 @@
                 "description": "参考视频最多 3 个。每个视频建议填写上传响应中的完整 media_url；若上传响应含 duration_seconds，建议原样回填。",
                 "items": {
                   "$ref": "#/components/schemas/SeedanceTimedVideoReference"
+                }
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "description": "参考音频最多 3 个。使用本字段时必须同时设置 audio=true。建议填写上传响应中的完整 media_url；若上传响应含 duration_seconds，建议原样回填。",
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
                 }
               }
             }

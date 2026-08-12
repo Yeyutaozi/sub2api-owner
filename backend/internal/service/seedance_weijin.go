@@ -90,13 +90,6 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if !isWeijinFaceReferenceDurationSupported(info.DurationSeconds) {
 		return nil, fmt.Errorf("duration %d is not supported by model %s", info.DurationSeconds, upstreamModel)
 	}
-	if info.GenerateAudio {
-		return nil, fmt.Errorf("model %s does not support generated audio", upstreamModel)
-	}
-	if len(info.AudioReferences) > 0 {
-		return nil, fmt.Errorf("model %s does not support reference audio", upstreamModel)
-	}
-
 	prompt := strings.TrimSpace(info.Prompt)
 	images := weijinImageURLs(info)
 	videos := make([]string, 0, len(info.VideoReferences))
@@ -107,7 +100,15 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 		}
 		videos = append(videos, urlValue)
 	}
-	if prompt == "" && len(images) == 0 && len(videos) == 0 {
+	audios := make([]string, 0, len(info.AudioReferences))
+	for _, media := range info.AudioReferences {
+		urlValue := strings.TrimSpace(media.URL)
+		if urlValue == "" {
+			continue
+		}
+		audios = append(audios, urlValue)
+	}
+	if prompt == "" && len(images) == 0 && len(videos) == 0 && len(audios) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
 
@@ -119,11 +120,18 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if prompt != "" {
 		body["prompt"] = prompt
 	}
+	// Mirror public audio=true when requested or when reference audio is provided.
+	if info.GenerateAudio || len(audios) > 0 {
+		body["audio"] = true
+	}
 	if len(images) > 0 {
 		body["images"] = images
 	}
 	if len(videos) > 0 {
 		body["videos"] = videos
+	}
+	if len(audios) > 0 {
+		body["audios"] = audios
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {

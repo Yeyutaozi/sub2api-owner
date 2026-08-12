@@ -130,16 +130,18 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P),
 		AllowedAspectRatios: ratioSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16"),
-		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 0, MaxTotalMedia: 12,
-		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: false,
+		// Public special-offer face models: allow full mixed load 9 images + 3 videos + 3 audios.
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
 		ValidateDuration: func(duration int, _ string) bool { return isWeijinFaceReferenceDurationSupported(duration) },
 	},
 	SeedanceWeijinFaceRef720pModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16"),
-		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 0, MaxTotalMedia: 12,
-		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: false,
+		// Public special-offer face models: allow full mixed load 9 images + 3 videos + 3 audios.
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
 		ValidateDuration: func(duration int, _ string) bool { return isWeijinFaceReferenceDurationSupported(duration) },
 	},
 	"ltx-2.3-pro": {
