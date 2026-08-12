@@ -1487,17 +1487,15 @@ func inspectSeedanceImage(file *os.File, declaredType string) (string, string, e
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", "", err
 	}
+	// Content sniffing is the source of truth. Browser/client Content-Type is often
+	// wrong (renamed extensions, clipboard, chat apps, WeChat/QQ saves, etc.). Rejecting
+	// on declared/detected mismatch caused false image_type_mismatch for valid media.
 	detected := normalizeSeedanceInlineImageMediaType(http.DetectContentType(header[:n]))
 	if detected == "" {
 		return "", "", infraerrors.BadRequest("unsupported_image_type", "image must be PNG, JPEG, or WebP")
 	}
-	declared, err := normalizeSeedanceDeclaredImageType(declaredType)
-	if err != nil {
-		return "", "", err
-	}
-	if declared != "" && declared != detected {
-		return "", "", infraerrors.BadRequest("image_type_mismatch", "declared image type does not match file content")
-	}
+	// Declared Content-Type from clients is ignored (advisory only).
+	_ = declaredType
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", "", err
 	}

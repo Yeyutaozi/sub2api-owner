@@ -160,6 +160,37 @@ func TestSeedanceMediaUploadAcceptsPNGJPEGAndWebP(t *testing.T) {
 	}
 }
 
+func TestSeedanceMediaUploadTrustsSniffedImageTypeOverDeclared(t *testing.T) {
+	pngBytes := seedanceMediaTestImage(t, "png", 2, 2)
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+
+	// Browser often labels PNG as image/jpeg after rename / clipboard / chat app export.
+	upload, err := service.UploadImage(context.Background(), SeedanceImageUploadInput{
+		Owner:       seedanceMediaTestOwner(),
+		Body:        bytes.NewReader(pngBytes),
+		SizeBytes:   int64(len(pngBytes)),
+		ContentType: "image/jpeg",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "image/png", upload.ContentType)
+	require.Len(t, store.puts, 1)
+	require.Equal(t, "image/png", store.puts[0].ContentType)
+	require.True(t, strings.HasSuffix(store.puts[0].Key, ".png"))
+
+	// Unsupported declared MIME must not reject a valid PNG/JPEG/WebP body.
+	store2 := newSeedanceMediaMemoryStore()
+	service2 := NewSeedanceMediaService(store2, nil, nil)
+	upload2, err := service2.UploadImage(context.Background(), SeedanceImageUploadInput{
+		Owner:       seedanceMediaTestOwner(),
+		Body:        bytes.NewReader(pngBytes),
+		SizeBytes:   int64(len(pngBytes)),
+		ContentType: "image/gif",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "image/png", upload2.ContentType)
+}
+
 func TestSeedanceMediaUploadRejectsInvalidImages(t *testing.T) {
 	pngBytes := seedanceMediaTestImage(t, "png", 2, 2)
 	tooWidePNG := seedanceMediaTestImage(t, "png", SeedanceMaxImageDimension+1, 1)
@@ -173,22 +204,6 @@ func TestSeedanceMediaUploadRejectsInvalidImages(t *testing.T) {
 		wantCode   int
 		wantReason string
 	}{
-		{
-			name:       "declared MIME mismatch",
-			body:       pngBytes,
-			size:       int64(len(pngBytes)),
-			declared:   "image/jpeg",
-			wantCode:   http.StatusBadRequest,
-			wantReason: "image_type_mismatch",
-		},
-		{
-			name:       "unsupported declared MIME",
-			body:       pngBytes,
-			size:       int64(len(pngBytes)),
-			declared:   "image/gif",
-			wantCode:   http.StatusBadRequest,
-			wantReason: "unsupported_image_type",
-		},
 		{
 			name:       "corrupt image",
 			body:       corruptPNG,
