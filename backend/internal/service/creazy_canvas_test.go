@@ -232,6 +232,55 @@ func TestCreazyCanvasCatalogRequiresOpenGroup(t *testing.T) {
 	require.Error(t, err)
 }
 
+
+func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
+	groupID := int64(33)
+	price720 := 0.03
+	group := &Group{
+		ID:                groupID,
+		Name:              "seedance-priced",
+		Platform:          PlatformSeedance,
+		AllowCreazyCanvas: true,
+		VideoBillingUnit:  VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			"seedance-2.0": {
+				Price720P: &price720,
+			},
+			// Legacy alias should surface as the public Huiqu model only when present.
+			"sd2-mx933-720-1s": {
+				Price720P: &price720,
+			},
+		},
+	}
+	keys := map[int64]*APIKey{
+		41: {ID: 41, UserID: 1, Status: StatusAPIKeyActive, GroupID: &groupID, Group: group},
+	}
+	svc := NewCreazyCanvasService(newCreazyCanvasWorkRepoStub(), &creazyCanvasAPIKeyStub{keys: keys}, nil, nil)
+
+	catalog, err := svc.Catalog(context.Background(), 1, 41)
+	require.NoError(t, err)
+
+	ids := make([]string, 0, len(catalog.VideoModels))
+	for _, model := range catalog.VideoModels {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "seedance-2.0")
+	require.Contains(t, ids, SeedanceMX933Model)
+	require.NotContains(t, ids, SeedanceMX933FastModel)
+	require.NotContains(t, ids, "seedance-2.0-fast")
+	require.NotContains(t, ids, SeedanceXimeiSD25Model)
+	require.NotContains(t, ids, SeedanceMX933LegacyModel)
+
+	// Deleting every matrix entry except one keeps the catalog tight.
+	group.VideoModelPrices = VideoModelPrices{
+		"seedance-2.0-mini": {Price720P: &price720},
+	}
+	catalog, err = svc.Catalog(context.Background(), 1, 41)
+	require.NoError(t, err)
+	require.Len(t, catalog.VideoModels, 1)
+	require.Equal(t, "seedance-2.0-mini", catalog.VideoModels[0].ID)
+}
+
 func TestCreazyCanvasCreateWorkAndDownloadHint(t *testing.T) {
 	groupID := int64(9)
 	group := &Group{

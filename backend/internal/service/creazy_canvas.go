@@ -984,11 +984,65 @@ func creazyCanvasKeyInfoFromAPIKey(apiKey *APIKey) (CreazyCanvasKeyInfo, bool) {
 	return CreazyCanvasKeyInfo{}, false
 }
 
+// creazyCanvasVideoModelIDsForGroup returns the video models the canvas may list
+// for a group. Once VideoModelPrices is configured it is authoritative: only
+// models present in that matrix (including Seedance legacy aliases) appear in
+// the catalog. Empty matrices keep the legacy platform-wide list so older
+// groups that only set group-level resolution prices still work.
+func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
+	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
+		return nil
+	}
+	platformIDs := FFLinkVideoModelIDsForPlatform(group.Platform)
+	if len(group.VideoModelPrices) == 0 {
+		return platformIDs
+	}
+
+	allowed := make(map[string]struct{}, len(group.VideoModelPrices))
+	for configured := range group.VideoModelPrices {
+		configured = strings.TrimSpace(configured)
+		if configured == "" {
+			continue
+		}
+		// Prefer public / canonical IDs so legacy Huiqu per-second names collapse
+		// into the dropdown entries users actually select.
+		candidates := []string{PublicSeedanceModelID(configured), configured}
+		if group.Platform == PlatformSeedance {
+			candidates = append(candidates, seedanceModelLookupCandidates(configured)...)
+		}
+		for _, candidate := range candidates {
+			profile, ok := ffLinkVideoModelProfileFor(candidate)
+			if !ok || profile.Platform != group.Platform {
+				continue
+			}
+			// Never surface internal legacy variable-duration IDs in the catalog.
+			if isLegacyHuiquVariableDurationModel(candidate) {
+				continue
+			}
+			allowed[strings.ToLower(strings.TrimSpace(candidate))] = struct{}{}
+			// Also allow the public ID when the matrix key is a duration-encoded alias.
+			if public := PublicSeedanceModelID(candidate); public != "" {
+				if p, ok := ffLinkVideoModelProfileFor(public); ok && p.Platform == group.Platform && !isLegacyHuiquVariableDurationModel(public) {
+					allowed[strings.ToLower(strings.TrimSpace(public))] = struct{}{}
+				}
+			}
+		}
+	}
+
+	out := make([]string, 0, len(allowed))
+	for _, id := range platformIDs {
+		if _, ok := allowed[strings.ToLower(strings.TrimSpace(id))]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func buildCreazyCanvasVideoModels(group *Group) []CreazyCanvasVideoModel {
 	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
 		return []CreazyCanvasVideoModel{}
 	}
-	modelIDs := FFLinkVideoModelIDsForPlatform(group.Platform)
+	modelIDs := creazyCanvasVideoModelIDsForGroup(group)
 	out := make([]CreazyCanvasVideoModel, 0, len(modelIDs))
 	billingUnit := group.EffectiveVideoBillingUnit()
 	for _, modelID := range modelIDs {
@@ -1004,7 +1058,7 @@ func buildCreazyCanvasVideoModels(group *Group) []CreazyCanvasVideoModel {
 		}
 		aspects := sortedStringKeys(profile.AllowedAspectRatios)
 		durations := creazyCanvasDurationsForProfile(profile)
-		// 若矩阵存在但该模型完全无价，仍返回模型（前端可提示未配置）
+		// 矩阵已存在时仅列出已配置模型；单价可缺省，前端按空价提示。
 		h3Like := isHuiquMiniMaxH3Model(modelID)
 		out = append(out, CreazyCanvasVideoModel{
 			ID:                      modelID,

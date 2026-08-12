@@ -2531,7 +2531,7 @@
           "image": {
             "type": "string",
             "format": "binary",
-            "description": "PNG、JPEG 或 WebP；TKCreazy 上传接口最大 10 MiB、最大 8192x8192 且不超过 4000 万像素。MX933 上游虽然允许单张图片不超过 30,000,000 字节，但使用推荐的 TKCreazy 上传流程时实际必须按更严格的 10 MiB 上限执行。"
+            "description": "PNG、JPEG 或 WebP；TKCreazy 上传接口单张图片最大 30,000,000 字节（与 MX933/Huiqu 上游一致），最大 8192x8192 且不超过 4000 万像素。"
           }
         }
       },

@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	SeedanceMaxImageBytes             int64 = 10 << 20
+	SeedanceMaxImageBytes             int64 = 30_000_000 // align with Huiqu/MX933 upstream single-image limit
 	SeedanceMaxImagePixels                  = 40_000_000
 	SeedanceMaxImageDimension               = 8192
 	SeedanceUploadBodyOverhead        int64 = 2 << 20
@@ -458,9 +458,13 @@ func mediaKindFromContentType(contentType string) string {
 	}
 }
 
+func seedanceImageSizeLimitMessage(prefix string) string {
+	return fmt.Sprintf("%s must not exceed %d bytes", prefix, SeedanceMaxImageBytes)
+}
+
 func seedanceUploadTooLargeError(mediaKind string) error {
 	if strings.EqualFold(strings.TrimSpace(mediaKind), "image") || strings.TrimSpace(mediaKind) == "" {
-		return infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+		return infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", seedanceImageSizeLimitMessage("image"))
 	}
 	return infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", "media must not exceed the configured size limit")
 }
@@ -478,14 +482,14 @@ func (s *SeedanceMediaService) UploadDataURI(ctx context.Context, owner Seedance
 		return nil, infraerrors.BadRequest("invalid_image_base64", err.Error())
 	}
 	if len(encoded) > base64.StdEncoding.EncodedLen(int(SeedanceMaxImageBytes)) {
-		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "decoded image must not exceed 10 MiB")
+		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", seedanceImageSizeLimitMessage("decoded image"))
 	}
 	decoded, err := base64.StdEncoding.Strict().DecodeString(encoded)
 	if err != nil {
 		return nil, infraerrors.BadRequest("invalid_image_base64", "image Base64 payload is invalid")
 	}
 	if int64(len(decoded)) > SeedanceMaxImageBytes {
-		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "decoded image must not exceed 10 MiB")
+		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", seedanceImageSizeLimitMessage("decoded image"))
 	}
 	return s.UploadImage(ctx, SeedanceImageUploadInput{
 		Owner:       owner,
@@ -1204,7 +1208,7 @@ func (s *SeedanceMediaService) fetchAndStoreImage(ctx context.Context, owner See
 		return nil, infraerrors.New(http.StatusBadGateway, "image_fetch_failed", fmt.Sprintf("reference image returned HTTP %d", resp.StatusCode))
 	}
 	if resp.ContentLength > SeedanceMaxImageBytes {
-		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", "image must not exceed 10 MiB")
+		return nil, infraerrors.New(http.StatusRequestEntityTooLarge, "image_too_large", seedanceImageSizeLimitMessage("image"))
 	}
 	return s.UploadImage(ctx, SeedanceImageUploadInput{
 		Owner:       owner,

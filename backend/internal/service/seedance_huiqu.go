@@ -38,7 +38,7 @@ const (
 	huiquVideoCreatePath   = "/v1/videos/generations"
 	huiquVideoTaskPath     = "/v1/videos"
 	huiquPublicTaskPrefix  = "hqv1_"
-	huiquMaxImageBytes     = int64(30_000_000)
+	huiquMaxImageBytes     = SeedanceMaxImageBytes // keep platform upload + Huiqu fetch limits aligned
 	huiquMaxVideoBytes     = int64(50_000_000)
 	huiquMaxAudioBytes     = int64(15_000_000)
 	huiquMaxRequestBytes   = int64(384 << 20)
