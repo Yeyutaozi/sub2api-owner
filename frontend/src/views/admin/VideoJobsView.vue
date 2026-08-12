@@ -46,11 +46,45 @@
               {{ t('admin.videoJobs.filters.unsettledOnly') }}
             </label>
             <div class="ml-auto flex items-center gap-2">
-              <button class="btn btn-secondary" :disabled="loading" :title="t('admin.videoJobs.actions.refresh')" @click="loadJobs">
+              <button class="btn btn-secondary" :disabled="loading || batchLoading" :title="t('admin.videoJobs.actions.refresh')" @click="loadJobs">
                 <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
               </button>
-              <button class="btn btn-primary" :disabled="loading" @click="handleFilterChange">
+              <button class="btn btn-primary" :disabled="loading || batchLoading" @click="handleFilterChange">
                 {{ t('admin.videoJobs.actions.refresh') }}
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="selectedKeys.length > 0"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-primary-200 bg-primary-50/60 px-3 py-2 dark:border-primary-800 dark:bg-primary-950/30"
+          >
+            <span class="text-sm font-medium text-gray-800 dark:text-gray-100">
+              {{ t('admin.videoJobs.batch.selectedCount', { count: selectedKeys.length }) }}
+            </span>
+            <span v-if="selectedUnsettledCount > 0" class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.videoJobs.batch.unsettledCount', { count: selectedUnsettledCount }) }}
+            </span>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+              <button class="btn btn-secondary btn-sm" :disabled="batchLoading" @click="batchSyncSelected">
+                {{ t('admin.videoJobs.actions.batchSync') }}
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                :disabled="batchLoading || selectedUnsettledCount === 0"
+                @click="batchAction = 'forceFail'"
+              >
+                {{ t('admin.videoJobs.actions.batchForceFail') }}
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                :disabled="batchLoading || selectedUnsettledCount === 0"
+                @click="batchAction = 'kill'"
+              >
+                {{ t('admin.videoJobs.actions.batchKill') }}
+              </button>
+              <button class="btn btn-secondary btn-sm" :disabled="batchLoading" @click="clearSelection">
+                {{ t('admin.videoJobs.actions.clearSelection') }}
               </button>
             </div>
           </div>
@@ -58,7 +92,15 @@
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="jobs" :loading="loading">
+        <DataTable
+          :columns="columns"
+          :data="jobs"
+          :loading="loading || batchLoading"
+          selectable
+          row-key="job_id"
+          v-model:selected-keys="selectedKeys"
+          :selection-label="(row) => row.job_id"
+        >
           <template #cell-job_id="{ row }">
             <div class="flex min-w-0 flex-col">
               <button class="truncate text-left font-medium text-primary-600 hover:underline dark:text-primary-400" @click="openDetail(row)">
@@ -258,6 +300,24 @@
       @confirm="doForceFail"
       @cancel="forceFailTarget = null"
     />
+
+    <ConfirmDialog
+      :show="batchAction === 'kill'"
+      :title="t('admin.videoJobs.messages.batchKillConfirmTitle')"
+      :message="t('admin.videoJobs.messages.batchKillConfirmMessage', { count: selectedUnsettledCount })"
+      danger
+      @confirm="doBatchKill"
+      @cancel="batchAction = null"
+    />
+
+    <ConfirmDialog
+      :show="batchAction === 'forceFail'"
+      :title="t('admin.videoJobs.messages.batchForceFailConfirmTitle')"
+      :message="t('admin.videoJobs.messages.batchForceFailConfirmMessage', { count: selectedUnsettledCount })"
+      danger
+      @confirm="doBatchForceFail"
+      @cancel="batchAction = null"
+    />
   </AppLayout>
 </template>
 
@@ -281,10 +341,25 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const loading = ref(false)
+const batchLoading = ref(false)
 const actionLoadingId = ref('')
 const jobs = ref<AdminVideoJob[]>([])
 const detail = ref<AdminVideoJob | null>(null)
 const killTarget = ref<AdminVideoJob | null>(null)
+const forceFailTarget = ref<AdminVideoJob | null>(null)
+const selectedKeys = ref<Array<string | number>>([])
+const batchAction = ref<'kill' | 'forceFail' | null>(null)
+
+const selectedUnsettledCount = computed(() => {
+  // Prefer current-page settlement info; off-page selected keys still count so batch ops stay available.
+  const known = new Map(jobs.value.map((j) => [j.job_id, j]))
+  let count = 0
+  for (const key of selectedKeys.value) {
+    const job = known.get(String(key))
+    if (!job || !job.settled_at) count += 1
+  }
+  return count
+})
 
 const filters = reactive({
   search: '',
@@ -349,7 +424,12 @@ async function loadJobs() {
 
 function handleFilterChange() {
   pagination.page = 1
+  clearSelection()
   void loadJobs()
+}
+
+function clearSelection() {
+  selectedKeys.value = []
 }
 
 function handlePageChange(page: number) {
@@ -399,6 +479,109 @@ async function doKill() {
     appStore.showError(error?.message || t('admin.videoJobs.messages.killFailed'))
   } finally {
     actionLoadingId.value = ''
+  }
+}
+
+function confirmForceFail(row: AdminVideoJob) {
+  forceFailTarget.value = row
+}
+
+async function doForceFail() {
+  const row = forceFailTarget.value
+  forceFailTarget.value = null
+  if (!row) return
+  actionLoadingId.value = row.job_id
+  try {
+    const updated = await videoJobsApi.forceFail(row.job_id)
+    replaceJob(updated)
+    if (detail.value?.job_id === updated.job_id) detail.value = updated
+    appStore.showSuccess(t('admin.videoJobs.messages.forceFailSuccess'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.videoJobs.messages.forceFailFailed'))
+  } finally {
+    actionLoadingId.value = ''
+  }
+}
+
+function selectedJobIds(unsettledOnly = false): string[] {
+  const known = new Map(jobs.value.map((j) => [j.job_id, j]))
+  const ids: string[] = []
+  for (const key of selectedKeys.value) {
+    const jobId = String(key)
+    if (!jobId) continue
+    if (unsettledOnly) {
+      const job = known.get(jobId)
+      if (job && job.settled_at) continue
+    }
+    ids.push(jobId)
+  }
+  return ids
+}
+
+async function runBatch(
+  ids: string[],
+  action: (jobId: string) => Promise<AdminVideoJob>
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0
+  let fail = 0
+  batchLoading.value = true
+  try {
+    for (const jobId of ids) {
+      actionLoadingId.value = jobId
+      try {
+        const updated = await action(jobId)
+        replaceJob(updated)
+        if (detail.value?.job_id === updated.job_id) detail.value = updated
+        ok += 1
+      } catch {
+        fail += 1
+      }
+    }
+  } finally {
+    actionLoadingId.value = ''
+    batchLoading.value = false
+  }
+  return { ok, fail }
+}
+
+async function batchSyncSelected() {
+  const ids = selectedJobIds(false)
+  if (!ids.length) return
+  const { ok, fail } = await runBatch(ids, (jobId) => videoJobsApi.sync(jobId))
+  if (fail === 0) {
+    appStore.showSuccess(t('admin.videoJobs.messages.batchSyncSuccess', { ok, fail }))
+  } else {
+    appStore.showError(t('admin.videoJobs.messages.batchSyncPartial', { ok, fail }))
+  }
+}
+
+async function doBatchKill() {
+  batchAction.value = null
+  const ids = selectedJobIds(true)
+  if (!ids.length) {
+    appStore.showError(t('admin.videoJobs.messages.batchNoUnsettled'))
+    return
+  }
+  const { ok, fail } = await runBatch(ids, (jobId) => videoJobsApi.kill(jobId, 'admin batch kill'))
+  if (fail === 0) {
+    appStore.showSuccess(t('admin.videoJobs.messages.batchKillSuccess', { ok, fail }))
+  } else {
+    appStore.showError(t('admin.videoJobs.messages.batchKillPartial', { ok, fail }))
+  }
+}
+
+async function doBatchForceFail() {
+  batchAction.value = null
+  const ids = selectedJobIds(true)
+  if (!ids.length) {
+    appStore.showError(t('admin.videoJobs.messages.batchNoUnsettled'))
+    return
+  }
+  const { ok, fail } = await runBatch(ids, (jobId) => videoJobsApi.forceFail(jobId, 'admin batch force fail'))
+  if (fail === 0) {
+    appStore.showSuccess(t('admin.videoJobs.messages.batchForceFailSuccess', { ok, fail }))
+  } else {
+    appStore.showError(t('admin.videoJobs.messages.batchForceFailPartial', { ok, fail }))
   }
 }
 

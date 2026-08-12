@@ -42,7 +42,16 @@ export default {
       sync: '同步上游',
       kill: '结束(取消)',
       forceFail: '强制失败',
+      batchSync: '批量同步上游',
+      batchKill: '批量终止',
+      batchForceFail: '批量强制失败',
+      clearSelection: '清除选择',
       openResult: '打开结果'
+    },
+
+    batch: {
+      selectedCount: '已选 {count} 项',
+      unsettledCount: '其中未结算 {count}'
     },
     empty: {
       title: '暂无视频任务',
@@ -105,6 +114,19 @@ export default {
       forceFailFailed: '强制失败操作失败',
       forceFailConfirmTitle: '确认强制失败？',
       forceFailConfirmMessage: '将尽量取消上游任务，并把本地状态标记为失败，同时触发退款结算。已结算任务不会重复退款。',
+
+      batchSyncSuccess: '批量同步完成：成功 {ok}，失败 {fail}',
+      batchSyncPartial: '批量同步部分失败：成功 {ok}，失败 {fail}',
+      batchKillSuccess: '批量终止完成：成功 {ok}，失败 {fail}',
+      batchKillPartial: '批量终止部分失败：成功 {ok}，失败 {fail}',
+      batchForceFailSuccess: '批量强制失败完成：成功 {ok}，失败 {fail}',
+      batchForceFailPartial: '批量强制失败部分失败：成功 {ok}，失败 {fail}',
+      batchNoUnsettled: '所选任务中没有未结算项',
+      batchKillConfirmTitle: '批量终止所选任务？',
+      batchKillConfirmMessage: '将终止 {count} 个未结算任务，标记为已取消，并尝试退款结算。',
+      batchForceFailConfirmTitle: '批量强制失败所选任务？',
+      batchForceFailConfirmMessage: '将把 {count} 个未结算任务标记为失败，并尝试退款结算。',
+
       copyOk: '已复制',
       copyFail: '复制失败'
     }

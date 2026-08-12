@@ -42,7 +42,16 @@ export default {
       sync: 'Sync upstream',
       kill: 'Kill (cancel)',
       forceFail: 'Force fail',
+      batchSync: 'Batch sync',
+      batchKill: 'Batch kill',
+      batchForceFail: 'Batch force fail',
+      clearSelection: 'Clear selection',
       openResult: 'Open result'
+    },
+
+    batch: {
+      selectedCount: '{count} selected',
+      unsettledCount: '{count} unsettled'
     },
     empty: {
       title: 'No video jobs',
@@ -105,6 +114,19 @@ export default {
       forceFailFailed: 'Failed to force-fail task',
       forceFailConfirmTitle: 'Force fail this task?',
       forceFailConfirmMessage: 'Best-effort cancel upstream, mark local status as failed, and trigger refund settlement. Already settled jobs will not be refunded again.',
+
+      batchSyncSuccess: 'Batch sync done: {ok} succeeded, {fail} failed',
+      batchSyncPartial: 'Batch sync partial: {ok} succeeded, {fail} failed',
+      batchKillSuccess: 'Batch kill done: {ok} succeeded, {fail} failed',
+      batchKillPartial: 'Batch kill partial: {ok} succeeded, {fail} failed',
+      batchForceFailSuccess: 'Batch force-fail done: {ok} succeeded, {fail} failed',
+      batchForceFailPartial: 'Batch force-fail partial: {ok} succeeded, {fail} failed',
+      batchNoUnsettled: 'No unsettled jobs in selection',
+      batchKillConfirmTitle: 'Batch kill selected tasks?',
+      batchKillConfirmMessage: 'Will terminate {count} unsettled task(s), mark cancelled, and attempt refund settlement.',
+      batchForceFailConfirmTitle: 'Batch force-fail selected tasks?',
+      batchForceFailConfirmMessage: 'Will mark {count} unsettled task(s) as failed and attempt refund settlement.',
+
       copyOk: 'Copied',
       copyFail: 'Copy failed'
     }
