@@ -210,6 +210,11 @@ func normalizeVideoProvider(platform, provider string) (string, error) {
 			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
 		}
 		return provider, nil
+	case VideoProviderWeijin:
+		if platform != PlatformSeedance {
+			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
+		}
+		return provider, nil
 	default:
 		return "", fmt.Errorf("unsupported video provider: %s", provider)
 	}
@@ -249,11 +254,13 @@ func videoProviderSupportsModelForPlatform(platform, provider, model string) boo
 		}
 	case VideoProviderXimei:
 		return (platform == PlatformSeedance || platform == "") && isXimeiVideoModel(model)
+	case VideoProviderWeijin:
+		return (platform == PlatformSeedance || platform == "") && isWeijinVideoModel(model)
 	default: // fflink and future non-opaque providers
 		if platform == PlatformMiniMax {
 			return false
 		}
-		return !isHuiquVideoModel(model) && !isXimeiVideoModel(model)
+		return !isHuiquVideoModel(model) && !isXimeiVideoModel(model) && !isWeijinVideoModel(model)
 	}
 }
 

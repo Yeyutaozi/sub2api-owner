@@ -35,7 +35,9 @@ describe('useModelWhitelist', () => {
       'sd2-mx933-fast',
       'sd-2.0-mx933',
       'sd-2.5-mx',
-      'sd-2.5-mx-2000'
+      'sd-2.5-mx-2000',
+      'seedance2.0-one-face-reference-480p',
+      'seedance2.0-one-face-reference-720p'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -45,6 +47,8 @@ describe('useModelWhitelist', () => {
       { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
       { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
       { from: 'sd-2.5-mx-2000', to: 'sd-2.5-mx-2000' },
+      { from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p' },
+      { from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
@@ -64,11 +68,16 @@ describe('useModelWhitelist', () => {
       'sd-2.5-mx',
       'sd-2.5-mx-2000'
     ])
+    expect(getSeedanceModelsByVideoProvider('weijin')).toEqual([
+      'seedance2.0-one-face-reference-480p',
+      'seedance2.0-one-face-reference-720p'
+    ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
     expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
       'https://liantongyidong.ximeiedu.org'
     )
+    expect(getSeedanceVideoProviderBaseUrl('weijin')).toBe('https://www.weijinapi.top')
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {

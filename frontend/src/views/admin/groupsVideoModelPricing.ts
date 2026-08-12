@@ -9,6 +9,8 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "sd-2.0-mx933",
   "sd-2.5-mx",
   "sd-2.5-mx-2000",
+  "seedance2.0-one-face-reference-480p",
+  "seedance2.0-one-face-reference-720p",
 ] as const;
 
 export const DEFAULT_LTX_VIDEO_MODELS = ["ltx-2.3-pro", "ltx-2.3-fast"] as const;
@@ -42,6 +44,8 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "sd-2.0-mx933": ["480p", "720p"],
   "sd-2.5-mx": ["720p"],
   "sd-2.5-mx-2000": ["720p"],
+  "seedance2.0-one-face-reference-480p": ["480p"],
+  "seedance2.0-one-face-reference-720p": ["720p"],
   "ltx-2.3-pro": ["1080p", "1440p", "2160p"],
   "ltx-2.3-fast": ["1080p", "1440p", "2160p"],
   "happy-horse-1.1": ["720p", "1080p"],
