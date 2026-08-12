@@ -639,7 +639,7 @@ export default {
         fflink: 'FFLink (legacy)',
         huiqu: 'Huiqu MX933',
         ximei: 'Ximei Developer API V3',
-        weijin: 'Seedance Special Offer (Weijin)'
+        weijin: 'Seedance Special Offer'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

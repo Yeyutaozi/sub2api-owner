@@ -699,7 +699,7 @@ export default {
         fflink: 'FFLink（旧渠道）',
         huiqu: '汇取云 MX933',
         ximei: '西梅 Developer API V3',
-        weijin: 'Seedance 特惠（Weijin）'
+        weijin: 'Seedance 特惠'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',
