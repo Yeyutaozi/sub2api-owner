@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="cc-shell">
+    <div class="cc-shell" :class="{ 'cc-shell--tray': showTaskTray, 'cc-shell--tray-open': showTaskTray && taskTrayExpanded }">
       <header class="cc-topbar">
         <div class="cc-topbar__main">
           <div class="cc-topbar__brand">
@@ -1500,58 +1500,99 @@
           </div>
         </div>
       </section>
-    </div>
     <!-- Floating task tray for concurrent jobs -->
     <div
       v-if="showTaskTray"
       class="cc-task-tray"
-      :class="{ 'cc-task-tray--collapsed': !taskTrayExpanded }"
+      :class="{
+        'cc-task-tray--collapsed': !taskTrayExpanded,
+        'cc-task-tray--has-live': trayStatusCounts.running > 0,
+      }"
       role="complementary"
       :aria-label="t('creazyCanvas.tasks.trayTitle')"
     >
       <div class="cc-task-tray__bar">
-        <button type="button" class="cc-task-tray__toggle" @click="taskTrayExpanded = !taskTrayExpanded">
-          <span class="cc-task-tray__title">
-            {{ t('creazyCanvas.tasks.trayTitle') }}
-            <span v-if="totalRunningJobs" class="cc-task-tray__badge">{{ totalRunningJobs }}</span>
+        <button
+          type="button"
+          class="cc-task-tray__toggle"
+          :aria-expanded="taskTrayExpanded"
+          @click="taskTrayExpanded = !taskTrayExpanded"
+        >
+          <span class="cc-task-tray__pulse" aria-hidden="true" />
+          <span class="cc-task-tray__head">
+            <span class="cc-task-tray__title-row">
+              <span class="cc-task-tray__title">{{ t('creazyCanvas.tasks.trayTitle') }}</span>
+              <span v-if="totalRunningJobs" class="cc-task-tray__badge">{{ totalRunningJobs }}</span>
+              <span class="cc-task-tray__chev" :class="{ 'is-open': taskTrayExpanded }" aria-hidden="true">▾</span>
+            </span>
+            <span class="cc-task-tray__hint">{{ t('creazyCanvas.tasks.trayHint') }}</span>
           </span>
-          <span class="cc-task-tray__hint">{{ t('creazyCanvas.tasks.trayHint') }}</span>
-          <span class="cc-task-tray__counts">
-            <span v-if="trayStatusCounts.running">{{ t('creazyCanvas.tasks.trayRunning', { n: trayStatusCounts.running }) }}</span>
-            <span v-if="trayStatusCounts.succeeded">{{ t('creazyCanvas.tasks.traySucceeded', { n: trayStatusCounts.succeeded }) }}</span>
-            <span v-if="trayStatusCounts.failed">{{ t('creazyCanvas.tasks.trayFailed', { n: trayStatusCounts.failed }) }}</span>
+          <span class="cc-task-tray__counts" aria-hidden="true">
+            <span v-if="trayStatusCounts.running" class="cc-task-tray__chip is-live">
+              <i class="cc-task-tray__chip-dot is-pulse" />
+              {{ t('creazyCanvas.tasks.trayRunning', { n: trayStatusCounts.running }) }}
+            </span>
+            <span v-if="trayStatusCounts.succeeded" class="cc-task-tray__chip is-ok">
+              {{ t('creazyCanvas.tasks.traySucceeded', { n: trayStatusCounts.succeeded }) }}
+            </span>
+            <span v-if="trayStatusCounts.failed" class="cc-task-tray__chip is-bad">
+              {{ t('creazyCanvas.tasks.trayFailed', { n: trayStatusCounts.failed }) }}
+            </span>
           </span>
         </button>
         <div class="cc-task-tray__actions">
           <button type="button" class="cc-task-tray__link" @click="() => openTrayTaskBoard()">
             {{ t('creazyCanvas.tasks.open') }}
           </button>
-          <button type="button" class="cc-task-tray__dismiss" @click="taskTrayDismissed = true">
-            {{ t('creazyCanvas.tasks.dismiss') }}
+          <button
+            type="button"
+            class="cc-task-tray__dismiss"
+            :title="t('creazyCanvas.tasks.dismiss')"
+            @click="taskTrayDismissed = true"
+          >
+            ×
           </button>
         </div>
       </div>
-      <div v-if="taskTrayExpanded" class="cc-task-tray__list">
-        <button
-          v-for="work in trayWorks"
-          :key="'tray-' + work.id"
-          type="button"
-          class="cc-task-tray__item"
-          :class="workCardClass(work)"
-          @click="() => openTrayTaskBoard(work)"
-        >
-          <span class="badge inline-flex items-center gap-1.5" :class="workStatusClass(work.status)">
-            <span class="h-1.5 w-1.5 rounded-full" :class="workStatusDotClass(work.status)" />
-            {{ workStatusLabel(work.status) }}
-          </span>
-          <span class="cc-task-tray__kind">{{ work.kind || '—' }}</span>
-          <span class="cc-task-tray__model">{{ work.public_model || '—' }}</span>
-          <span class="cc-task-tray__prompt">{{ work.prompt || ('#' + work.id) }}</span>
-        </button>
-        <p v-if="!trayWorks.length" class="cc-task-tray__empty">{{ t('creazyCanvas.tasks.empty') }}</p>
+      <div v-if="taskTrayExpanded" class="cc-task-tray__body">
+        <div v-if="trayWorks.length" class="cc-task-tray__list">
+          <button
+            v-for="work in trayWorks"
+            :key="'tray-' + work.id"
+            type="button"
+            class="cc-task-tray__item"
+            :class="trayItemClass(work)"
+            :title="work.prompt || work.public_model || ('#' + work.id)"
+            @click="() => openTrayTaskBoard(work)"
+          >
+            <span class="cc-task-tray__item-rail" aria-hidden="true" />
+            <span class="cc-task-tray__item-main">
+              <span class="cc-task-tray__item-top">
+                <span class="cc-task-tray__status" :class="taskStatusTone(work.status)">
+                  <i class="cc-task-tray__status-dot" :class="{ 'is-pulse': isActiveWorkStatus(work.status) }" />
+                  {{ workStatusLabel(work.status) }}
+                </span>
+                <span class="cc-task-tray__kind" :data-kind="String(work.kind || 'other').toLowerCase()">
+                  {{ trayKindLabel(work.kind) }}
+                </span>
+                <span class="cc-task-tray__model">{{ work.public_model || '—' }}</span>
+                <span v-if="isActiveWorkStatus(work.status)" class="cc-task-tray__elapsed">
+                  {{ formatElapsed(work.created_at || work.updated_at) }}
+                </span>
+                <span v-else-if="work.created_at" class="cc-task-tray__time">
+                  {{ formatDateTime(work.created_at) }}
+                </span>
+              </span>
+              <span class="cc-task-tray__prompt">{{ trayPromptText(work) }}</span>
+              <span v-if="workErrorText(work)" class="cc-task-tray__error">{{ workErrorText(work) }}</span>
+            </span>
+          </button>
+        </div>
+        <p v-else class="cc-task-tray__empty">{{ t('creazyCanvas.tasks.empty') }}</p>
       </div>
     </div>
 
+    </div>
     <!-- Media preview lightbox (image/video with sound) -->
     <Teleport to="body">
       <div
@@ -1947,6 +1988,9 @@ let worksLoadSeq = 0
 /** Bumped only for non-quiet loads; used to clear loadingWorks even when quiet polls supersede. */
 let worksLoadingSeq = 0
 const taskTrayExpanded = ref(false)
+/** Skip model-change media wipe while programmatically reusing/retrying a work. */
+const suppressVideoMediaReset = ref(false)
+const suppressImageMediaTrim = ref(false)
 const taskTrayDismissed = ref(false)
 const draftNotice = ref('')
 const draftSavedAt = ref<number | null>(null)
@@ -2003,6 +2047,7 @@ const imageRefRequired = computed(() => Boolean(selectedImageModel.value?.requir
 watch(
   () => [imageForm.model, imageRefSupported.value, imageRefMax.value] as const,
   () => {
+    if (suppressImageMediaTrim.value) return
     if (!imageRefSupported.value) {
       clearImageRefs()
       return
@@ -3260,6 +3305,26 @@ function formatClockTime(ts: number): string {
   }
 }
 
+function trayKindLabel(kind?: string | null): string {
+  const k = String(kind || '').toLowerCase()
+  if (k === 'video') return 'VID'
+  if (k === 'image' || k === 'img') return 'IMG'
+  if (k === 'audio') return 'AUD'
+  return k ? k.slice(0, 3).toUpperCase() : 'JOB'
+}
+
+function trayPromptText(work: CreazyWork): string {
+  const raw = String(work.prompt || '').replace(/\s+/g, ' ').trim()
+  if (raw) return raw
+  return work.public_model ? String(work.public_model) : `#${work.id}`
+}
+
+function trayItemClass(work: CreazyWork): string {
+  return [taskStatusTone(work.status), isActiveWorkStatus(work.status) ? 'is-active' : '']
+    .filter(Boolean)
+    .join(' ')
+}
+
 function formatElapsed(fromIso?: string | null): string {
   void nowTick.value
   if (!fromIso) return ''
@@ -3425,6 +3490,8 @@ function stopLocalTrack(work: CreazyWork) {
 
 async function retryWork(work: CreazyWork) {
   await reuseWork(work)
+  // Ensure restored media survives any deferred watchers before auto-submit.
+  await nextTick()
   if ((work.kind || '').toLowerCase() === 'video') {
     await generateVideo()
   } else {
@@ -5619,155 +5686,205 @@ async function reuseWork(work: CreazyWork) {
   if (kind === 'video') {
     videoError.value = ''
     videoSaveMessage.value = ''
-    videoForm.prompt = work.prompt || ''
+    suppressVideoMediaReset.value = true
+    try {
+      videoForm.prompt = work.prompt || ''
 
-    const wantedModel = String(work.public_model || '').trim()
-    if (wantedModel && videoModels.value.some((m) => m.id === wantedModel)) {
-      videoForm.model = wantedModel
-    } else if (wantedModel) {
-      notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
-      partial = true
-    }
-    // Ensure model/options are synced before applying size-like params
-    syncFormModelsFromCatalog()
-
-    if (params.resolution != null && String(params.resolution).trim()) {
-      const resolution = String(params.resolution)
-      if (videoResolutionOptions.value.includes(resolution)) {
-        videoForm.resolution = resolution
-      } else {
+      const wantedModel = String(work.public_model || '').trim()
+      if (wantedModel && videoModels.value.some((m) => m.id === wantedModel)) {
+        videoForm.model = wantedModel
+      } else if (wantedModel) {
+        notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
         partial = true
       }
-    }
-    if (params.duration != null && String(params.duration).trim() !== '') {
-      const duration = Number(params.duration)
-      if (videoDurationOptions.value.includes(duration)) {
-        videoForm.duration = duration
-      } else {
+      // Ensure model/options are synced before applying size-like params
+      syncFormModelsFromCatalog()
+
+      if (params.resolution != null && String(params.resolution).trim()) {
+        const resolution = String(params.resolution)
+        if (videoResolutionOptions.value.includes(resolution)) {
+          videoForm.resolution = resolution
+        } else {
+          partial = true
+        }
+      }
+      if (params.duration != null && String(params.duration).trim() !== '') {
+        const duration = Number(params.duration)
+        if (videoDurationOptions.value.includes(duration)) {
+          videoForm.duration = duration
+        } else {
+          partial = true
+        }
+      }
+      if (params.aspect_ratio != null && String(params.aspect_ratio).trim()) {
+        const aspect = String(params.aspect_ratio)
+        if (videoAspectOptions.value.includes(aspect)) {
+          videoForm.aspectRatio = aspect
+        } else {
+          partial = true
+        }
+      }
+      const applyVideoAudioFlag = () => {
+        if (mediaCaps.value.forceGeneratedAudio) {
+          videoForm.generateAudio = true
+          return
+        }
+        if (params.generate_audio != null) {
+          videoForm.generateAudio = Boolean(params.generate_audio) && mediaCaps.value.allowGeneratedAudio
+        } else {
+          videoForm.generateAudio = Boolean(mediaCaps.value.allowGeneratedAudio)
+        }
+      }
+      applyVideoAudioFlag()
+
+      const applyVideoMediaFromParams = () => {
+        let mediaRestored = 0
+        let mediaSkipped = 0
+        const legacyKeys = [
+          'start_frame',
+          'start_frame_url',
+          'end_frame',
+          'end_frame_url',
+          'ref_images',
+          'ref_videos',
+          'ref_audios',
+          'image_refs',
+        ]
+        const hadAnyMediaKey = legacyKeys.some((k) => params[k] != null)
+
+        // Clear first so re-apply is deterministic after model-change watchers.
+        startFrame.value = null
+        endFrame.value = null
+        startFrameUrlInput.value = ''
+        refImages.value = []
+        refVideos.value = []
+        refAudios.value = []
+
+        const sf = pickStringParam(params, 'start_frame', 'start_frame_url', 'first_frame')
+        if (sf) {
+          if (isReusableMediaUrl(sf)) {
+            startFrame.value = { name: 'start-frame', media_url: sf, preview_url: sf }
+            startFrameUrlInput.value = sf
+            mediaRestored++
+          } else {
+            mediaSkipped++
+          }
+        }
+        const ef = pickStringParam(params, 'end_frame', 'end_frame_url', 'last_frame')
+        if (ef) {
+          if (isReusableMediaUrl(ef)) {
+            endFrame.value = { name: 'end-frame', media_url: ef, preview_url: ef }
+            mediaRestored++
+          } else {
+            mediaSkipped++
+          }
+        }
+        const rImgs = pickStringListParam(params, 'ref_images', 'reference_images', 'image_refs')
+        if (rImgs.length) {
+          refImages.value = rImgs.map((u, i) => ({ name: `ref-image-${i + 1}`, media_url: u, preview_url: u }))
+          mediaRestored += rImgs.length
+        }
+        const rVids = pickStringListParam(params, 'ref_videos', 'reference_videos')
+        if (rVids.length) {
+          refVideos.value = rVids.map((u, i) => ({ name: `ref-video-${i + 1}`, media_url: u }))
+          mediaRestored += rVids.length
+        }
+        const rAuds = pickStringListParam(params, 'ref_audios', 'reference_audios')
+        if (rAuds.length) {
+          refAudios.value = rAuds.map((u, i) => ({ name: `ref-audio-${i + 1}`, media_url: u }))
+          mediaRestored += rAuds.length
+        }
+        return { mediaRestored, mediaSkipped, hadAnyMediaKey }
+      }
+
+      let mediaStats = applyVideoMediaFromParams()
+      // Let deferred model watchers run while suppress is on, then re-apply media/audio.
+      await nextTick()
+      applyVideoAudioFlag()
+      mediaStats = applyVideoMediaFromParams()
+
+      if (mediaStats.mediaSkipped) {
+        notes.push(t('creazyCanvas.form.reuseMediaSkipped'))
+        partial = true
+      } else if (!mediaStats.hadAnyMediaKey && !mediaStats.mediaRestored) {
+        notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
         partial = true
       }
-    }
-    if (params.aspect_ratio != null && String(params.aspect_ratio).trim()) {
-      const aspect = String(params.aspect_ratio)
-      if (videoAspectOptions.value.includes(aspect)) {
-        videoForm.aspectRatio = aspect
+
+      switchTab('video')
+
+      if (notes.length) {
+        videoError.value = notes.join('；')
+        videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
+      } else if (partial) {
+        videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
       } else {
-        partial = true
+        videoSaveMessage.value = t('creazyCanvas.form.reuseApplied')
       }
-    }
-    videoForm.generateAudio = Boolean(params.generate_audio) && mediaCaps.value.allowGeneratedAudio
-
-    // Restore reusable media (absolute/http only; skip blob/data)
-    let mediaRestored = 0
-    let mediaSkipped = 0
-    const legacyKeys = [
-      'start_frame',
-      'start_frame_url',
-      'end_frame',
-      'end_frame_url',
-      'ref_images',
-      'ref_videos',
-      'ref_audios',
-      'image_refs',
-    ]
-    const hadAnyMediaKey = legacyKeys.some((k) => params[k] != null)
-
-    const sf = pickStringParam(params, 'start_frame', 'start_frame_url', 'first_frame')
-    if (sf) {
-      if (isReusableMediaUrl(sf)) {
-        startFrame.value = { name: 'start-frame', media_url: sf, preview_url: sf }
-        startFrameUrlInput.value = sf
-        mediaRestored++
-      } else {
-        mediaSkipped++
-      }
-    }
-    const ef = pickStringParam(params, 'end_frame', 'end_frame_url', 'last_frame')
-    if (ef) {
-      if (isReusableMediaUrl(ef)) {
-        endFrame.value = { name: 'end-frame', media_url: ef, preview_url: ef }
-        mediaRestored++
-      } else {
-        mediaSkipped++
-      }
-    }
-    const rImgs = pickStringListParam(params, 'ref_images', 'reference_images')
-    if (rImgs.length) {
-      refImages.value = rImgs.map((u, i) => ({ name: `ref-image-${i + 1}`, media_url: u, preview_url: u }))
-      mediaRestored += rImgs.length
-    }
-    const rVids = pickStringListParam(params, 'ref_videos', 'reference_videos')
-    if (rVids.length) {
-      refVideos.value = rVids.map((u, i) => ({ name: `ref-video-${i + 1}`, media_url: u }))
-      mediaRestored += rVids.length
-    }
-    const rAuds = pickStringListParam(params, 'ref_audios', 'reference_audios')
-    if (rAuds.length) {
-      refAudios.value = rAuds.map((u, i) => ({ name: `ref-audio-${i + 1}`, media_url: u }))
-      mediaRestored += rAuds.length
-    }
-    if (mediaSkipped) {
-      notes.push(t('creazyCanvas.form.reuseMediaSkipped'))
-      partial = true
-    } else if (!hadAnyMediaKey && !mediaRestored) {
-      notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
-      partial = true
-    }
-
-    switchTab('video')
-
-    if (notes.length) {
-      videoError.value = notes.join('；')
-      videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
-    } else if (partial) {
-      videoSaveMessage.value = t('creazyCanvas.form.reusePartial')
-    } else {
-      videoSaveMessage.value = t('creazyCanvas.form.reuseApplied')
+    } finally {
+      await nextTick()
+      suppressVideoMediaReset.value = false
     }
   } else {
     imageError.value = ''
     imageSaveMessage.value = ''
-    imageForm.prompt = work.prompt || ''
+    suppressImageMediaTrim.value = true
+    try {
+      imageForm.prompt = work.prompt || ''
 
-    const wantedModel = String(work.public_model || '').trim()
-    if (wantedModel && imageModels.value.some((m) => m.id === wantedModel)) {
-      imageForm.model = wantedModel
-    } else if (wantedModel) {
-      notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
-      partial = true
-    }
-    // Model must be set before size validation (depends on selectedImageModel)
-    syncFormModelsFromCatalog()
-
-    if (params.size != null && String(params.size).trim()) {
-      const size = String(params.size)
-      if (imageSizeOptions.value.includes(size) || isValidImageSizeInput(size)) {
-        imageForm.size = canonicalizeImageSizeInput(size)
-      } else {
-        const fallback = imageSizeOptions.value[0] || '1024x1024'
-        imageForm.size = fallback
-        notes.push(t('creazyCanvas.form.reuseSizeSkipped', { size, fallback }))
+      const wantedModel = String(work.public_model || '').trim()
+      if (wantedModel && imageModels.value.some((m) => m.id === wantedModel)) {
+        imageForm.model = wantedModel
+      } else if (wantedModel) {
+        notes.push(t('creazyCanvas.form.reuseModelMissing', { model: wantedModel }))
         partial = true
       }
-    }
+      // Model must be set before size validation (depends on selectedImageModel)
+      syncFormModelsFromCatalog()
 
-    const imgRefs = pickStringListParam(params, 'image_refs', 'ref_images', 'reference_images', 'images')
-    if (imgRefs.length) {
-      imageRefs.value = imgRefs.map((u, i) => ({ name: `image-ref-${i + 1}`, media_url: u, preview_url: u }))
-    } else if (params.reference_count || params.edit) {
-      notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
-      partial = true
-    }
+      if (params.size != null && String(params.size).trim()) {
+        const size = String(params.size)
+        if (imageSizeOptions.value.includes(size) || isValidImageSizeInput(size)) {
+          imageForm.size = canonicalizeImageSizeInput(size)
+        } else {
+          const fallback = imageSizeOptions.value[0] || '1024x1024'
+          imageForm.size = fallback
+          notes.push(t('creazyCanvas.form.reuseSizeSkipped', { size, fallback }))
+          partial = true
+        }
+      }
 
-    switchTab('image')
+      const applyImageMediaFromParams = () => {
+        const imgRefs = pickStringListParam(params, 'image_refs', 'ref_images', 'reference_images', 'images')
+        if (imgRefs.length) {
+          imageRefs.value = imgRefs.map((u, i) => ({ name: `image-ref-${i + 1}`, media_url: u, preview_url: u }))
+          return imgRefs.length
+        }
+        return 0
+      }
 
-    if (notes.length) {
-      imageError.value = notes.join('；')
-      imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
-    } else if (partial) {
-      imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
-    } else {
-      imageSaveMessage.value = t('creazyCanvas.form.reuseApplied')
+      let restored = applyImageMediaFromParams()
+      await nextTick()
+      restored = applyImageMediaFromParams()
+
+      if (!restored && (params.reference_count || params.edit)) {
+        notes.push(t('creazyCanvas.form.reuseMediaMissingLegacy'))
+        partial = true
+      }
+
+      switchTab('image')
+
+      if (notes.length) {
+        imageError.value = notes.join('；')
+        imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
+      } else if (partial) {
+        imageSaveMessage.value = t('creazyCanvas.form.reusePartial')
+      } else {
+        imageSaveMessage.value = t('creazyCanvas.form.reuseApplied')
+      }
+    } finally {
+      await nextTick()
+      suppressImageMediaTrim.value = false
     }
   }
 }
@@ -5775,7 +5892,9 @@ async function reuseWork(work: CreazyWork) {
 watch(
   () => videoForm.model,
   () => {
-    resetVideoMedia()
+    if (!suppressVideoMediaReset.value) {
+      resetVideoMedia()
+    }
     if (mediaCaps.value.allowGeneratedAudio || mediaCaps.value.forceGeneratedAudio) {
       videoForm.generateAudio = true
     } else {
@@ -7564,6 +7683,415 @@ onBeforeUnmount(() => {
   min-height: 2rem !important; height: 2rem !important; border-radius: 0.6rem !important;
   font-size: 0.78rem !important; padding: 0 0.45rem !important;
 }
+
+.cc-shell--tray { padding-bottom: 5.5rem; }
+.cc-shell--tray-open { padding-bottom: min(48vh, 26rem); }
+/* ===== Floating task tray ===== */
+.cc-task-tray {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 70;
+  width: min(52rem, calc(100vw - 1.5rem));
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--cc-line-2) 70%, #94a3b8);
+  border-radius: 1.05rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 92%, #fff), color-mix(in srgb, var(--cc-surface-2) 88%, #e2e8f0));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.65) inset,
+    0 18px 50px -28px rgb(15 23 42 / 0.55),
+    0 8px 20px -12px rgb(15 23 42 / 0.28);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  color: var(--cc-ink);
+  font-family: var(--cc-font);
+}
+:global(.dark) .cc-task-tray {
+  border-color: color-mix(in srgb, var(--cc-line) 80%, #334155);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cc-surface) 88%, #0b1220), var(--cc-surface-2));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.04) inset,
+    0 22px 48px -24px rgb(0 0 0 / 0.65);
+}
+.cc-task-tray--has-live {
+  border-color: color-mix(in srgb, var(--cc-live) 35%, var(--cc-line-2));
+}
+.cc-task-tray__bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.6rem 0.55rem 0.7rem;
+  min-height: 3.15rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--cc-live-soft) 35%, transparent), transparent 42%);
+}
+.cc-task-tray--collapsed .cc-task-tray__bar {
+  background: transparent;
+}
+.cc-task-tray__toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0.1rem;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.55rem 0.7rem;
+  align-items: center;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.cc-task-tray__pulse {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--cc-faint);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cc-faint) 18%, transparent);
+  flex: 0 0 auto;
+}
+.cc-task-tray--has-live .cc-task-tray__pulse {
+  background: var(--cc-live);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cc-live) 22%, transparent);
+  animation: cc-tray-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cc-tray-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.72; }
+}
+.cc-task-tray__head {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+.cc-task-tray__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.cc-task-tray__title {
+  font-family: var(--cc-display);
+  font-size: 0.9rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  color: var(--cc-ink);
+  white-space: nowrap;
+}
+.cc-task-tray__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cc-live) 16%, var(--cc-surface));
+  border: 1px solid color-mix(in srgb, var(--cc-live) 35%, var(--cc-line));
+  color: var(--cc-live);
+  font-family: var(--cc-mono);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+.cc-task-tray__chev {
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  transition: transform 0.18s ease;
+  line-height: 1;
+}
+.cc-task-tray__chev.is-open { transform: rotate(180deg); }
+.cc-task-tray__hint {
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-task-tray__counts {
+  display: none;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+@media (min-width: 720px) {
+  .cc-task-tray__counts { display: inline-flex; }
+}
+.cc-task-tray__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--cc-muted);
+  white-space: nowrap;
+}
+.cc-task-tray__chip.is-live {
+  color: #c2410c;
+  border-color: color-mix(in srgb, var(--cc-live) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-live-soft) 70%, var(--cc-surface));
+}
+.cc-task-tray__chip.is-ok {
+  color: #047857;
+  border-color: color-mix(in srgb, var(--cc-ok) 28%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-ok-soft) 70%, var(--cc-surface));
+}
+.cc-task-tray__chip.is-bad {
+  color: #b91c1c;
+  border-color: color-mix(in srgb, var(--cc-bad) 28%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-bad-soft) 70%, var(--cc-surface));
+}
+.cc-task-tray__chip-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+.cc-task-tray__chip-dot.is-pulse {
+  animation: cc-tray-pulse 1.4s ease-in-out infinite;
+}
+.cc-task-tray__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+.cc-task-tray__link {
+  appearance: none;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface);
+  color: var(--cc-ink-soft);
+  border-radius: 0.7rem;
+  padding: 0.38rem 0.7rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.cc-task-tray__link:hover {
+  border-color: color-mix(in srgb, var(--cc-accent) 35%, var(--cc-line));
+  color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent-soft) 55%, var(--cc-surface));
+}
+.cc-task-tray__dismiss {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--cc-faint);
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 0.65rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.cc-task-tray__dismiss:hover {
+  color: var(--cc-ink);
+  background: var(--cc-surface-3);
+  border-color: var(--cc-line);
+}
+.cc-task-tray__body {
+  border-top: 1px solid var(--cc-line);
+  max-height: min(42vh, 22rem);
+  overflow: auto;
+  padding: 0.45rem;
+  background: color-mix(in srgb, var(--cc-surface-2) 70%, transparent);
+}
+.cc-task-tray__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cc-task-tray__item {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--cc-line);
+  border-radius: 0.85rem;
+  background: var(--cc-surface);
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 0.28rem minmax(0, 1fr);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.cc-task-tray__item:hover {
+  border-color: color-mix(in srgb, var(--cc-accent) 30%, var(--cc-line));
+  box-shadow: 0 8px 18px -16px rgb(15 23 42 / 0.45);
+  transform: translateY(-1px);
+}
+.cc-task-tray__item-rail {
+  display: block;
+  background: var(--cc-faint);
+}
+.cc-task-tray__item.is-live .cc-task-tray__item-rail,
+.cc-task-tray__item.is-new .cc-task-tray__item-rail { background: var(--cc-live); }
+.cc-task-tray__item.is-ok .cc-task-tray__item-rail { background: var(--cc-ok); }
+.cc-task-tray__item.is-bad .cc-task-tray__item-rail { background: var(--cc-bad); }
+.cc-task-tray__item.is-idle .cc-task-tray__item-rail { background: var(--cc-line-2); }
+.cc-task-tray__item-main {
+  min-width: 0;
+  padding: 0.55rem 0.7rem 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+.cc-task-tray__item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+  min-width: 0;
+}
+.cc-task-tray__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-2);
+  color: var(--cc-muted);
+  white-space: nowrap;
+}
+.cc-task-tray__status.is-live,
+.cc-task-tray__status.is-new {
+  color: #c2410c;
+  border-color: color-mix(in srgb, var(--cc-live) 30%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-live-soft) 75%, var(--cc-surface));
+}
+.cc-task-tray__status.is-ok {
+  color: #047857;
+  border-color: color-mix(in srgb, var(--cc-ok) 28%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-ok-soft) 75%, var(--cc-surface));
+}
+.cc-task-tray__status.is-bad {
+  color: #b91c1c;
+  border-color: color-mix(in srgb, var(--cc-bad) 28%, var(--cc-line));
+  background: color-mix(in srgb, var(--cc-bad-soft) 75%, var(--cc-surface));
+}
+.cc-task-tray__status-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.cc-task-tray__status-dot.is-pulse {
+  animation: cc-tray-pulse 1.4s ease-in-out infinite;
+}
+.cc-task-tray__kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-3);
+  font-family: var(--cc-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--cc-muted);
+}
+.cc-task-tray__kind[data-kind="video"] {
+  color: #0369a1;
+  border-color: color-mix(in srgb, #0ea5e9 35%, var(--cc-line));
+  background: color-mix(in srgb, #e0f2fe 70%, var(--cc-surface));
+}
+.cc-task-tray__kind[data-kind="image"],
+.cc-task-tray__kind[data-kind="img"] {
+  color: #6d28d9;
+  border-color: color-mix(in srgb, #8b5cf6 30%, var(--cc-line));
+  background: color-mix(in srgb, #ede9fe 70%, var(--cc-surface));
+}
+.cc-task-tray__model {
+  display: inline-flex;
+  max-width: 12rem;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface-2);
+  font-family: var(--cc-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--cc-ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-task-tray__elapsed {
+  margin-left: auto;
+  font-family: var(--cc-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--cc-live);
+  white-space: nowrap;
+}
+.cc-task-tray__time {
+  margin-left: auto;
+  font-family: var(--cc-mono);
+  font-size: 0.66rem;
+  color: var(--cc-faint);
+  white-space: nowrap;
+}
+.cc-task-tray__prompt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--cc-ink-soft);
+  word-break: break-word;
+}
+.cc-task-tray__error {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.72rem;
+  color: var(--cc-bad);
+  line-height: 1.35;
+}
+.cc-task-tray__empty {
+  margin: 0;
+  padding: 1rem 0.75rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--cc-muted);
+}
+@media (max-width: 720px) {
+  .cc-task-tray {
+    left: 0.75rem;
+    right: 0.75rem;
+    width: auto;
+    transform: none;
+    bottom: 0.75rem;
+  }
+  .cc-task-tray__toggle {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .cc-task-tray__model { max-width: 8rem; }
+  .cc-task-tray__elapsed,
+  .cc-task-tray__time { margin-left: 0; }
+}
+
 .cc-keydeck, .cc-hero { display: contents; }
 .cc-shell :deep(.badge) { border-radius: 999px; }
 @media (max-width: 640px) {
