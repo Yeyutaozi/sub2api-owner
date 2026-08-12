@@ -735,11 +735,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 					}
 					// Fall through to load-balance. StickyPreviousHit stays false so handlers
 					// strip previous_response_id and continue with full input context.
+					// Copy-on-write soft-exclude so handler failedAccountIDs is not poisoned.
 					if len(peerIDs) > 0 {
-						if req.ExcludedIDs == nil {
-							req.ExcludedIDs = make(map[int64]struct{})
-						}
-						req.ExcludedIDs[escapeMeta.fromAccountID] = struct{}{}
+						req.ExcludedIDs = softExcludeStickyAccount(req.ExcludedIDs, escapeMeta.fromAccountID)
 					}
 					selection = nil
 				}
@@ -810,10 +808,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 					}
 				}
 				if peerCount > 0 {
-					if req.ExcludedIDs == nil {
-						req.ExcludedIDs = make(map[int64]struct{})
-					}
-					req.ExcludedIDs[stickyID] = struct{}{}
+					// Soft-exclude only for this reselection (copy-on-write).
+					req.ExcludedIDs = softExcludeStickyAccount(req.ExcludedIDs, stickyID)
 					if stickyID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
 						_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
 					}
@@ -835,10 +831,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			if sessionEscape.fromAccountID > 0 {
 				peerCount := len(s.peerIDsForStickyEscape(ctx, req, sessionEscape.fromAccountID))
 				if peerCount > 0 {
-					if req.ExcludedIDs == nil {
-						req.ExcludedIDs = make(map[int64]struct{})
-					}
-					req.ExcludedIDs[sessionEscape.fromAccountID] = struct{}{}
+					// Soft-exclude only for this reselection (copy-on-write).
+					req.ExcludedIDs = softExcludeStickyAccount(req.ExcludedIDs, sessionEscape.fromAccountID)
 				}
 			}
 		}
@@ -2752,7 +2746,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		RequiredCapability:      requiredCapability,
 		RequiredImageCapability: requiredImageCapability,
 		RequireCompact:          requireCompact,
-		ExcludedIDs:             excludedIDs,
+		ExcludedIDs:             cloneExcludedAccountIDs(excludedIDs),
 	})
 }
 
@@ -2873,13 +2867,20 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 		if errorRate == 0 && cfg.StickyEscapeTTFTMs == 0 && cfg.StickyEscapeErrorRate == 0 {
 			errorRate = 0.5
 		}
+		// exploreMs: when peers lack TTFT samples, allow reselection only if sticky is already
+		// multi-second slow. If admin sets StickyEscapeTTFTMs higher, treat it as the explore floor
+		// so mild hangs keep sticky/cache until that reference is crossed.
+		exploreMs := 5000.0
+		if ttftMs > exploreMs {
+			exploreMs = ttftMs
+		}
 		return openAIStickyEscapeConfig{
 			enabled:          enabled,
 			ttftMs:           ttftMs,
 			errorRate:        errorRate,
 			relativeRatio:    1.3,  // peer must be ~30%+ faster
 			relativeMinDelta: 600,  // and at least 600ms absolute gap
-			exploreMs:        5000, // multi-account explore when peers lack TTFT samples
+			exploreMs:        exploreMs,
 		}
 	}
 	return openAIStickyEscapeConfig{

@@ -51,11 +51,20 @@ function formatTime(v?: string) {
   }
 }
 
+function ttftClass(ms?: number | null) {
+  const v = Number(ms || 0)
+  if (!v || v <= 0) return ''
+  if (v < 1500) return 'ttft-good'
+  if (v < 5000) return 'ttft-mid'
+  return 'ttft-bad'
+}
+
 function reasonLabel(r?: string) {
   const raw = (r || '').trim()
   const map: Record<string, string> = {
     ttft: '首字绝对阈值',
     ttft_relative: '首字相对偏慢',
+    ttft_explore: '首字探索切号(同伴未采样)',
     error_rate: '错误率',
     concurrency_full: '并发已满',
     safe_rate: '安全倍率',
@@ -212,8 +221,15 @@ onMounted(() => {
                   :class="{ selected: c.selected, escaped: c.escaped }"
                 >
                   <td>#{{ c.account_id }} {{ c.account_name || '' }}</td>
-                  <td>{{ c.score.toFixed(3) }}</td>
-                  <td>{{ c.has_ttft ? Math.round(c.ttft_ms || 0) + 'ms' : '-' }}</td>
+                  <td>
+                    <span :title="c.has_ttft ? '实测首字反比分' : '无首字样本（非完美分，仅表示可探索）'">
+                      {{ c.score.toFixed(1) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span v-if="c.has_ttft" :class="ttftClass(c.ttft_ms)">{{ Math.round(c.ttft_ms || 0) }}ms</span>
+                    <span v-else class="ttft-unmeasured" title="该账号近期无首字样本，评分仅为探索占位">未采样</span>
+                  </td>
                   <td>{{ (c.error_rate * 100).toFixed(1) }}%</td>
                   <td>{{ c.load_rate.toFixed(1) }}%</td>
                   <td>{{ c.waiting_count }}</td>
@@ -457,5 +473,16 @@ onMounted(() => {
   .route-arrow {
     display: none;
   }
+}
+
+.ttft-unmeasured {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+}
+.ttft-good { color: #16a34a; font-weight: 600; }
+.ttft-mid { color: #ca8a04; font-weight: 600; }
+.ttft-bad { color: #dc2626; font-weight: 700; }
+.route-node.to.missing strong {
+  color: #dc2626;
 }
 </style>

@@ -24,16 +24,26 @@ import (
 
 // softExcludeStickyAccount prevents load-balance from immediately reselecting an account
 // that was just abandoned by sticky TTFT/error escape. Context/messages are never modified
-// by sticky escape — only the upstream account binding changes.
+// by sticky escape - only the upstream account binding changes.
+//
+// IMPORTANT: always copy-on-write. Handlers pass failedAccountIDs into selection; soft-exclude
+// is scoped to this reselection only. Mutating the caller map would permanently poison failover
+// so both the slow sticky and a 502 peer appear "failed" and the request hard-fails.
 func softExcludeStickyAccount(excludedIDs map[int64]struct{}, accountID int64) map[int64]struct{} {
 	if accountID <= 0 {
 		return excludedIDs
 	}
-	if excludedIDs == nil {
-		excludedIDs = make(map[int64]struct{}, 1)
+	if excludedIDs != nil {
+		if _, ok := excludedIDs[accountID]; ok {
+			return excludedIDs
+		}
 	}
-	excludedIDs[accountID] = struct{}{}
-	return excludedIDs
+	next := make(map[int64]struct{}, len(excludedIDs)+1)
+	for id := range excludedIDs {
+		next[id] = struct{}{}
+	}
+	next[accountID] = struct{}{}
+	return next
 }
 
 // applyGatewayStickyEscapeIfNeeded evaluates shared TTFT/error runtime stats and, when escape
@@ -72,7 +82,23 @@ func (s *GatewayService) applyGatewayStickyEscapeIfNeeded(
 		"layer", layer,
 		"context_carry", "full_messages_unchanged",
 	)
-	RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+	// Defer TO-filled audit when caller attached an openai sticky escape bag; else record without TO.
+	if state := openaiStickyEscapeAuditStateFrom(ctx); state != nil {
+		state.pending = &openaiStickyEscapeAuditPending{
+			from:        account,
+			peers:       peers,
+			reason:      reason,
+			ttft:        ttft,
+			errRate:     errRate,
+			cfg:         gatewayStickyEscapeConfig(),
+			groupID:     groupID,
+			platform:    platform,
+			model:       requestedModel,
+			sessionHash: sessionHash,
+		}
+	} else {
+		RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peers, ttft, errRate, gatewayStickyEscapeConfig())
+	}
 	nextExcluded = softExcludeStickyAccount(excludedIDs, account.ID)
 	return true, nextExcluded
 }
@@ -88,6 +114,8 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	ctx, _ = withOpenAIStickyEscapeAuditState(ctx)
+	defer flushOpenAIStickyEscapeAuditIfPending(ctx)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -153,6 +181,8 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	ctx, _ = withOpenAIStickyEscapeAuditState(ctx)
+	defer flushOpenAIStickyEscapeAuditIfPending(ctx)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -1555,6 +1585,9 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
 		return nil, err
+	}
+	if hydrated != nil {
+		recordOpenAIStickyEscapeAuditWithTo(ctx, hydrated)
 	}
 	return &AccountSelectionResult{
 		Account:     hydrated,

@@ -2290,10 +2290,14 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 		concurrencyService: NewConcurrencyService(concurrencyCache),
 		openaiAccountStats: stats,
 	}
-	fastTTFT := 14999
-	svc.openaiAccountStats.report(21101, true, &fastTTFT)
-	stableTTFT := 14999
-	svc.openaiAccountStats.report(21101, true, &stableTTFT)
+	// Phase 1: sticky ~15s but still under StickyEscapeTTFTMs explore floor (15s) and no much-faster
+	// measured peer → keep sticky/cache (not a blind absolute cut).
+	stickyTTFT := 14999
+	svc.openaiAccountStats.report(21101, true, &stickyTTFT)
+	svc.openaiAccountStats.report(21101, true, &stickyTTFT)
+	// Peer sample exists but is NOT significantly faster (no 1.3x + 600ms / 2.5s gap).
+	peerSimilar := 14000
+	svc.openaiAccountStats.report(21102, true, &peerSimilar)
 
 	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_ttft", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
@@ -2306,9 +2310,14 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 		selection.ReleaseFunc()
 	}
 
+	// Phase 2: sticky hangs at 20s while peer is much faster → peer-relative escape.
 	slowTTFT := 20000
 	for i := 0; i < 3; i++ {
 		svc.openaiAccountStats.report(21101, true, &slowTTFT)
+	}
+	fastPeer := 800
+	for i := 0; i < 3; i++ {
+		svc.openaiAccountStats.report(21102, true, &fastPeer)
 	}
 
 	selection, decision, err = svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_ttft", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)

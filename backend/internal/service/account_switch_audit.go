@@ -687,20 +687,22 @@ func RecordGatewayStickyEscapeAudit(
 		RelativeRatio:      cfg.relativeRatio,
 		RelativeMinDeltaMs: cfg.relativeMinDelta,
 		Candidates:         candidates,
-		Note:               "网关粘性逃逸：请求正文上下文原样转发；仅更换上游账号（24h 审计）",
+		Note:               "网关粘性逃逸：请求正文上下文原样转发；仅更换上游账号（24h 审计）。候选评分仅供审计：无首字样本≈50分（非完美），实测快首字更高、挂死更低。",
 	}
 	RecordAccountSwitchAudit(ev)
 }
 
 func gatewayAuditScore(ttft float64, hasTTFT bool, priority int) float64 {
-	// Higher is better. Prefer lower TTFT; unknown TTFT gets mid score; lower priority value is better.
-	score := 1000.0
+	// Higher is better for ranking in audit UI only (not the live scheduler score).
+	// Ranking intent for explore after sticky hang:
+	//   healthy measured (e.g. 500ms ~ 1996) > unmeasured (~50) > multi-second hang (~38 at 26s)
+	// Unmeasured must NOT look like a "perfect 99.99" score; it only means "no sample yet".
+	priPenalty := float64(priority) * 0.01
 	if hasTTFT && ttft > 0 {
-		score = 1_000_000.0 / (ttft + 1)
-	} else {
-		score = 100.0
+		// Inverse latency: 500ms≈1996, 2s≈500, 5s≈200, 26s≈38
+		return 1_000_000.0/(ttft+1) - priPenalty
 	}
-	score -= float64(priority) * 0.01
-	return score
+	// Unmeasured mid-band (~50). Still above severe hangers so explore can pick them.
+	return 50.0 - priPenalty
 }
 

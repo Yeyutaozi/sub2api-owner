@@ -660,6 +660,8 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
+	ctx, _ = withOpenAIStickyEscapeAuditState(ctx)
+	defer flushOpenAIStickyEscapeAuditIfPending(ctx)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
@@ -703,6 +705,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, selected.ID, openaiStickySessionTTL)
 	}
 
+	recordOpenAIStickyEscapeAuditWithTo(ctx, hydrated)
 	return hydrated, nil
 }
 
@@ -711,6 +714,75 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 //
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
+// openaiStickyEscapeAuditPending holds classic sticky-escape facts until reselection finishes,
+// so the 24h audit can include the real TO account (not a blank dash).
+type openaiStickyEscapeAuditPending struct {
+	from        *Account
+	peers       []*Account
+	reason      string
+	ttft        float64
+	errRate     float64
+	cfg         openAIStickyEscapeConfig
+	groupID     *int64
+	platform    string
+	model       string
+	sessionHash string
+}
+
+type openaiStickyEscapeAuditStateKey struct{}
+
+type openaiStickyEscapeAuditState struct {
+	pending *openaiStickyEscapeAuditPending
+}
+
+func withOpenAIStickyEscapeAuditState(ctx context.Context) (context.Context, *openaiStickyEscapeAuditState) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if existing, ok := ctx.Value(openaiStickyEscapeAuditStateKey{}).(*openaiStickyEscapeAuditState); ok && existing != nil {
+		return ctx, existing
+	}
+	state := &openaiStickyEscapeAuditState{}
+	return context.WithValue(ctx, openaiStickyEscapeAuditStateKey{}, state), state
+}
+
+func openaiStickyEscapeAuditStateFrom(ctx context.Context) *openaiStickyEscapeAuditState {
+	if ctx == nil {
+		return nil
+	}
+	state, _ := ctx.Value(openaiStickyEscapeAuditStateKey{}).(*openaiStickyEscapeAuditState)
+	return state
+}
+
+func recordOpenAIStickyEscapeAuditWithTo(ctx context.Context, to *Account) {
+	state := openaiStickyEscapeAuditStateFrom(ctx)
+	if state == nil || state.pending == nil {
+		return
+	}
+	p := state.pending
+	state.pending = nil
+	// Prefer a peer pointer that already carries the account name for admin UI.
+	if to != nil && to.ID > 0 && to.Name == "" {
+		for _, peer := range p.peers {
+			if peer != nil && peer.ID == to.ID {
+				to = peer
+				break
+			}
+		}
+		if p.from != nil && p.from.ID == to.ID && p.from.Name != "" {
+			to = p.from
+		}
+	}
+	RecordGatewayStickyEscapeAudit(ctx, p.groupID, p.platform, p.model, p.sessionHash, p.reason, p.from, to, p.peers, p.ttft, p.errRate, p.cfg)
+}
+
+// flushOpenAIStickyEscapeAuditIfPending records a deferred sticky-escape audit when reselection
+// failed (or never returned an account). Keeps the escape visible with TO blank rather than
+// dropping the event entirely.
+func flushOpenAIStickyEscapeAuditIfPending(ctx context.Context) {
+	recordOpenAIStickyEscapeAuditWithTo(ctx, nil)
+}
+
 // applyOpenAIClassicStickyEscapeIfNeeded evaluates peer-relative TTFT/error escape for the
 // classic (non-advanced-scheduler) sticky path. On escape it clears the sticky binding and
 // records a 24h admin audit entry. Request body/messages are never modified.
@@ -763,7 +835,24 @@ func (s *OpenAIGatewayService) applyOpenAIClassicStickyEscapeIfNeeded(
 	if sessionHash != "" {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 	}
-	RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peerPtrs, ttft, errRate, cfg)
+	// Defer audit until reselection so TO is populated (classic path used to leave TO blank).
+	if state := openaiStickyEscapeAuditStateFrom(ctx); state != nil {
+		state.pending = &openaiStickyEscapeAuditPending{
+			from:        account,
+			peers:       peerPtrs,
+			reason:      reason,
+			ttft:        ttft,
+			errRate:     errRate,
+			cfg:         cfg,
+			groupID:     groupID,
+			platform:    platform,
+			model:       requestedModel,
+			sessionHash: sessionHash,
+		}
+	} else {
+		// No audit bag on context (unexpected call site): still record escape without TO.
+		RecordGatewayStickyEscapeAudit(ctx, groupID, platform, requestedModel, sessionHash, reason, account, nil, peerPtrs, ttft, errRate, cfg)
+	}
 	return true, reason
 }
 
@@ -943,6 +1032,8 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
+	ctx, _ = withOpenAIStickyEscapeAuditState(ctx)
+	defer flushOpenAIStickyEscapeAuditIfPending(ctx)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -1214,6 +1305,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				}
 				if sessionHash != "" {
 					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
+					recordOpenAIStickyEscapeAuditWithTo(ctx, fresh)
 				}
 				return selection, true, nil
 			}
@@ -1256,6 +1348,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				}
 				if sessionHash != "" {
 					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fresh.ID, openaiStickySessionTTL)
+					recordOpenAIStickyEscapeAuditWithTo(ctx, fresh)
 				}
 				return selection, nil
 			}
@@ -1488,6 +1581,10 @@ func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
 		return nil, err
+	}
+	// Any successful post-escape selection (acquired or wait-plan) fills sticky-escape TO.
+	if hydrated != nil {
+		recordOpenAIStickyEscapeAuditWithTo(ctx, hydrated)
 	}
 	return &AccountSelectionResult{
 		Account:     hydrated,

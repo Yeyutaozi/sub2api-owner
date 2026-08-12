@@ -23,6 +23,47 @@ func TestSoftExcludeStickyAccount(t *testing.T) {
 	// invalid id is no-op
 	same := softExcludeStickyAccount(out2, 0)
 	require.Equal(t, len(out2), len(same))
+
+	// Copy-on-write: soft-exclude must not poison handler failedAccountIDs used by failover.
+	failed := map[int64]struct{}{100: {}}
+	soft := softExcludeStickyAccount(failed, 200)
+	_, ok = soft[100]
+	require.True(t, ok)
+	_, ok = soft[200]
+	require.True(t, ok)
+	_, ok = failed[200]
+	require.False(t, ok, "caller failedAccountIDs must stay free of soft sticky-escape excludes")
+	require.Equal(t, 1, len(failed))
+
+	// Already present: may return same map reference (no need to copy)
+	failed2 := map[int64]struct{}{200: {}}
+	soft2 := softExcludeStickyAccount(failed2, 200)
+	_, ok = soft2[200]
+	require.True(t, ok)
+}
+
+func TestSoftExcludeDoesNotPoisonFailoverAfterPeer502(t *testing.T) {
+	// Simulates: sticky escape soft-excludes slow (A), free-selects peer (B).
+	// Peer B returns 502 and is hard-failed. Next selection must still allow A.
+	failedAccountIDs := make(map[int64]struct{})
+	slowID, fastID := int64(30), int64(31)
+
+	// Escape reselection uses a local soft-excluded map.
+	reselectExcluded := softExcludeStickyAccount(failedAccountIDs, slowID)
+	_, ok := reselectExcluded[slowID]
+	require.True(t, ok)
+	// Handler map still empty after soft-exclude.
+	require.Equal(t, 0, len(failedAccountIDs))
+
+	// Peer forward fails -> hard exclude only the peer.
+	failedAccountIDs[fastID] = struct{}{}
+
+	// Next failover selection: only hard excludes apply; slow sticky is still eligible.
+	_, hardSlow := failedAccountIDs[slowID]
+	_, hardFast := failedAccountIDs[fastID]
+	require.False(t, hardSlow, "slow sticky must remain eligible after peer 502")
+	require.True(t, hardFast)
+	require.Equal(t, 1, len(failedAccountIDs))
 }
 
 func TestApplyGatewayStickyEscapeSoftExcludesAndCarriesContextNote(t *testing.T) {
