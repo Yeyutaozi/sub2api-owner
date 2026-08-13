@@ -22,9 +22,35 @@
 
       <div
         v-if="isVideoPricingGroup"
-        class="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-300"
+        class="space-y-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-300"
       >
-        {{ t('admin.groups.videoPriceOverrides.priorityHint') }}
+        <p class="font-medium">{{ t('admin.groups.videoPriceOverrides.priorityHint') }}</p>
+        <p>{{ t('admin.groups.videoPriceOverrides.workflowHint') }}</p>
+      </div>
+
+      <div
+        v-if="isVideoPricingGroup"
+        class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+      >
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.groups.videoPriceOverrides.groupDefaultsTitle') }}
+          </h4>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ videoPriceUnitLabel }}</span>
+        </div>
+        <div v-if="groupDefaultPriceRows.length === 0" class="text-xs text-amber-600 dark:text-amber-400">
+          {{ t('admin.groups.videoPriceOverrides.groupDefaultsEmpty') }}
+        </div>
+        <div v-else class="max-h-36 space-y-1 overflow-y-auto text-xs">
+          <div
+            v-for="row in groupDefaultPriceRows"
+            :key="row.model"
+            class="grid grid-cols-[minmax(160px,1.2fr)_minmax(0,2fr)] gap-2 rounded bg-gray-50 px-2 py-1.5 dark:bg-dark-700/60"
+          >
+            <span class="font-mono text-gray-700 dark:text-gray-300">{{ row.model }}</span>
+            <span class="text-gray-600 dark:text-gray-400">{{ row.pricesText }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- 操作区 -->
@@ -33,6 +59,9 @@
         <h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.addUser') : t('admin.groups.addUserRate') }}
         </h4>
+        <p v-if="isVideoPricingGroup" class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.groups.videoPriceOverrides.addUserHint') }}
+        </p>
         <div class="flex items-end gap-2">
           <div class="relative flex-1">
             <input
@@ -43,6 +72,7 @@
               :placeholder="t('admin.groups.searchUserPlaceholder')"
               @input="handleSearchUsers"
               @focus="showDropdown = true"
+              @keydown.enter.prevent="handleAddLocal"
             />
             <div
               v-if="showDropdown && searchResults.length > 0"
@@ -61,10 +91,7 @@
               </button>
             </div>
           </div>
-          <div class="w-28">
-            <label v-if="isVideoPricingGroup" class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.groups.videoPriceOverrides.optionalRate') }}
-            </label>
+          <div v-if="!isVideoPricingGroup" class="w-28">
             <input
               v-model.number="newRate"
               type="number"
@@ -75,18 +102,32 @@
               placeholder="1.0"
             />
           </div>
+          <details v-else class="w-36">
+            <summary class="mb-1 cursor-pointer select-none text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.groups.videoPriceOverrides.optionalRate') }}
+            </summary>
+            <input
+              v-model.number="newRate"
+              type="number"
+              step="0.001"
+              min="0"
+              autocomplete="off"
+              class="hide-spinner input w-full"
+              :placeholder="t('admin.groups.videoPriceOverrides.optionalRatePlaceholder')"
+            />
+          </details>
           <button
             type="button"
             class="btn btn-primary shrink-0"
-            :disabled="!selectedUser || (!isVideoPricingGroup && !newRate)"
+            :disabled="!canAddUser"
             @click="handleAddLocal"
           >
-            {{ t('common.add') }}
+            {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.addAndConfigure') : t('common.add') }}
           </button>
         </div>
 
         <!-- 批量调整 + 全部清空 -->
-        <div v-if="localEntries.length > 0" class="mt-3 flex items-center gap-3 border-t border-gray-100 pt-3 dark:border-dark-600">
+        <div v-if="localEntries.length > 0 && !isVideoPricingGroup" class="mt-3 flex items-center gap-3 border-t border-gray-100 pt-3 dark:border-dark-600">
           <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.batchAdjust') }}</span>
           <div class="flex items-center gap-1.5">
             <span class="text-xs text-gray-400">×</span>
@@ -126,6 +167,19 @@
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
+      </div>
+
+      <div
+        v-if="isVideoPricingGroup && localEntries.length > 0"
+        class="flex items-center justify-end rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-600"
+      >
+        <button
+          type="button"
+          class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+          @click="clearAllLocal"
+        >
+          {{ t('admin.groups.clearAll') }}
+        </button>
       </div>
 
       <!-- 已设置的用户列表 -->
@@ -195,12 +249,22 @@
                     <td v-if="isVideoPricingGroup" class="whitespace-nowrap px-3 py-2">
                       <button
                         type="button"
-                        class="rounded px-2 py-1 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20"
+                        class="rounded-md border border-primary-200 bg-primary-50 px-2.5 py-1 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
                         @click="toggleVideoPrices(entry.user_id)"
                       >
-                        {{ t('admin.groups.videoPriceOverrides.configure') }}
-                        <span v-if="countVideoPriceOverrides(entry) > 0" class="ml-1 text-gray-400">
-                          ({{ countVideoPriceOverrides(entry) }})
+                        {{
+                          expandedVideoPriceUserID === entry.user_id
+                            ? t('admin.groups.videoPriceOverrides.collapse')
+                            : t('admin.groups.videoPriceOverrides.configure')
+                        }}
+                        <span class="ml-1 font-normal opacity-80">
+                          {{
+                            countVideoPriceOverrides(entry) > 0
+                              ? t('admin.groups.videoPriceOverrides.overrideCount', {
+                                  count: countVideoPriceOverrides(entry),
+                                })
+                              : t('admin.groups.videoPriceOverrides.notSetYet')
+                          }}
                         </span>
                       </button>
                     </td>
@@ -221,12 +285,15 @@
                           <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
                             {{ t('admin.groups.videoPriceOverrides.userTitle', { user: entry.user_email }) }}
                           </div>
-                          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
                             {{
                               t('admin.groups.videoPriceOverrides.inheritHint', {
                                 unit: videoPriceUnitLabel,
                               })
                             }}
+                          </p>
+                          <p class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                            {{ t('admin.groups.videoPriceOverrides.fillThenSave') }}
                           </p>
                         </div>
                         <button
@@ -436,6 +503,38 @@ const availableVideoModels = computed(() => [
   ]),
 ])
 
+const groupDefaultPriceRows = computed(() => {
+  return availableVideoModels.value
+    .map((model) => {
+      const card = groupVideoModelPrices.value[model] || {}
+      const parts = supportedVideoResolutions(model)
+        .map((resolution) => {
+          const price = card[resolution as keyof VideoModelPrice]
+          if (price == null) return null
+          return `${resolution}=${price}`
+        })
+        .filter(Boolean)
+      if (parts.length === 0) return null
+      return { model, pricesText: parts.join(' · ') }
+    })
+    .filter((row): row is { model: string; pricesText: string } => row != null)
+})
+
+const canAddUser = computed(() => {
+  if (selectedUser.value) {
+    return isVideoPricingGroup.value || !!newRate.value
+  }
+  if (searchResults.value.length === 1) {
+    return isVideoPricingGroup.value || !!newRate.value
+  }
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return false
+  const exact = searchResults.value.some(
+    (user) => user.email?.toLowerCase() === q || user.username?.toLowerCase() === q,
+  )
+  return exact && (isVideoPricingGroup.value || !!newRate.value)
+})
+
 const supportedVideoResolutions = (model: string): readonly VideoModelPriceResolution[] =>
   supportedResolutionsForVideoModel(props.group?.platform ?? 'seedance', model)
 
@@ -515,6 +614,12 @@ const loadEntries = async () => {
       e.rate_multiplier != null || (isVideoPricingGroup.value && hasVideoPrices(e)),
     ))
     localEntries.value = cloneEntries(serverEntries.value)
+    // 视频分组打开时默认展开第一位用户的模型单价表，避免只看见倍率列。
+    if (isVideoPricingGroup.value && localEntries.value.length > 0) {
+      expandedVideoPriceUserID.value = localEntries.value[0].user_id
+    } else {
+      expandedVideoPriceUserID.value = null
+    }
     adjustPage()
   } catch (error) {
     appStore.showError(t('admin.groups.failedToLoad'))
@@ -576,9 +681,27 @@ const selectUser = (user: AdminUser) => {
 }
 
 // 本地添加（或覆盖已有用户）
+const resolveUserToAdd = (): AdminUser | null => {
+  if (selectedUser.value) return selectedUser.value
+  if (searchResults.value.length === 1) return searchResults.value[0]
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return null
+  return (
+    searchResults.value.find(
+      (user) => user.email?.toLowerCase() === q || user.username?.toLowerCase() === q,
+    ) || null
+  )
+}
+
 const handleAddLocal = () => {
-  if (!selectedUser.value || (!isVideoPricingGroup.value && !newRate.value)) return
-  const user = selectedUser.value
+  const user = resolveUserToAdd()
+  if (!user || (!isVideoPricingGroup.value && !newRate.value)) {
+    if (isVideoPricingGroup.value) {
+      appStore.showError(t('admin.groups.videoPriceOverrides.selectUserFirst'))
+    }
+    return
+  }
+  selectedUser.value = user
   const idx = localEntries.value.findIndex(e => e.user_id === user.id)
   const existing = idx >= 0 ? localEntries.value[idx] : null
   const entry: LocalEntry = {
@@ -587,6 +710,7 @@ const handleAddLocal = () => {
     user_email: user.email,
     user_notes: user.notes || '',
     user_status: user.status || 'active',
+    // 视频分组：只有显式填写才写倍率，默认专注模型单价覆盖。
     rate_multiplier: newRate.value ?? existing?.rate_multiplier ?? null,
     rpm_override: existing?.rpm_override ?? null,
     video_model_prices: cloneVideoModelPrices(existing?.video_model_prices),
@@ -599,7 +723,16 @@ const handleAddLocal = () => {
   searchQuery.value = ''
   selectedUser.value = null
   newRate.value = null
-  if (isVideoPricingGroup.value) expandedVideoPriceUserID.value = user.id
+  showDropdown.value = false
+  searchResults.value = []
+  if (isVideoPricingGroup.value) {
+    expandedVideoPriceUserID.value = user.id
+    const index = localEntries.value.findIndex(e => e.user_id === user.id)
+    if (index >= 0) {
+      currentPage.value = Math.floor(index / pageSize.value) + 1
+    }
+    appStore.showSuccess(t('admin.groups.videoPriceOverrides.addedConfigureHint'))
+  }
   adjustPage()
 }
 
