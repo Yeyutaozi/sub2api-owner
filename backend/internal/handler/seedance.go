@@ -221,8 +221,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			}
 		}
 		// When Weijin face-ref traffic is mapped to Lingdong, rehost COS signed /
-		// auth-gated managed media onto third-party public URLs. Lingdong rejects
-		// myqcloud signed URLs and hangs on gateway public-media proxy links.
+		// auth-gated managed media onto third-party public URLs when reachable,
+		// otherwise gateway public-media. Bare myqcloud COS URLs are dropped by
+		// Lingdong (pure-text upstream).
 		if account.IsWeijinVideo() && account.IsLingdongMappingReady() &&
 			service.SeedanceRequestHasVideoReferences(activeRequestInfo) &&
 			!service.SeedanceRequestHasAudioReferences(activeRequestInfo) &&

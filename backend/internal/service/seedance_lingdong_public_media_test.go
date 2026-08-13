@@ -188,11 +188,52 @@ func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) 
 		AspectRatio:     "16:9",
 		References:      []SeedanceReferenceImage{{URL: cosImage}},
 	}
-	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
+	// Empty publicBase disables public-media fallback; both third-party and gateway fail.
+	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "")
 	require.Error(t, err)
 	require.Nil(t, extra)
 	require.False(t, strings.Contains(info.References[0].URL, "/v1/videos/public-media/"), info.References[0].URL)
 	require.Contains(t, strings.ToLower(err.Error()), "rehost")
+}
+
+func TestPrepareLingdongPublicMediaFallsBackToPublicMedia(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+
+	memory := newSeedanceMediaMemoryStore()
+	memory.bucket = "seedance-test"
+	memory.provider = "cos"
+	imgKey := "seedance/inputs/staged/9/8/sdupl_img_pm.png"
+	memory.objects[imgKey] = []byte("png-public-media")
+	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
+	svc.lingdongRehostFn = func(ctx context.Context, filename, contentType string, payload []byte) (string, error) {
+		return "", fmt.Errorf("third-party blocked")
+	}
+	cosImage := "https://seedance-test.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Signature=deadbeef"
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "pm fallback",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: cosImage}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://files.catbox.moe/keep.mp4"}},
+	}
+	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
+	require.NoError(t, err)
+	_ = extra
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
+	require.NotContains(t, info.References[0].URL, "myqcloud.com")
+	require.Equal(t, "https://files.catbox.moe/keep.mp4", info.VideoReferences[0].URL)
+
+	body, err := buildLingdongVideoCreateRequest(info, DefaultLingdongUpstreamModel)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "/v1/videos/public-media/")
+	require.NotContains(t, string(body), "myqcloud.com")
 }
 
 func TestOpenPublicMediaStillServesInlineForProxyEndpoint(t *testing.T) {
