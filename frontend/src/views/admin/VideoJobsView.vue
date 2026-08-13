@@ -472,7 +472,7 @@ async function syncJob(row: AdminVideoJob) {
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.videoJobs.messages.syncFailed'))
   } finally {
-    actionLoadingId.value = null
+    actionLoadingId.value = ''
   }
 }
 
