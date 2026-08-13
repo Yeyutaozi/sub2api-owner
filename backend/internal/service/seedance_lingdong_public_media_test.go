@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +52,14 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
 
 	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	rehostCount := 0
+	svc.lingdongRehostFn = func(_ context.Context, filename, contentType string, payload []byte) (string, error) {
+		rehostCount++
+		require.NotEmpty(t, filename)
+		require.NotEmpty(t, contentType)
+		require.NotEmpty(t, payload)
+		return fmt.Sprintf("https://litter.catbox.moe/rehost-%d%s", rehostCount, filepath.Ext(filename)), nil
+	}
 	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
 
 	now := time.Now().UTC()
@@ -84,28 +94,65 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, extra)
 
-	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
+	// Private/COS/managed media is rehosted to temporary public URLs.
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://litter.catbox.moe/rehost-"), info.References[0].URL)
 	require.Equal(t, publicCatbox, info.References[1].URL)
-	require.True(t, strings.HasPrefix(info.VideoReferences[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.VideoReferences[0].URL)
+	require.True(t, strings.HasPrefix(info.VideoReferences[0].URL, "https://litter.catbox.moe/rehost-"), info.VideoReferences[0].URL)
 	require.Equal(t, "https://files.catbox.moe/keep-vid.mp4", info.VideoReferences[1].URL)
 	require.Equal(t, "https://files.catbox.moe/third.mp4", info.VideoReferences[2].URL)
+	require.Equal(t, 2, rehostCount)
 
 	// Lingdong create body keeps rewritten media and truncates videos to 2.
 	body, err := buildLingdongVideoCreateRequest(info, DefaultLingdongUpstreamModel)
 	require.NoError(t, err)
-	require.Contains(t, string(body), "/v1/videos/public-media/sdpub_")
+	require.Contains(t, string(body), "litter.catbox.moe/rehost-")
 	require.Contains(t, string(body), publicCatbox)
 	require.NotContains(t, string(body), "myqcloud.com")
+	require.NotContains(t, string(body), "/v1/videos/public-media/")
 	require.NotContains(t, string(body), "third.mp4")
+}
+
+func TestPrepareLingdongPublicMediaFallsBackToPublicProxy(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+
+	memory := newSeedanceMediaMemoryStore()
+	memory.bucket = "seedance-test"
+	memory.provider = "cos"
+	imgKey := "seedance/inputs/staged/9/8/sdupl_img_fallback.png"
+	memory.objects[imgKey] = []byte("png-fallback")
+	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	svc.lingdongRehostFn = func(context.Context, string, string, []byte) (string, error) {
+		return "", fmt.Errorf("rehost unavailable")
+	}
+	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
+	cosImage := "https://seedance-test.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef"
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "fallback",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: cosImage}},
+	}
+	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
+	require.NoError(t, err)
+	require.Nil(t, extra)
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
 
 	token := strings.TrimPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/")
 	stream, err := svc.OpenPublicMedia(context.Background(), token, "")
 	require.NoError(t, err)
 	require.NotNil(t, stream)
 	defer stream.Body.Close()
+	require.Equal(t, "inline", stream.Header.Get("Content-Disposition"))
+	require.Equal(t, "bytes", stream.Header.Get("Accept-Ranges"))
 	payload, err := io.ReadAll(stream.Body)
 	require.NoError(t, err)
-	require.Equal(t, []byte("png-bytes"), payload)
+	require.Equal(t, []byte("png-fallback"), payload)
 }
 
 type seedancePublicMediaReadStore struct {

@@ -14,6 +14,7 @@ import (
 	_ "image/png"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/netip"
@@ -59,6 +60,12 @@ const (
 	seedanceMediaIOPrefix           = "seedance:media:io:"
 	seedancePublicMediaRecordPrefix = "seedance:media:public:"
 	seedancePublicMediaTTL          = 2 * time.Hour
+	// Litterbox temporary hosting is used for Lingdong rehost. Empirically
+	// accepted for multi-modal image+video reference tasks; public-media proxy
+	// remains the fallback when rehost is unavailable.
+	seedanceLingdongRehostURL     = "https://litterbox.catbox.moe/resources/internals/api.php"
+	seedanceLingdongRehostTTL     = "24h"
+	seedanceLingdongRehostTimeout = 180 * time.Second
 )
 
 const (
@@ -247,6 +254,8 @@ type SeedanceMediaService struct {
 	maxVideoBytes  int64
 	archiveSlots   chan struct{}
 	mediaSlots     chan struct{}
+	// lingdongRehostFn overrides temporary public rehost for tests.
+	lingdongRehostFn func(ctx context.Context, filename, contentType string, payload []byte) (string, error)
 }
 
 func ProvideSeedanceMediaService(
@@ -1799,8 +1808,19 @@ func (s *SeedanceMediaService) OpenPublicMedia(ctx context.Context, token, range
 	if err != nil {
 		return nil, err
 	}
-	if stream != nil && stream.Header != nil && strings.TrimSpace(stream.Header.Get("Content-Type")) == "" && strings.TrimSpace(record.ContentType) != "" {
+	if stream == nil {
+		return nil, infraerrors.ServiceUnavailable("media_storage_error", "stored Seedance media is unavailable")
+	}
+	if stream.Header == nil {
+		stream.Header = make(http.Header)
+	}
+	// Normalize headers for upstream fetchers (some probe HEAD and reject attachment).
+	if strings.TrimSpace(stream.Header.Get("Content-Type")) == "" && strings.TrimSpace(record.ContentType) != "" {
 		stream.Header.Set("Content-Type", record.ContentType)
+	}
+	stream.Header.Set("Content-Disposition", "inline")
+	if strings.TrimSpace(stream.Header.Get("Accept-Ranges")) == "" {
+		stream.Header.Set("Accept-Ranges", "bytes")
 	}
 	return stream, nil
 }
@@ -1863,8 +1883,11 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 }
 
 // PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
-// (COS signed URLs / auth-gated managed upload paths) into short-lived no-auth
-// public proxy URLs on this gateway. Already-public third-party URLs are left alone.
+// (COS signed URLs / auth-gated managed upload paths) into publicly fetchable
+// URLs. Preference order:
+//  1) already-public third-party URLs are left alone
+//  2) rehost media bytes onto temporary public hosting (litterbox)
+//  3) fall back to short-lived no-auth public-media proxy on this gateway
 func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
@@ -1914,14 +1937,6 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 			// error surfaces rather than dropping the material silently.
 			continue
 		}
-		publicURL, err := s.IssuePublicMediaURL(ctx, publicBase, record.location(), record.ContentType)
-		if err != nil {
-			if temporary {
-				s.deleteObjectBestEffort(ctx, record.location())
-			}
-			return cleanupOnError(err)
-		}
-		*target.url = publicURL
 		if temporary {
 			location := record.location()
 			materialized.objects = append(materialized.objects, location)
@@ -1934,9 +1949,173 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 				DeleteAfterSettlement: true,
 			})
 		}
+
+		publicURL, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind)
+		if rehostErr != nil || strings.TrimSpace(publicURL) == "" {
+			// Fall back to gateway public-media proxy when temporary rehost fails.
+			fallbackURL, err := s.IssuePublicMediaURL(ctx, publicBase, record.location(), record.ContentType)
+			if err != nil {
+				return cleanupOnError(err)
+			}
+			publicURL = fallbackURL
+		}
+		*target.url = publicURL
 	}
 	if len(materialized.objects) == 0 {
 		return nil, nil
 	}
 	return materialized, nil
+}
+
+// rehostLingdongPublicMedia uploads stored media bytes to temporary public
+// hosting that Lingdong can fetch without authentication.
+func (s *SeedanceMediaService) rehostLingdongPublicMedia(
+	ctx context.Context,
+	record seedanceMediaRecord,
+	mediaKind string,
+) (string, error) {
+	if s == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	stream, err := s.openRecord(ctx, record, "")
+	if err != nil {
+		return "", err
+	}
+	if stream == nil || stream.Body == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "stored Seedance media is unavailable")
+	}
+	defer func() { _ = stream.Body.Close() }()
+
+	limit := s.maxVideoBytes
+	if limit <= 0 {
+		limit = seedanceDefaultVideoBytes
+	}
+	switch mediaKind {
+	case "image":
+		limit = SeedanceMaxImageBytes
+	case "audio":
+		limit = huiquMaxAudioBytes
+	}
+	limited := io.LimitReader(stream.Body, limit+1)
+	payload, err := io.ReadAll(limited)
+	if err != nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "failed to read stored Seedance media").WithCause(err)
+	}
+	if int64(len(payload)) > limit {
+		return "", infraerrors.New(http.StatusRequestEntityTooLarge, "media_too_large", "reference media exceeds rehost size limit")
+	}
+	if len(payload) == 0 {
+		return "", infraerrors.BadRequest("invalid_media", "reference media is empty")
+	}
+
+	contentType := strings.TrimSpace(record.ContentType)
+	if contentType == "" && stream.Header != nil {
+		contentType = strings.TrimSpace(stream.Header.Get("Content-Type"))
+	}
+	if contentType == "" {
+		contentType = seedanceDefaultContentTypeForKind(mediaKind)
+	}
+	filename := seedanceRehostFilename(mediaKind, contentType, record.ObjectKey)
+	return s.uploadLingdongLitterbox(ctx, filename, contentType, payload)
+}
+
+func seedanceDefaultContentTypeForKind(mediaKind string) string {
+	switch mediaKind {
+	case "image":
+		return "image/png"
+	case "video":
+		return "video/mp4"
+	case "audio":
+		return "audio/mpeg"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func seedanceRehostFilename(mediaKind, contentType, objectKey string) string {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(objectKey)))
+	if ext == "" {
+		if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+			ext = exts[0]
+		}
+	}
+	if ext == "" {
+		switch mediaKind {
+		case "image":
+			ext = ".png"
+		case "video":
+			ext = ".mp4"
+		case "audio":
+			ext = ".mp3"
+		default:
+			ext = ".bin"
+		}
+	}
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	return "seedance-" + mediaKind + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12] + ext
+}
+
+func (s *SeedanceMediaService) uploadLingdongLitterbox(
+	ctx context.Context,
+	filename, contentType string,
+	payload []byte,
+) (string, error) {
+	if s == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	if s.lingdongRehostFn != nil {
+		return s.lingdongRehostFn(ctx, filename, contentType, payload)
+	}
+	if s.httpClient == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		filename = "media.bin"
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("reqtype", "fileupload")
+	_ = writer.WriteField("time", seedanceLingdongRehostTTL)
+	part, err := writer.CreateFormFile("fileToUpload", filename)
+	if err != nil {
+		return "", err
+	}
+	if _, err := part.Write(payload); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, seedanceLingdongRehostTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, seedanceLingdongRehostURL, &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "text/plain, */*")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream").WithCause(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	text := strings.TrimSpace(string(raw))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", fmt.Sprintf("temporary media rehost returned HTTP %d", resp.StatusCode))
+	}
+	if !strings.HasPrefix(strings.ToLower(text), "http://") && !strings.HasPrefix(strings.ToLower(text), "https://") {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "temporary media rehost did not return a public URL")
+	}
+	if !isSeedanceHTTPImageURL(text) {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "temporary media rehost returned an invalid URL")
+	}
+	return text, nil
 }

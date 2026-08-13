@@ -613,7 +613,12 @@ func (h *OpenAIGatewayHandler) SeedancePublicMediaContent(c *gin.Context) {
 		seedanceError(c, http.StatusServiceUnavailable, "media_storage_not_configured", "Seedance media storage is not configured")
 		return
 	}
-	stream, err := h.seedanceMediaService.OpenPublicMedia(c.Request.Context(), c.Param("token"), c.GetHeader("Range"))
+	// Upstream fetchers (and some CDNs) probe with HEAD before GET. Support both.
+	rangeHeader := ""
+	if c.Request.Method != http.MethodHead {
+		rangeHeader = c.GetHeader("Range")
+	}
+	stream, err := h.seedanceMediaService.OpenPublicMedia(c.Request.Context(), c.Param("token"), rangeHeader)
 	if err != nil {
 		writeSeedanceMediaError(c, err)
 		return
@@ -1552,6 +1557,9 @@ func (h *OpenAIGatewayHandler) writeSeedanceMediaStream(c *gin.Context, stream *
 }
 
 func (h *OpenAIGatewayHandler) writeSeedanceBody(c *gin.Context, status int, header http.Header, body io.Reader) {
+	if header == nil {
+		header = make(http.Header)
+	}
 	if h.gatewayService != nil {
 		h.gatewayService.WriteSeedanceContentResponseHeaders(c.Writer.Header(), header)
 	} else {
@@ -1564,7 +1572,25 @@ func (h *OpenAIGatewayHandler) writeSeedanceBody(c *gin.Context, status int, hea
 	if contentType := strings.TrimSpace(header.Get("Content-Type")); contentType != "" {
 		c.Header("Content-Type", contentType)
 	}
+	// Prefer inline so upstream fetchers treat this as streamable media, not a download.
+	disposition := strings.TrimSpace(header.Get("Content-Disposition"))
+	if disposition == "" || strings.HasPrefix(strings.ToLower(disposition), "attachment") {
+		c.Header("Content-Disposition", "inline")
+	}
+	if strings.TrimSpace(c.Writer.Header().Get("Accept-Ranges")) == "" {
+		c.Header("Accept-Ranges", "bytes")
+	}
+	if status <= 0 {
+		status = http.StatusOK
+	}
 	c.Status(status)
+	// HEAD must not include a body.
+	if c.Request != nil && c.Request.Method == http.MethodHead {
+		return
+	}
+	if body == nil {
+		return
+	}
 	if _, err := io.CopyBuffer(c.Writer, body, make([]byte, 32<<10)); err != nil {
 		_ = c.Error(fmt.Errorf("stream Seedance media response: %w", err))
 	}

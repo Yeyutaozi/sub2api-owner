@@ -297,6 +297,7 @@ func RegisterGatewayRoutes(
 	publicSeedanceMedia.Use(opsErrorLogger)
 	publicSeedanceMedia.Use(endpointNorm)
 	publicSeedanceMedia.GET("/public-media/:token", h.OpenAIGateway.SeedancePublicMediaContent)
+	publicSeedanceMedia.HEAD("/public-media/:token", h.OpenAIGateway.SeedancePublicMediaContent)
 
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
