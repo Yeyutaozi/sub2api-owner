@@ -1390,14 +1390,9 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 	if account.IsXimeiVideo() && !openAIStickyAccountMatchesGroup(account, &binding.GroupID) {
 		return fallback
 	}
-	upstreamJobID := strings.TrimSpace(binding.UpstreamJobID)
-	if upstreamJobID == "" {
-		upstreamJobID = binding.JobID
-	}
-	// Keep ldv1_ public ids so Weijin->Lingdong mapped tasks poll the right backend.
-	forwardJobID := upstreamJobID
-	if IsLingdongMappedSeedanceTaskID(binding.JobID) {
-		forwardJobID = strings.TrimSpace(binding.JobID)
+	forwardJobID := seedanceForwardTaskID(&binding)
+	if forwardJobID == "" {
+		return fallback
 	}
 	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, forwardJobID, nil)
 	if err != nil || forwarded == nil || len(forwarded.Body) == 0 {
@@ -2142,6 +2137,24 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 		}
 	}
 	return response, nil
+}
+
+
+// seedanceForwardTaskID chooses the id used when the gateway itself polls
+// upstream (settlement worker / list hydration). Lingdong-mapped public ids
+// must keep the ldv1_ prefix so routing sticks to Lingdong.
+func seedanceForwardTaskID(binding *SeedanceTaskBinding) string {
+	if binding == nil {
+		return ""
+	}
+	publicID := strings.TrimSpace(binding.JobID)
+	if IsLingdongMappedSeedanceTaskID(publicID) {
+		return publicID
+	}
+	if upstream := strings.TrimSpace(binding.UpstreamJobID); upstream != "" {
+		return upstream
+	}
+	return publicID
 }
 
 func MapSeedanceTaskStatus(status string) string {

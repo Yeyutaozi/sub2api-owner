@@ -274,3 +274,21 @@ func TestNormalizeSeedanceJobTreatsLingdongPrefixAsOpaque(t *testing.T) {
 	require.NotContains(t, raw, "lingdongapi.com")
 	require.Contains(t, raw, "/content")
 }
+
+
+func TestSeedanceForwardTaskIDPrefersPublicLingdongID(t *testing.T) {
+	// Settlement / list hydration must poll with ldv1_* so routing sticks to Lingdong.
+	require.Equal(t, "ldv1_task_abc", seedanceForwardTaskID(&SeedanceTaskBinding{
+		JobID:         "ldv1_task_abc",
+		UpstreamJobID: "task_abc",
+	}))
+	// Non-mapped tasks keep the private upstream id when present.
+	require.Equal(t, "task_plain", seedanceForwardTaskID(&SeedanceTaskBinding{
+		JobID:         "task_public_alias",
+		UpstreamJobID: "task_plain",
+	}))
+	require.Equal(t, "task_only", seedanceForwardTaskID(&SeedanceTaskBinding{
+		JobID: "task_only",
+	}))
+	require.Equal(t, "", seedanceForwardTaskID(nil))
+}

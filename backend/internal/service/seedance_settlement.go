@@ -111,11 +111,14 @@ func (s *OpenAIGatewayService) InspectSeedanceTask(ctx context.Context, binding 
 	if account == nil || !account.IsFFLinkVideo() || account.GetVideoProvider() == "" {
 		return nil, errors.New("seedance task account is unavailable")
 	}
-	upstreamJobID := strings.TrimSpace(binding.UpstreamJobID)
-	if upstreamJobID == "" {
-		upstreamJobID = strings.TrimSpace(binding.JobID)
+	// Prefer public JobID for Lingdong-mapped tasks (ldv1_*). Using the bare
+	// UpstreamJobID would route the settlement worker to Weijin instead of
+	// Lingdong, leaving local status stuck on queued while upstream already failed.
+	forwardTaskID := seedanceForwardTaskID(binding)
+	if forwardTaskID == "" {
+		return nil, errors.New("seedance task id is missing")
 	}
-	response, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, upstreamJobID, nil)
+	response, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, forwardTaskID, nil)
 	if err != nil {
 		if inspection, ok := seedanceInspectionFromError(err); ok {
 			return inspection, nil
