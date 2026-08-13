@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <AppLayout>
     <TablePageLayout>
       <template #intro>
@@ -117,7 +117,7 @@
               <span class="truncate font-medium">{{ row.username || row.user_email || ('#' + row.user_id) }}</span>
               <span v-if="row.username && row.user_email" class="truncate text-xs text-gray-500 dark:text-gray-400">{{ row.user_email }}</span>
               <span class="truncate text-xs text-gray-500 dark:text-gray-400">
-                {{ row.group_name || ('group #' + row.group_id) }} · {{ row.api_key_name || ('key #' + row.api_key_id) }}
+                {{ row.group_name || ('group #' + row.group_id) }} 路 {{ row.api_key_name || ('key #' + row.api_key_id) }}
               </span>
             </div>
           </template>
