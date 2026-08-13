@@ -20,6 +20,7 @@ func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://example.com/obj?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("/v1/videos/uploads/sdupl_abc123"))
+	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://litter.catbox.moe/example.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://files.catbox.moe/example.mp4"))
 }
@@ -112,7 +113,7 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	require.NotContains(t, string(body), "third.mp4")
 }
 
-func TestPrepareLingdongPublicMediaFallsBackToPublicProxy(t *testing.T) {
+func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
 	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
@@ -139,11 +140,37 @@ func TestPrepareLingdongPublicMediaFallsBackToPublicProxy(t *testing.T) {
 		References:      []SeedanceReferenceImage{{URL: cosImage}},
 	}
 	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, extra)
-	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
+	// Must not silently fall back to gateway public-media for Lingdong upstream.
+	require.False(t, strings.Contains(info.References[0].URL, "/v1/videos/public-media/"), info.References[0].URL)
+	require.Contains(t, strings.ToLower(err.Error()), "rehost")
+}
 
-	token := strings.TrimPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/")
+func TestOpenPublicMediaStillServesInlineForProxyEndpoint(t *testing.T) {
+	// public-media remains available for debugging / other uses, but must not be
+	// used as Lingdong upstream input after rehost failure.
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+
+	memory := newSeedanceMediaMemoryStore()
+	memory.bucket = "seedance-test"
+	memory.provider = "cos"
+	imgKey := "seedance/inputs/staged/9/8/sdupl_img_proxy.png"
+	memory.objects[imgKey] = []byte("png-proxy")
+	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	url, err := svc.IssuePublicMediaURL(context.Background(), "https://tkcreazy.top", AgentArtifactObjectLocation{
+		StorageProvider: "cos",
+		Bucket:          "seedance-test",
+		ObjectKey:       imgKey,
+	}, "image/png")
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(url, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), url)
+
+	token := strings.TrimPrefix(url, "https://tkcreazy.top/v1/videos/public-media/")
 	stream, err := svc.OpenPublicMedia(context.Background(), token, "")
 	require.NoError(t, err)
 	require.NotNil(t, stream)
@@ -152,7 +179,7 @@ func TestPrepareLingdongPublicMediaFallsBackToPublicProxy(t *testing.T) {
 	require.Equal(t, "bytes", stream.Header.Get("Accept-Ranges"))
 	payload, err := io.ReadAll(stream.Body)
 	require.NoError(t, err)
-	require.Equal(t, []byte("png-fallback"), payload)
+	require.Equal(t, []byte("png-proxy"), payload)
 }
 
 type seedancePublicMediaReadStore struct {

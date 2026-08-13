@@ -60,13 +60,15 @@ const (
 	seedanceMediaIOPrefix           = "seedance:media:io:"
 	seedancePublicMediaRecordPrefix = "seedance:media:public:"
 	seedancePublicMediaTTL          = 2 * time.Hour
-	// Litterbox temporary hosting is used for Lingdong rehost. Empirically
-	// accepted for multi-modal image+video reference tasks; public-media proxy
-	// remains the fallback when rehost is unavailable.
-	seedanceLingdongRehostURL     = "https://litterbox.catbox.moe/resources/internals/api.php"
-	seedanceLingdongRehostURLAlt  = "https://0x0.st"
-	seedanceLingdongRehostTTL     = "24h"
-	seedanceLingdongRehostTimeout = 45 * time.Second // per-file fail-fast; fall back to public-media
+	// Temporary public hosts used to rehost Lingdong reference media.
+	// Lingdong has no media upload API and rejects auth-gated/COS-signed URLs.
+	// Gateway public-media proxy is intentionally NEVER used as upstream input:
+	// multi-modal tasks hang on tkcreazy public-media URLs.
+	seedanceLingdongRehostURL       = "https://litterbox.catbox.moe/resources/internals/api.php"
+	seedanceLingdongRehostURLCatbox = "https://catbox.moe/user/api.php"
+	seedanceLingdongRehostURLAlt    = "https://0x0.st"
+	seedanceLingdongRehostTTL       = "24h"
+	seedanceLingdongRehostTimeout   = 45 * time.Second // per-file fail-fast; no public-media fallback
 )
 
 const (
@@ -1732,6 +1734,10 @@ func seedanceMediaURLNeedsPublicProxy(source string) bool {
 		return true
 	}
 	lower := strings.ToLower(source)
+	// Never treat gateway public-media as an acceptable Lingdong upstream URL.
+	if strings.Contains(lower, SeedancePublicMediaEndpoint+"/") || strings.Contains(lower, "/v1/videos/public-media/") {
+		return true
+	}
 	if strings.Contains(lower, "myqcloud.com") {
 		return true
 	}
@@ -1905,10 +1911,13 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 
 // PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
 // (COS signed URLs / auth-gated managed upload paths) into publicly fetchable
-// URLs. Preference order:
+// third-party URLs. Preference order:
 //  1. already-public third-party URLs are left alone
-//  2. rehost media bytes onto temporary public hosting (litterbox)
-//  3. fall back to short-lived no-auth public-media proxy on this gateway
+//  2. rehost media bytes onto temporary public hosting (litterbox / catbox / 0x0)
+//
+// Gateway public-media proxy URLs must never be sent to Lingdong: multi-modal
+// reference tasks hang when upstream is given tkcreazy public-media links.
+// Rehost failure is returned to the client (fail loud) instead of silent fallback.
 func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
@@ -1921,10 +1930,9 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	if s == nil || !s.IsConfigured() || s.redisClient == nil {
 		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
-	publicBase = normalizeSeedancePublicBaseURL(publicBase)
-	if publicBase == "" {
-		return nil, infraerrors.ServiceUnavailable("media_storage_error", "public media base URL is required")
-	}
+	// publicBase is retained for API compatibility; rehost no longer issues
+	// gateway public-media URLs for Lingdong upstream input.
+	_ = normalizeSeedancePublicBaseURL(publicBase)
 	materialized := &SeedanceMaterializedImages{service: s}
 	cleanupOnError := func(err error) (*SeedanceMaterializedImages, error) {
 		materialized.Cleanup(context.Background())
@@ -1954,8 +1962,8 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 			return cleanupOnError(err)
 		}
 		if strings.TrimSpace(record.ObjectKey) == "" {
-			// Needs proxy but could not resolve: leave URL as-is so upstream
-			// error surfaces rather than dropping the material silently.
+			// Needs rewrite but could not resolve storage: leave URL as-is so
+			// upstream error surfaces rather than dropping the material silently.
 			continue
 		}
 		if temporary {
@@ -1972,13 +1980,15 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		}
 
 		publicURL, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind)
-		if rehostErr != nil || strings.TrimSpace(publicURL) == "" {
-			// Fall back to gateway public-media proxy when temporary rehost fails.
-			fallbackURL, err := s.IssuePublicMediaURL(ctx, publicBase, record.location(), record.ContentType)
-			if err != nil {
-				return cleanupOnError(err)
-			}
-			publicURL = fallbackURL
+		if rehostErr != nil {
+			return cleanupOnError(rehostErr)
+		}
+		if strings.TrimSpace(publicURL) == "" {
+			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
+		}
+		// Guard: never forward gateway public-media tokens to Lingdong.
+		if strings.Contains(strings.ToLower(publicURL), SeedancePublicMediaEndpoint+"/") {
+			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
 		}
 		*target.url = publicURL
 	}
@@ -2097,32 +2107,57 @@ func (s *SeedanceMediaService) uploadLingdongLitterbox(
 		contentType = "application/octet-stream"
 	}
 
-	// Prefer litterbox (empirically accepted by Lingdong multi-modal refs).
-	if url, err := s.postLingdongRehostMultipart(ctx, seedanceLingdongRehostURL, filename, contentType, payload, true); err == nil {
-		return url, nil
+	hosts := []struct {
+		name string
+		url  string
+		mode string
+	}{
+		// Prefer litterbox (empirically accepted by Lingdong multi-modal refs).
+		{name: "litterbox", url: seedanceLingdongRehostURL, mode: "litterbox"},
+		// Permanent catbox when temporary litterbox is blocked.
+		{name: "catbox", url: seedanceLingdongRehostURLCatbox, mode: "catbox"},
+		// Secondary public host when catbox family is unreachable from the server region.
+		{name: "0x0", url: seedanceLingdongRehostURLAlt, mode: "0x0"},
 	}
-	// Secondary public host when litterbox is unreachable from the server region.
-	if url, err := s.postLingdongRehostMultipart(ctx, seedanceLingdongRehostURLAlt, filename, contentType, payload, false); err == nil {
-		return url, nil
+	var failures []string
+	for _, host := range hosts {
+		url, err := s.postLingdongRehostMultipart(ctx, host.url, filename, contentType, payload, host.mode)
+		if err == nil && strings.TrimSpace(url) != "" {
+			return url, nil
+		}
+		if err != nil {
+			failures = append(failures, host.name+": "+err.Error())
+			continue
+		}
+		failures = append(failures, host.name+": empty url")
 	}
-	return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream")
+	detail := strings.Join(failures, "; ")
+	if detail == "" {
+		detail = "all rehost hosts failed"
+	}
+	return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream").WithCause(fmt.Errorf("%s", detail))
 }
 
 func (s *SeedanceMediaService) postLingdongRehostMultipart(
 	ctx context.Context,
 	endpoint, filename, contentType string,
 	payload []byte,
-	litterbox bool,
+	mode string,
 ) (string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if litterbox {
+	fieldName := "file"
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "litterbox":
 		_ = writer.WriteField("reqtype", "fileupload")
 		_ = writer.WriteField("time", seedanceLingdongRehostTTL)
-	}
-	fieldName := "file"
-	if litterbox {
 		fieldName = "fileToUpload"
+	case "catbox":
+		_ = writer.WriteField("reqtype", "fileupload")
+		fieldName = "fileToUpload"
+	default:
+		// 0x0.st style: single file field.
+		fieldName = "file"
 	}
 	part, err := writer.CreateFormFile(fieldName, filename)
 	if err != nil {
