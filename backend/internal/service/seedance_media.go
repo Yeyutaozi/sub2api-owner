@@ -1958,6 +1958,18 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		if !seedanceMediaURLNeedsPublicProxy(source) {
 			continue
 		}
+		// Fast path: bucket is public-read. Signed COS/S3 object URLs become bare
+		// public links by stripping query credentials - no byte rehost needed.
+		if publicURL := stripSeedanceSignedQuery(source); publicURL != "" && publicURL != source && isSeedanceHTTPImageURL(publicURL) {
+			low := strings.ToLower(publicURL)
+			if (strings.Contains(low, "myqcloud.com") || strings.Contains(low, ".cos.") || strings.Contains(low, "amazonaws.com") || strings.Contains(low, "aliyuncs.com")) &&
+				!strings.Contains(low, "x-amz-signature=") &&
+				!strings.Contains(low, "q-signature=") &&
+				!strings.Contains(low, SeedancePublicMediaEndpoint+"/") {
+				*target.url = publicURL
+				continue
+			}
+		}
 		record, temporary, err := s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind)
 		if err != nil {
 			return cleanupOnError(err)
