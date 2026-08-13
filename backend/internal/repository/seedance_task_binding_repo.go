@@ -108,7 +108,7 @@ func (r *usageLogRepository) SaveSeedanceTaskBinding(ctx context.Context, bindin
 			user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
 			model, fallback_model, fallback_status, request_snapshot,
 			task_status, next_poll_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, 'queued', NOW() + INTERVAL '10 seconds', NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, 'queued', NOW() + INTERVAL '3 seconds', NOW())
 		ON CONFLICT (user_id, api_key_id, group_id, job_id) DO NOTHING
 	`, binding.UserID, binding.APIKeyID, binding.GroupID, binding.AccountID,
 		strings.TrimSpace(binding.JobID), firstSeedanceBindingValue(binding.UpstreamJobID, binding.JobID),

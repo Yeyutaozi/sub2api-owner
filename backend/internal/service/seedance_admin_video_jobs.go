@@ -46,20 +46,23 @@ func (s *OpenAIGatewayService) AdminSyncSeedanceVideoJob(ctx context.Context, jo
 	inspection, inspectErr := s.InspectSeedanceTask(ctx, &binding)
 	if inspectErr != nil {
 		if seedanceBindingExceedsSettlementMaxAge(&binding, time.Now().UTC()) {
-			if _, killErr := s.AdminKillSeedanceVideoJob(ctx, jobID, joinSeedanceSettlementErrors(inspectErr.Error(), "admin sync timed out; forced failed settlement")); killErr != nil {
+			if _, killErr := s.AdminForceFailSeedanceVideoJob(ctx, jobID, joinSeedanceSettlementErrors(inspectErr.Error(), "admin sync timed out; forced failed settlement")); killErr != nil {
 				return nil, killErr
 			}
 			return s.AdminGetSeedanceVideoJob(ctx, jobID)
 		}
+		// Persist the inspect failure for the desk, but do NOT pretend the task is
+		// still healthy: return an error so "同步上游" cannot show success while
+		// status remains queued forever.
 		_, _ = s.ForceCompleteSeedanceTaskSettlement(ctx, &binding, SeedanceTaskSettlementUpdate{
 			TaskStatus:         firstNonEmptyString(binding.TaskStatus, SeedanceTaskStatusUnknown),
 			NextPollAt:         timePointer(time.Now().UTC().Add(seedancePollDelay(binding.SettlementAttempts+1, true))),
 			RefundStatus:       binding.RefundStatus,
 			RefundAttempts:     binding.RefundAttempts,
 			SettlementAttempts: binding.SettlementAttempts + 1,
-			LastError:          inspectErr.Error(),
+			LastError:          "upstream inspect failed: " + inspectErr.Error(),
 		})
-		return s.AdminGetSeedanceVideoJob(ctx, jobID)
+		return nil, fmt.Errorf("upstream inspect failed: %w", inspectErr)
 	}
 
 	switch inspection.Status {
@@ -161,13 +164,13 @@ func (s *OpenAIGatewayService) adminBestEffortCancelUpstream(ctx context.Context
 	if err != nil || account == nil || !account.IsFFLinkVideo() {
 		return
 	}
-	upstreamJobID := strings.TrimSpace(binding.UpstreamJobID)
-	if upstreamJobID == "" {
-		upstreamJobID = strings.TrimSpace(binding.JobID)
+	forwardTaskID := seedanceForwardTaskID(binding)
+	if forwardTaskID == "" {
+		return
 	}
 	cancelCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	_, _ = s.ForwardSeedance(cancelCtx, nil, account, http.MethodDelete, upstreamJobID, nil)
+	_, _ = s.ForwardSeedance(cancelCtx, nil, account, http.MethodDelete, forwardTaskID, nil)
 }
 
 func (s *OpenAIGatewayService) adminRefundAndSettle(

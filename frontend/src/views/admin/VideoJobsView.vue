@@ -462,11 +462,17 @@ async function syncJob(row: AdminVideoJob) {
     const updated = await videoJobsApi.sync(row.job_id)
     replaceJob(updated)
     if (detail.value?.job_id === updated.job_id) detail.value = updated
-    appStore.showSuccess(t('admin.videoJobs.messages.syncSuccess'))
+    const status = String(updated.task_status || '').toLowerCase()
+    if (status === 'queued' || status === 'running' || status === 'unknown') {
+      const hint = updated.last_error ? `: ${updated.last_error}` : ''
+      appStore.showError(t('admin.videoJobs.messages.syncStillPending') + hint)
+    } else {
+      appStore.showSuccess(t('admin.videoJobs.messages.syncSuccess'))
+    }
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.videoJobs.messages.syncFailed'))
   } finally {
-    actionLoadingId.value = ''
+    actionLoadingId.value = null
   }
 }
 

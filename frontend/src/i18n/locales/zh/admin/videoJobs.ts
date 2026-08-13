@@ -105,6 +105,7 @@ export default {
     messages: {
       loadFailed: '加载视频任务失败',
       syncSuccess: '已同步上游状态',
+      syncStillPending: '已查询上游，任务仍未进入终态',
       syncFailed: '同步失败',
       killSuccess: '任务已结束并尝试退款结算',
       killFailed: '结束任务失败',

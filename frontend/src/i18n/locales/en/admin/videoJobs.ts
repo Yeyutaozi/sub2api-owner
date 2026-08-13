@@ -105,6 +105,7 @@ export default {
     messages: {
       loadFailed: 'Failed to load video jobs',
       syncSuccess: 'Synced upstream status',
+      syncStillPending: 'Queried upstream; task is still not terminal',
       syncFailed: 'Sync failed',
       killSuccess: 'Task killed; refund settlement attempted',
       killFailed: 'Failed to kill task',
