@@ -180,13 +180,15 @@ func (a *Account) GetLingdongModelMapping() map[string]string {
 }
 
 // ResolveLingdongMappedUpstreamModel decides whether a public request model may
-// use the multi-modal extension upstream, and which upstream model to call.
+// use the multi-modal extension upstream (Pixelle), and which upstream model to call.
 //
 // Rules:
 //  1. Explicit pixelle/lingdong_model_mapping wins (only listed public models).
 //  2. When mapping is empty, only seedance2.0-one-face-reference-720p (or empty
-//     model for legacy callers) maps to GetLingdongUpstreamModel(). This prevents
-//     cheap 480p sell prices from silently using expensive multi-modal cost.
+//     model for legacy callers) maps to GetLingdongUpstreamModel().
+//  3. 480p is intentionally NOT extension-mapped by default: Weijin natively
+//     supports 480p image+reference-video, so unmapped 480p+video stays cheap.
+//     Admin can still map 480p explicitly if they want extension multi-modal.
 func (a *Account) ResolveLingdongMappedUpstreamModel(publicModel string) (upstream string, ok bool) {
 	publicModel = strings.ToLower(strings.TrimSpace(publicModel))
 	mapping := a.GetLingdongModelMapping()
@@ -266,9 +268,29 @@ func seedanceVideoReferenceUnavailableUpstreamError(message string) *SeedanceUps
 	return &SeedanceUpstreamError{StatusCode: http.StatusBadRequest, Body: payload}
 }
 
-// decideWeijinSeedanceRoute chooses pure Weijin (images/prompt) vs Pixelle-mapped
-// multi-modal (reference videos and/or audio) or a client-facing rejection.
-// Account stays video_provider=weijin. Pixelle replaces the former Lingdong slot.
+// weijinNativeSupportsReferenceVideos reports whether the request can stay on
+// Weijin without extension multi-modal mapping.
+//
+// Product rule (admin margin safe):
+//   - 480p face-ref natively accepts image + reference video inputs
+//   - audio references are NOT native on Weijin and still need extension mapping
+//   - 720p multi-modal still goes through admin-mapped Pixelle by default
+func weijinNativeSupportsReferenceVideos(info *SeedanceRequestInfo) bool {
+	if info == nil {
+		return false
+	}
+	if seedanceRequestHasAudioReferences(info) {
+		return false
+	}
+	if !seedanceRequestHasVideoReferences(info) {
+		return false
+	}
+	return strings.ToLower(strings.TrimSpace(info.Model)) == SeedanceWeijinFaceRef480pModel
+}
+
+// decideWeijinSeedanceRoute chooses pure Weijin (images/prompt, and 480p+video)
+// vs Pixelle-mapped multi-modal (admin-mapped models with video/audio) or a
+// client-facing rejection. Account stays video_provider=weijin.
 func decideWeijinSeedanceRoute(account *Account, info *SeedanceRequestInfo) (route string, err error) {
 	if info == nil {
 		return "weijin", nil
@@ -278,21 +300,33 @@ func decideWeijinSeedanceRoute(account *Account, info *SeedanceRequestInfo) (rou
 	if !hasVideo && !hasAudio {
 		return "weijin", nil
 	}
-	if account == nil || !account.IsLingdongMappingReady() {
-		if account != nil && account.IsLingdongMappingEnabled() && account.GetLingdongAPIKey() == "" {
-			return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongMappingMisconfiguredMsg)
+
+	// Prefer explicit/safe-default extension mapping when the public model is listed.
+	// This lets admin intentionally send 480p multi-modal to Pixelle (higher cost).
+	if account != nil && account.IsLingdongMappingReady() {
+		if _, ok := account.ResolveLingdongMappedUpstreamModel(info.Model); ok {
+			// Pixelle requires at least one image when audio references are present.
+			if hasAudio && len(weijinImageURLs(info)) == 0 {
+				return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongAudioRequiresImageMsg)
+			}
+			return "pixelle", nil
 		}
-		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongVideoUnavailableMessage)
 	}
-	// Only public models configured for extension mapping may use multi-modal.
-	if _, ok := account.ResolveLingdongMappedUpstreamModel(info.Model); !ok {
+
+	// 480p Weijin natively supports reference videos (no audio). Keep cheap sell
+	// price on Weijin when admin did not map 480p to the extension upstream.
+	if weijinNativeSupportsReferenceVideos(info) {
+		return "weijin", nil
+	}
+
+	// Remaining multi-modal needs a ready extension mapping for this model.
+	if account != nil && account.IsLingdongMappingEnabled() && account.GetLingdongAPIKey() == "" {
+		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongMappingMisconfiguredMsg)
+	}
+	if account != nil && account.IsLingdongMappingReady() {
 		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongModelNotMappedMsg)
 	}
-	// Pixelle requires at least one image when audio references are present.
-	if hasAudio && len(weijinImageURLs(info)) == 0 {
-		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongAudioRequiresImageMsg)
-	}
-	return "pixelle", nil
+	return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongVideoUnavailableMessage)
 }
 
 func lingdongResolutionForPublicModel(model string) string {

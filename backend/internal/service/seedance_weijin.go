@@ -113,6 +113,12 @@ func composeWeijinFaceRefPrompt(prompt string) string {
 	return prompt + "\n\n" + hints
 }
 
+const (
+	// Public one-face protocol caps; Weijin 480p native video refs reuse the same limits.
+	weijinMaxImageReferences = 9
+	weijinMaxVideoReferences = 3
+)
+
 func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel string) ([]byte, error) {
 	if info == nil {
 		return nil, errors.New("Seedance create request is required")
@@ -126,9 +132,11 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	}
 	prompt := composeWeijinFaceRefPrompt(info.Prompt)
 	images := weijinImageURLs(info)
-	// Pure Weijin face-ref path is images + prompt only. Reference videos/audio are
-	// either mapped to Pixelle (admin-enabled multi-modal) or rejected before this builder runs.
-	if strings.TrimSpace(info.Prompt) == "" && len(images) == 0 {
+	videos := weijinVideoURLs(info)
+	// 720p Weijin path is images + prompt only; reference videos/audio for 720p are
+	// either mapped to Pixelle or rejected by decideWeijinSeedanceRoute.
+	// 480p Weijin natively accepts reference videos (no audio) — include them below.
+	if strings.TrimSpace(info.Prompt) == "" && len(images) == 0 && len(videos) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
 
@@ -140,10 +148,13 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if prompt != "" {
 		body["prompt"] = prompt
 	}
-	// Weijin create schema for this special-offer path only accepts images; do not
-	// send boolean audio or videos/audios arrays.
 	if len(images) > 0 {
 		body["images"] = images
+	}
+	// Only the 480p face-ref model natively supports reference videos on Weijin.
+	// Never send audios on the pure Weijin path.
+	if upstreamModel == SeedanceWeijinFaceRef480pModel && len(videos) > 0 {
+		body["videos"] = videos
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -161,9 +172,28 @@ func weijinImageURLs(info *SeedanceRequestInfo) []string {
 	for _, slot := range slots {
 		if urlValue := strings.TrimSpace(slot.URL); urlValue != "" {
 			images = append(images, urlValue)
+			if len(images) >= weijinMaxImageReferences {
+				break
+			}
 		}
 	}
 	return images
+}
+
+func weijinVideoURLs(info *SeedanceRequestInfo) []string {
+	if info == nil || len(info.VideoReferences) == 0 {
+		return nil
+	}
+	videos := make([]string, 0, len(info.VideoReferences))
+	for _, media := range info.VideoReferences {
+		if urlValue := strings.TrimSpace(media.URL); urlValue != "" {
+			videos = append(videos, urlValue)
+			if len(videos) >= weijinMaxVideoReferences {
+				break
+			}
+		}
+	}
+	return videos
 }
 
 func (s *OpenAIGatewayService) forwardWeijinSeedance(

@@ -121,18 +121,37 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "pixelle", route)
 
-	// Empty mapping: 480p multi-modal is not allowed (safe default protects margin).
-	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		// Empty mapping: 480p + reference video stays on Weijin (native, cheap path).
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef480pModel,
 		Prompt:          "hello",
 		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
 	})
+	require.NoError(t, err)
+	require.Equal(t, "weijin", route)
+
+	// Plain account (no extension mapping): 480p + video still Weijin.
+	route, err = decideWeijinSeedanceRoute(plain, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "weijin", route)
+
+	// 480p + audio is NOT native Weijin; without 480p mapping it is rejected.
+	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
+	})
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
-	require.Contains(t, string(upstreamErr.Body), "扩展上游映射")
 
-	// Empty mapping: 720p multi-modal still allowed.
+// Empty mapping: 720p multi-modal still allowed.
 	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef720pModel,
 		Prompt:          "hello",
@@ -162,18 +181,29 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "sora-v3-pro", up)
 
-	// Explicit mapping without a public model entry rejects multi-modal.
+		// Explicit mapping without 480p entry: 480p+video stays on native Weijin
+	// (do not force expensive Pixelle). Audio still requires a 480p mapping entry.
 	mapped.Credentials[credentialPixelleModelMapping] = map[string]any{
 		SeedanceWeijinFaceRef720pModel: "sora-v3-pro",
 	}
-	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef480pModel,
 		Prompt:          "hello",
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
 	})
+	require.NoError(t, err)
+	require.Equal(t, "weijin", route)
+
+	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
+	})
 	require.ErrorAs(t, err, &upstreamErr)
-	require.Contains(t, string(upstreamErr.Body), "扩展上游映射")
+	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
 }
+
 
 func TestResolveLingdongMappedUpstreamModel(t *testing.T) {
 	acc := weijinAccountWithLingdongMapping(true, "sk_ld")
@@ -490,6 +520,49 @@ func TestBuildWeijinVideoCreateRequestInjectsQualityPrompt(t *testing.T) {
 	prompt, _ := payload["prompt"].(string)
 	require.Contains(t, prompt, "太后与太监对话")
 	require.Contains(t, prompt, seedanceFaceRefQualityHintMarker)
+}
+
+
+func TestBuildWeijinVideoCreateRequestIncludesVideosFor480p(t *testing.T) {
+	body, err := buildWeijinVideoCreateRequest(&SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "nine images plus video",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution480P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{
+			{URL: "https://example.com/v1.mp4"},
+			{URL: "https://example.com/v2.mp4"},
+			{URL: "https://example.com/v3.mp4"},
+			{URL: "https://example.com/v4.mp4"},
+		},
+	}, SeedanceWeijinFaceRef480pModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, []any{
+		"https://example.com/v1.mp4",
+		"https://example.com/v2.mp4",
+		"https://example.com/v3.mp4",
+	}, payload["videos"])
+	require.NotContains(t, payload, "audios")
+	require.NotContains(t, payload, "audio_url")
+
+	// 720p Weijin builder never sends videos (multi-modal is Pixelle-only for 720p).
+	body720, err := buildWeijinVideoCreateRequest(&SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "should strip videos",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	}, SeedanceWeijinFaceRef720pModel)
+	require.NoError(t, err)
+	var payload720 map[string]any
+	require.NoError(t, json.Unmarshal(body720, &payload720))
+	require.NotContains(t, payload720, "videos")
 }
 
 func TestBuildLingdongVideoCreateRequestInjectsQualityPrompt(t *testing.T) {
