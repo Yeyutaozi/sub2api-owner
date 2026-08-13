@@ -1913,13 +1913,13 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 
 // PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
 // (COS signed URLs / auth-gated managed upload paths) into publicly fetchable
-// third-party URLs. Preference order:
+// URLs. Preference order (production):
 //  1. already-public third-party URLs are left alone
-//  2. rehost media bytes onto temporary public hosting (litterbox / catbox / 0x0)
+//  2. unsigned public URL of the existing object (bucket is public-read)
+//  3. public-read copy under seedance/public-rehost/ (if needed)
+//  4. third-party temp hosts as last resort
 //
-// Gateway public-media proxy URLs must never be sent to Lingdong: multi-modal
-// reference tasks hang when upstream is given tkcreazy public-media links.
-// Rehost failure is returned to the client (fail loud) instead of silent fallback.
+// Gateway public-media proxy URLs must never be sent to Lingdong.
 func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
@@ -1932,8 +1932,7 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	if s == nil || !s.IsConfigured() || s.redisClient == nil {
 		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
-	// publicBase is retained for API compatibility; rehost no longer issues
-	// gateway public-media URLs for Lingdong upstream input.
+	// publicBase retained for API compatibility; Lingdong input never uses gateway public-media.
 	_ = normalizeSeedancePublicBaseURL(publicBase)
 	materialized := &SeedanceMaterializedImages{service: s}
 	cleanupOnError := func(err error) (*SeedanceMaterializedImages, error) {
@@ -1981,6 +1980,16 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 			})
 		}
 
+		// Primary production path: existing COS object is already public-read.
+		// Strip signed query params and hand the bare object URL to Lingdong.
+		if publicURL, err := s.unsignedPublicObjectURL(ctx, record); err == nil && strings.TrimSpace(publicURL) != "" {
+			if strings.Contains(strings.ToLower(publicURL), SeedancePublicMediaEndpoint+"/") {
+				return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
+			}
+			*target.url = publicURL
+			continue
+		}
+
 		publicURL, rehostedLoc, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind)
 		if rehostErr != nil {
 			return cleanupOnError(rehostErr)
@@ -1988,7 +1997,6 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		if strings.TrimSpace(publicURL) == "" {
 			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
 		}
-		// Guard: never forward gateway public-media tokens to Lingdong.
 		if strings.Contains(strings.ToLower(publicURL), SeedancePublicMediaEndpoint+"/") {
 			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
 		}
@@ -2009,6 +2017,51 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		return nil, nil
 	}
 	return materialized, nil
+}
+
+// unsignedPublicObjectURL returns an unsigned HTTPS object URL assuming the
+// underlying bucket/object is public-read. Built by presigning then stripping
+// query credentials so Lingdong receives a bare public link.
+func (s *SeedanceMediaService) unsignedPublicObjectURL(ctx context.Context, record seedanceMediaRecord) (string, error) {
+	if s == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	if strings.TrimSpace(record.ObjectKey) == "" {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "Seedance media object location is invalid")
+	}
+	signed, err := s.presignLocation(ctx, record.location())
+	if err != nil {
+		return "", err
+	}
+	publicURL := stripSeedanceSignedQuery(signed)
+	if !isSeedanceHTTPImageURL(publicURL) {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to build public object URL")
+	}
+	low := strings.ToLower(publicURL)
+	if strings.Contains(low, "x-amz-signature=") || strings.Contains(low, "q-signature=") {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "public object URL still contains a signature")
+	}
+	return publicURL, nil
+}
+
+func stripSeedanceSignedQuery(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed == nil {
+		return ""
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ""
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 // rehostLingdongPublicMedia uploads stored media bytes to public hosting that
@@ -2063,23 +2116,25 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	}
 	filename := seedanceRehostFilename(mediaKind, contentType, record.ObjectKey)
 
-	// Test hook first.
-	if s.lingdongRehostFn != nil {
-		publicURL, err := s.lingdongRehostFn(ctx, filename, contentType, payload)
-		if err != nil {
-			return "", nil, err
-		}
-		return publicURL, nil, nil
-	}
-
 	var failures []string
-	// Primary: public-read object in our own COS/S3 (reachable from production).
+	// Fallback path when unsigned existing-object URL is unavailable:
+	// 1) public-read copy in our COS/S3 (production primary fallback)
+	// 2) third-party hosts — or test hook replacing third-party only
 	if publicURL, loc, putErr := s.uploadLingdongPublicObject(ctx, filename, contentType, payload); putErr == nil {
 		return publicURL, &loc, nil
 	} else if putErr != nil {
 		failures = append(failures, "public-object: "+putErr.Error())
 	}
-	// Secondary: third-party temp hosts (often blocked outbound from CN servers).
+	if s.lingdongRehostFn != nil {
+		// Test-only substitute for third-party hosts; never overrides COS.
+		hookURL, hookErr := s.lingdongRehostFn(ctx, filename, contentType, payload)
+		if hookErr != nil {
+			failures = append(failures, "third-party: "+hookErr.Error())
+			detail := strings.Join(failures, "; ")
+			return "", nil, infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream").WithCause(fmt.Errorf("%s", detail))
+		}
+		return hookURL, nil, nil
+	}
 	publicURL, extErr := s.uploadLingdongLitterbox(ctx, filename, contentType, payload)
 	if extErr == nil && strings.TrimSpace(publicURL) != "" {
 		return publicURL, nil, nil
@@ -2193,9 +2248,6 @@ func (s *SeedanceMediaService) uploadLingdongLitterbox(
 ) (string, error) {
 	if s == nil {
 		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
-	}
-	if s.lingdongRehostFn != nil {
-		return s.lingdongRehostFn(ctx, filename, contentType, payload)
 	}
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
