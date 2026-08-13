@@ -163,7 +163,8 @@ func TestBuildLingdongVideoCreateRequestTruncatesVideosAndIncludesAudio(t *testi
 		"https://example.com/v2.mp4",
 		"https://example.com/v3.mp4",
 	}, payload["reference_videos"].([]any))
-	require.Equal(t, "https://example.com/a1.mp3", payload["audio_url"])
+	_, hasAudioURL := payload["audio_url"]
+	require.False(t, hasAudioURL)
 	require.Equal(t, []any{
 		"https://example.com/a1.mp3",
 		"https://example.com/a2.mp3",
@@ -350,7 +351,8 @@ func TestForwardLingdongMappedCreateIncludesAudio(t *testing.T) {
 	require.NoError(t, json.Unmarshal(upstream.body, &seenBody))
 	require.Equal(t, "https://example.com/1.png", seenBody["image_url"])
 	require.Equal(t, "https://example.com/v1.mp4", seenBody["reference_video"])
-	require.Equal(t, "https://example.com/a1.mp3", seenBody["audio_url"])
+	_, hasAudioURL := seenBody["audio_url"]
+	require.False(t, hasAudioURL)
 	require.Equal(t, []any{"https://example.com/a1.mp3", "https://example.com/a2.mp3"}, seenBody["audio_urls"].([]any))
 }
 
@@ -384,3 +386,56 @@ func TestSeedanceForwardTaskIDPrefersPublicLingdongID(t *testing.T) {
 	}))
 	require.Equal(t, "", seedanceForwardTaskID(nil))
 }
+
+func TestComposeWeijinFaceRefPromptInjectsQualityHints(t *testing.T) {
+	out := composeWeijinFaceRefPrompt("苏月坐在辇车上说话")
+	require.Contains(t, out, "苏月坐在辇车上说话")
+	require.Contains(t, out, seedanceFaceRefQualityHintMarker)
+	require.Contains(t, out, "禁止远景虚化")
+	require.Contains(t, out, "深景深")
+
+	// idempotent when marker already present
+	again := composeWeijinFaceRefPrompt(out)
+	require.Equal(t, out, again)
+
+	// user already expressed the intent
+	user := "画面禁止远景虚化，全景深景深"
+	require.Equal(t, user, composeWeijinFaceRefPrompt(user))
+}
+
+func TestBuildWeijinVideoCreateRequestInjectsQualityPrompt(t *testing.T) {
+	body, err := buildWeijinVideoCreateRequest(&SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "太后与太监对话",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+	}, SeedanceWeijinFaceRef720pModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	prompt, _ := payload["prompt"].(string)
+	require.Contains(t, prompt, "太后与太监对话")
+	require.Contains(t, prompt, seedanceFaceRefQualityHintMarker)
+}
+
+func TestBuildLingdongVideoCreateRequestInjectsQualityPrompt(t *testing.T) {
+	body, err := buildLingdongVideoCreateRequest(&SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "辇车行驶近景对话",
+		DurationSeconds: 10,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v.mp4"}},
+	}, DefaultLingdongUpstreamModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	prompt, _ := payload["prompt"].(string)
+	require.Contains(t, prompt, "辇车行驶近景对话")
+	require.Contains(t, prompt, seedanceFaceRefQualityHintMarker)
+	require.Contains(t, prompt, "禁止远景虚化")
+}
+

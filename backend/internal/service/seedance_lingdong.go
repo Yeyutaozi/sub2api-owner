@@ -271,7 +271,7 @@ func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel st
 	if !isWeijinFaceReferenceDurationSupported(info.DurationSeconds) {
 		return nil, fmt.Errorf("duration %d is not supported", info.DurationSeconds)
 	}
-	prompt := strings.TrimSpace(info.Prompt)
+	prompt := composeWeijinFaceRefPrompt(info.Prompt)
 	images := weijinImageURLs(info)
 	if len(images) > lingdongMaxImageReferences {
 		images = images[:lingdongMaxImageReferences]
@@ -313,7 +313,7 @@ func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel st
 	if len(audios) > remaining {
 		audios = audios[:remaining]
 	}
-	if prompt == "" && len(images) == 0 && len(videos) == 0 && len(audios) == 0 {
+	if strings.TrimSpace(info.Prompt) == "" && len(images) == 0 && len(videos) == 0 && len(audios) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
 	if len(audios) > 0 && len(images) == 0 {
@@ -363,8 +363,8 @@ func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel st
 	if len(audios) == 1 {
 		body["audio_url"] = audios[0]
 	} else if len(audios) > 1 {
-		// Match reference_video(s) style: singular for one, plural array for many.
-		body["audio_url"] = audios[0]
+		// Pixelle rejects mixing audio_url + audio_urls ("aliases must contain identical items").
+		// Prefer plural form only for multi-audio requests.
 		body["audio_urls"] = audios
 	}
 	encoded, err := json.Marshal(body)

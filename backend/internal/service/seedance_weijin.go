@@ -79,6 +79,40 @@ func weijinUpstreamModelFor(info *SeedanceRequestInfo, mappedModel string) (stri
 	return model, nil
 }
 
+
+// Default quality constraints injected for public one-face-reference models.
+// Applied only on the Weijin special-offer path and its Pixelle multi-modal mapping.
+const (
+	seedanceFaceRefQualityHintMarker = "【画质强制约束】"
+	seedanceFaceRefDefaultQualityHints = `【画质强制约束】
+- 全程锐利清晰的真人电影画质：禁止远景虚化、背景发糊、浅景深 bohek 虚化主体外背景。
+- 中景/全景/建立镜头必须深景深：建筑轮廓、街道、屋檐、辇车与人物前后景均清晰可辨。
+- 禁止柔焦、雾化滤镜、镜头脏污感、过度磨皮、塑料油面感与发灰发虚。
+- 对话段落优先中近景与特写；远景仅可短建立且必须全清晰。
+- 光影自然写实，8K 级细节，真实质感；禁止生成字幕、水印、台标、花字。`
+)
+
+// composeWeijinFaceRefPrompt injects default sharpness / deep-DOF constraints for
+// one-face-reference models without duplicating user-provided constraints.
+func composeWeijinFaceRefPrompt(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	hints := strings.TrimSpace(seedanceFaceRefDefaultQualityHints)
+	if prompt == "" {
+		return hints
+	}
+	if strings.Contains(prompt, seedanceFaceRefQualityHintMarker) {
+		return prompt
+	}
+	// User already wrote the same intent in free text.
+	if strings.Contains(prompt, "禁止远景虚化") ||
+		strings.Contains(prompt, "深景深") ||
+		strings.Contains(strings.ToLower(prompt), "deep depth of field") ||
+		strings.Contains(strings.ToLower(prompt), "no background blur") {
+		return prompt
+	}
+	return prompt + "\n\n" + hints
+}
+
 func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel string) ([]byte, error) {
 	if info == nil {
 		return nil, errors.New("Seedance create request is required")
@@ -90,11 +124,11 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if !isWeijinFaceReferenceDurationSupported(info.DurationSeconds) {
 		return nil, fmt.Errorf("duration %d is not supported by model %s", info.DurationSeconds, upstreamModel)
 	}
-	prompt := strings.TrimSpace(info.Prompt)
+	prompt := composeWeijinFaceRefPrompt(info.Prompt)
 	images := weijinImageURLs(info)
 	// Pure Weijin face-ref path is images + prompt only. Reference videos/audio are
 	// either mapped to Pixelle (admin-enabled multi-modal) or rejected before this builder runs.
-	if prompt == "" && len(images) == 0 {
+	if strings.TrimSpace(info.Prompt) == "" && len(images) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
 
