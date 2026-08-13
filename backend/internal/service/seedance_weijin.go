@@ -93,7 +93,7 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	prompt := strings.TrimSpace(info.Prompt)
 	images := weijinImageURLs(info)
 	// Pure Weijin face-ref path is images + prompt only. Reference videos/audio are
-	// either mapped to Lingdong (admin-enabled) or rejected before this builder runs.
+	// either mapped to Pixelle (admin-enabled multi-modal) or rejected before this builder runs.
 	if prompt == "" && len(images) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
@@ -162,7 +162,7 @@ func (s *OpenAIGatewayService) forwardWeijinSeedance(
 		if routeErr != nil {
 			return nil, routeErr
 		}
-		if route == "lingdong" {
+		if route == "pixelle" || route == "lingdong" {
 			return s.forwardLingdongMappedSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 		}
 	}

@@ -602,7 +602,14 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 		if target.url == nil || strings.TrimSpace(*target.url) == "" {
 			continue
 		}
-		resolved, err := s.materializeReferenceMedia(ctx, owner, *target.url, target.kind, directHTTP)
+		// Weijin face-ref (+ Pixelle mapped multi-modal) can consume public third-party
+		// HTTPS media directly. Avoid force-fetching large image/video sets onto COS
+		// just to rehost them again for the mapped provider.
+		useDirect := directHTTP
+		if !useDirect && isWeijinVideoModel(info.Model) && !seedanceMediaURLNeedsLingdongRehost(strings.TrimSpace(*target.url)) {
+			useDirect = true
+		}
+		resolved, err := s.materializeReferenceMedia(ctx, owner, *target.url, target.kind, useDirect)
 		if err != nil {
 			return cleanupOnError(err)
 		}
@@ -1795,13 +1802,46 @@ func seedanceMediaURLIsCloudObjectStorage(source string) bool {
 }
 
 // seedanceMediaURLNeedsLingdongRehost reports whether a reference must be rewritten
-// before POST /v1/video/generations on Lingdong. Stricter than NeedsPublicProxy:
-// bare public-read COS/S3/OSS hosts are still rewritten because Lingdong drops them.
+// before the mapped multi-modal provider (Pixelle) create call.
+// Bare public-read COS/S3/OSS URLs are left as-is (Pixelle can fetch them).
+// Auth-gated managed uploads and signed query URLs still need rewriting.
 func seedanceMediaURLNeedsLingdongRehost(source string) bool {
-	if seedanceMediaURLNeedsPublicProxy(source) {
-		return true
+	return seedanceMediaURLNeedsPublicProxy(source)
+}
+
+// seedanceMediaURLAcceptableForMappedUpstream reports whether a rewritten media
+// URL may be sent to the mapped multi-modal provider (Pixelle). Bare public-read
+// COS and temporary third-party hosts are accepted. Gateway public-media is also
+// accepted as a last-resort rehost output. Signed/managed upload URLs are not.
+func seedanceMediaURLAcceptableForMappedUpstream(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" || !isSeedanceHTTPImageURL(source) {
+		return false
 	}
-	return seedanceMediaURLIsCloudObjectStorage(source)
+	if managedSeedanceUploadID(source) != "" {
+		return false
+	}
+	lower := strings.ToLower(source)
+	if strings.Contains(lower, "x-amz-signature=") ||
+		strings.Contains(lower, "x-amz-algorithm=") ||
+		strings.Contains(lower, "x-amz-credential=") ||
+		strings.Contains(lower, "q-sign-algorithm=") ||
+		strings.Contains(lower, "q-signature=") {
+		return false
+	}
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return false
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = parsed.Path
+	}
+	if strings.HasPrefix(path, SeedancePublicUploadsEndpoint+"/") ||
+		strings.HasPrefix(path, SeedanceOfficialUploadsEndpoint+"/") {
+		return false
+	}
+	return true
 }
 
 func normalizeSeedancePublicBaseURL(publicBase string) string {
@@ -1951,15 +1991,12 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 	return upload.record, true, nil
 }
 
-// PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
-// into publicly fetchable URLs. Preference order (production):
-//  1. already-public non-cloud URLs (catbox/litterbox/httpbin/etc.) are left alone
-//  2. managed uploads / signed or bare COS/S3/OSS object URLs are rehosted to
-//     litterbox -> catbox -> 0x0 when reachable
-//  3. gateway public-media fallback (CN servers often cannot reach third-party hosts;
-//     Lingdong retains public-media URLs, unlike bare myqcloud COS links)
+// PrepareLingdongPublicMedia rewrites reference media that the mapped multi-modal
+// provider cannot fetch into publicly fetchable URLs. Preference order:
+//  1. already-public URLs including bare public-read COS are left alone
+//  2. auth-gated managed uploads / signed URLs are rehosted (third-party then public-media)
 //
-// Never send bare COS/S3/OSS object URLs to Lingdong (silently dropped upstream).
+// Pixelle accepts public-read COS; do not force-rehost bare cloud object URLs.
 func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
@@ -1969,19 +2006,10 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	if info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
 	}
-	if s == nil || !s.IsConfigured() || s.redisClient == nil {
-		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
-	}
-	publicBase = normalizeSeedancePublicBaseURL(publicBase)
-	materialized := &SeedanceMaterializedImages{service: s}
-	cleanupOnError := func(err error) (*SeedanceMaterializedImages, error) {
-		materialized.Cleanup(context.Background())
-		return nil, err
-	}
-
 	// Include videos for the mapped Lingdong path even when MaterializeImages
 	// skipped them (face-ref models are not ximei/fallback-eligible).
 	targets := seedanceRequestMediaTargets(info, true)
+	needsRehost := false
 	for _, target := range targets {
 		if target.url == nil {
 			continue
@@ -1990,8 +2018,31 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		if source == "" {
 			continue
 		}
-		// Audio is rejected before Lingdong create; skip rewriting.
-		if target.kind == "audio" {
+		if seedanceMediaURLNeedsLingdongRehost(source) {
+			needsRehost = true
+			break
+		}
+	}
+	// Already-public third-party media can pass through without managed storage.
+	if s == nil || !s.IsConfigured() || s.redisClient == nil {
+		if needsRehost {
+			return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+		}
+		return nil, nil
+	}
+	publicBase = normalizeSeedancePublicBaseURL(publicBase)
+	materialized := &SeedanceMaterializedImages{service: s}
+	cleanupOnError := func(err error) (*SeedanceMaterializedImages, error) {
+		materialized.Cleanup(context.Background())
+		return nil, err
+	}
+
+	for _, target := range targets {
+		if target.url == nil {
+			continue
+		}
+		source := strings.TrimSpace(*target.url)
+		if source == "" {
 			continue
 		}
 		if !seedanceMediaURLNeedsLingdongRehost(source) {
@@ -2019,8 +2070,8 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 			})
 		}
 
-		// Rehost off COS. Prefer third-party hosts; fall back to gateway public-media
-		// when CN egress cannot reach litterbox/catbox. Bare COS stays forbidden.
+		// Prefer bare public-read COS for Pixelle; otherwise third-party / public-media.
+		// Signed cloud URLs must never remain on the outbound create payload.
 		publicURL, rehostedLoc, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind, publicBase)
 		if rehostErr != nil {
 			return cleanupOnError(rehostErr)
@@ -2028,7 +2079,7 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		if strings.TrimSpace(publicURL) == "" {
 			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
 		}
-		if seedanceMediaURLIsCloudObjectStorage(publicURL) {
+		if !seedanceMediaURLAcceptableForMappedUpstream(publicURL) {
 			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
 		}
 		if rehostedLoc != nil && strings.TrimSpace(rehostedLoc.ObjectKey) != "" {
@@ -2095,11 +2146,11 @@ func stripSeedanceSignedQuery(raw string) string {
 	return parsed.String()
 }
 
-// rehostLingdongPublicMedia uploads stored media bytes to public hosting that
-// Lingdong can fetch without authentication. Preference:
-//  1. temporary third-party hosts (litterbox/catbox/0x0) when reachable
-//  2. gateway public-media token URL (CN production fallback)
-//  3. never return bare COS/S3/OSS URLs (Lingdong silently drops them)
+// rehostLingdongPublicMedia turns auth-gated stored media into URLs the mapped
+// multi-modal provider (Pixelle) can fetch without credentials. Preference:
+//  1. bare public-read COS/S3/OSS object URL (strip signature; production default)
+//  2. temporary third-party hosts (litterbox/catbox) when reachable
+//  3. gateway public-media token URL (last-resort fallback)
 func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	ctx context.Context,
 	record seedanceMediaRecord,
@@ -2109,6 +2160,24 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	if s == nil {
 		return "", nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
+
+	var failures []string
+
+	// Primary path for Pixelle: public-read object storage bare URL.
+	// Avoid re-uploading large images/videos to third-party hosts when the bucket
+	// is already public-read private-write.
+	if cosURL, cosErr := s.unsignedPublicObjectURL(ctx, record); cosErr == nil {
+		cosURL = strings.TrimSpace(cosURL)
+		if cosURL != "" && seedanceMediaURLAcceptableForMappedUpstream(cosURL) {
+			return cosURL, nil, nil
+		}
+		if cosURL != "" {
+			failures = append(failures, "public-cos: still auth-gated after strip")
+		}
+	} else if cosErr != nil {
+		failures = append(failures, "public-cos: "+cosErr.Error())
+	}
+
 	stream, err := s.openRecord(ctx, record, "")
 	if err != nil {
 		return "", nil, err
@@ -2149,43 +2218,40 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	}
 	filename := seedanceRehostFilename(mediaKind, contentType, record.ObjectKey)
 
-	var failures []string
-	// Primary path: third-party hosts (or test hook). COS public-read objects are
-	// intentionally NOT used - Lingdong drops myqcloud/COS materials from the task.
+	// Secondary: third-party hosts (or test hook).
 	if s.lingdongRehostFn != nil {
 		hookURL, hookErr := s.lingdongRehostFn(ctx, filename, contentType, payload)
 		if hookErr != nil {
 			failures = append(failures, "third-party: "+hookErr.Error())
-		} else if strings.TrimSpace(hookURL) == "" || seedanceMediaURLIsCloudObjectStorage(hookURL) {
-			failures = append(failures, "third-party: empty or cloud-storage url")
+		} else if strings.TrimSpace(hookURL) == "" || !seedanceMediaURLAcceptableForMappedUpstream(hookURL) {
+			failures = append(failures, "third-party: empty or auth-gated url")
 		} else {
 			return hookURL, nil, nil
 		}
 	} else {
 		publicURL, extErr := s.uploadLingdongLitterbox(ctx, filename, contentType, payload)
-		if extErr == nil && strings.TrimSpace(publicURL) != "" && !seedanceMediaURLIsCloudObjectStorage(publicURL) {
+		if extErr == nil && strings.TrimSpace(publicURL) != "" && seedanceMediaURLAcceptableForMappedUpstream(publicURL) {
 			return publicURL, nil, nil
 		}
 		if extErr != nil {
 			failures = append(failures, "third-party: "+extErr.Error())
 		} else {
-			failures = append(failures, "third-party: empty or cloud-storage url")
+			failures = append(failures, "third-party: empty or auth-gated url")
 		}
 	}
 
-	// Production fallback: issue a short-lived public-media URL on our gateway.
-	// Empirically Lingdong keeps these URLs in the task (unlike bare COS hosts).
+	// Last resort: short-lived public-media URL on our gateway.
 	publicBase = normalizeSeedancePublicBaseURL(publicBase)
 	if publicBase != "" {
 		loc := record.location()
 		mediaURL, issueErr := s.IssuePublicMediaURL(ctx, publicBase, loc, contentType)
-		if issueErr == nil && strings.TrimSpace(mediaURL) != "" && !seedanceMediaURLIsCloudObjectStorage(mediaURL) {
+		if issueErr == nil && strings.TrimSpace(mediaURL) != "" && seedanceMediaURLAcceptableForMappedUpstream(mediaURL) {
 			return mediaURL, nil, nil
 		}
 		if issueErr != nil {
 			failures = append(failures, "public-media: "+issueErr.Error())
 		} else {
-			failures = append(failures, "public-media: empty url")
+			failures = append(failures, "public-media: empty or unusable url")
 		}
 	} else {
 		failures = append(failures, "public-media: public base url missing")

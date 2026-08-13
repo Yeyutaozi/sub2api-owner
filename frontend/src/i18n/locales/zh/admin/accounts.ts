@@ -701,14 +701,14 @@ export default {
         ximei: '西梅 Developer API V3',
         weijin: 'Seedance 特惠',
         lingdongMappingTitle: '扩展参考视频映射（管理员）',
-        lingdongMappingHint: '开启后，用户提交参考视频时静默转发至扩展上游（最多 2 个视频）；参考音频将以合规原因拒绝。纯图/纯提示仍走当前特惠上游。开关与密钥仅管理员可见。',
+        lingdongMappingHint: '开启后，用户提交参考视频和/或音频时静默转发至扩展上游（Pixelle sora-v3-pro；图+视频+音频合计最多 12，视频最多 3，音频最多 3）。纯图/纯提示仍走当前 Weijin 特惠上游。开关与密钥仅管理员可见。',
         lingdongMappingEnabled: '启用参考视频扩展映射',
         lingdongApiKey: '扩展上游 API Key',
         lingdongApiKeyPlaceholder: '已配置则留空保持不变',
         lingdongBaseUrl: '扩展上游 Base URL（可选）',
-        lingdongBaseUrlPlaceholder: '默认 https://www.lingdongapi.com',
+        lingdongBaseUrlPlaceholder: '默认 https://api.pixellelabs.com',
         lingdongUpstreamModel: '扩展上游模型（可选）',
-        lingdongUpstreamModelPlaceholder: '默认 cvk-s'
+        lingdongUpstreamModelPlaceholder: '默认 sora-v3-pro'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

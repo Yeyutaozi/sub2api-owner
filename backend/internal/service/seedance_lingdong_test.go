@@ -84,7 +84,7 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "lingdong", route)
+	require.Equal(t, "pixelle", route)
 
 	_, err = decideWeijinSeedanceRoute(plain, &SeedanceRequestInfo{
 		Prompt:          "hello",
@@ -95,35 +95,55 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
 	require.Contains(t, string(upstreamErr.Body), "参考视频")
 
+	// Audio alone still needs at least one image for Pixelle.
 	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
 		Prompt:          "hello",
 		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
 	})
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
-	require.Contains(t, string(upstreamErr.Body), "音频")
-	require.NotContains(t, strings.ToLower(string(upstreamErr.Body)), "lingdong")
-	require.NotContains(t, strings.ToLower(string(upstreamErr.Body)), "cvk")
+	require.Contains(t, string(upstreamErr.Body), "参考图")
+
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "pixelle", route)
+
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "pixelle", route)
 }
 
-func TestBuildLingdongVideoCreateRequestTruncatesVideosAndOmitsAudio(t *testing.T) {
-	images := make([]SeedanceReferenceImage, 9)
+func TestBuildLingdongVideoCreateRequestTruncatesVideosAndIncludesAudio(t *testing.T) {
+	images := make([]SeedanceReferenceImage, 7)
 	for i := range images {
 		images[i] = SeedanceReferenceImage{URL: fmt.Sprintf("https://example.com/img%d.png", i+1)}
 	}
-	videos := make([]SeedanceReferenceVideo, 3)
+	videos := make([]SeedanceReferenceVideo, 4)
 	for i := range videos {
 		videos[i] = SeedanceReferenceVideo{URL: fmt.Sprintf("https://example.com/v%d.mp4", i+1)}
 	}
 	info := &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef720pModel,
-		Prompt:          "nine images and three videos",
+		Prompt:          "seven images, three videos, two audios",
 		DurationSeconds: 12,
 		Resolution:      VideoBillingResolution720P,
 		AspectRatio:     "16:9",
 		References:      images,
 		VideoReferences: videos,
-		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/a1.mp3"}},
+		AudioReferences: []SeedanceReferenceAudio{
+			{URL: "https://example.com/a1.mp3"},
+			{URL: "https://example.com/a2.mp3"},
+			{URL: "https://example.com/a3.mp3"},
+		},
 	}
 
 	body, err := buildLingdongVideoCreateRequest(info, DefaultLingdongUpstreamModel)
@@ -131,19 +151,25 @@ func TestBuildLingdongVideoCreateRequestTruncatesVideosAndOmitsAudio(t *testing.
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(body, &payload))
 	require.Equal(t, DefaultLingdongUpstreamModel, payload["model"])
-	require.EqualValues(t, 12, payload["duration"])
-	require.Equal(t, "16:9", payload["ratio"])
+	require.Equal(t, "sora-v3-pro", DefaultLingdongUpstreamModel)
+	require.Equal(t, "15", payload["seconds"])
+	require.Equal(t, "16:9", payload["aspect_ratio"])
 	require.Equal(t, "720p", payload["resolution"])
-	require.Equal(t, false, payload["watermark"])
-	require.Len(t, payload["images"].([]any), 9)
+	require.Equal(t, "https://example.com/img1.png", payload["image_url"])
+	require.Len(t, payload["reference_image_urls"].([]any), 6)
+	// 7 images + max 3 videos leave room for 2 audios under total=12; 4th video dropped.
 	require.Equal(t, []any{
 		"https://example.com/v1.mp4",
 		"https://example.com/v2.mp4",
-	}, payload["videos"].([]any))
-	_, hasAudios := payload["audios"]
-	require.False(t, hasAudios)
-	_, hasSeconds := payload["seconds"]
-	require.False(t, hasSeconds)
+		"https://example.com/v3.mp4",
+	}, payload["reference_videos"].([]any))
+	require.Equal(t, "https://example.com/a1.mp3", payload["audio_url"])
+	require.Equal(t, []any{
+		"https://example.com/a1.mp3",
+		"https://example.com/a2.mp3",
+	}, payload["audio_urls"].([]any))
+	_, hasDuration := payload["duration"]
+	require.False(t, hasDuration)
 }
 
 func TestBuildLingdongVideoCreateRequest480pModel(t *testing.T) {
@@ -154,18 +180,51 @@ func TestBuildLingdongVideoCreateRequest480pModel(t *testing.T) {
 		Resolution:      VideoBillingResolution480P,
 		AspectRatio:     "9:16",
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
-	}, "cvk-s")
+	}, "sora-v3-pro")
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(body, &payload))
 	require.Equal(t, "480p", payload["resolution"])
-	require.Equal(t, "9:16", payload["ratio"])
+	require.Equal(t, "9:16", payload["aspect_ratio"])
+	require.Equal(t, "10", payload["seconds"])
+	require.Equal(t, "https://example.com/v1.mp4", payload["reference_video"])
+}
+
+func TestBuildLingdongVideoCreateRequestCapsTotalAt12(t *testing.T) {
+	images := make([]SeedanceReferenceImage, 9)
+	for i := range images {
+		images[i] = SeedanceReferenceImage{URL: fmt.Sprintf("https://example.com/img%d.png", i+1)}
+	}
+	videos := make([]SeedanceReferenceVideo, 3)
+	for i := range videos {
+		videos[i] = SeedanceReferenceVideo{URL: fmt.Sprintf("https://example.com/v%d.mp4", i+1)}
+	}
+	body, err := buildLingdongVideoCreateRequest(&SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "9i3v total 12",
+		DurationSeconds: 15,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      images,
+		VideoReferences: videos,
+	}, DefaultLingdongUpstreamModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Len(t, payload["reference_videos"].([]any), 3)
+}
+
+func TestLegacyLingdongTaskPrefixStillRecognized(t *testing.T) {
+	require.True(t, IsLingdongMappedSeedanceTaskID("ldv1_task_old"))
+	upstream, err := upstreamLingdongMappedTaskID("ldv1_task_old")
+	require.NoError(t, err)
+	require.Equal(t, "task_old", upstream)
 }
 
 func TestLingdongMappedTaskIDPrefix(t *testing.T) {
 	publicID, err := publicLingdongMappedTaskID("task_abc123")
 	require.NoError(t, err)
-	require.Equal(t, "ldv1_task_abc123", publicID)
+	require.Equal(t, "pxv1_task_abc123", publicID)
 	require.True(t, IsLingdongMappedSeedanceTaskID(publicID))
 	upstream, err := upstreamLingdongMappedTaskID(publicID)
 	require.NoError(t, err)
@@ -200,7 +259,7 @@ func TestForwardWeijinRoutesAudioAndVideoBeforeUpstream(t *testing.T) {
 	var upstreamErr *SeedanceUpstreamError
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
-	require.Contains(t, string(upstreamErr.Body), "音频")
+	require.Contains(t, string(upstreamErr.Body), "参考图")
 
 	plain := weijinAccountWithLingdongMapping(false, "")
 	_, err = svc.forwardWeijinSeedance(context.Background(), nil, plain, http.MethodPost, "", &SeedanceRequestInfo{
@@ -238,22 +297,23 @@ func TestForwardLingdongMappedCreateUsesOpaqueTaskID(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Result)
-	require.Equal(t, "ldv1_task_upstream_1", resp.Result.ResponseID)
+	require.Equal(t, "pxv1_task_upstream_1", resp.Result.ResponseID)
 	require.Equal(t, "task_upstream_1", resp.Result.UpstreamResponseID)
 	require.Equal(t, DefaultLingdongVideoBaseURL+lingdongVideoCreatePath, upstream.request.URL.String())
 	require.Equal(t, "Bearer sk_ld_live", upstream.request.Header.Get("Authorization"))
 
 	var seenBody map[string]any
 	require.NoError(t, json.Unmarshal(upstream.body, &seenBody))
-	require.Equal(t, []any{"https://example.com/v1.mp4", "https://example.com/v2.mp4"}, seenBody["videos"])
+	require.Equal(t, []any{"https://example.com/v1.mp4", "https://example.com/v2.mp4", "https://example.com/v3.mp4"}, seenBody["reference_videos"])
 	require.NotContains(t, seenBody, "audios")
+	require.NotContains(t, seenBody, "audio_url")
 	require.Equal(t, DefaultLingdongUpstreamModel, seenBody["model"])
-	require.EqualValues(t, 8, seenBody["duration"])
+	require.Equal(t, "10", seenBody["seconds"])
 
 	var publicBody map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body, &publicBody))
-	require.Equal(t, "ldv1_task_upstream_1", publicBody["id"])
-	require.Equal(t, "ldv1_task_upstream_1", publicBody["task_id"])
+	require.Equal(t, "pxv1_task_upstream_1", publicBody["id"])
+	require.Equal(t, "pxv1_task_upstream_1", publicBody["task_id"])
 
 	// Poll should strip public prefix and hit lingdong status path.
 	upstream.reply = `{"id":"task_upstream_1","status":"completed"}`
@@ -262,13 +322,45 @@ func TestForwardLingdongMappedCreateUsesOpaqueTaskID(t *testing.T) {
 	require.Equal(t, DefaultLingdongVideoBaseURL+lingdongVideoTaskPath+"/task_upstream_1", upstream.request.URL.String())
 }
 
+
+func TestForwardLingdongMappedCreateIncludesAudio(t *testing.T) {
+	upstream := &huiquCapturingUpstream{reply: `{"id":"task_audio_1","task_id":"task_audio_1","status":"processing"}`}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := weijinAccountWithLingdongMapping(true, "sk_ld_live")
+
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "with audio",
+		DurationSeconds: 10,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/1.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+		AudioReferences: []SeedanceReferenceAudio{
+			{URL: "https://example.com/a1.mp3"},
+			{URL: "https://example.com/a2.mp3"},
+		},
+	}
+	resp, err := svc.forwardWeijinSeedance(context.Background(), nil, account, http.MethodPost, "", info, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, "pxv1_task_audio_1", resp.Result.ResponseID)
+
+	var seenBody map[string]any
+	require.NoError(t, json.Unmarshal(upstream.body, &seenBody))
+	require.Equal(t, "https://example.com/1.png", seenBody["image_url"])
+	require.Equal(t, "https://example.com/v1.mp4", seenBody["reference_video"])
+	require.Equal(t, "https://example.com/a1.mp3", seenBody["audio_url"])
+	require.Equal(t, []any{"https://example.com/a1.mp3", "https://example.com/a2.mp3"}, seenBody["audio_urls"].([]any))
+}
+
 func TestNormalizeSeedanceJobTreatsLingdongPrefixAsOpaque(t *testing.T) {
 	body := []byte(`{"id":"task_upstream_1","status":"completed","result":{"data":[{"url":"https://lingdongapi.com/secret.mp4"}]}}`)
-	normalized, err := NormalizeSeedanceJob(body, "ldv1_task_upstream_1")
+	normalized, err := NormalizeSeedanceJob(body, "pxv1_task_upstream_1")
 	require.NoError(t, err)
 	var job map[string]any
 	require.NoError(t, json.Unmarshal(normalized, &job))
-	require.Equal(t, "ldv1_task_upstream_1", job["id"])
+	require.Equal(t, "pxv1_task_upstream_1", job["id"])
 	require.Equal(t, "completed", job["status"])
 	raw := string(normalized)
 	require.NotContains(t, raw, "lingdongapi.com")

@@ -220,13 +220,12 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				return
 			}
 		}
-		// When Weijin face-ref traffic is mapped to Lingdong, rehost COS signed /
-		// auth-gated managed media onto third-party public URLs when reachable,
-		// otherwise gateway public-media. Bare myqcloud COS URLs are dropped by
-		// Lingdong (pure-text upstream).
+		// When Weijin face-ref traffic is mapped to Pixelle, rehost only auth-gated
+		// / signed managed media. Bare public-read COS is left intact for Pixelle.
+		// Triggered for reference video and/or audio (pure image/text stays Weijin).
 		if account.IsWeijinVideo() && account.IsLingdongMappingReady() &&
-			service.SeedanceRequestHasVideoReferences(activeRequestInfo) &&
-			!service.SeedanceRequestHasAudioReferences(activeRequestInfo) &&
+			(service.SeedanceRequestHasVideoReferences(activeRequestInfo) ||
+				service.SeedanceRequestHasAudioReferences(activeRequestInfo)) &&
 			h.seedanceMediaService != nil {
 			publicBase := seedanceAbsoluteURL(c, "")
 			lingdongMedia, prepErr := h.seedanceMediaService.PrepareLingdongPublicMedia(

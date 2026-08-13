@@ -27,10 +27,11 @@ func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 }
 
 func TestSeedanceMediaURLNeedsLingdongRehost(t *testing.T) {
+	// Signed query still needs rewrite.
 	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/inputs/staged/1/2/sdupl_x.png?X-Amz-Signature=abc"))
-	// Bare COS must rehost for Lingdong — upstream silently drops these hosts.
-	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
-	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/2/a.png"))
+	// Bare public-read COS is OK for Pixelle.
+	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
+	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/2/a.png"))
 	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://litter.catbox.moe/example.png"))
@@ -38,6 +39,44 @@ func TestSeedanceMediaURLNeedsLingdongRehost(t *testing.T) {
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://httpbin.org/image/png"))
 	require.True(t, seedanceMediaURLIsCloudObjectStorage("https://bucket.s3.amazonaws.com/key"))
 	require.False(t, seedanceMediaURLIsCloudObjectStorage("https://litter.catbox.moe/a.png"))
+}
+
+func TestPrepareLingdongPublicMediaAllowsPublicURLsWithoutStorage(t *testing.T) {
+	svc := NewSeedanceMediaService(nil, nil, nil)
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "public only",
+		DurationSeconds: 10,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References: []SeedanceReferenceImage{
+			{URL: "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/seedance/public/a.png"},
+			{URL: "https://litter.catbox.moe/keep-me.png"},
+		},
+		VideoReferences: []SeedanceReferenceVideo{
+			{URL: "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/seedance/public/b.mp4"},
+			{URL: "https://files.catbox.moe/keep-vid.mp4"},
+		},
+	}
+	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), SeedanceMediaOwner{UserID: 1}, info, "http://127.0.0.1:8080")
+	require.NoError(t, err)
+	require.Nil(t, extra)
+	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/seedance/public/a.png", info.References[0].URL)
+	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/seedance/public/b.mp4", info.VideoReferences[0].URL)
+
+	info2 := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "managed needs storage",
+		DurationSeconds: 10,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: "https://tkcreazy.top/v1/videos/uploads/sdupl_abc"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://files.catbox.moe/keep-vid.mp4"}},
+	}
+	extra2, err2 := svc.PrepareLingdongPublicMedia(context.Background(), SeedanceMediaOwner{UserID: 1}, info2, "http://127.0.0.1:8080")
+	require.Error(t, err2)
+	require.Nil(t, extra2)
+	require.Contains(t, strings.ToLower(err2.Error()), "media_storage_not_configured")
 }
 
 func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
@@ -99,27 +138,26 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	require.NoError(t, err)
 	_ = extra
 
-	// COS must be rehosted away from myqcloud, not merely stripped.
-	require.True(t, strings.HasPrefix(info.References[0].URL, "https://litter.catbox.moe/"), info.References[0].URL)
-	require.NotContains(t, info.References[0].URL, "myqcloud.com")
+	// Bare public-read COS may pass through for Pixelle; signed query must not remain.
 	require.NotContains(t, info.References[0].URL, "X-Amz-Signature")
+	require.Contains(t, info.References[0].URL, "cos.example.com")
 	require.Equal(t, publicCatbox, info.References[1].URL)
-	require.Equal(t, "https://litter.catbox.moe/rehosted-vid.mp4", info.VideoReferences[0].URL)
+	require.Contains(t, info.VideoReferences[0].URL, "cos.example.com")
 	require.Equal(t, "https://files.catbox.moe/keep-vid.mp4", info.VideoReferences[1].URL)
 	require.Equal(t, "https://files.catbox.moe/third.mp4", info.VideoReferences[2].URL)
-	require.GreaterOrEqual(t, rehostCalls, 2)
+	require.Equal(t, 0, rehostCalls)
 
 	body, err := buildLingdongVideoCreateRequest(info, DefaultLingdongUpstreamModel)
 	require.NoError(t, err)
-	require.NotContains(t, string(body), "myqcloud.com")
-	require.NotContains(t, string(body), "cos.example.com")
-	require.Contains(t, string(body), "litter.catbox.moe")
+	// bare public-read COS is allowed for Pixelle; only signed query forbidden
+	require.NotContains(t, string(body), "X-Amz-Signature")
+	require.Contains(t, string(body), "cos.example.com")
 	require.Contains(t, string(body), publicCatbox)
 	require.NotContains(t, string(body), "X-Amz-Signature")
 	require.NotContains(t, string(body), "/v1/videos/public-media/")
-	// videos truncated to 2
+	// Pixelle allows up to 3 videos within the 12 media cap.
 	require.Contains(t, string(body), "keep-vid.mp4")
-	require.NotContains(t, string(body), "third.mp4")
+	require.Contains(t, string(body), "third.mp4")
 }
 
 func TestPrepareLingdongPublicMediaRehostsSignedCOS(t *testing.T) {
@@ -154,12 +192,14 @@ func TestPrepareLingdongPublicMediaRehostsSignedCOS(t *testing.T) {
 		References:      []SeedanceReferenceImage{{URL: signed}},
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/" + vidKey + "?X-Amz-Signature=abc"}},
 	}
+	memory.presignURL = "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Signature=deadbeef"
 	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
 	require.NoError(t, err)
 	_ = extra
-	require.Equal(t, "https://litter.catbox.moe/img.png", info.References[0].URL)
-	require.Equal(t, "https://litter.catbox.moe/vid.mp4", info.VideoReferences[0].URL)
-	require.NotContains(t, info.References[0].URL, "myqcloud")
+	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/"+imgKey, info.References[0].URL)
+	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/"+imgKey, info.VideoReferences[0].URL)
+	require.NotContains(t, info.References[0].URL, "X-Amz-Signature")
+	require.NotContains(t, info.References[0].URL, "litter.catbox")
 }
 
 func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) {
@@ -206,7 +246,8 @@ func TestPrepareLingdongPublicMediaFallsBackToPublicMedia(t *testing.T) {
 	memory.provider = "cos"
 	imgKey := "seedance/inputs/staged/9/8/sdupl_img_pm.png"
 	memory.objects[imgKey] = []byte("png-public-media")
-	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+	// Force bare-COS path to fail so public-media fallback is exercised.
+	readStore := &seedanceFailPublicRehostStore{seedancePublicMediaReadStore: &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}}
 
 	svc := NewSeedanceMediaService(readStore, nil, redisClient)
 	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}

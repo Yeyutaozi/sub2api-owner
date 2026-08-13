@@ -19,30 +19,40 @@ import (
 
 const (
 	// Admin-only credentials on a Weijin video account that enable silent
-	// multi-modal mapping onto Lingdong cvk-s for reference-video requests.
+	// multi-modal mapping onto Pixelle sora-v3-pro for reference-video requests.
+	// Legacy lingdong_* credential keys remain accepted as aliases.
 	// End users never see these fields or the upstream vendor name.
 	credentialLingdongMappingEnabled = "lingdong_mapping_enabled"
 	credentialLingdongAPIKey         = "lingdong_api_key"
 	credentialLingdongBaseURL        = "lingdong_base_url"
 	credentialLingdongUpstreamModel  = "lingdong_upstream_model"
+	credentialPixelleMappingEnabled  = "pixelle_mapping_enabled"
+	credentialPixelleAPIKey          = "pixelle_api_key"
+	credentialPixelleBaseURL         = "pixelle_base_url"
+	credentialPixelleUpstreamModel   = "pixelle_upstream_model"
 
-	DefaultLingdongVideoBaseURL     = "https://www.lingdongapi.com"
-	DefaultLingdongUpstreamModel    = "cvk-s"
-	lingdongPublicTaskPrefix        = "ldv1_"
-	lingdongVideoCreatePath         = "/v1/video/generations"
-	lingdongVideoTaskPath           = "/v1/video/generations"
+	DefaultLingdongVideoBaseURL     = "https://api.pixellelabs.com"
+	DefaultLingdongUpstreamModel    = "sora-v3-pro"
+	lingdongPublicTaskPrefix        = "pxv1_"
+	lingdongLegacyPublicTaskPrefix  = "ldv1_"
+	lingdongVideoCreatePath         = "/v1/videos"
+	lingdongVideoTaskPath           = "/v1/videos"
 	lingdongVideoContentPath        = "/v1/videos"
 	lingdongMaxImageReferences      = 9
-	lingdongMaxVideoReferences      = 2
+	lingdongMaxVideoReferences      = 3
+	lingdongMaxAudioReferences      = 3
+	lingdongMaxTotalReferences      = 12
+	lingdongAudioRequiresImageMsg   = "使用音频参考时必须同时提供至少一张参考图"
 	lingdongAudioComplianceMessage  = "音频涉嫌侵权，或音频格式/大小不合规，请移除参考音频后重试"
-	lingdongVideoUnavailableMessage = "当前渠道暂不支持参考视频，请移除参考视频后重试，或联系管理员开通扩展能力"
-	lingdongMappingMisconfiguredMsg = "扩展参考视频能力未正确配置，请联系管理员"
+	lingdongVideoUnavailableMessage = "当前渠道暂不支持参考视频/音频，请移除后重试，或联系管理员开通扩展能力"
+	lingdongMappingMisconfiguredMsg = "扩展参考视频/音频能力未正确配置，请联系管理员"
 )
 
-var lingdongPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:lingdong|lingdongapi|cvk[\s_-]?s)\b`)
+var lingdongPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:lingdong|lingdongapi|cvk[\s_-]?s|pixelle|pixellelabs|sora[\s_-]?v3[\s_-]?pro|sora[\s_-]?v3)\b`)
 
 func IsLingdongMappedSeedanceTaskID(taskID string) bool {
-	return strings.HasPrefix(strings.TrimSpace(taskID), lingdongPublicTaskPrefix)
+	taskID = strings.TrimSpace(taskID)
+	return strings.HasPrefix(taskID, lingdongPublicTaskPrefix) || strings.HasPrefix(taskID, lingdongLegacyPublicTaskPrefix)
 }
 
 func publicLingdongMappedTaskID(upstreamTaskID string) (string, error) {
@@ -62,7 +72,13 @@ func upstreamLingdongMappedTaskID(publicTaskID string) (string, error) {
 	if !IsLingdongMappedSeedanceTaskID(publicTaskID) {
 		return "", errors.New("Seedance task does not belong to the mapped video provider")
 	}
-	upstream := strings.TrimPrefix(publicTaskID, lingdongPublicTaskPrefix)
+	upstream := publicTaskID
+	switch {
+	case strings.HasPrefix(publicTaskID, lingdongPublicTaskPrefix):
+		upstream = strings.TrimPrefix(publicTaskID, lingdongPublicTaskPrefix)
+	case strings.HasPrefix(publicTaskID, lingdongLegacyPublicTaskPrefix):
+		upstream = strings.TrimPrefix(publicTaskID, lingdongLegacyPublicTaskPrefix)
+	}
 	if !seedanceTaskIDPattern.MatchString(upstream) {
 		return "", errors.New("invalid Seedance upstream task id")
 	}
@@ -94,16 +110,24 @@ func (a *Account) IsLingdongMappingEnabled() bool {
 	if a == nil || !a.IsWeijinVideo() || a.Credentials == nil {
 		return false
 	}
-	raw, ok := a.Credentials[credentialLingdongMappingEnabled]
-	if !ok || raw == nil {
-		return false
+	for _, key := range []string{credentialPixelleMappingEnabled, credentialLingdongMappingEnabled} {
+		raw, ok := a.Credentials[key]
+		if !ok || raw == nil {
+			continue
+		}
+		if credentialTruthy(raw) {
+			return true
+		}
 	}
-	return credentialTruthy(raw)
+	return false
 }
 
 func (a *Account) GetLingdongAPIKey() string {
 	if a == nil || !a.IsWeijinVideo() {
 		return ""
+	}
+	if key := strings.TrimSpace(a.GetCredential(credentialPixelleAPIKey)); key != "" {
+		return key
 	}
 	return strings.TrimSpace(a.GetCredential(credentialLingdongAPIKey))
 }
@@ -111,6 +135,9 @@ func (a *Account) GetLingdongAPIKey() string {
 func (a *Account) GetLingdongBaseURL() string {
 	if a == nil || !a.IsWeijinVideo() {
 		return ""
+	}
+	if baseURL := strings.TrimSpace(a.GetCredential(credentialPixelleBaseURL)); baseURL != "" {
+		return baseURL
 	}
 	if baseURL := strings.TrimSpace(a.GetCredential(credentialLingdongBaseURL)); baseURL != "" {
 		return baseURL
@@ -121,6 +148,9 @@ func (a *Account) GetLingdongBaseURL() string {
 func (a *Account) GetLingdongUpstreamModel() string {
 	if a == nil || !a.IsWeijinVideo() {
 		return DefaultLingdongUpstreamModel
+	}
+	if model := strings.TrimSpace(a.GetCredential(credentialPixelleUpstreamModel)); model != "" {
+		return model
 	}
 	if model := strings.TrimSpace(a.GetCredential(credentialLingdongUpstreamModel)); model != "" {
 		return model
@@ -188,16 +218,16 @@ func seedanceVideoReferenceUnavailableUpstreamError(message string) *SeedanceUps
 	return &SeedanceUpstreamError{StatusCode: http.StatusBadRequest, Body: payload}
 }
 
-// decideWeijinSeedanceRoute chooses pure Weijin (images/prompt) vs Lingdong
-// (reference videos) or a client-facing rejection. Account stays video_provider=weijin.
+// decideWeijinSeedanceRoute chooses pure Weijin (images/prompt) vs Pixelle-mapped
+// multi-modal (reference videos and/or audio) or a client-facing rejection.
+// Account stays video_provider=weijin. Pixelle replaces the former Lingdong slot.
 func decideWeijinSeedanceRoute(account *Account, info *SeedanceRequestInfo) (route string, err error) {
 	if info == nil {
 		return "weijin", nil
 	}
-	if seedanceRequestHasAudioReferences(info) {
-		return "", seedanceAudioComplianceUpstreamError()
-	}
-	if !seedanceRequestHasVideoReferences(info) {
+	hasVideo := seedanceRequestHasVideoReferences(info)
+	hasAudio := seedanceRequestHasAudioReferences(info)
+	if !hasVideo && !hasAudio {
 		return "weijin", nil
 	}
 	if account == nil || !account.IsLingdongMappingReady() {
@@ -206,7 +236,11 @@ func decideWeijinSeedanceRoute(account *Account, info *SeedanceRequestInfo) (rou
 		}
 		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongVideoUnavailableMessage)
 	}
-	return "lingdong", nil
+	// Pixelle requires at least one image when audio references are present.
+	if hasAudio && len(weijinImageURLs(info)) == 0 {
+		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongAudioRequiresImageMsg)
+	}
+	return "pixelle", nil
 }
 
 func lingdongResolutionForPublicModel(model string) string {
@@ -216,6 +250,14 @@ func lingdongResolutionForPublicModel(model string) string {
 	default:
 		return VideoBillingResolution720P
 	}
+}
+
+func pixelleSecondsForDuration(duration int) string {
+	// Pixelle sora-v3-pro accepts 10 or 15 seconds only.
+	if duration <= 10 {
+		return "10"
+	}
+	return "15"
 }
 
 func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel string) ([]byte, error) {
@@ -245,8 +287,37 @@ func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel st
 			break
 		}
 	}
-	if prompt == "" && len(images) == 0 && len(videos) == 0 {
+	audios := make([]string, 0, lingdongMaxAudioReferences)
+	for _, media := range info.AudioReferences {
+		urlValue := strings.TrimSpace(media.URL)
+		if urlValue == "" {
+			continue
+		}
+		audios = append(audios, urlValue)
+		if len(audios) >= lingdongMaxAudioReferences {
+			break
+		}
+	}
+	// Hard cap: images + videos + audios <= 12. Drop audios first, then videos.
+	remaining := lingdongMaxTotalReferences - len(images)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if len(videos) > remaining {
+		videos = videos[:remaining]
+	}
+	remaining -= len(videos)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if len(audios) > remaining {
+		audios = audios[:remaining]
+	}
+	if prompt == "" && len(images) == 0 && len(videos) == 0 && len(audios) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
+	}
+	if len(audios) > 0 && len(images) == 0 {
+		return nil, errors.New(lingdongAudioRequiresImageMsg)
 	}
 
 	publicModel := strings.ToLower(strings.TrimSpace(info.Model))
@@ -260,29 +331,42 @@ func buildLingdongVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel st
 			resolution = explicit
 		}
 	}
+	// Pixelle public docs currently advertise 720p for sora-v3-pro.
+	if resolution != VideoBillingResolution720P && resolution != VideoBillingResolution480P {
+		resolution = VideoBillingResolution720P
+	}
+	// Prefer 720p for mapped path even when public model is 480p tier if upstream
+	// only lists 720p; still pass model-tier resolution when it is 480p/720p.
 	ratio := strings.TrimSpace(info.AspectRatio)
 	if ratio == "" {
 		ratio = "16:9"
 	}
 
 	body := map[string]any{
-		"model":      upstreamModel,
-		"duration":   info.DurationSeconds,
-		"ratio":      ratio,
-		"resolution": resolution,
-		"watermark":  false,
+		"model":        upstreamModel,
+		"prompt":       prompt,
+		"aspect_ratio": ratio,
+		"resolution":   resolution,
+		"seconds":      pixelleSecondsForDuration(info.DurationSeconds),
 	}
-	if prompt != "" {
-		body["prompt"] = prompt
+	if len(images) == 1 {
+		body["image_url"] = images[0]
+	} else if len(images) > 1 {
+		body["image_url"] = images[0]
+		body["reference_image_urls"] = images[1:]
 	}
-	if len(images) > 0 {
-		body["images"] = images
+	if len(videos) == 1 {
+		body["reference_video"] = videos[0]
+	} else if len(videos) > 1 {
+		body["reference_videos"] = videos
 	}
-	if len(videos) > 0 {
-		body["videos"] = videos
+	if len(audios) == 1 {
+		body["audio_url"] = audios[0]
+	} else if len(audios) > 1 {
+		// Match reference_video(s) style: singular for one, plural array for many.
+		body["audio_url"] = audios[0]
+		body["audio_urls"] = audios
 	}
-	// Intentionally omit audios — Lingdong cvk-s does not accept them, and
-	// create routing already rejects AudioReferences before this builder runs.
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("encode mapped video request: %w", err)

@@ -81,29 +81,45 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 			}
 		}
 	}
-	// Admin-only Weijin -> Lingdong multi-modal mapping credentials.
+	// Admin-only Weijin -> Pixelle multi-modal mapping credentials.
+	// Legacy lingdong_* keys remain accepted as aliases of pixelle_*.
 	if provider == VideoProviderWeijin {
 		mappingEnabled := false
-		if raw, exists := credentials[credentialLingdongMappingEnabled]; exists && raw != nil {
-			mappingEnabled = credentialTruthy(raw)
+		for _, key := range []string{credentialPixelleMappingEnabled, credentialLingdongMappingEnabled} {
+			if raw, exists := credentials[key]; exists && raw != nil && credentialTruthy(raw) {
+				mappingEnabled = true
+				break
+			}
 		}
 		if mappingEnabled {
-			apiKey, _ := credentials[credentialLingdongAPIKey].(string)
-			if strings.TrimSpace(apiKey) == "" {
+			apiKey := ""
+			if raw, ok := credentials[credentialPixelleAPIKey].(string); ok {
+				apiKey = strings.TrimSpace(raw)
+			}
+			if apiKey == "" {
+				if raw, ok := credentials[credentialLingdongAPIKey].(string); ok {
+					apiKey = strings.TrimSpace(raw)
+				}
+			}
+			if apiKey == "" {
 				return infraerrors.BadRequest(
-					"LINGDONG_MAPPING_API_KEY_REQUIRED",
-					"enabling Lingdong mapping requires lingdong_api_key",
+					"MULTIMODAL_MAPPING_API_KEY_REQUIRED",
+					"enabling multi-modal video mapping requires pixelle_api_key (or legacy lingdong_api_key)",
 				)
 			}
 		}
-		if raw, exists := credentials[credentialLingdongBaseURL]; exists && raw != nil {
-			if _, ok := raw.(string); !ok {
-				return infraerrors.BadRequest("LINGDONG_BASE_URL_INVALID", "lingdong_base_url must be a string")
+		for _, key := range []string{credentialPixelleBaseURL, credentialLingdongBaseURL} {
+			if raw, exists := credentials[key]; exists && raw != nil {
+				if _, ok := raw.(string); !ok {
+					return infraerrors.BadRequest("MULTIMODAL_BASE_URL_INVALID", key+" must be a string")
+				}
 			}
 		}
-		if raw, exists := credentials[credentialLingdongUpstreamModel]; exists && raw != nil {
-			if _, ok := raw.(string); !ok {
-				return infraerrors.BadRequest("LINGDONG_UPSTREAM_MODEL_INVALID", "lingdong_upstream_model must be a string")
+		for _, key := range []string{credentialPixelleUpstreamModel, credentialLingdongUpstreamModel} {
+			if raw, exists := credentials[key]; exists && raw != nil {
+				if _, ok := raw.(string); !ok {
+					return infraerrors.BadRequest("MULTIMODAL_UPSTREAM_MODEL_INVALID", key+" must be a string")
+				}
 			}
 		}
 	}
@@ -2141,8 +2157,8 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 
 
 // seedanceForwardTaskID chooses the id used when the gateway itself polls
-// upstream (settlement worker / list hydration). Lingdong-mapped public ids
-// must keep the ldv1_ prefix so routing sticks to Lingdong.
+// upstream (settlement worker / list hydration). Pixelle-mapped public ids
+// must keep the pxv1_/ldv1_ prefix so routing sticks to the mapped provider.
 func seedanceForwardTaskID(binding *SeedanceTaskBinding) string {
 	if binding == nil {
 		return ""
