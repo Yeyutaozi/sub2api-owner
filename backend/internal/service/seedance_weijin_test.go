@@ -88,9 +88,10 @@ func TestBuildWeijinRequestMapsPublicSchema(t *testing.T) {
 	images, ok := payload["images"].([]any)
 	require.True(t, ok)
 	require.GreaterOrEqual(t, len(images), 1)
-	videos, ok := payload["videos"].([]any)
-	require.True(t, ok)
-	require.Equal(t, []any{"https://example.com/ref.mp4"}, videos)
+	_, hasVideos := payload["videos"]
+	require.False(t, hasVideos, "pure Weijin create must not forward reference videos")
+	_, hasAudios := payload["audios"]
+	require.False(t, hasAudios, "pure Weijin create must not forward reference audios")
 	_, hasDurationSeconds := payload["duration_seconds"]
 	require.False(t, hasDurationSeconds)
 	_, hasSize := payload["size"]
@@ -158,12 +159,10 @@ func TestBuildWeijinRequestForwardsFullMixedMediaLoad(t *testing.T) {
 	_, hasAudio := payload["audio"]
 	require.False(t, hasAudio, "Weijin create must not send boolean audio field")
 	require.Len(t, payload["images"].([]any), 9)
-	require.Len(t, payload["videos"].([]any), 3)
-	require.Equal(t, []any{
-		"https://example.com/a1.mp3",
-		"https://example.com/a2.mp3",
-		"https://example.com/a3.mp3",
-	}, payload["audios"].([]any))
+	_, hasVideos := payload["videos"]
+	require.False(t, hasVideos, "pure Weijin path is images-only; videos map via Lingdong")
+	_, hasAudios := payload["audios"]
+	require.False(t, hasAudios, "pure Weijin path is images-only; audio is rejected at route layer")
 }
 
 func TestWeijinFaceModelsAllowNineThreeThreeMedia(t *testing.T) {

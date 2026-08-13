@@ -639,7 +639,16 @@ export default {
         fflink: 'FFLink (legacy)',
         huiqu: 'Huiqu MX933',
         ximei: 'Ximei Developer API V3',
-        weijin: 'Seedance Special Offer'
+        weijin: 'Seedance Special Offer',
+        lingdongMappingTitle: 'Extended reference-video mapping (admin)',
+        lingdongMappingHint: 'When enabled, user reference videos are silently forwarded to the extended upstream (max 2 videos). Reference audio is rejected with a compliance message. Prompt/image-only requests stay on the special-offer upstream. Toggle and keys are admin-only.',
+        lingdongMappingEnabled: 'Enable reference-video extension mapping',
+        lingdongApiKey: 'Extended upstream API key',
+        lingdongApiKeyPlaceholder: 'Leave blank to keep the existing key',
+        lingdongBaseUrl: 'Extended upstream base URL (optional)',
+        lingdongBaseUrlPlaceholder: 'Default https://www.lingdongapi.com',
+        lingdongUpstreamModel: 'Extended upstream model (optional)',
+        lingdongUpstreamModelPlaceholder: 'Default cvk-s'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

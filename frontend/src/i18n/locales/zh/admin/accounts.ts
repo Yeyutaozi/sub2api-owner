@@ -699,7 +699,16 @@ export default {
         fflink: 'FFLink（旧渠道）',
         huiqu: '汇取云 MX933',
         ximei: '西梅 Developer API V3',
-        weijin: 'Seedance 特惠'
+        weijin: 'Seedance 特惠',
+        lingdongMappingTitle: '扩展参考视频映射（管理员）',
+        lingdongMappingHint: '开启后，用户提交参考视频时静默转发至扩展上游（最多 2 个视频）；参考音频将以合规原因拒绝。纯图/纯提示仍走当前特惠上游。开关与密钥仅管理员可见。',
+        lingdongMappingEnabled: '启用参考视频扩展映射',
+        lingdongApiKey: '扩展上游 API Key',
+        lingdongApiKeyPlaceholder: '已配置则留空保持不变',
+        lingdongBaseUrl: '扩展上游 Base URL（可选）',
+        lingdongBaseUrlPlaceholder: '默认 https://www.lingdongapi.com',
+        lingdongUpstreamModel: '扩展上游模型（可选）',
+        lingdongUpstreamModelPlaceholder: '默认 cvk-s'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

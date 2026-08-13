@@ -788,6 +788,14 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	if upstreamTaskID == "" {
 		upstreamTaskID = taskID
 	}
+	// Lingdong-mapped Weijin tasks keep routing stickiness in the public job id
+	// prefix (ldv1_*). Forward the public id so the provider switch can still
+	// detect the mapped route; the lingdong forwarder strips the prefix itself.
+	// Other providers continue to use the private upstream id.
+	forwardTaskID := upstreamTaskID
+	if service.IsLingdongMappedSeedanceTaskID(taskID) {
+		forwardTaskID = taskID
+	}
 	now := time.Now()
 	if binding.FallbackStatus == service.SeedanceFallbackStatusStarting {
 		if method == http.MethodDelete {
@@ -922,9 +930,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			defer accountRelease()
 		}
 		if content && archiveLease != nil {
-			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, "")
+			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, "")
 		}
-		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, upstreamTaskID, nil)
+		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, forwardTaskID, nil)
 	}()
 	if err != nil {
 		h.writeSeedanceForwardError(c, err)
@@ -950,7 +958,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			_ = forwarded.BodyStream.Close()
 			archiveLease.Close()
 			archiveLease = nil
-			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, clientRange)
+			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, clientRange)
 			if err != nil {
 				h.writeSeedanceForwardError(c, err)
 				return
@@ -971,7 +979,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 				_ = forwarded.BodyStream.Close()
 				archiveLease.Close()
 				archiveLease = nil
-				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, upstreamTaskID, clientRange)
+				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, clientRange)
 				if err != nil {
 					h.writeSeedanceForwardError(c, err)
 					return

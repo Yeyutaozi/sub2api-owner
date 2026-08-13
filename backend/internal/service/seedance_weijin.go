@@ -92,23 +92,9 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	}
 	prompt := strings.TrimSpace(info.Prompt)
 	images := weijinImageURLs(info)
-	videos := make([]string, 0, len(info.VideoReferences))
-	for _, media := range info.VideoReferences {
-		urlValue := strings.TrimSpace(media.URL)
-		if urlValue == "" {
-			continue
-		}
-		videos = append(videos, urlValue)
-	}
-	audios := make([]string, 0, len(info.AudioReferences))
-	for _, media := range info.AudioReferences {
-		urlValue := strings.TrimSpace(media.URL)
-		if urlValue == "" {
-			continue
-		}
-		audios = append(audios, urlValue)
-	}
-	if prompt == "" && len(images) == 0 && len(videos) == 0 && len(audios) == 0 {
+	// Pure Weijin face-ref path is images + prompt only. Reference videos/audio are
+	// either mapped to Lingdong (admin-enabled) or rejected before this builder runs.
+	if prompt == "" && len(images) == 0 {
 		return nil, errors.New("prompt is required when no reference media is provided")
 	}
 
@@ -120,15 +106,10 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if prompt != "" {
 		body["prompt"] = prompt
 	}
-	// Weijin create schema only accepts images/videos/audios arrays; do not send boolean audio.
+	// Weijin create schema for this special-offer path only accepts images; do not
+	// send boolean audio or videos/audios arrays.
 	if len(images) > 0 {
 		body["images"] = images
-	}
-	if len(videos) > 0 {
-		body["videos"] = videos
-	}
-	if len(audios) > 0 {
-		body["audios"] = audios
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -170,6 +151,22 @@ func (s *OpenAIGatewayService) forwardWeijinSeedance(
 			Body:       []byte(`{"error":{"code":"not_supported","message":"This video provider does not support task cancellation"}}`),
 		}
 	}
+
+	// Lingdong-mapped tasks are identified by the opaque public id prefix so
+	// poll/content stick to the same backend without changing video_provider.
+	if IsLingdongMappedSeedanceTaskID(taskID) {
+		return s.forwardLingdongMappedSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
+	if method == http.MethodPost {
+		route, routeErr := decideWeijinSeedanceRoute(account, requestInfo)
+		if routeErr != nil {
+			return nil, routeErr
+		}
+		if route == "lingdong" {
+			return s.forwardLingdongMappedSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+		}
+	}
+
 	apiKey := account.GetSeedanceAPIKey()
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
@@ -379,5 +376,6 @@ func (s *OpenAIGatewayService) doWeijinSeedanceRequest(
 
 func sanitizeWeijinSeedanceUpstreamErrorBody(body []byte) []byte {
 	sanitized := sanitizeHuiquSeedanceUpstreamErrorBody(body)
-	return weijinPrivateNamePattern.ReplaceAll(sanitized, []byte("upstream provider"))
+	sanitized = weijinPrivateNamePattern.ReplaceAll(sanitized, []byte("upstream provider"))
+	return lingdongPrivateNamePattern.ReplaceAll(sanitized, []byte("upstream provider"))
 }

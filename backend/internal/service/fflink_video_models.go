@@ -329,7 +329,9 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	if !profile.AllowGeneratedAudio && info.GenerateAudio {
 		return fmt.Errorf("model %s does not support generated audio", info.Model)
 	}
-	if len(info.AudioReferences) > 0 && !info.GenerateAudio {
+	// Weijin special-offer face models market "933" but reject audio references
+	// later with a compliance message; do not force audio=true here.
+	if len(info.AudioReferences) > 0 && !info.GenerateAudio && !isWeijinVideoModel(info.Model) {
 		return fmt.Errorf("audio=true is required when guidances.audio_reference is provided")
 	}
 	if isHuiquMiniMaxH3Model(info.Model) {

@@ -43,6 +43,64 @@
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
+        <div
+          v-if="account.platform === 'seedance' && seedanceVideoProvider === 'weijin'"
+          class="space-y-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-600"
+          data-testid="edit-lingdong-mapping"
+        >
+          <div class="flex items-start gap-2">
+            <input
+              id="edit-lingdong-mapping-enabled"
+              v-model="lingdongMappingEnabled"
+              type="checkbox"
+              class="mt-1"
+              data-testid="edit-lingdong-mapping-enabled"
+            />
+            <div>
+              <label for="edit-lingdong-mapping-enabled" class="input-label !mb-0">
+                {{ t('admin.accounts.videoProvider.lingdongMappingEnabled') }}
+              </label>
+              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongMappingHint') }}</p>
+            </div>
+          </div>
+          <div v-if="lingdongMappingEnabled" class="space-y-3">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongApiKey') }}</label>
+              <input
+                v-model="lingdongApiKey"
+                type="password"
+                class="input"
+                autocomplete="new-password"
+                data-testid="edit-lingdong-api-key"
+                :placeholder="
+                  hasExistingLingdongApiKey
+                    ? t('admin.accounts.videoProvider.lingdongApiKeyPlaceholder')
+                    : t('admin.accounts.videoProvider.lingdongApiKey')
+                "
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongBaseUrl') }}</label>
+              <input
+                v-model="lingdongBaseUrl"
+                type="text"
+                class="input"
+                data-testid="edit-lingdong-base-url"
+                :placeholder="t('admin.accounts.videoProvider.lingdongBaseUrlPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongUpstreamModel') }}</label>
+              <input
+                v-model="lingdongUpstreamModel"
+                type="text"
+                class="input"
+                data-testid="edit-lingdong-upstream-model"
+                :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')"
+              />
+            </div>
+          </div>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2856,6 +2914,11 @@ const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
 const initialSeedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
+const lingdongMappingEnabled = ref(false)
+const lingdongApiKey = ref('')
+const lingdongBaseUrl = ref('')
+const lingdongUpstreamModel = ref('')
+const hasExistingLingdongApiKey = ref(false)
 const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
@@ -3475,6 +3538,19 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     seedanceVideoProvider.value = 'fflink'
   }
   initialSeedanceVideoProvider.value = seedanceVideoProvider.value
+  lingdongMappingEnabled.value = credentials?.lingdong_mapping_enabled === true
+  lingdongApiKey.value = ''
+  lingdongBaseUrl.value =
+    typeof credentials?.lingdong_base_url === 'string' ? credentials.lingdong_base_url.trim() : ''
+  lingdongUpstreamModel.value =
+    typeof credentials?.lingdong_upstream_model === 'string'
+      ? credentials.lingdong_upstream_model.trim()
+      : ''
+  hasExistingLingdongApiKey.value =
+    newAccount.credentials_status?.has_lingdong_api_key === true ||
+    Boolean(
+      typeof credentials?.lingdong_api_key === 'string' && credentials.lingdong_api_key.trim()
+    )
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -4349,6 +4425,40 @@ const handleSubmit = async () => {
       if (props.account.platform === 'seedance' || props.account.platform === 'minimax') {
         newCredentials.video_provider = seedanceVideoProvider.value
       }
+      if (props.account.platform === 'seedance' && seedanceVideoProvider.value === 'weijin') {
+        newCredentials.lingdong_mapping_enabled = lingdongMappingEnabled.value
+        if (lingdongMappingEnabled.value) {
+          const key = lingdongApiKey.value.trim()
+          if (key) {
+            newCredentials.lingdong_api_key = key
+          } else {
+            // Keep existing sensitive key via backend merge when omitted.
+            delete newCredentials.lingdong_api_key
+          }
+          const base = lingdongBaseUrl.value.trim()
+          if (base) {
+            newCredentials.lingdong_base_url = base
+          } else {
+            delete newCredentials.lingdong_base_url
+          }
+          const model = lingdongUpstreamModel.value.trim()
+          if (model) {
+            newCredentials.lingdong_upstream_model = model
+          } else {
+            delete newCredentials.lingdong_upstream_model
+          }
+        } else {
+          newCredentials.lingdong_mapping_enabled = false
+          delete newCredentials.lingdong_api_key
+          delete newCredentials.lingdong_base_url
+          delete newCredentials.lingdong_upstream_model
+        }
+      } else {
+        delete newCredentials.lingdong_mapping_enabled
+        delete newCredentials.lingdong_api_key
+        delete newCredentials.lingdong_base_url
+        delete newCredentials.lingdong_upstream_model
+      }
 
       // Handle API key
       // 后端响应已脱敏：currentCredentials 不会再包含 api_key 原文。
@@ -4364,6 +4474,16 @@ const handleSubmit = async () => {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (!hasExistingApiKey) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
+      }
+      if (
+        props.account.platform === 'seedance' &&
+        seedanceVideoProvider.value === 'weijin' &&
+        lingdongMappingEnabled.value &&
+        !lingdongApiKey.value.trim() &&
+        !hasExistingLingdongApiKey.value
+      ) {
+        appStore.showError(t('admin.accounts.videoProvider.lingdongApiKey'))
         return
       }
 

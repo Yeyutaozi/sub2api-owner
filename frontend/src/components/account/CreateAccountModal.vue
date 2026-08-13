@@ -1198,6 +1198,60 @@
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
+        <div
+          v-if="form.platform === 'seedance' && seedanceVideoProvider === 'weijin'"
+          class="space-y-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-600"
+          data-testid="create-lingdong-mapping"
+        >
+          <div class="flex items-start gap-2">
+            <input
+              id="create-lingdong-mapping-enabled"
+              v-model="lingdongMappingEnabled"
+              type="checkbox"
+              class="mt-1"
+              data-testid="create-lingdong-mapping-enabled"
+            />
+            <div>
+              <label for="create-lingdong-mapping-enabled" class="input-label !mb-0">
+                {{ t('admin.accounts.videoProvider.lingdongMappingEnabled') }}
+              </label>
+              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongMappingHint') }}</p>
+            </div>
+          </div>
+          <div v-if="lingdongMappingEnabled" class="space-y-3">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongApiKey') }}</label>
+              <input
+                v-model="lingdongApiKey"
+                type="password"
+                class="input"
+                autocomplete="new-password"
+                data-testid="create-lingdong-api-key"
+                :placeholder="t('admin.accounts.videoProvider.lingdongApiKeyPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongBaseUrl') }}</label>
+              <input
+                v-model="lingdongBaseUrl"
+                type="text"
+                class="input"
+                data-testid="create-lingdong-base-url"
+                :placeholder="t('admin.accounts.videoProvider.lingdongBaseUrlPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongUpstreamModel') }}</label>
+              <input
+                v-model="lingdongUpstreamModel"
+                type="text"
+                class="input"
+                data-testid="create-lingdong-upstream-model"
+                :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')"
+              />
+            </div>
+          </div>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -3909,6 +3963,10 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')
+const lingdongMappingEnabled = ref(false)
+const lingdongApiKey = ref('')
+const lingdongBaseUrl = ref('')
+const lingdongUpstreamModel = ref('')
 const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
@@ -4899,6 +4957,10 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   seedanceVideoProvider.value = 'fflink'
+  lingdongMappingEnabled.value = false
+  lingdongApiKey.value = ''
+  lingdongBaseUrl.value = ''
+  lingdongUpstreamModel.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   upstreamDeclaredRateInput.value = ''
   newapiAccessTokenInput.value = ''
@@ -5358,6 +5420,15 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.videoModelMappingRequired'))
     return
   }
+  if (
+    form.platform === 'seedance' &&
+    seedanceVideoProvider.value === 'weijin' &&
+    lingdongMappingEnabled.value &&
+    !lingdongApiKey.value.trim()
+  ) {
+    appStore.showError(t('admin.accounts.videoProvider.lingdongApiKey'))
+    return
+  }
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
@@ -5366,6 +5437,23 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'seedance' || form.platform === 'minimax') {
     credentials.video_provider = seedanceVideoProvider.value
+  }
+  if (form.platform === 'seedance' && seedanceVideoProvider.value === 'weijin') {
+    credentials.lingdong_mapping_enabled = lingdongMappingEnabled.value
+    if (lingdongMappingEnabled.value) {
+      const key = lingdongApiKey.value.trim()
+      if (key) {
+        credentials.lingdong_api_key = key
+      }
+      const base = lingdongBaseUrl.value.trim()
+      if (base) {
+        credentials.lingdong_base_url = base
+      }
+      const model = lingdongUpstreamModel.value.trim()
+      if (model) {
+        credentials.lingdong_upstream_model = model
+      }
+    }
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value

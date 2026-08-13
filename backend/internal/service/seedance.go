@@ -80,6 +80,32 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 			}
 		}
 	}
+	// Admin-only Weijin -> Lingdong multi-modal mapping credentials.
+	if provider == VideoProviderWeijin {
+		mappingEnabled := false
+		if raw, exists := credentials[credentialLingdongMappingEnabled]; exists && raw != nil {
+			mappingEnabled = credentialTruthy(raw)
+		}
+		if mappingEnabled {
+			apiKey, _ := credentials[credentialLingdongAPIKey].(string)
+			if strings.TrimSpace(apiKey) == "" {
+				return infraerrors.BadRequest(
+					"LINGDONG_MAPPING_API_KEY_REQUIRED",
+					"enabling Lingdong mapping requires lingdong_api_key",
+				)
+			}
+		}
+		if raw, exists := credentials[credentialLingdongBaseURL]; exists && raw != nil {
+			if _, ok := raw.(string); !ok {
+				return infraerrors.BadRequest("LINGDONG_BASE_URL_INVALID", "lingdong_base_url must be a string")
+			}
+		}
+		if raw, exists := credentials[credentialLingdongUpstreamModel]; exists && raw != nil {
+			if _, ok := raw.(string); !ok {
+				return infraerrors.BadRequest("LINGDONG_UPSTREAM_MODEL_INVALID", "lingdong_upstream_model must be a string")
+			}
+		}
+	}
 	return nil
 }
 
@@ -1367,7 +1393,12 @@ func (s *OpenAIGatewayService) loadSeedanceIndexedJob(ctx context.Context, bindi
 	if upstreamJobID == "" {
 		upstreamJobID = binding.JobID
 	}
-	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, upstreamJobID, nil)
+	// Keep ldv1_ public ids so Weijin->Lingdong mapped tasks poll the right backend.
+	forwardJobID := upstreamJobID
+	if IsLingdongMappedSeedanceTaskID(binding.JobID) {
+		forwardJobID = strings.TrimSpace(binding.JobID)
+	}
+	forwarded, err := s.ForwardSeedance(ctx, nil, account, http.MethodGet, forwardJobID, nil)
 	if err != nil || forwarded == nil || len(forwarded.Body) == 0 {
 		return fallback
 	}
@@ -1756,6 +1787,8 @@ func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, e
 			provider := VideoProviderFFLink
 			if IsHuiquSeedanceTaskID(taskID) {
 				provider = VideoProviderHuiqu
+			} else if IsLingdongMappedSeedanceTaskID(taskID) {
+				provider = VideoProviderWeijin
 			}
 			normalizeSeedancePublicJob(job, taskID, provider, "")
 			filtered = append(filtered, item)
@@ -1769,6 +1802,9 @@ func NormalizeSeedanceJob(body []byte, taskID string) ([]byte, error) {
 	provider := VideoProviderFFLink
 	if IsHuiquSeedanceTaskID(taskID) {
 		provider = VideoProviderHuiqu
+	} else if IsLingdongMappedSeedanceTaskID(taskID) {
+		// Mapped tasks stay on the Weijin account surface; treat as opaque Weijin.
+		provider = VideoProviderWeijin
 	}
 	return NormalizeSeedanceJobForRoute(body, taskID, provider, "")
 }
@@ -1998,7 +2034,8 @@ func isHuiquSensitiveResponseKey(key string) bool {
 	switch normalized {
 	case "authorization", "apikey", "api_key", "accesskey", "access_key", "accesskeyid", "access_key_id",
 		"policy", "signedheaders", "signed_headers", "ossaccesskeyid", "model", "provider", "provider_name",
-		"video_provider", "provider_route", "provider_model", "upstream_model", "mapped_model", "model_mapping", "channel_model":
+		"video_provider", "provider_route", "provider_model", "upstream_model", "mapped_model", "model_mapping", "channel_model",
+		"lingdong_request", "lingdongrequest", "upstream_request", "upstreamrequest":
 		return true
 	default:
 		return false
@@ -2233,6 +2270,7 @@ func scrubSeedancePublicErrorMessage(message string) string {
 	msg := unwrapSeedanceNestedErrorMessage(message)
 	msg = strings.TrimSpace(redactHuiquSeedanceErrorText(msg))
 	msg = weijinPrivateNamePattern.ReplaceAllString(msg, "upstream provider")
+	msg = lingdongPrivateNamePattern.ReplaceAllString(msg, "upstream provider")
 	for i := 0; i < 5; i++ {
 		cleaned := seedanceVendorHTTPPrefixPattern.ReplaceAllString(msg, "")
 		cleaned = seedanceHTTPStatusPrefixPattern.ReplaceAllString(cleaned, "")
