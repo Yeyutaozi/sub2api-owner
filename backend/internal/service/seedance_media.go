@@ -595,7 +595,9 @@ func (s *SeedanceMediaService) MaterializeImages(ctx context.Context, owner Seed
 	info.StoredMedia = nil
 	directHTTP := isHuiquVideoModel(info.Model)
 	_, fallbackEligible := SeedanceFallbackModelFor(info.Model, info.Resolution, info.DurationSeconds)
-	includeVideoAudio := fallbackEligible || isXimeiVideoModel(info.Model)
+	// Face-ref models may map to Lingdong for video refs; materialize videos so
+	// PrepareLingdongPublicMedia can strip-signed COS URLs without re-fetch.
+	includeVideoAudio := fallbackEligible || isXimeiVideoModel(info.Model) || isWeijinVideoModel(info.Model)
 	for _, target := range seedanceRequestMediaTargets(info, includeVideoAudio) {
 		if target.url == nil || strings.TrimSpace(*target.url) == "" {
 			continue
