@@ -55,6 +55,7 @@
               type="checkbox"
               class="mt-1"
               data-testid="edit-lingdong-mapping-enabled"
+              @change="onLingdongMappingEnabledChange"
             />
             <div>
               <label for="edit-lingdong-mapping-enabled" class="input-label !mb-0">
@@ -98,6 +99,55 @@
                 data-testid="edit-lingdong-upstream-model"
                 :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')"
               />
+              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongUpstreamModelHint') }}</p>
+            </div>
+            <div data-testid="edit-lingdong-model-mapping">
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <label class="input-label !mb-0">{{ t('admin.accounts.videoProvider.lingdongModelMapping') }}</label>
+                <button
+                  type="button"
+                  class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                  data-testid="edit-lingdong-model-mapping-add"
+                  @click="addLingdongModelMappingRow"
+                >
+                  {{ t('admin.accounts.videoProvider.lingdongModelMappingAdd') }}
+                </button>
+              </div>
+              <p class="input-hint mb-2">{{ t('admin.accounts.videoProvider.lingdongModelMappingHint') }}</p>
+              <div v-if="lingdongModelMappings.length === 0" class="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-dark-500 dark:text-gray-400">
+                {{ t('admin.accounts.videoProvider.lingdongModelMappingEmpty') }}
+              </div>
+              <div v-else class="space-y-2">
+                <div
+                  v-for="(row, index) in lingdongModelMappings"
+                  :key="index"
+                  class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2"
+                >
+                  <input
+                    v-model="row.from"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingFromPlaceholder')"
+                    :data-testid="`edit-lingdong-model-mapping-from-${index}`"
+                  />
+                  <span class="text-xs text-gray-400">→</span>
+                  <input
+                    v-model="row.to"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingToPlaceholder')"
+                    :data-testid="`edit-lingdong-model-mapping-to-${index}`"
+                  />
+                  <button
+                    type="button"
+                    class="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    :data-testid="`edit-lingdong-model-mapping-remove-${index}`"
+                    @click="removeLingdongModelMappingRow(index)"
+                  >
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2919,6 +2969,48 @@ const lingdongApiKey = ref('')
 const lingdongBaseUrl = ref('')
 const lingdongUpstreamModel = ref('')
 const hasExistingLingdongApiKey = ref(false)
+type LingdongModelMappingRow = { from: string; to: string }
+const lingdongModelMappings = ref<LingdongModelMappingRow[]>([])
+
+const defaultLingdongModelMappings = (): LingdongModelMappingRow[] => [
+  { from: 'seedance2.0-one-face-reference-720p', to: 'sora-v3-pro' },
+]
+
+const parseLingdongModelMappings = (raw: unknown): LingdongModelMappingRow[] => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  return Object.entries(raw as Record<string, unknown>)
+    .map(([from, to]) => ({
+      from: String(from || '').trim(),
+      to: typeof to === 'string' ? to.trim() : String(to ?? '').trim(),
+    }))
+    .filter((row) => row.from || row.to)
+}
+
+const buildLingdongModelMappingPayload = (): Record<string, string> | null => {
+  const out: Record<string, string> = {}
+  for (const row of lingdongModelMappings.value) {
+    const from = row.from.trim().toLowerCase()
+    const to = row.to.trim()
+    if (!from && !to) continue
+    if (!from || !to) return null
+    out[from] = to
+  }
+  return out
+}
+
+const addLingdongModelMappingRow = () => {
+  lingdongModelMappings.value.push({ from: '', to: lingdongUpstreamModel.value.trim() || 'sora-v3-pro' })
+}
+
+const removeLingdongModelMappingRow = (index: number) => {
+  lingdongModelMappings.value.splice(index, 1)
+}
+
+const onLingdongMappingEnabledChange = () => {
+  if (lingdongMappingEnabled.value && lingdongModelMappings.value.length === 0) {
+    lingdongModelMappings.value = defaultLingdongModelMappings()
+  }
+}
 const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
@@ -3538,18 +3630,36 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     seedanceVideoProvider.value = 'fflink'
   }
   initialSeedanceVideoProvider.value = seedanceVideoProvider.value
-  lingdongMappingEnabled.value = credentials?.lingdong_mapping_enabled === true
+  lingdongMappingEnabled.value =
+    credentials?.lingdong_mapping_enabled === true || credentials?.pixelle_mapping_enabled === true
   lingdongApiKey.value = ''
   lingdongBaseUrl.value =
-    typeof credentials?.lingdong_base_url === 'string' ? credentials.lingdong_base_url.trim() : ''
+    typeof credentials?.pixelle_base_url === 'string' && credentials.pixelle_base_url.trim()
+      ? credentials.pixelle_base_url.trim()
+      : typeof credentials?.lingdong_base_url === 'string'
+        ? credentials.lingdong_base_url.trim()
+        : ''
   lingdongUpstreamModel.value =
-    typeof credentials?.lingdong_upstream_model === 'string'
-      ? credentials.lingdong_upstream_model.trim()
-      : ''
+    typeof credentials?.pixelle_upstream_model === 'string' && credentials.pixelle_upstream_model.trim()
+      ? credentials.pixelle_upstream_model.trim()
+      : typeof credentials?.lingdong_upstream_model === 'string'
+        ? credentials.lingdong_upstream_model.trim()
+        : ''
+  const loadedMapping = parseLingdongModelMappings(
+    credentials?.pixelle_model_mapping ?? credentials?.lingdong_model_mapping,
+  )
+  lingdongModelMappings.value =
+    loadedMapping.length > 0
+      ? loadedMapping
+      : lingdongMappingEnabled.value
+        ? defaultLingdongModelMappings()
+        : []
   hasExistingLingdongApiKey.value =
     newAccount.credentials_status?.has_lingdong_api_key === true ||
+    newAccount.credentials_status?.has_pixelle_api_key === true ||
     Boolean(
-      typeof credentials?.lingdong_api_key === 'string' && credentials.lingdong_api_key.trim()
+      (typeof credentials?.lingdong_api_key === 'string' && credentials.lingdong_api_key.trim()) ||
+        (typeof credentials?.pixelle_api_key === 'string' && credentials.pixelle_api_key.trim()),
     )
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
@@ -4427,37 +4537,69 @@ const handleSubmit = async () => {
       }
       if (props.account.platform === 'seedance' && seedanceVideoProvider.value === 'weijin') {
         newCredentials.lingdong_mapping_enabled = lingdongMappingEnabled.value
+        newCredentials.pixelle_mapping_enabled = lingdongMappingEnabled.value
         if (lingdongMappingEnabled.value) {
           const key = lingdongApiKey.value.trim()
           if (key) {
             newCredentials.lingdong_api_key = key
+            newCredentials.pixelle_api_key = key
           } else {
             // Keep existing sensitive key via backend merge when omitted.
             delete newCredentials.lingdong_api_key
+            delete newCredentials.pixelle_api_key
           }
           const base = lingdongBaseUrl.value.trim()
           if (base) {
             newCredentials.lingdong_base_url = base
+            newCredentials.pixelle_base_url = base
           } else {
             delete newCredentials.lingdong_base_url
+            delete newCredentials.pixelle_base_url
           }
           const model = lingdongUpstreamModel.value.trim()
           if (model) {
             newCredentials.lingdong_upstream_model = model
+            newCredentials.pixelle_upstream_model = model
           } else {
             delete newCredentials.lingdong_upstream_model
+            delete newCredentials.pixelle_upstream_model
+          }
+          const mapping = buildLingdongModelMappingPayload()
+          if (mapping === null) {
+            appStore.showError(t('admin.accounts.videoProvider.lingdongModelMappingInvalid'))
+            return
+          }
+          if (Object.keys(mapping).length > 0) {
+            newCredentials.lingdong_model_mapping = mapping
+            newCredentials.pixelle_model_mapping = mapping
+          } else {
+            // Empty mapping uses backend safe default (720p only).
+            newCredentials.lingdong_model_mapping = {}
+            newCredentials.pixelle_model_mapping = {}
           }
         } else {
           newCredentials.lingdong_mapping_enabled = false
+          newCredentials.pixelle_mapping_enabled = false
           delete newCredentials.lingdong_api_key
+          delete newCredentials.pixelle_api_key
           delete newCredentials.lingdong_base_url
+          delete newCredentials.pixelle_base_url
           delete newCredentials.lingdong_upstream_model
+          delete newCredentials.pixelle_upstream_model
+          delete newCredentials.lingdong_model_mapping
+          delete newCredentials.pixelle_model_mapping
         }
       } else {
         delete newCredentials.lingdong_mapping_enabled
+        delete newCredentials.pixelle_mapping_enabled
         delete newCredentials.lingdong_api_key
+        delete newCredentials.pixelle_api_key
         delete newCredentials.lingdong_base_url
+        delete newCredentials.pixelle_base_url
         delete newCredentials.lingdong_upstream_model
+        delete newCredentials.pixelle_upstream_model
+        delete newCredentials.lingdong_model_mapping
+        delete newCredentials.pixelle_model_mapping
       }
 
       // Handle API key

@@ -120,6 +120,78 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "pixelle", route)
+
+	// Empty mapping: 480p multi-modal is not allowed (safe default protects margin).
+	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	})
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
+	require.Contains(t, string(upstreamErr.Body), "扩展上游映射")
+
+	// Empty mapping: 720p multi-modal still allowed.
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "pixelle", route)
+
+	// Explicit mapping can enable 480p if admin chooses (and picks upstream model).
+	mapped.Credentials[credentialPixelleModelMapping] = map[string]any{
+		SeedanceWeijinFaceRef480pModel: "sora-v3-fast",
+		SeedanceWeijinFaceRef720pModel: "sora-v3-pro",
+	}
+	route, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/a.png"}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "pixelle", route)
+	up, ok := mapped.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef480pModel)
+	require.True(t, ok)
+	require.Equal(t, "sora-v3-fast", up)
+	up, ok = mapped.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef720pModel)
+	require.True(t, ok)
+	require.Equal(t, "sora-v3-pro", up)
+
+	// Explicit mapping without a public model entry rejects multi-modal.
+	mapped.Credentials[credentialPixelleModelMapping] = map[string]any{
+		SeedanceWeijinFaceRef720pModel: "sora-v3-pro",
+	}
+	_, err = decideWeijinSeedanceRoute(mapped, &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef480pModel,
+		Prompt:          "hello",
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/v1.mp4"}},
+	})
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Contains(t, string(upstreamErr.Body), "扩展上游映射")
+}
+
+func TestResolveLingdongMappedUpstreamModel(t *testing.T) {
+	acc := weijinAccountWithLingdongMapping(true, "sk_ld")
+	up, ok := acc.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef720pModel)
+	require.True(t, ok)
+	require.Equal(t, DefaultLingdongUpstreamModel, up)
+	_, ok = acc.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef480pModel)
+	require.False(t, ok)
+
+	acc.Credentials[credentialPixelleUpstreamModel] = "sora-v3-pro"
+	acc.Credentials[credentialPixelleModelMapping] = map[string]any{
+		SeedanceWeijinFaceRef480pModel: "cheap-model",
+	}
+	up, ok = acc.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef480pModel)
+	require.True(t, ok)
+	require.Equal(t, "cheap-model", up)
+	_, ok = acc.ResolveLingdongMappedUpstreamModel(SeedanceWeijinFaceRef720pModel)
+	require.False(t, ok)
 }
 
 func TestBuildLingdongVideoCreateRequestTruncatesVideosAndIncludesAudio(t *testing.T) {

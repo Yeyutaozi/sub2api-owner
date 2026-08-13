@@ -1209,6 +1209,7 @@
               v-model="lingdongMappingEnabled"
               type="checkbox"
               class="mt-1"
+              @change="onLingdongMappingEnabledChange"
               data-testid="create-lingdong-mapping-enabled"
             />
             <div>
@@ -1249,6 +1250,29 @@
                 data-testid="create-lingdong-upstream-model"
                 :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')"
               />
+              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongUpstreamModelHint') }}</p>
+            </div>
+            <div data-testid="create-lingdong-model-mapping">
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <label class="input-label !mb-0">{{ t('admin.accounts.videoProvider.lingdongModelMapping') }}</label>
+                <button type="button" class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400" data-testid="create-lingdong-model-mapping-add" @click="addLingdongModelMappingRow">
+                  {{ t('admin.accounts.videoProvider.lingdongModelMappingAdd') }}
+                </button>
+              </div>
+              <p class="input-hint mb-2">{{ t('admin.accounts.videoProvider.lingdongModelMappingHint') }}</p>
+              <div v-if="lingdongModelMappings.length === 0" class="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-dark-500 dark:text-gray-400">
+                {{ t('admin.accounts.videoProvider.lingdongModelMappingEmpty') }}
+              </div>
+              <div v-else class="space-y-2">
+                <div v-for="(row, index) in lingdongModelMappings" :key="index" class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                  <input v-model="row.from" type="text" class="input" :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingFromPlaceholder')" :data-testid="`create-lingdong-model-mapping-from-${index}`" />
+                  <span class="text-xs text-gray-400">→</span>
+                  <input v-model="row.to" type="text" class="input" :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingToPlaceholder')" :data-testid="`create-lingdong-model-mapping-to-${index}`" />
+                  <button type="button" class="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20" :data-testid="`create-lingdong-model-mapping-remove-${index}`" @click="removeLingdongModelMappingRow(index)">
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -3967,6 +3991,35 @@ const lingdongMappingEnabled = ref(false)
 const lingdongApiKey = ref('')
 const lingdongBaseUrl = ref('')
 const lingdongUpstreamModel = ref('')
+type LingdongModelMappingRow = { from: string; to: string }
+const lingdongModelMappings = ref<LingdongModelMappingRow[]>([
+  { from: 'seedance2.0-one-face-reference-720p', to: 'sora-v3-pro' },
+])
+const defaultLingdongModelMappings = (): LingdongModelMappingRow[] => [
+  { from: 'seedance2.0-one-face-reference-720p', to: 'sora-v3-pro' },
+]
+const buildLingdongModelMappingPayload = (): Record<string, string> | null => {
+  const out: Record<string, string> = {}
+  for (const row of lingdongModelMappings.value) {
+    const from = row.from.trim().toLowerCase()
+    const to = row.to.trim()
+    if (!from && !to) continue
+    if (!from || !to) return null
+    out[from] = to
+  }
+  return out
+}
+const addLingdongModelMappingRow = () => {
+  lingdongModelMappings.value.push({ from: '', to: lingdongUpstreamModel.value.trim() || 'sora-v3-pro' })
+}
+const removeLingdongModelMappingRow = (index: number) => {
+  lingdongModelMappings.value.splice(index, 1)
+}
+const onLingdongMappingEnabledChange = () => {
+  if (lingdongMappingEnabled.value && lingdongModelMappings.value.length === 0) {
+    lingdongModelMappings.value = defaultLingdongModelMappings()
+  }
+}
 const seedanceProviderBaseUrl = computed(() =>
   getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
 )
@@ -5440,19 +5493,30 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'seedance' && seedanceVideoProvider.value === 'weijin') {
     credentials.lingdong_mapping_enabled = lingdongMappingEnabled.value
+    credentials.pixelle_mapping_enabled = lingdongMappingEnabled.value
     if (lingdongMappingEnabled.value) {
       const key = lingdongApiKey.value.trim()
       if (key) {
         credentials.lingdong_api_key = key
+        credentials.pixelle_api_key = key
       }
       const base = lingdongBaseUrl.value.trim()
       if (base) {
         credentials.lingdong_base_url = base
+        credentials.pixelle_base_url = base
       }
       const model = lingdongUpstreamModel.value.trim()
       if (model) {
         credentials.lingdong_upstream_model = model
+        credentials.pixelle_upstream_model = model
       }
+      const mapping = buildLingdongModelMappingPayload()
+      if (mapping === null) {
+        appStore.showError(t('admin.accounts.videoProvider.lingdongModelMappingInvalid'))
+        return
+      }
+      credentials.lingdong_model_mapping = mapping
+      credentials.pixelle_model_mapping = mapping
     }
   }
   if (form.platform === 'gemini') {

@@ -122,6 +122,15 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 				}
 			}
 		}
+		for _, key := range []string{credentialPixelleModelMapping, credentialLingdongModelMapping} {
+			if raw, exists := credentials[key]; exists && raw != nil {
+				if _, ok := raw.(map[string]any); !ok {
+					if _, ok := raw.(map[string]string); !ok {
+						return infraerrors.BadRequest("MULTIMODAL_MODEL_MAPPING_INVALID", key+" must be an object of request_model -> upstream_model")
+					}
+				}
+			}
+		}
 	}
 	return nil
 }

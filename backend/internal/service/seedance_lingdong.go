@@ -30,6 +30,9 @@ const (
 	credentialPixelleAPIKey          = "pixelle_api_key"
 	credentialPixelleBaseURL         = "pixelle_base_url"
 	credentialPixelleUpstreamModel   = "pixelle_upstream_model"
+	// public request model -> extension upstream model (e.g. 720p -> sora-v3-pro).
+	credentialPixelleModelMapping    = "pixelle_model_mapping"
+	credentialLingdongModelMapping   = "lingdong_model_mapping"
 
 	DefaultLingdongVideoBaseURL     = "https://api.pixellelabs.com"
 	DefaultLingdongUpstreamModel    = "sora-v3-pro"
@@ -43,6 +46,8 @@ const (
 	lingdongMaxAudioReferences      = 3
 	lingdongMaxTotalReferences      = 12
 	lingdongAudioRequiresImageMsg   = "使用音频参考时必须同时提供至少一张参考图"
+	// Multi-modal extension is opt-in per public request model via model mapping.
+	lingdongModelNotMappedMsg = "当前模型未配置扩展上游映射，无法使用参考视频/音频；请移除后重试，或改用已配置映射的模型"
 	lingdongAudioComplianceMessage  = "音频涉嫌侵权，或音频格式/大小不合规，请移除参考音频后重试"
 	lingdongVideoUnavailableMessage = "当前渠道暂不支持参考视频/音频，请移除后重试，或联系管理员开通扩展能力"
 	lingdongMappingMisconfiguredMsg = "扩展参考视频/音频能力未正确配置，请联系管理员"
@@ -158,6 +163,49 @@ func (a *Account) GetLingdongUpstreamModel() string {
 	return DefaultLingdongUpstreamModel
 }
 
+// GetLingdongModelMapping returns public request model -> extension upstream model.
+// Empty map means "use safe defaults" (see ResolveLingdongMappedUpstreamModel).
+func (a *Account) GetLingdongModelMapping() map[string]string {
+	if a == nil || a.Credentials == nil {
+		return map[string]string{}
+	}
+	for _, key := range []string{credentialPixelleModelMapping, credentialLingdongModelMapping} {
+		if raw, ok := a.Credentials[key]; ok && raw != nil {
+			if mapping := stringMappingFromRaw(raw); len(mapping) > 0 {
+				return mapping
+			}
+		}
+	}
+	return map[string]string{}
+}
+
+// ResolveLingdongMappedUpstreamModel decides whether a public request model may
+// use the multi-modal extension upstream, and which upstream model to call.
+//
+// Rules:
+//  1. Explicit pixelle/lingdong_model_mapping wins (only listed public models).
+//  2. When mapping is empty, only seedance2.0-one-face-reference-720p (or empty
+//     model for legacy callers) maps to GetLingdongUpstreamModel(). This prevents
+//     cheap 480p sell prices from silently using expensive multi-modal cost.
+func (a *Account) ResolveLingdongMappedUpstreamModel(publicModel string) (upstream string, ok bool) {
+	publicModel = strings.ToLower(strings.TrimSpace(publicModel))
+	mapping := a.GetLingdongModelMapping()
+	if len(mapping) > 0 {
+		upstream = strings.TrimSpace(mapping[publicModel])
+		if upstream == "" {
+			return "", false
+		}
+		return upstream, true
+	}
+	switch publicModel {
+	case "", SeedanceWeijinFaceRef720pModel:
+		return a.GetLingdongUpstreamModel(), true
+	default:
+		return "", false
+	}
+}
+
+
 // IsLingdongMappingReady reports whether the admin enabled mapping and supplied
 // a usable API key. Base URL falls back to the default when omitted.
 func (a *Account) IsLingdongMappingReady() bool {
@@ -235,6 +283,10 @@ func decideWeijinSeedanceRoute(account *Account, info *SeedanceRequestInfo) (rou
 			return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongMappingMisconfiguredMsg)
 		}
 		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongVideoUnavailableMessage)
+	}
+	// Only public models configured for extension mapping may use multi-modal.
+	if _, ok := account.ResolveLingdongMappedUpstreamModel(info.Model); !ok {
+		return "", seedanceVideoReferenceUnavailableUpstreamError(lingdongModelNotMappedMsg)
 	}
 	// Pixelle requires at least one image when audio references are present.
 	if hasAudio && len(weijinImageURLs(info)) == 0 {
@@ -421,10 +473,17 @@ func (s *OpenAIGatewayService) forwardLingdongMappedSeedance(
 	path := lingdongVideoCreatePath
 	var requestBody []byte
 	requestModel := ""
-	upstreamModel := account.GetLingdongUpstreamModel()
+	publicModel := ""
+	if requestInfo != nil {
+		publicModel = requestInfo.Model
+	}
+	upstreamModel, mappedOK := account.ResolveLingdongMappedUpstreamModel(publicModel)
 	if method == http.MethodPost {
 		if requestInfo == nil {
 			return nil, errors.New("Seedance create request is required")
+		}
+		if !mappedOK {
+			return nil, seedanceVideoReferenceUnavailableUpstreamError(lingdongModelNotMappedMsg)
 		}
 		requestModel = requestInfo.Model
 		// Validate public model constraints via the same weijin model checker.
