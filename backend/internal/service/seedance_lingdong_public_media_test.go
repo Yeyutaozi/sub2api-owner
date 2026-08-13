@@ -20,9 +20,24 @@ func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
+	// Bare public-read COS is fine for general proxy checks (not Lingdong).
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://litter.catbox.moe/example.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://files.catbox.moe/example.mp4"))
+}
+
+func TestSeedanceMediaURLNeedsLingdongRehost(t *testing.T) {
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/inputs/staged/1/2/sdupl_x.png?X-Amz-Signature=abc"))
+	// Bare COS must rehost for Lingdong — upstream silently drops these hosts.
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/2/a.png"))
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
+	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://litter.catbox.moe/example.png"))
+	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://files.catbox.moe/example.mp4"))
+	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://httpbin.org/image/png"))
+	require.True(t, seedanceMediaURLIsCloudObjectStorage("https://bucket.s3.amazonaws.com/key"))
+	require.False(t, seedanceMediaURLIsCloudObjectStorage("https://litter.catbox.moe/a.png"))
 }
 
 func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
@@ -37,23 +52,20 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	vidKey := "seedance/inputs/staged/9/8/sdupl_vid1.mp4"
 	memory.objects[imgKey] = []byte("png-bytes")
 	memory.objects[vidKey] = []byte("mp4-bytes")
-
-	store := &seedanceMediaDirectReadStore{
-		seedanceMediaMemoryStore: memory,
-		result: &AgentArtifactObjectReadResult{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"image/png"}},
-			Body:       io.NopCloser(strings.NewReader("png-bytes")),
-		},
-	}
-	// Dynamic body per key for OpenPublicMedia.
-	store.result = nil
-	// custom ReadObject via wrapper below - override by using anonymous approach:
-	// Re-create store with ReadObject that looks up objects.
 	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
 
 	svc := NewSeedanceMediaService(readStore, nil, redisClient)
 	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
+	// Force deterministic third-party rehost (no network).
+	var rehostCalls int
+	svc.lingdongRehostFn = func(ctx context.Context, filename, contentType string, payload []byte) (string, error) {
+		rehostCalls++
+		require.NotEmpty(t, payload)
+		if strings.HasSuffix(filename, ".mp4") || strings.Contains(contentType, "video") {
+			return "https://litter.catbox.moe/rehosted-vid.mp4", nil
+		}
+		return fmt.Sprintf("https://litter.catbox.moe/rehosted-%d.png", rehostCalls), nil
+	}
 
 	now := time.Now().UTC()
 	require.NoError(t, svc.saveRecord(context.Background(), seedanceUploadRecordPrefix+"sdupl_vid1", seedanceMediaRecord{
@@ -85,79 +97,69 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 
 	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
 	require.NoError(t, err)
-	require.Nil(t, extra)
+	_ = extra
 
-	// Signed COS/S3 URLs are stripped in-place (public-read bucket fast path).
-	require.Equal(t, "https://seedance-test.cos.ap-hongkong.myqcloud.com/"+imgKey, info.References[0].URL)
+	// COS must be rehosted away from myqcloud, not merely stripped.
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://litter.catbox.moe/"), info.References[0].URL)
+	require.NotContains(t, info.References[0].URL, "myqcloud.com")
 	require.NotContains(t, info.References[0].URL, "X-Amz-Signature")
 	require.Equal(t, publicCatbox, info.References[1].URL)
-	// Managed uploads still resolve through storage and become unsigned public object URLs.
-	require.True(t, strings.HasPrefix(info.VideoReferences[0].URL, "https://cos.example.com/"), info.VideoReferences[0].URL)
-	require.NotContains(t, info.VideoReferences[0].URL, "X-Amz-Signature")
+	require.Equal(t, "https://litter.catbox.moe/rehosted-vid.mp4", info.VideoReferences[0].URL)
 	require.Equal(t, "https://files.catbox.moe/keep-vid.mp4", info.VideoReferences[1].URL)
 	require.Equal(t, "https://files.catbox.moe/third.mp4", info.VideoReferences[2].URL)
+	require.GreaterOrEqual(t, rehostCalls, 2)
 
-	// Lingdong create body keeps rewritten media and truncates videos to 2.
 	body, err := buildLingdongVideoCreateRequest(info, DefaultLingdongUpstreamModel)
 	require.NoError(t, err)
-	require.Contains(t, string(body), "seedance-test.cos.ap-hongkong.myqcloud.com")
-	require.Contains(t, string(body), "cos.example.com")
+	require.NotContains(t, string(body), "myqcloud.com")
+	require.NotContains(t, string(body), "cos.example.com")
+	require.Contains(t, string(body), "litter.catbox.moe")
 	require.Contains(t, string(body), publicCatbox)
 	require.NotContains(t, string(body), "X-Amz-Signature")
 	require.NotContains(t, string(body), "/v1/videos/public-media/")
+	// videos truncated to 2
+	require.Contains(t, string(body), "keep-vid.mp4")
 	require.NotContains(t, string(body), "third.mp4")
 }
 
-func TestPrepareLingdongPublicMediaStripsSignedCOSQuery(t *testing.T) {
-	mini := miniredis.RunT(t)
-	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
-	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
-	svc := NewSeedanceMediaService(newSeedanceMediaMemoryStore(), nil, redisClient)
-	owner := SeedanceMediaOwner{UserID: 1, APIKeyID: 2, GroupID: 3}
-	signed := "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/341/sdupl_x.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef"
-	info := &SeedanceRequestInfo{
-		Model: SeedanceWeijinFaceRef720pModel, Prompt: "strip", DurationSeconds: 5,
-		Resolution: VideoBillingResolution720P, AspectRatio: "16:9",
-		References: []SeedanceReferenceImage{{URL: signed}},
-		VideoReferences: []SeedanceReferenceVideo{{URL: "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/a.mp4?X-Amz-Signature=abc"}},
-	}
-	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
-	require.NoError(t, err)
-	require.Nil(t, extra)
-	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/341/sdupl_x.png", info.References[0].URL)
-	require.Equal(t, "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/a.mp4", info.VideoReferences[0].URL)
-}
-
-func TestPrepareLingdongPublicMediaUsesPublicReadObject(t *testing.T) {
+func TestPrepareLingdongPublicMediaRehostsSignedCOS(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
 	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
 
 	memory := newSeedanceMediaMemoryStore()
-	memory.bucket = "seedance-test"
+	memory.bucket = "zntcenter-1326757433"
 	memory.provider = "cos"
-	imgKey := "seedance/inputs/staged/9/8/sdupl_img_public.png"
-	memory.objects[imgKey] = []byte("png-public")
+	imgKey := "agent-artifacts/seedance/inputs/staged/1/2/sdupl_x.png"
+	vidKey := "agent-artifacts/seedance/inputs/staged/1/2/a.mp4"
+	// object key must belong to owner for own-URL resolve
+	imgKey = "seedance/inputs/staged/1/2/sdupl_x.png"
+	vidKey = "seedance/inputs/staged/1/2/a.mp4"
+	memory.objects[imgKey] = []byte("png")
+	memory.objects[vidKey] = []byte("mp4")
 	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
-
 	svc := NewSeedanceMediaService(readStore, nil, redisClient)
-	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
-	cosImage := "https://seedance-test.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef"
+	owner := SeedanceMediaOwner{UserID: 1, APIKeyID: 2, GroupID: 3}
+	svc.lingdongRehostFn = func(ctx context.Context, filename, contentType string, payload []byte) (string, error) {
+		if strings.Contains(contentType, "video") || strings.HasSuffix(filename, ".mp4") {
+			return "https://litter.catbox.moe/vid.mp4", nil
+		}
+		return "https://litter.catbox.moe/img.png", nil
+	}
+
+	signed := "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef"
 	info := &SeedanceRequestInfo{
-		Model:           SeedanceWeijinFaceRef720pModel,
-		Prompt:          "public cos",
-		DurationSeconds: 5,
-		Resolution:      VideoBillingResolution720P,
-		AspectRatio:     "16:9",
-		References:      []SeedanceReferenceImage{{URL: cosImage}},
+		Model: SeedanceWeijinFaceRef720pModel, Prompt: "strip", DurationSeconds: 5,
+		Resolution: VideoBillingResolution720P, AspectRatio: "16:9",
+		References:      []SeedanceReferenceImage{{URL: signed}},
+		VideoReferences: []SeedanceReferenceVideo{{URL: "https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/" + vidKey + "?X-Amz-Signature=abc"}},
 	}
 	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
 	require.NoError(t, err)
-	// No temporary materialization needed when only stripping signatures.
-	require.Nil(t, extra)
-	require.Equal(t, "https://seedance-test.cos.ap-hongkong.myqcloud.com/"+imgKey, info.References[0].URL)
-	require.NotContains(t, info.References[0].URL, "X-Amz-Signature")
-	require.NotContains(t, info.References[0].URL, "/v1/videos/public-media/")
+	_ = extra
+	require.Equal(t, "https://litter.catbox.moe/img.png", info.References[0].URL)
+	require.Equal(t, "https://litter.catbox.moe/vid.mp4", info.VideoReferences[0].URL)
+	require.NotContains(t, info.References[0].URL, "myqcloud")
 }
 
 func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) {
@@ -168,50 +170,29 @@ func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) 
 	memory := newSeedanceMediaMemoryStore()
 	memory.bucket = "seedance-test"
 	memory.provider = "cos"
-	imgKey := "seedance/inputs/staged/9/8/sdupl_img_fallback.png"
-	memory.objects[imgKey] = []byte("png-fallback")
-	failStore := &seedanceFailPublicRehostStore{seedancePublicMediaReadStore: &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}}
+	imgKey := "seedance/inputs/staged/9/8/sdupl_img_fail.png"
+	memory.objects[imgKey] = []byte("png-fail")
+	readStore := &seedanceFailPublicRehostStore{seedancePublicMediaReadStore: &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}}
 
-	svc := NewSeedanceMediaService(failStore, nil, redisClient)
-	svc.lingdongRehostFn = func(context.Context, string, string, []byte) (string, error) {
-		return "", fmt.Errorf("rehost unavailable")
-	}
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
 	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
-	// Managed upload cannot strip signatures in-place; it must resolve via storage
-	// then rehost. With presign/put/rehost all failing, fail loud (no public-media).
-	now := time.Now().UTC()
-	require.NoError(t, svc.saveRecord(context.Background(), seedanceUploadRecordPrefix+"sdupl_fail1", seedanceMediaRecord{
-		ID: "sdupl_fail1", UserID: 9, APIKeyID: 8, GroupID: 7,
-		StorageProvider: "cos", Bucket: "seedance-test",
-		ObjectKey: imgKey, ContentType: "image/png", SizeBytes: 12, ExpiresAt: now.Add(time.Hour),
-	}, time.Hour))
-	managed := "https://tkcreazy.top/v1/videos/uploads/sdupl_fail1"
+	svc.lingdongRehostFn = func(ctx context.Context, filename, contentType string, payload []byte) (string, error) {
+		return "", fmt.Errorf("third-party unavailable")
+	}
+	cosImage := "https://seedance-test.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Signature=deadbeef"
 	info := &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef720pModel,
-		Prompt:          "fallback",
+		Prompt:          "fail",
 		DurationSeconds: 5,
 		Resolution:      VideoBillingResolution720P,
 		AspectRatio:     "16:9",
-		References:      []SeedanceReferenceImage{{URL: managed}},
+		References:      []SeedanceReferenceImage{{URL: cosImage}},
 	}
 	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
 	require.Error(t, err)
 	require.Nil(t, extra)
-	// Must not silently fall back to gateway public-media for Lingdong upstream.
 	require.False(t, strings.Contains(info.References[0].URL, "/v1/videos/public-media/"), info.References[0].URL)
 	require.Contains(t, strings.ToLower(err.Error()), "rehost")
-}
-
-type seedanceFailPublicRehostStore struct {
-	*seedancePublicMediaReadStore
-}
-
-func (s *seedanceFailPublicRehostStore) PresignGetObject(context.Context, AgentArtifactObjectLocation, time.Duration) (string, error) {
-	return "", fmt.Errorf("presign unavailable")
-}
-
-func (s *seedanceFailPublicRehostStore) Put(context.Context, AgentArtifactStorePutInput) (*AgentArtifactStorePutResult, error) {
-	return nil, fmt.Errorf("put unavailable")
 }
 
 func TestOpenPublicMediaStillServesInlineForProxyEndpoint(t *testing.T) {
@@ -247,6 +228,18 @@ func TestOpenPublicMediaStillServesInlineForProxyEndpoint(t *testing.T) {
 	payload, err := io.ReadAll(stream.Body)
 	require.NoError(t, err)
 	require.Equal(t, []byte("png-proxy"), payload)
+}
+
+type seedanceFailPublicRehostStore struct {
+	*seedancePublicMediaReadStore
+}
+
+func (s *seedanceFailPublicRehostStore) PresignGetObject(context.Context, AgentArtifactObjectLocation, time.Duration) (string, error) {
+	return "", fmt.Errorf("presign unavailable")
+}
+
+func (s *seedanceFailPublicRehostStore) Put(context.Context, AgentArtifactStorePutInput) (*AgentArtifactStorePutResult, error) {
+	return nil, fmt.Errorf("put unavailable")
 }
 
 type seedancePublicMediaReadStore struct {
