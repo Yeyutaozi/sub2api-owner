@@ -289,6 +289,15 @@ func RegisterGatewayRoutes(
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
 	}
 	// API网关（Claude API兼容）
+	// No-auth Seedance media proxy for upstream vendors that cannot fetch
+	// private COS signatures or authenticated managed upload URLs.
+	publicSeedanceMedia := r.Group("/v1/videos")
+	publicSeedanceMedia.Use(bodyLimit)
+	publicSeedanceMedia.Use(clientRequestID)
+	publicSeedanceMedia.Use(opsErrorLogger)
+	publicSeedanceMedia.Use(endpointNorm)
+	publicSeedanceMedia.GET("/public-media/:token", h.OpenAIGateway.SeedancePublicMediaContent)
+
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
 	gateway.Use(clientRequestID)

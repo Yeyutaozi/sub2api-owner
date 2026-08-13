@@ -134,6 +134,10 @@ func (a *Account) IsLingdongMappingReady() bool {
 	return a != nil && a.IsLingdongMappingEnabled() && a.GetLingdongAPIKey() != ""
 }
 
+func SeedanceRequestHasVideoReferences(info *SeedanceRequestInfo) bool {
+	return seedanceRequestHasVideoReferences(info)
+}
+
 func seedanceRequestHasVideoReferences(info *SeedanceRequestInfo) bool {
 	if info == nil {
 		return false
@@ -144,6 +148,10 @@ func seedanceRequestHasVideoReferences(info *SeedanceRequestInfo) bool {
 		}
 	}
 	return false
+}
+
+func SeedanceRequestHasAudioReferences(info *SeedanceRequestInfo) bool {
+	return seedanceRequestHasAudioReferences(info)
 }
 
 func seedanceRequestHasAudioReferences(info *SeedanceRequestInfo) bool {

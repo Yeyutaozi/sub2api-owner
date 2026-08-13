@@ -220,6 +220,36 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				return
 			}
 		}
+		// When Weijin face-ref traffic is mapped to Lingdong, rewrite COS signed /
+		// auth-gated managed media into short-lived public proxy URLs. Lingdong
+		// silently drops myqcloud signed URLs and cannot call authenticated upload paths.
+		if account.IsWeijinVideo() && account.IsLingdongMappingReady() &&
+			service.SeedanceRequestHasVideoReferences(activeRequestInfo) &&
+			!service.SeedanceRequestHasAudioReferences(activeRequestInfo) &&
+			h.seedanceMediaService != nil {
+			publicBase := seedanceAbsoluteURL(c, "")
+			lingdongMedia, prepErr := h.seedanceMediaService.PrepareLingdongPublicMedia(
+				c.Request.Context(),
+				seedanceMediaOwner(apiKey, subject),
+				activeRequestInfo,
+				publicBase,
+			)
+			if prepErr != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				writeSeedanceMediaError(c, prepErr)
+				return
+			}
+			if lingdongMedia != nil {
+				// Temporary rehosts must survive beyond this request so the mapped
+				// upstream can still download them; settlement cleanup uses StoredMedia.
+				lingdongMedia.Retain()
+				if updatedCleanup, snapErr := service.SnapshotSeedanceTaskMediaCleanup(activeRequestInfo); snapErr == nil {
+					mediaCleanupSnapshot = updatedCleanup
+				}
+			}
+		}
 		accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
 		if !accountAcquired {
 			return
@@ -571,6 +601,19 @@ func (h *OpenAIGatewayHandler) SeedanceUploadedImageContent(c *gin.Context) {
 	}
 	defer mediaRelease()
 	stream, err := h.seedanceMediaService.OpenManagedUpload(c.Request.Context(), owner, c.Param("upload_id"), c.GetHeader("Range"))
+	if err != nil {
+		writeSeedanceMediaError(c, err)
+		return
+	}
+	h.writeSeedanceMediaStream(c, stream)
+}
+
+func (h *OpenAIGatewayHandler) SeedancePublicMediaContent(c *gin.Context) {
+	if h.seedanceMediaService == nil || !h.seedanceMediaService.SupportsManagedUploads() {
+		seedanceError(c, http.StatusServiceUnavailable, "media_storage_not_configured", "Seedance media storage is not configured")
+		return
+	}
+	stream, err := h.seedanceMediaService.OpenPublicMedia(c.Request.Context(), c.Param("token"), c.GetHeader("Range"))
 	if err != nil {
 		writeSeedanceMediaError(c, err)
 		return

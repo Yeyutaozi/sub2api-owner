@@ -26,6 +26,7 @@ const (
 	SeedanceOfficialUploadsEndpoint = "/api/v3/contents/generations/uploads"
 	SeedancePublicJobsEndpoint      = "/v1/videos/jobs"
 	SeedancePublicUploadsEndpoint   = "/v1/videos/uploads"
+	SeedancePublicMediaEndpoint     = "/v1/videos/public-media"
 	DefaultSeedanceBaseURL          = "https://api.fflink.top"
 	seedanceUpstreamCreatePath      = "/v1/videos/generations"
 	seedanceUpstreamJobsPath        = "/v1/videos/jobs"

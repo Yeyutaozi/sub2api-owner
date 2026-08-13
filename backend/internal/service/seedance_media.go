@@ -53,10 +53,12 @@ const (
 )
 
 const (
-	seedanceUploadRecordPrefix = "seedance:media:upload:"
-	seedanceOutputRecordPrefix = "seedance:media:output:"
-	seedanceOutputLockPrefix   = "seedance:media:archive-lock:"
-	seedanceMediaIOPrefix      = "seedance:media:io:"
+	seedanceUploadRecordPrefix      = "seedance:media:upload:"
+	seedanceOutputRecordPrefix      = "seedance:media:output:"
+	seedanceOutputLockPrefix        = "seedance:media:archive-lock:"
+	seedanceMediaIOPrefix           = "seedance:media:io:"
+	seedancePublicMediaRecordPrefix = "seedance:media:public:"
+	seedancePublicMediaTTL          = 2 * time.Hour
 )
 
 const (
@@ -1540,14 +1542,26 @@ func validateSeedanceMP4(file *os.File, size int64) error {
 }
 
 func managedSeedanceUploadID(value string) string {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return ""
+	}
+	// Accept absolute URLs and path-only managed upload references.
+	if strings.HasPrefix(value, "/") {
+		value = "https://local.invalid" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = parsed.Path
 	}
 	prefixes := []string{SeedanceOfficialUploadsEndpoint + "/", SeedancePublicUploadsEndpoint + "/"}
 	prefix := ""
 	for _, candidate := range prefixes {
-		if strings.HasPrefix(parsed.EscapedPath(), candidate) {
+		if strings.HasPrefix(path, candidate) {
 			prefix = candidate
 			break
 		}
@@ -1555,7 +1569,7 @@ func managedSeedanceUploadID(value string) string {
 	if prefix == "" {
 		return ""
 	}
-	id, err := url.PathUnescape(strings.TrimPrefix(parsed.EscapedPath(), prefix))
+	id, err := url.PathUnescape(strings.TrimPrefix(path, prefix))
 	if err != nil || strings.Contains(id, "/") || !strings.HasPrefix(id, "sdupl_") {
 		return ""
 	}
@@ -1659,4 +1673,270 @@ func isBlockedSeedanceMediaIP(ip net.IP) bool {
 		}
 	}
 	return false
+}
+
+type seedancePublicMediaRecord struct {
+	StorageProvider string    `json:"storage_provider"`
+	Bucket          string    `json:"bucket"`
+	ObjectKey       string    `json:"object_key"`
+	ContentType     string    `json:"content_type,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+func (r seedancePublicMediaRecord) location() AgentArtifactObjectLocation {
+	return AgentArtifactObjectLocation{
+		StorageProvider: r.StorageProvider,
+		Bucket:          r.Bucket,
+		ObjectKey:       r.ObjectKey,
+	}
+}
+
+// seedanceMediaURLNeedsPublicProxy reports whether an upstream vendor is known to
+// reject or silently drop this media URL (private COS signatures / managed auth paths).
+func seedanceMediaURLNeedsPublicProxy(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	if managedSeedanceUploadID(source) != "" {
+		return true
+	}
+	lower := strings.ToLower(source)
+	if strings.Contains(lower, "myqcloud.com") {
+		return true
+	}
+	if strings.Contains(lower, "x-amz-signature=") ||
+		strings.Contains(lower, "x-amz-algorithm=") ||
+		strings.Contains(lower, "x-amz-credential=") {
+		return true
+	}
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return strings.HasPrefix(source, SeedancePublicUploadsEndpoint+"/") ||
+			strings.HasPrefix(source, SeedanceOfficialUploadsEndpoint+"/")
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = parsed.Path
+	}
+	if strings.HasPrefix(path, SeedancePublicUploadsEndpoint+"/") ||
+		strings.HasPrefix(path, SeedanceOfficialUploadsEndpoint+"/") {
+		return true
+	}
+	return false
+}
+
+func normalizeSeedancePublicBaseURL(publicBase string) string {
+	return strings.TrimRight(strings.TrimSpace(publicBase), "/")
+}
+
+func (s *SeedanceMediaService) IssuePublicMediaURL(
+	ctx context.Context,
+	publicBase string,
+	location AgentArtifactObjectLocation,
+	contentType string,
+) (string, error) {
+	if s == nil || s.redisClient == nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	publicBase = normalizeSeedancePublicBaseURL(publicBase)
+	if publicBase == "" {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "public media base URL is required")
+	}
+	objectKey := strings.TrimSpace(location.ObjectKey)
+	if objectKey == "" {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "Seedance media object location is invalid")
+	}
+	token := "sdpub_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	expiresAt := s.currentTime().Add(seedancePublicMediaTTL)
+	record := seedancePublicMediaRecord{
+		StorageProvider: strings.TrimSpace(location.StorageProvider),
+		Bucket:          strings.TrimSpace(location.Bucket),
+		ObjectKey:       objectKey,
+		ContentType:     strings.TrimSpace(contentType),
+		ExpiresAt:       expiresAt,
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return "", err
+	}
+	if err := s.redisClient.Set(ctx, seedancePublicMediaRecordPrefix+token, payload, seedancePublicMediaTTL).Err(); err != nil {
+		return "", infraerrors.ServiceUnavailable("media_storage_error", "failed to issue public media token").WithCause(err)
+	}
+	return publicBase + SeedancePublicMediaEndpoint + "/" + url.PathEscape(token), nil
+}
+
+func (s *SeedanceMediaService) OpenPublicMedia(ctx context.Context, token, rangeHeader string) (*SeedanceMediaStream, error) {
+	if s == nil || s.redisClient == nil || !s.IsConfigured() {
+		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" || !strings.HasPrefix(token, "sdpub_") || strings.Contains(token, "/") {
+		return nil, infraerrors.NotFound("media_not_found", "public media token not found")
+	}
+	payload, err := s.redisClient.Get(ctx, seedancePublicMediaRecordPrefix+token).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, infraerrors.NotFound("media_not_found", "public media token not found")
+	}
+	if err != nil {
+		return nil, infraerrors.ServiceUnavailable("media_storage_error", "failed to load public media token").WithCause(err)
+	}
+	var record seedancePublicMediaRecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		_ = s.redisClient.Del(ctx, seedancePublicMediaRecordPrefix+token).Err()
+		return nil, infraerrors.NotFound("media_not_found", "public media token not found")
+	}
+	if strings.TrimSpace(record.ObjectKey) == "" {
+		return nil, infraerrors.NotFound("media_not_found", "public media token not found")
+	}
+	mediaRecord := seedanceMediaRecord{
+		StorageProvider: record.StorageProvider,
+		Bucket:          record.Bucket,
+		ObjectKey:       record.ObjectKey,
+		ContentType:     record.ContentType,
+	}
+	stream, err := s.openRecord(ctx, mediaRecord, rangeHeader)
+	if err != nil {
+		return nil, err
+	}
+	if stream != nil && stream.Header != nil && strings.TrimSpace(stream.Header.Get("Content-Type")) == "" && strings.TrimSpace(record.ContentType) != "" {
+		stream.Header.Set("Content-Type", record.ContentType)
+	}
+	return stream, nil
+}
+
+func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	source, mediaKind string,
+) (seedanceMediaRecord, bool, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return seedanceMediaRecord{}, false, nil
+	}
+	if uploadID := managedSeedanceUploadID(source); uploadID != "" {
+		record, err := s.loadManagedUpload(ctx, owner, uploadID)
+		if err != nil {
+			return seedanceMediaRecord{}, false, err
+		}
+		if mediaKind != "" {
+			if storedKind := mediaKindFromContentType(record.ContentType); storedKind != "" && storedKind != mediaKind {
+				return seedanceMediaRecord{}, false, infraerrors.BadRequest("invalid_media_type", fmt.Sprintf("reference media must be a %s type", mediaKind))
+			}
+		}
+		return record, false, nil
+	}
+	if location, ok := s.seedanceObjectLocationFromOwnURL(owner, source); ok {
+		contentType := ""
+		switch mediaKind {
+		case "image":
+			contentType = "image/png"
+		case "video":
+			contentType = "video/mp4"
+		case "audio":
+			contentType = "audio/mpeg"
+		}
+		return seedanceMediaRecord{
+			StorageProvider: location.StorageProvider,
+			Bucket:          location.Bucket,
+			ObjectKey:       location.ObjectKey,
+			ContentType:     contentType,
+		}, false, nil
+	}
+	if !seedanceMediaURLNeedsPublicProxy(source) {
+		return seedanceMediaRecord{}, false, nil
+	}
+	// Signed/private remote media that we cannot map to a stored object: rehost
+	// onto managed storage so the public proxy can stream it for upstream.
+	if !isSeedanceHTTPImageURL(source) {
+		return seedanceMediaRecord{}, false, infraerrors.BadRequest("invalid_media_url", "reference media URL must use HTTP(S) or a managed upload")
+	}
+	validated, err := validateSeedanceMediaRemoteURL(source)
+	if err != nil {
+		return seedanceMediaRecord{}, false, infraerrors.BadRequest("invalid_media_url", err.Error())
+	}
+	upload, err := s.fetchAndStoreReferenceMedia(ctx, owner, validated, mediaKind)
+	if err != nil {
+		return seedanceMediaRecord{}, false, err
+	}
+	return upload.record, true, nil
+}
+
+// PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
+// (COS signed URLs / auth-gated managed upload paths) into short-lived no-auth
+// public proxy URLs on this gateway. Already-public third-party URLs are left alone.
+func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	info *SeedanceRequestInfo,
+	publicBase string,
+) (*SeedanceMaterializedImages, error) {
+	if info == nil {
+		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
+	}
+	if s == nil || !s.IsConfigured() || s.redisClient == nil {
+		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
+	}
+	publicBase = normalizeSeedancePublicBaseURL(publicBase)
+	if publicBase == "" {
+		return nil, infraerrors.ServiceUnavailable("media_storage_error", "public media base URL is required")
+	}
+	materialized := &SeedanceMaterializedImages{service: s}
+	cleanupOnError := func(err error) (*SeedanceMaterializedImages, error) {
+		materialized.Cleanup(context.Background())
+		return nil, err
+	}
+
+	// Include videos for the mapped Lingdong path even when MaterializeImages
+	// skipped them (face-ref models are not ximei/fallback-eligible).
+	targets := seedanceRequestMediaTargets(info, true)
+	for _, target := range targets {
+		if target.url == nil {
+			continue
+		}
+		source := strings.TrimSpace(*target.url)
+		if source == "" {
+			continue
+		}
+		// Audio is rejected before Lingdong create; skip rewriting.
+		if target.kind == "audio" {
+			continue
+		}
+		if !seedanceMediaURLNeedsPublicProxy(source) {
+			continue
+		}
+		record, temporary, err := s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind)
+		if err != nil {
+			return cleanupOnError(err)
+		}
+		if strings.TrimSpace(record.ObjectKey) == "" {
+			// Needs proxy but could not resolve: leave URL as-is so upstream
+			// error surfaces rather than dropping the material silently.
+			continue
+		}
+		publicURL, err := s.IssuePublicMediaURL(ctx, publicBase, record.location(), record.ContentType)
+		if err != nil {
+			if temporary {
+				s.deleteObjectBestEffort(ctx, record.location())
+			}
+			return cleanupOnError(err)
+		}
+		*target.url = publicURL
+		if temporary {
+			location := record.location()
+			materialized.objects = append(materialized.objects, location)
+			info.StoredMedia = append(info.StoredMedia, SeedanceStoredMediaReference{
+				Slot:                  target.slot,
+				Index:                 target.index,
+				StorageProvider:       location.StorageProvider,
+				Bucket:                location.Bucket,
+				ObjectKey:             location.ObjectKey,
+				DeleteAfterSettlement: true,
+			})
+		}
+	}
+	if len(materialized.objects) == 0 {
+		return nil, nil
+	}
+	return materialized, nil
 }
