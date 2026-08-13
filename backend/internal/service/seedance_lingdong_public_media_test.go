@@ -21,6 +21,7 @@ func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
+	require.False(t, seedanceMediaURLNeedsPublicProxy("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://litter.catbox.moe/example.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://files.catbox.moe/example.mp4"))
 }
@@ -111,6 +112,39 @@ func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
 	require.NotContains(t, string(body), "myqcloud.com")
 	require.NotContains(t, string(body), "/v1/videos/public-media/")
 	require.NotContains(t, string(body), "third.mp4")
+}
+
+func TestPrepareLingdongPublicMediaUsesPublicReadObject(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+
+	memory := newSeedanceMediaMemoryStore()
+	memory.bucket = "seedance-test"
+	memory.provider = "cos"
+	imgKey := "seedance/inputs/staged/9/8/sdupl_img_public.png"
+	memory.objects[imgKey] = []byte("png-public")
+	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	// Force public-object path (no third-party rehost mock).
+	svc.lingdongRehostFn = nil
+	owner := SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7}
+	cosImage := "https://seedance-test.cos.ap-hongkong.myqcloud.com/" + imgKey + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef"
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		Prompt:          "public cos",
+		DurationSeconds: 5,
+		Resolution:      VideoBillingResolution720P,
+		AspectRatio:     "16:9",
+		References:      []SeedanceReferenceImage{{URL: cosImage}},
+	}
+	extra, err := svc.PrepareLingdongPublicMedia(context.Background(), owner, info, "https://tkcreazy.top")
+	require.NoError(t, err)
+	require.NotNil(t, extra)
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://public-rehost.example/seedance/public-rehost/"), info.References[0].URL)
+	require.NotContains(t, info.References[0].URL, "X-Amz-Signature")
+	require.NotContains(t, info.References[0].URL, "/v1/videos/public-media/")
 }
 
 func TestPrepareLingdongPublicMediaFailsLoudWhenRehostUnavailable(t *testing.T) {

@@ -892,10 +892,15 @@ func (s *seedanceMediaMemoryStore) Put(_ context.Context, input AgentArtifactSto
 		SizeBytes:   input.SizeBytes,
 		Metadata:    input.Metadata,
 	})
+	publicURL := "https://public-rehost.example/" + strings.TrimLeft(input.Key, "/")
+	if !input.PublicRead {
+		publicURL = ""
+	}
 	return &AgentArtifactStorePutResult{
 		Provider:  s.provider,
 		Bucket:    s.bucket,
 		ObjectKey: input.Key,
+		ObjectURL: publicURL,
 		SizeBytes: int64(len(body)),
 	}, nil
 }

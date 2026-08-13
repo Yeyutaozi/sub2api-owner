@@ -610,6 +610,9 @@ type AgentArtifactStorePutInput struct {
 	ContentType string
 	SizeBytes   int64
 	Metadata    map[string]string
+	// PublicRead requests object-level public-read ACL when the backend supports it.
+	// Used for Lingdong rehost so upstream can fetch without signed URLs.
+	PublicRead bool
 }
 
 type AgentArtifactStorePutResult struct {

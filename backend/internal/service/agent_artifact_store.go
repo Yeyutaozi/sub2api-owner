@@ -16,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -30,6 +31,8 @@ type AgentS3ArtifactStore struct {
 	bucket        string
 	prefix        string
 	publicBaseURL string
+	endpoint      string
+	region        string
 }
 
 type agentArtifactStorageSettings struct {
@@ -89,6 +92,8 @@ func newAgentS3ArtifactStore(storage agentArtifactStorageSettings) AgentArtifact
 		bucket:        storage.bucket,
 		prefix:        normalizeArtifactPrefix(storage.prefix),
 		publicBaseURL: storage.publicBaseURL,
+		endpoint:      storage.endpoint,
+		region:        storage.region,
 	}
 }
 
@@ -286,6 +291,11 @@ func (s *AgentS3ArtifactStore) Put(ctx context.Context, input AgentArtifactStore
 	if input.SizeBytes > 0 {
 		put.ContentLength = &input.SizeBytes
 	}
+	if input.PublicRead {
+		// Object-level public read so third-party upstreams (e.g. Lingdong) can fetch
+		// without signed query params. Bucket policy may still deny; callers should fallback.
+		put.ACL = types.ObjectCannedACLPublicRead
+	}
 	if _, err := s.client.PutObject(ctx, put); err != nil {
 		return nil, fmt.Errorf("put agent artifact: %w", err)
 	}
@@ -433,14 +443,30 @@ func (s *AgentS3ArtifactStore) fullKey(key string) string {
 }
 
 func (s *AgentS3ArtifactStore) objectURL(key string) string {
-	if s.publicBaseURL != "" {
-		escaped := strings.Split(key, "/")
-		for i := range escaped {
-			escaped[i] = url.PathEscape(escaped[i])
-		}
-		return s.publicBaseURL + "/" + strings.Join(escaped, "/")
+	escaped := strings.Split(key, "/")
+	for i := range escaped {
+		escaped[i] = url.PathEscape(escaped[i])
 	}
-	return fmt.Sprintf("%s://%s/%s", s.Provider(), s.bucket, key)
+	pathPart := strings.Join(escaped, "/")
+	if s.publicBaseURL != "" {
+		return s.publicBaseURL + "/" + pathPart
+	}
+	// Prefer HTTPS virtual-hosted style so public-read objects are fetchable by upstream.
+	endpoint := strings.TrimRight(strings.TrimSpace(s.endpoint), "/")
+	if endpoint != "" {
+		if parsed, err := url.Parse(endpoint); err == nil && parsed.Host != "" {
+			scheme := strings.TrimSpace(parsed.Scheme)
+			if scheme == "" {
+				scheme = "https"
+			}
+			bucket := strings.TrimSpace(s.bucket)
+			if bucket != "" {
+				return fmt.Sprintf("%s://%s.%s/%s", scheme, bucket, parsed.Host, pathPart)
+			}
+			return fmt.Sprintf("%s://%s/%s", scheme, parsed.Host, pathPart)
+		}
+	}
+	return fmt.Sprintf("%s://%s/%s", s.Provider(), s.bucket, pathPart)
 }
 
 type disabledAgentArtifactStore struct {
