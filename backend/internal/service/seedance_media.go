@@ -64,8 +64,9 @@ const (
 	// accepted for multi-modal image+video reference tasks; public-media proxy
 	// remains the fallback when rehost is unavailable.
 	seedanceLingdongRehostURL     = "https://litterbox.catbox.moe/resources/internals/api.php"
+	seedanceLingdongRehostURLAlt  = "https://0x0.st"
 	seedanceLingdongRehostTTL     = "24h"
-	seedanceLingdongRehostTimeout = 180 * time.Second
+	seedanceLingdongRehostTimeout = 45 * time.Second // per-file fail-fast; fall back to public-media
 )
 
 const (
@@ -1667,6 +1668,26 @@ func newSeedanceMediaHTTPClient() *http.Client {
 	return client
 }
 
+// newSeedanceLingdongRehostHTTPClient is used only for outbound uploads to
+// temporary public hosts. It intentionally skips the SSRF-hardened media fetch
+// transport: the destination host is fixed by us, and large multipart uploads
+// need longer header timeouts than reference fetches.
+func newSeedanceLingdongRehostHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: seedanceLingdongRehostTimeout,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 5 * time.Second,
+			MaxIdleConns:          20,
+			MaxIdleConnsPerHost:   4,
+			ForceAttemptHTTP2:     true,
+		},
+	}
+}
+
 func isBlockedSeedanceMediaIP(ip net.IP) bool {
 	address, ok := netip.AddrFromSlice(ip)
 	if !ok {
@@ -1885,9 +1906,9 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 // PrepareLingdongPublicMedia rewrites reference media that Lingdong cannot fetch
 // (COS signed URLs / auth-gated managed upload paths) into publicly fetchable
 // URLs. Preference order:
-//  1) already-public third-party URLs are left alone
-//  2) rehost media bytes onto temporary public hosting (litterbox)
-//  3) fall back to short-lived no-auth public-media proxy on this gateway
+//  1. already-public third-party URLs are left alone
+//  2. rehost media bytes onto temporary public hosting (litterbox)
+//  3. fall back to short-lived no-auth public-media proxy on this gateway
 func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
@@ -2068,9 +2089,6 @@ func (s *SeedanceMediaService) uploadLingdongLitterbox(
 	if s.lingdongRehostFn != nil {
 		return s.lingdongRehostFn(ctx, filename, contentType, payload)
 	}
-	if s.httpClient == nil {
-		return "", infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
-	}
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
 		filename = "media.bin"
@@ -2078,11 +2096,35 @@ func (s *SeedanceMediaService) uploadLingdongLitterbox(
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+
+	// Prefer litterbox (empirically accepted by Lingdong multi-modal refs).
+	if url, err := s.postLingdongRehostMultipart(ctx, seedanceLingdongRehostURL, filename, contentType, payload, true); err == nil {
+		return url, nil
+	}
+	// Secondary public host when litterbox is unreachable from the server region.
+	if url, err := s.postLingdongRehostMultipart(ctx, seedanceLingdongRehostURLAlt, filename, contentType, payload, false); err == nil {
+		return url, nil
+	}
+	return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream")
+}
+
+func (s *SeedanceMediaService) postLingdongRehostMultipart(
+	ctx context.Context,
+	endpoint, filename, contentType string,
+	payload []byte,
+	litterbox bool,
+) (string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	_ = writer.WriteField("reqtype", "fileupload")
-	_ = writer.WriteField("time", seedanceLingdongRehostTTL)
-	part, err := writer.CreateFormFile("fileToUpload", filename)
+	if litterbox {
+		_ = writer.WriteField("reqtype", "fileupload")
+		_ = writer.WriteField("time", seedanceLingdongRehostTTL)
+	}
+	fieldName := "file"
+	if litterbox {
+		fieldName = "fileToUpload"
+	}
+	part, err := writer.CreateFormFile(fieldName, filename)
 	if err != nil {
 		return "", err
 	}
@@ -2095,27 +2137,40 @@ func (s *SeedanceMediaService) uploadLingdongLitterbox(
 
 	reqCtx, cancel := context.WithTimeout(ctx, seedanceLingdongRehostTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, seedanceLingdongRehostURL, &body)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body.Bytes()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "text/plain, */*")
-	resp, err := s.httpClient.Do(req)
+	req.ContentLength = int64(body.Len())
+	client := newSeedanceLingdongRehostHTTPClient()
+	resp, err := client.Do(req)
 	if err != nil {
-		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream").WithCause(err)
+		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	text := strings.TrimSpace(string(raw))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", infraerrors.ServiceUnavailable("media_rehost_failed", fmt.Sprintf("temporary media rehost returned HTTP %d", resp.StatusCode))
+		return "", fmt.Errorf("rehost HTTP %d: %s", resp.StatusCode, truncateSeedanceLog(text, 120))
 	}
 	if !strings.HasPrefix(strings.ToLower(text), "http://") && !strings.HasPrefix(strings.ToLower(text), "https://") {
-		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "temporary media rehost did not return a public URL")
+		return "", fmt.Errorf("rehost did not return URL: %s", truncateSeedanceLog(text, 120))
+	}
+	if i := strings.IndexAny(text, "\r\n\t "); i >= 0 {
+		text = text[:i]
 	}
 	if !isSeedanceHTTPImageURL(text) {
-		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "temporary media rehost returned an invalid URL")
+		return "", fmt.Errorf("rehost returned invalid URL: %s", truncateSeedanceLog(text, 120))
 	}
 	return text, nil
+}
+
+func truncateSeedanceLog(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
