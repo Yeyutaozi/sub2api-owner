@@ -382,6 +382,7 @@
                     {{ t('creazyCanvas.works.download') }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">{{ t('creazyCanvas.works.reuse') }}</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">{{ t('creazyCanvas.tasks.copyPrompt') }}</button>
                   <button v-if="canDeleteWork(work)" type="button" class="btn btn-secondary btn-sm cc-task-delete" :disabled="deletingWorkId === String(work.id)" @click="removeWork(work)">
                     {{ t('creazyCanvas.works.delete') }}
                   </button>

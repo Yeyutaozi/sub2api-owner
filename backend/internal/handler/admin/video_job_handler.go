@@ -1,11 +1,14 @@
 package admin
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -14,11 +17,13 @@ import (
 
 // VideoJobHandler provides admin operations for video generation jobs.
 type VideoJobHandler struct {
-	gateway *service.OpenAIGatewayService
+	gateway    *service.OpenAIGatewayService
+	canvas     *service.CreazyCanvasService
+	imageTasks *service.ImageTaskService
 }
 
-func NewVideoJobHandler(gateway *service.OpenAIGatewayService) *VideoJobHandler {
-	return &VideoJobHandler{gateway: gateway}
+func NewVideoJobHandler(gateway *service.OpenAIGatewayService, canvas *service.CreazyCanvasService, imageTasks *service.ImageTaskService) *VideoJobHandler {
+	return &VideoJobHandler{gateway: gateway, canvas: canvas, imageTasks: imageTasks}
 }
 
 type adminVideoJobDTO struct {
@@ -56,6 +61,236 @@ type killVideoJobRequest struct {
 	Reason string `json:"reason"`
 }
 
+type adminImageJobDTO struct {
+	ID               int64          `json:"id"`
+	TaskID           string         `json:"task_id"`
+	UserID           int64          `json:"user_id"`
+	UserEmail        string         `json:"user_email"`
+	Username         string         `json:"username"`
+	APIKeyID         int64          `json:"api_key_id"`
+	APIKeyName       string         `json:"api_key_name"`
+	GroupID          *int64         `json:"group_id,omitempty"`
+	GroupName        string         `json:"group_name"`
+	Model            string         `json:"model"`
+	Status           string         `json:"status"`
+	GatewayType      string         `json:"gateway_type"`
+	GatewayRemoteID  string         `json:"gateway_remote_id"`
+	Prompt           string         `json:"prompt"`
+	Params           map[string]any `json:"params"`
+	PreviewURL       string         `json:"preview_url,omitempty"`
+	ObjectURL        string         `json:"object_url,omitempty"`
+	MimeType         string         `json:"mime_type,omitempty"`
+	SizeBytes        int64          `json:"size_bytes"`
+	ErrorMessage     string         `json:"error_message,omitempty"`
+	CanTerminate     bool           `json:"can_terminate"`
+	TerminationScope string         `json:"termination_scope"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+	ExpiresAt        string         `json:"expires_at"`
+}
+
+type terminateImageJobRequest struct {
+	Reason string `json:"reason"`
+}
+
+// ListImages GET /admin/image-jobs
+func (h *VideoJobHandler) ListImages(c *gin.Context) {
+	if h == nil || h.canvas == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image job admin is unavailable")
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	filters := service.CreazyCanvasAdminWorkFilters{
+		Status:      strings.TrimSpace(c.Query("status")),
+		GatewayType: strings.TrimSpace(c.Query("gateway_type")),
+		Search:      strings.TrimSpace(c.Query("search")),
+	}
+	if len(filters.Search) > 200 {
+		filters.Search = filters.Search[:200]
+	}
+	if raw := strings.TrimSpace(c.Query("active_only")); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid active_only")
+			return
+		}
+		filters.ActiveOnly = value
+	}
+	params := pagination.PaginationParams{
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    strings.TrimSpace(c.DefaultQuery("sort_by", "created_at")),
+		SortOrder: strings.TrimSpace(c.DefaultQuery("sort_order", pagination.SortOrderDesc)),
+	}
+	items, result, err := h.canvas.AdminListImageWorks(c.Request.Context(), params, filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]adminImageJobDTO, 0, len(items))
+	for i := range items {
+		out = append(out, toAdminImageJobDTO(&items[i]))
+	}
+	response.Paginated(c, out, result.Total, result.Page, result.PageSize)
+}
+
+// GetImage GET /admin/image-jobs/:id
+func (h *VideoJobHandler) GetImage(c *gin.Context) {
+	if h == nil || h.canvas == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image job admin is unavailable")
+		return
+	}
+	workID, ok := parseAdminImageWorkID(c)
+	if !ok {
+		return
+	}
+	work, err := h.canvas.AdminGetImageWork(c.Request.Context(), workID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, toAdminImageJobDTO(work))
+}
+
+// TerminateImage POST /admin/image-jobs/:id/terminate
+func (h *VideoJobHandler) TerminateImage(c *gin.Context) {
+	if h == nil || h.canvas == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image job admin is unavailable")
+		return
+	}
+	workID, ok := parseAdminImageWorkID(c)
+	if !ok {
+		return
+	}
+	var req terminateImageJobRequest
+	_ = c.ShouldBindJSON(&req)
+	work, err := h.canvas.AdminGetImageWork(c.Request.Context(), workID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if work.GatewayType == service.CreazyCanvasGatewayImageTask && work.GatewayRemoteID != "" && h.imageTasks != nil {
+		// The Redis task may have expired or completed between list and action. The
+		// canvas record remains authoritative for the admin desk, so cancellation
+		// is best-effort and local termination still proceeds.
+		_, _ = h.imageTasks.Cancel(c.Request.Context(), work.GatewayRemoteID, req.Reason)
+	}
+	work, err = h.canvas.AdminTerminateImageWork(c.Request.Context(), workID, req.Reason)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, toAdminImageJobDTO(work))
+}
+
+// ImageContent GET /admin/image-jobs/:id/content
+func (h *VideoJobHandler) ImageContent(c *gin.Context) {
+	if h == nil || h.canvas == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image job admin is unavailable")
+		return
+	}
+	workID, ok := parseAdminImageWorkID(c)
+	if !ok {
+		return
+	}
+	content, err := h.canvas.OpenAdminImageWorkContent(c.Request.Context(), workID, c.GetHeader("Range"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if content.RedirectURL != "" {
+		if strings.HasPrefix(content.RedirectURL, "data:") {
+			response.Success(c, gin.H{"url": content.RedirectURL, "source": "inline"})
+			return
+		}
+		c.Redirect(http.StatusFound, content.RedirectURL)
+		return
+	}
+	if content.Body != nil {
+		defer func() { _ = content.Body.Close() }()
+	}
+	status := content.StatusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if content.ContentType != "" {
+		c.Header("Content-Type", content.ContentType)
+	}
+	if content.ContentLength >= 0 {
+		c.Header("Content-Length", strconv.FormatInt(content.ContentLength, 10))
+	}
+	if content.Filename != "" {
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", content.Filename))
+	}
+	if content.Header != nil {
+		for _, key := range []string{"Accept-Ranges", "Content-Range", "ETag", "Last-Modified", "Cache-Control"} {
+			if value := content.Header.Get(key); value != "" {
+				c.Header(key, value)
+			}
+		}
+	}
+	c.Status(status)
+	if content.Body != nil {
+		_, _ = io.Copy(c.Writer, content.Body)
+	}
+}
+
+func parseAdminImageWorkID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid image job id")
+		return 0, false
+	}
+	return id, true
+}
+
+func toAdminImageJobDTO(item *service.CreazyCanvasAdminWork) adminImageJobDTO {
+	if item == nil {
+		return adminImageJobDTO{}
+	}
+	taskID := strings.TrimSpace(item.GatewayRemoteID)
+	if taskID == "" {
+		taskID = fmt.Sprintf("canvas-%d", item.ID)
+	}
+	status := strings.ToLower(strings.TrimSpace(item.Status))
+	canTerminate := status == service.CreazyCanvasWorkStatusCreated || status == service.CreazyCanvasWorkStatusQueued || status == service.CreazyCanvasWorkStatusRunning
+	scope := "local_record"
+	if item.GatewayType == service.CreazyCanvasGatewayImageTask && item.GatewayRemoteID != "" {
+		scope = "async_execution"
+	}
+	params := item.ParamsJSON
+	if params == nil {
+		params = map[string]any{}
+	}
+	return adminImageJobDTO{
+		ID:               item.ID,
+		TaskID:           taskID,
+		UserID:           item.UserID,
+		UserEmail:        item.UserEmail,
+		Username:         item.Username,
+		APIKeyID:         item.APIKeyID,
+		APIKeyName:       item.APIKeyName,
+		GroupID:          item.GroupID,
+		GroupName:        item.GroupName,
+		Model:            item.PublicModel,
+		Status:           item.Status,
+		GatewayType:      item.GatewayType,
+		GatewayRemoteID:  item.GatewayRemoteID,
+		Prompt:           item.Prompt,
+		Params:           params,
+		PreviewURL:       item.PreviewURL,
+		ObjectURL:        item.ObjectURL,
+		MimeType:         item.MimeType,
+		SizeBytes:        item.SizeBytes,
+		ErrorMessage:     item.ErrorMessage,
+		CanTerminate:     canTerminate,
+		TerminationScope: scope,
+		CreatedAt:        item.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:        item.UpdatedAt.UTC().Format(time.RFC3339),
+		ExpiresAt:        item.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+}
+
 // List GET /admin/video-jobs
 func (h *VideoJobHandler) List(c *gin.Context) {
 	if h == nil || h.gateway == nil {
@@ -64,10 +299,10 @@ func (h *VideoJobHandler) List(c *gin.Context) {
 	}
 	page, pageSize := response.ParsePagination(c)
 	filters := service.SeedanceTaskAdminFilters{
-		JobID:    strings.TrimSpace(c.Query("job_id")),
-		Status:   strings.TrimSpace(c.Query("status")),
-		Model:    strings.TrimSpace(c.Query("model")),
-		Search:   strings.TrimSpace(c.Query("search")),
+		JobID:  strings.TrimSpace(c.Query("job_id")),
+		Status: strings.TrimSpace(c.Query("status")),
+		Model:  strings.TrimSpace(c.Query("model")),
+		Search: strings.TrimSpace(c.Query("search")),
 	}
 	if len(filters.Search) > 200 {
 		filters.Search = filters.Search[:200]

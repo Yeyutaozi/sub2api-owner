@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -18,6 +19,7 @@ const (
 	ImageTaskStatusProcessing = "processing"
 	ImageTaskStatusCompleted  = "completed"
 	ImageTaskStatusFailed     = "failed"
+	ImageTaskStatusCanceled   = "canceled"
 
 	defaultImageTaskTTL              = 24 * time.Hour
 	defaultImageTaskExecutionTimeout = 30 * time.Minute
@@ -82,6 +84,8 @@ type ImageTaskService struct {
 	resolve          ImageStorageResolver
 	ttl              time.Duration
 	executionTimeout time.Duration
+	mu               sync.Mutex
+	cancels          map[string]context.CancelFunc
 }
 
 func NewImageTaskService(store ImageTaskStore) *ImageTaskService {
@@ -95,7 +99,7 @@ func NewImageTaskServiceWithOptions(store ImageTaskStore, ttl, executionTimeout 
 	if executionTimeout <= 0 {
 		executionTimeout = defaultImageTaskExecutionTimeout
 	}
-	return &ImageTaskService{store: store, ttl: ttl, executionTimeout: executionTimeout}
+	return &ImageTaskService{store: store, ttl: ttl, executionTimeout: executionTimeout, cancels: make(map[string]context.CancelFunc)}
 }
 
 // NewImageTaskServiceWithUploader 构造一个已启用的图片任务服务：结果会先经 uploader
@@ -187,6 +191,85 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 	return imageTaskToPublic(task), nil
 }
 
+func (s *ImageTaskService) RegisterCancel(id string, cancel context.CancelFunc) {
+	if s == nil || cancel == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.cancels == nil {
+		s.cancels = make(map[string]context.CancelFunc)
+	}
+	s.cancels[id] = cancel
+	s.mu.Unlock()
+}
+
+func (s *ImageTaskService) UnregisterCancel(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	delete(s.cancels, strings.TrimSpace(id))
+	s.mu.Unlock()
+}
+
+func (s *ImageTaskService) Cancel(ctx context.Context, id, reason string) (*ImageTask, error) {
+	if s == nil || s.store == nil {
+		return nil, ErrImageTaskUnavailable
+	}
+	id = strings.TrimSpace(id)
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "image task canceled by administrator"
+	}
+
+	s.mu.Lock()
+	task, err := s.store.Get(ctx, id)
+	if err != nil {
+		cancel := s.cancels[id]
+		delete(s.cancels, id)
+		s.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		if errors.Is(err, ErrImageTaskNotFound) {
+			return nil, ErrImageTaskNotFound
+		}
+		return nil, ErrImageTaskUnavailable.WithCause(err)
+	}
+	if task.Status != ImageTaskStatusProcessing {
+		s.mu.Unlock()
+		return imageTaskToPublic(task), nil
+	}
+	now := time.Now().UTC()
+	completedAt := now.Unix()
+	task.Status = ImageTaskStatusCanceled
+	task.HTTPStatus = http.StatusConflict
+	task.Result = nil
+	task.Error = imageTaskErrorJSON("canceled_error", reason)
+	task.CompletedAt = &completedAt
+	task.ExpiresAt = now.Add(s.ttl).Unix()
+	if err := s.store.Save(ctx, task, s.ttl); err != nil {
+		cancel := s.cancels[id]
+		delete(s.cancels, id)
+		s.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		return nil, ErrImageTaskUnavailable.WithCause(err)
+	}
+	cancel := s.cancels[id]
+	delete(s.cancels, id)
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return imageTaskToPublic(task), nil
+}
+
 func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
@@ -214,12 +297,17 @@ func (s *ImageTaskService) finish(ctx context.Context, id, status string, status
 	if s == nil || s.store == nil {
 		return ErrImageTaskUnavailable
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	task, err := s.store.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrImageTaskNotFound) {
 			return ErrImageTaskNotFound
 		}
 		return ErrImageTaskUnavailable.WithCause(err)
+	}
+	if task.Status != ImageTaskStatusProcessing {
+		return nil
 	}
 	now := time.Now().UTC()
 	completedAt := now.Unix()

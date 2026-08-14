@@ -62,6 +62,48 @@ type creazyCanvasWorkRepoStub struct {
 	works  map[int64]*CreazyCanvasWork
 }
 
+func (r *creazyCanvasWorkRepoStub) ListAdminImageWorks(_ context.Context, params pagination.PaginationParams, filters CreazyCanvasAdminWorkFilters) ([]CreazyCanvasAdminWork, *pagination.PaginationResult, error) {
+	out := make([]CreazyCanvasAdminWork, 0)
+	for _, work := range r.works {
+		if work.Kind != CreazyCanvasWorkKindImage || work.DeletedAt != nil {
+			continue
+		}
+		if filters.Status != "" && work.Status != filters.Status {
+			continue
+		}
+		if filters.GatewayType != "" && work.GatewayType != filters.GatewayType {
+			continue
+		}
+		if filters.ActiveOnly && isCreazyCanvasWorkTerminalStatus(work.Status) {
+			continue
+		}
+		if filters.Search != "" && !strings.Contains(strings.ToLower(work.Prompt+" "+work.PublicModel+" "+work.GatewayRemoteID), strings.ToLower(filters.Search)) {
+			continue
+		}
+		out = append(out, CreazyCanvasAdminWork{CreazyCanvasWork: *work, UserEmail: "owner@example.com", APIKeyName: "canvas-key"})
+	}
+	return out, &pagination.PaginationResult{Page: params.Page, PageSize: params.PageSize, Total: int64(len(out)), Pages: 1}, nil
+}
+
+func (r *creazyCanvasWorkRepoStub) GetAdminImageWork(_ context.Context, id int64) (*CreazyCanvasAdminWork, error) {
+	work := r.works[id]
+	if work == nil || work.Kind != CreazyCanvasWorkKindImage || work.DeletedAt != nil {
+		return nil, ErrCreazyCanvasWorkNotFound
+	}
+	return &CreazyCanvasAdminWork{CreazyCanvasWork: *work, UserEmail: "owner@example.com", APIKeyName: "canvas-key"}, nil
+}
+
+func (r *creazyCanvasWorkRepoStub) UpdateAdminImageWorkStatus(_ context.Context, id int64, status, errorMessage string) error {
+	work := r.works[id]
+	if work == nil || work.Kind != CreazyCanvasWorkKindImage || work.DeletedAt != nil {
+		return ErrCreazyCanvasWorkNotFound
+	}
+	work.Status = status
+	work.ErrorMessage = errorMessage
+	work.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
 func newCreazyCanvasWorkRepoStub() *creazyCanvasWorkRepoStub {
 	return &creazyCanvasWorkRepoStub{nextID: 1, works: make(map[int64]*CreazyCanvasWork)}
 }
@@ -160,6 +202,40 @@ func TestCreazyCanvasDeleteWorkOnlyAllowsTerminalTasks(t *testing.T) {
 	require.Nil(t, repo.works[1].DeletedAt)
 	require.NoError(t, svc.DeleteWork(context.Background(), 7, 2))
 	require.NotNil(t, repo.works[2].DeletedAt)
+}
+
+func TestCreazyCanvasAdminCanAuditAndTerminateImageWork(t *testing.T) {
+	repo := newCreazyCanvasWorkRepoStub()
+	repo.works[1] = &CreazyCanvasWork{
+		ID:              1,
+		UserID:          7,
+		APIKeyID:        9,
+		Kind:            CreazyCanvasWorkKindImage,
+		PublicModel:     "gpt-image-2",
+		Status:          CreazyCanvasWorkStatusRunning,
+		Prompt:          "audit this image",
+		GatewayType:     CreazyCanvasGatewayImageTask,
+		GatewayRemoteID: "imgtask_123",
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+	}
+	svc := NewCreazyCanvasService(repo, &creazyCanvasAPIKeyStub{}, nil, nil)
+
+	items, result, err := svc.AdminListImageWorks(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, CreazyCanvasAdminWorkFilters{ActiveOnly: true})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), result.Total)
+	require.Len(t, items, 1)
+	require.Equal(t, "owner@example.com", items[0].UserEmail)
+
+	terminated, err := svc.AdminTerminateImageWork(context.Background(), 1, "policy review")
+	require.NoError(t, err)
+	require.Equal(t, CreazyCanvasWorkStatusCanceled, terminated.Status)
+	require.Equal(t, "policy review", terminated.ErrorMessage)
+
+	completed := CreazyCanvasWorkStatusSucceeded
+	_, err = svc.UpdateWork(context.Background(), UpdateCreazyCanvasWorkInput{UserID: 7, WorkID: 1, Status: &completed})
+	require.ErrorIs(t, err, ErrCreazyCanvasWorkTerminated)
 }
 
 func creazyCanvasI64(v int64) *int64 { return &v }

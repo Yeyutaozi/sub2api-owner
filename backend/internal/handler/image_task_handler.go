@@ -107,6 +107,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskError(c, err)
 		return
 	}
+	h.tasks.RegisterCancel(task.ID, cancel)
 
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
 	c.Header("Cache-Control", "no-store")
@@ -222,6 +223,7 @@ func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) 
 
 func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, recorder *httptest.ResponseRecorder, cancel context.CancelFunc) {
 	defer cancel()
+	defer h.tasks.UnregisterCancel(taskID)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.L().Error("image_task.execution_panicked", zap.String("task_id", taskID), zap.Any("panic", recovered))

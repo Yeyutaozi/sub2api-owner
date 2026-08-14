@@ -156,6 +156,8 @@ export default {
     batchImage: '批量生图',
     creazyCanvas: 'Creazy 画布',
     videoJobs: '视频任务',
+    generationJobs: '生成任务',
+    imageJobs: '图片任务',
     usage: '使用记录',
     redeem: '兑换',
     affiliate: '邀请返利',

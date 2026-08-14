@@ -156,6 +156,8 @@ export default {
     batchImage: 'Batch Images',
     creazyCanvas: 'Creazy Canvas',
     videoJobs: 'Video Jobs',
+    generationJobs: 'Generation Jobs',
+    imageJobs: 'Image Jobs',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',

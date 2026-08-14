@@ -86,7 +86,7 @@ func RegisterAdminRoutes(
 
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
-	registerVideoJobRoutes(admin, h)
+		registerVideoJobRoutes(admin, h)
 
 		// Token 激励计划
 		registerTokenRewardRoutes(admin, h)
@@ -703,8 +703,6 @@ func registerSubscriptionRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.GET("/users/:id/subscriptions", h.Admin.Subscription.ListByUser)
 }
 
-
-
 func registerVideoJobRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	videoJobs := admin.Group("/video-jobs")
 	{
@@ -713,6 +711,14 @@ func registerVideoJobRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		videoJobs.POST("/:job_id/sync", h.Admin.VideoJob.Sync)
 		videoJobs.POST("/:job_id/kill", h.Admin.VideoJob.Kill)
 		videoJobs.POST("/:job_id/force-fail", h.Admin.VideoJob.ForceFail)
+	}
+
+	imageJobs := admin.Group("/image-jobs")
+	{
+		imageJobs.GET("", h.Admin.VideoJob.ListImages)
+		imageJobs.GET("/:id", h.Admin.VideoJob.GetImage)
+		imageJobs.GET("/:id/content", h.Admin.VideoJob.ImageContent)
+		imageJobs.POST("/:id/terminate", h.Admin.VideoJob.TerminateImage)
 	}
 }
 

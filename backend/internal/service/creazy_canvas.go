@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -42,9 +43,10 @@ const (
 )
 
 var (
-	ErrCreazyCanvasWorkNotFound  = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
-	ErrCreazyCanvasWorkActive    = infraerrors.BadRequest("CREAZY_CANVAS_WORK_ACTIVE", "运行中的任务不能删除")
-	ErrCreazyCanvasKeyNotAllowed = infraerrors.Forbidden("CREAZY_CANVAS_KEY_NOT_ALLOWED", "该 API Key 所属分组未开放 Creazy 画布")
+	ErrCreazyCanvasWorkNotFound   = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
+	ErrCreazyCanvasWorkActive     = infraerrors.BadRequest("CREAZY_CANVAS_WORK_ACTIVE", "运行中的任务不能删除")
+	ErrCreazyCanvasWorkTerminated = infraerrors.Conflict("CREAZY_CANVAS_WORK_TERMINATED", "任务已被管理员终止")
+	ErrCreazyCanvasKeyNotAllowed  = infraerrors.Forbidden("CREAZY_CANVAS_KEY_NOT_ALLOWED", "该 API Key 所属分组未开放 Creazy 画布")
 )
 
 type CreazyCanvasWork struct {
@@ -77,6 +79,21 @@ type CreazyCanvasWorkListFilters struct {
 	Kind     string
 	Status   string
 	APIKeyID *int64
+}
+
+type CreazyCanvasAdminWorkFilters struct {
+	Status      string
+	GatewayType string
+	Search      string
+	ActiveOnly  bool
+}
+
+type CreazyCanvasAdminWork struct {
+	CreazyCanvasWork
+	UserEmail  string
+	Username   string
+	APIKeyName string
+	GroupName  string
 }
 
 type CreateCreazyCanvasWorkInput struct {
@@ -230,6 +247,12 @@ type CreazyCanvasWorkRepository interface {
 	ListByUser(ctx context.Context, userID int64, params pagination.PaginationParams, filters CreazyCanvasWorkListFilters) ([]CreazyCanvasWork, *pagination.PaginationResult, error)
 	SoftDelete(ctx context.Context, id, userID int64) error
 	UpdateContentMeta(ctx context.Context, work *CreazyCanvasWork) error
+}
+
+type CreazyCanvasWorkAdminRepository interface {
+	ListAdminImageWorks(ctx context.Context, params pagination.PaginationParams, filters CreazyCanvasAdminWorkFilters) ([]CreazyCanvasAdminWork, *pagination.PaginationResult, error)
+	GetAdminImageWork(ctx context.Context, id int64) (*CreazyCanvasAdminWork, error)
+	UpdateAdminImageWorkStatus(ctx context.Context, id int64, status, errorMessage string) error
 }
 
 type CreazyCanvasAPIKeyService interface {
@@ -398,6 +421,9 @@ func (s *CreazyCanvasService) UpdateWork(ctx context.Context, input UpdateCreazy
 	if err != nil {
 		return nil, err
 	}
+	if strings.EqualFold(strings.TrimSpace(work.Status), CreazyCanvasWorkStatusCanceled) {
+		return nil, ErrCreazyCanvasWorkTerminated
+	}
 	if input.Status != nil {
 		status := strings.ToLower(strings.TrimSpace(*input.Status))
 		if status == "" {
@@ -449,6 +475,81 @@ func (s *CreazyCanvasService) UpdateWork(ctx context.Context, input UpdateCreazy
 	}
 	applyCreazyCanvasWorkView(work)
 	return work, nil
+}
+
+func (s *CreazyCanvasService) AdminListImageWorks(ctx context.Context, params pagination.PaginationParams, filters CreazyCanvasAdminWorkFilters) ([]CreazyCanvasAdminWork, *pagination.PaginationResult, error) {
+	repo, err := s.adminWorkRepo()
+	if err != nil {
+		return nil, nil, err
+	}
+	filters.Status = strings.ToLower(strings.TrimSpace(filters.Status))
+	filters.GatewayType = strings.ToLower(strings.TrimSpace(filters.GatewayType))
+	filters.Search = strings.TrimSpace(filters.Search)
+	items, result, err := repo.ListAdminImageWorks(ctx, params, filters)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range items {
+		applyCreazyCanvasWorkView(&items[i].CreazyCanvasWork)
+	}
+	return items, result, nil
+}
+
+func (s *CreazyCanvasService) AdminGetImageWork(ctx context.Context, workID int64) (*CreazyCanvasAdminWork, error) {
+	if workID <= 0 {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_WORK_ID_INVALID", "无效的作品 ID")
+	}
+	repo, err := s.adminWorkRepo()
+	if err != nil {
+		return nil, err
+	}
+	work, err := repo.GetAdminImageWork(ctx, workID)
+	if err != nil {
+		return nil, err
+	}
+	applyCreazyCanvasWorkView(&work.CreazyCanvasWork)
+	return work, nil
+}
+
+func (s *CreazyCanvasService) AdminTerminateImageWork(ctx context.Context, workID int64, reason string) (*CreazyCanvasAdminWork, error) {
+	work, err := s.AdminGetImageWork(ctx, workID)
+	if err != nil {
+		return nil, err
+	}
+	if isCreazyCanvasWorkTerminalStatus(work.Status) {
+		return work, nil
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "admin terminated image task"
+	}
+	repo, err := s.adminWorkRepo()
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.UpdateAdminImageWorkStatus(ctx, workID, CreazyCanvasWorkStatusCanceled, reason); err != nil {
+		return nil, err
+	}
+	return s.AdminGetImageWork(ctx, workID)
+}
+
+func (s *CreazyCanvasService) OpenAdminImageWorkContent(ctx context.Context, workID int64, rangeHeader string) (*CreazyCanvasWorkContent, error) {
+	work, err := s.AdminGetImageWork(ctx, workID)
+	if err != nil {
+		return nil, err
+	}
+	return s.OpenWorkContent(ctx, work.UserID, workID, rangeHeader)
+}
+
+func (s *CreazyCanvasService) adminWorkRepo() (CreazyCanvasWorkAdminRepository, error) {
+	if s == nil || s.workRepo == nil {
+		return nil, errors.New("creazy canvas admin repository is unavailable")
+	}
+	repo, ok := s.workRepo.(CreazyCanvasWorkAdminRepository)
+	if !ok || repo == nil {
+		return nil, errors.New("creazy canvas admin repository is unavailable")
+	}
+	return repo, nil
 }
 
 func (s *CreazyCanvasService) ListWorks(ctx context.Context, userID int64, params pagination.PaginationParams, filters CreazyCanvasWorkListFilters) ([]CreazyCanvasWork, *pagination.PaginationResult, error) {

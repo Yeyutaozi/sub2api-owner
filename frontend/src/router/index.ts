@@ -745,6 +745,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/image-jobs',
+    name: 'AdminImageJobs',
+    component: () => import('@/views/admin/ImageJobsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Image Jobs',
+      titleKey: 'admin.imageJobs.title',
+      descriptionKey: 'admin.imageJobs.description'
+    }
+  },
+  {
     path: '/admin/usage',
     name: 'AdminUsage',
     component: () => import('@/views/admin/UsageView.vue'),

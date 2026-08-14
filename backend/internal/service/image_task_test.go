@@ -82,6 +82,46 @@ func TestImageTaskServiceInvalidResultBecomesFailed(t *testing.T) {
 	require.Contains(t, string(got.Error), "non-JSON")
 }
 
+func TestImageTaskServiceAdminCancelStopsExecutionAndLocksTerminalState(t *testing.T) {
+	store := &imageTaskMemoryStore{}
+	svc := NewImageTaskServiceWithOptions(store, time.Hour, time.Minute)
+	created, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
+	require.NoError(t, err)
+
+	canceled := make(chan struct{})
+	svc.RegisterCancel(created.ID, func() { close(canceled) })
+	task, err := svc.Cancel(context.Background(), created.ID, "policy review")
+	require.NoError(t, err)
+	require.Equal(t, ImageTaskStatusCanceled, task.Status)
+	require.Contains(t, string(task.Error), "policy review")
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("registered image task cancel function was not called")
+	}
+
+	require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, json.RawMessage(`{"data":[{"url":"https://example.test/late.png"}]}`)))
+	got, err := svc.Get(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2}, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, ImageTaskStatusCanceled, got.Status)
+	require.Empty(t, got.ImageURL)
+}
+
+func TestImageTaskServiceAdminCancelStillStopsExecutionWhenStoreFails(t *testing.T) {
+	store := &imageTaskMemoryStore{getErr: errors.New("redis down")}
+	svc := NewImageTaskServiceWithOptions(store, time.Hour, time.Minute)
+	canceled := make(chan struct{})
+	svc.RegisterCancel("imgtask_missing", func() { close(canceled) })
+
+	_, err := svc.Cancel(context.Background(), "imgtask_missing", "policy review")
+	require.ErrorIs(t, err, ErrImageTaskUnavailable)
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("registered image task cancel function was not called after store failure")
+	}
+}
+
 func TestImageTaskServiceMapsStoreFailures(t *testing.T) {
 	store := &imageTaskMemoryStore{saveErr: errors.New("redis down")}
 	svc := NewImageTaskService(store)

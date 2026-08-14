@@ -2,10 +2,16 @@
   <AppLayout>
     <TablePageLayout>
       <template #intro>
-        <div class="desk-board__intro-copy">
-          <p class="page-kicker">VIDEO JOBS</p>
-          <h2 class="desk-board__title">{{ t('admin.videoJobs.title') }}</h2>
-          <p class="desk-board__sub">{{ t('admin.videoJobs.description') }}</p>
+        <div class="flex w-full flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="desk-board__intro-copy">
+            <p class="page-kicker">GENERATION JOBS</p>
+            <h2 class="desk-board__title">{{ t('admin.videoJobs.title') }}</h2>
+            <p class="desk-board__sub">{{ t('admin.videoJobs.description') }}</p>
+          </div>
+          <nav class="inline-flex w-fit border-b border-gray-200 dark:border-dark-600" :aria-label="t('admin.generationJobs.title')">
+            <RouterLink to="/admin/video-jobs" class="task-tab task-tab--active">{{ t('admin.generationJobs.video') }}</RouterLink>
+            <RouterLink to="/admin/image-jobs" class="task-tab">{{ t('admin.generationJobs.image') }}</RouterLink>
+          </nav>
         </div>
       </template>
 
@@ -324,6 +330,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -785,3 +792,13 @@ onMounted(() => {
   void loadJobs()
 })
 </script>
+
+<style scoped>
+.task-tab {
+  @apply border-b-2 border-transparent px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-white;
+}
+
+.task-tab--active {
+  @apply border-primary-600 text-primary-700 dark:border-primary-400 dark:text-primary-300;
+}
+</style>
