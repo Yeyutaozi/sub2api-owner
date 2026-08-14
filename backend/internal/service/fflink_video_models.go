@@ -115,17 +115,6 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 			return isXimeiVideoDurationSupported(SeedanceXimeiSD25Model, duration)
 		},
 	},
-	// Unofficial Ximei Seedance 2.5 channel (lajiao_pool). Media matrix same as official; ratios/prompt from upstream health.
-	SeedanceXimeiSD25UnofficialModel: {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: seedanceXimeiSD25DefaultDurationSeconds,
-		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
-		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1"),
-		PromptLimit:         5000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
-		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
-		ValidateDuration: func(duration int, _ string) bool {
-			return isXimeiVideoDurationSupported(SeedanceXimeiSD25UnofficialModel, duration)
-		},
-	},
 	SeedanceWeijinFaceRef480pModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P),
@@ -207,7 +196,6 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			SeedanceMX933FastModel,
 			SeedanceXimeiSD20Model,
 			SeedanceXimeiSD25Model,
-			SeedanceXimeiSD25UnofficialModel,
 			SeedanceWeijinFaceRef480pModel,
 			SeedanceWeijinFaceRef720pModel,
 		}

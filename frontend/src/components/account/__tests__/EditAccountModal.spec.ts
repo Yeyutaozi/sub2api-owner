@@ -413,8 +413,7 @@ describe('EditAccountModal', () => {
       api_key: 'sk_live_ximei',
       model_mapping: {
         'sd-2.0-mx933': 'sd-2.0-mx933',
-        'sd-2.5-mx': 'sd-2.5-mx',
-        'sd-2.5-mx-2000': 'sd-2.5-mx-2000'
+        'sd-2.5-mx': 'sd-2.5-mx'
       }
     })
   })

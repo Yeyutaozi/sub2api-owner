@@ -33,7 +33,7 @@ func TestXimeiVideoProviderRoutesOnlySupportedModels(t *testing.T) {
 	require.Equal(t, DefaultXimeiVideoBaseURL, account.GetSeedanceBaseURL())
 	require.True(t, account.IsModelSupported(SeedanceXimeiSD20Model))
 	require.True(t, account.IsModelSupported(SeedanceXimeiSD25Model))
-	require.True(t, account.IsModelSupported(SeedanceXimeiSD25UnofficialModel))
+	require.False(t, account.IsModelSupported("sd-2.5-mx-2000"))
 	require.False(t, account.IsModelSupported("seedance-2.0"))
 	require.False(t, account.IsModelSupported(SeedanceMX933Model))
 
@@ -50,7 +50,6 @@ func TestValidateXimeiVideoAccountConfiguration(t *testing.T) {
 		"model_mapping": map[string]any{
 			SeedanceXimeiSD20Model: SeedanceXimeiSD20Model,
 			SeedanceXimeiSD25Model: SeedanceXimeiSD25Model,
-			SeedanceXimeiSD25UnofficialModel: SeedanceXimeiSD25UnofficialModel,
 		},
 	}))
 	require.Error(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeOAuth, map[string]any{
@@ -72,9 +71,8 @@ func TestXimeiProductMappingUsesModelAndResolution(t *testing.T) {
 		mode       ximeiDurationMode
 	}{
 		{SeedanceXimeiSD20Model, VideoBillingResolution480P, "kele_pool", ximeiDurationParameter},
-		{SeedanceXimeiSD20Model, VideoBillingResolution720P, "tc_pool", ximeiDurationPrompt},
-		{SeedanceXimeiSD25Model, VideoBillingResolution720P, "nangua_pool", ximeiDurationParameter},
-		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, "lajiao_pool", ximeiDurationParameter},
+		{SeedanceXimeiSD20Model, VideoBillingResolution720P, "yuni_pool", ximeiDurationParameter},
+		{SeedanceXimeiSD25Model, VideoBillingResolution720P, "yingtao_pool", ximeiDurationParameter},
 	}
 	for _, test := range tests {
 		product, err := ximeiVideoProductFor(test.model, test.resolution)
@@ -87,8 +85,6 @@ func TestXimeiProductMappingUsesModelAndResolution(t *testing.T) {
 		{SeedanceXimeiSD20Model, VideoBillingResolution1080P},
 		{SeedanceXimeiSD25Model, VideoBillingResolution480P},
 		{SeedanceXimeiSD25Model, VideoBillingResolution1080P},
-		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution480P},
-		{SeedanceXimeiSD25UnofficialModel, VideoBillingResolution1080P},
 	} {
 		_, err := ximeiVideoProductFor(test.model, test.resolution)
 		require.Error(t, err)
@@ -112,12 +108,12 @@ func TestBuildXimeiRequestCompilesRouteFramesDurationAndMedia(t *testing.T) {
 
 	body, route, err := buildXimeiVideoCreateRequest(request)
 	require.NoError(t, err)
-	require.Equal(t, "tc_pool", route)
+	require.Equal(t, "yuni_pool", route)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(body, &payload))
 	require.Equal(t, "video", payload["model"])
-	require.Equal(t, "tc_pool", payload["provider_route"])
-	require.Equal(t, "auto", payload["duration"])
+	require.Equal(t, "yuni_pool", payload["provider_route"])
+	require.Equal(t, "10", payload["duration"])
 	require.Equal(t, "9:16", payload["aspect_ratio"])
 	require.Equal(t, true, payload["generate_audio"])
 	// 参考图在前，首尾帧追加到末尾
@@ -196,12 +192,12 @@ func TestBuildXimeiParameterizedRequestWritesExactDurationString(t *testing.T) {
 		route      string
 	}{
 		{"SD 2.0 480p 5 seconds", SeedanceXimeiSD20Model, VideoBillingResolution480P, 5, "kele_pool"},
-		{"SD 2.5 720p 5 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 5, "nangua_pool"},
-		{"SD 2.5 720p 10 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 10, "nangua_pool"},
-		{"SD 2.5 720p 15 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 15, "nangua_pool"},
-		{"SD 2.5 720p 30 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 30, "nangua_pool"},
-		{"SD 2.5 unofficial 720p 5 seconds", SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, 5, "lajiao_pool"},
-		{"SD 2.5 unofficial 720p 30 seconds", SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P, 30, "lajiao_pool"},
+		{"SD 2.0 720p 10 seconds", SeedanceXimeiSD20Model, VideoBillingResolution720P, 10, "yuni_pool"},
+		{"SD 2.0 720p 15 seconds", SeedanceXimeiSD20Model, VideoBillingResolution720P, 15, "yuni_pool"},
+		{"SD 2.5 720p 5 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 5, "yingtao_pool"},
+		{"SD 2.5 720p 10 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 10, "yingtao_pool"},
+		{"SD 2.5 720p 15 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 15, "yingtao_pool"},
+		{"SD 2.5 720p 30 seconds", SeedanceXimeiSD25Model, VideoBillingResolution720P, 30, "yingtao_pool"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, route, err := buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
@@ -340,7 +336,7 @@ func TestBuildXimeiRequestRequiresAndBoundsMediaDurations(t *testing.T) {
 }
 
 func TestForwardXimeiCreateKeepsUpstreamTaskPrivate(t *testing.T) {
-	upstream := &huiquCapturingUpstream{status: http.StatusAccepted, reply: `{"task_id":"cstask_test_123","status":"queued","provider_route":"tc_pool"}`}
+	upstream := &huiquCapturingUpstream{status: http.StatusAccepted, reply: `{"task_id":"cstask_test_123","status":"queued","provider_route":"yuni_pool"}`}
 	gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
 	account := &Account{
 		ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
@@ -364,7 +360,7 @@ func TestForwardXimeiCreateKeepsUpstreamTaskPrivate(t *testing.T) {
 	require.True(t, strings.HasPrefix(response.Result.ResponseID, "vidjob_"))
 	require.NotContains(t, response.Result.ResponseID, "cstask")
 	require.Equal(t, "cstask_test_123", response.Result.UpstreamResponseID)
-	require.Equal(t, "tc_pool", response.Result.UpstreamModel)
+	require.Equal(t, "yuni_pool", response.Result.UpstreamModel)
 	require.Equal(t, DefaultXimeiVideoBaseURL+ximeiVideoCreatePath, upstream.request.URL.String())
 	require.Equal(t, "Bearer sk_live_secret", upstream.request.Header.Get("Authorization"))
 	platformKey := upstream.request.Header.Get("Idempotency-Key")
@@ -374,8 +370,8 @@ func TestForwardXimeiCreateKeepsUpstreamTaskPrivate(t *testing.T) {
 	require.NotContains(t, platformKey, "sk_live_secret")
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(upstream.body, &body))
-	require.Equal(t, "tc_pool", body["provider_route"])
-	require.Equal(t, "auto", body["duration"])
+	require.Equal(t, "yuni_pool", body["provider_route"])
+	require.Equal(t, "10", body["duration"])
 }
 
 func TestSeedanceBoundTaskAccountSelectionAllowsPausedXimeiAccount(t *testing.T) {
@@ -583,14 +579,16 @@ func TestNormalizeXimeiResponseRemovesProviderDetails(t *testing.T) {
 		"status":"succeeded",
 		"provider_route":"tc_pool",
 		"content":{"video_url":"https://private.example/result.mp4"},
-		"data":{"id":"cstask_nested_id","job_id":"cstask_nested_job","task_id":"cstask_nested_task","product":"nangua_pool","legacy_product":"fenda_pool","note":"ximei tc_pool internal"}
+		"data":{"id":"cstask_nested_id","job_id":"cstask_nested_job","task_id":"cstask_nested_task","product":"yingtao_pool","legacy_product":"yuni_pool","retired_product":"lajiao_pool","note":"ximei tc_pool internal"}
 	}`)
 	normalized, err := NormalizeSeedanceJobForRoute(body, "vidjob_public", VideoProviderXimei, SeedanceXimeiSD20Model)
 	require.NoError(t, err)
 	require.Contains(t, string(normalized), `"status":"completed"`)
 	require.NotContains(t, string(normalized), "tc_pool")
 	require.NotContains(t, string(normalized), "fenda_pool")
-	require.NotContains(t, string(normalized), "nangua_pool")
+	require.NotContains(t, string(normalized), "yingtao_pool")
+	require.NotContains(t, string(normalized), "yuni_pool")
+	require.NotContains(t, string(normalized), "lajiao_pool")
 	require.NotContains(t, string(normalized), "ximei")
 	require.NotContains(t, string(normalized), "cstask_")
 	require.NotContains(t, string(normalized), "private.example")
@@ -645,22 +643,14 @@ func TestBuildXimeiEndpointURLAcceptsOriginOrAPIV3Base(t *testing.T) {
 }
 
 
-func TestXimeiNanguaPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
+func TestXimeiYingtaoPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
 	product, err := ximeiVideoProductFor(SeedanceXimeiSD25Model, VideoBillingResolution720P)
 	require.NoError(t, err)
-	require.Equal(t, "nangua_pool", product.Route)
+	require.Equal(t, "yingtao_pool", product.Route)
 	require.Equal(t, 30, product.MaxImages)
 	require.Equal(t, 10, product.MaxVideos)
 	require.Equal(t, 10, product.MaxAudios)
 
-	productUnofficial, err := ximeiVideoProductFor(SeedanceXimeiSD25UnofficialModel, VideoBillingResolution720P)
-	require.NoError(t, err)
-	require.Equal(t, "lajiao_pool", productUnofficial.Route)
-	require.Equal(t, 30, productUnofficial.MaxImages)
-	require.Equal(t, 10, productUnofficial.MaxVideos)
-	require.Equal(t, 10, productUnofficial.MaxAudios)
-	require.Equal(t, 30.0, productUnofficial.MaxAudioSeconds)
-	require.Equal(t, 30.0, productUnofficial.MaxVideoSeconds)
 
 	refs := make([]SeedanceReferenceImage, 0, 30)
 	for i := 0; i < 30; i++ {
@@ -700,25 +690,13 @@ func TestXimeiNanguaPoolSupportsThirtyTenTenMediaCaps(t *testing.T) {
 }
 
 
-func TestBuildXimeiSD25UnofficialRequestUsesLajiaoPool(t *testing.T) {
-	body, route, err := buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
-		Model: SeedanceXimeiSD25UnofficialModel, Prompt: "safe product demonstration",
-		Resolution: VideoBillingResolution720P, DurationSeconds: 30, AspectRatio: "16:9", GenerateAudio: true,
-		References: []SeedanceReferenceImage{{URL: "https://example.com/ref.png"}},
-		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/ref.mp4", DurationSeconds: 4}},
-		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/ref.mp3", DurationSeconds: 3}},
+func TestXimeiRejectsRemovedSD25UnofficialModel(t *testing.T) {
+	require.False(t, isXimeiVideoModel("sd-2.5-mx-2000"))
+	_, err := ximeiVideoProductFor("sd-2.5-mx-2000", VideoBillingResolution720P)
+	require.Error(t, err)
+	_, _, err = buildXimeiVideoCreateRequest(&SeedanceRequestInfo{
+		Model: "sd-2.5-mx-2000", Prompt: "safe product demonstration",
+		Resolution: VideoBillingResolution720P, DurationSeconds: 5, AspectRatio: "16:9",
 	})
-	require.NoError(t, err)
-	require.Equal(t, "lajiao_pool", route)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(body, &payload))
-	require.Equal(t, "video", payload["model"])
-	require.Equal(t, "lajiao_pool", payload["provider_route"])
-	require.Equal(t, "30", payload["duration"])
-	require.Equal(t, "16:9", payload["aspect_ratio"])
-	require.Equal(t, true, payload["generate_audio"])
-	require.NotEmpty(t, payload["image_urls"])
-	require.NotEmpty(t, payload["video_urls"])
-	require.NotEmpty(t, payload["audio_urls"])
+	require.Error(t, err)
 }

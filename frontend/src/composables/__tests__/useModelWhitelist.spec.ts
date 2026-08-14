@@ -35,7 +35,6 @@ describe('useModelWhitelist', () => {
       'sd2-mx933-fast',
       'sd-2.0-mx933',
       'sd-2.5-mx',
-      'sd-2.5-mx-2000',
       'seedance2.0-one-face-reference-480p',
       'seedance2.0-one-face-reference-720p'
     ])
@@ -46,7 +45,6 @@ describe('useModelWhitelist', () => {
       { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
       { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
       { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
-      { from: 'sd-2.5-mx-2000', to: 'sd-2.5-mx-2000' },
       { from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p' },
       { from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
@@ -65,8 +63,7 @@ describe('useModelWhitelist', () => {
     ])
     expect(getSeedanceModelsByVideoProvider('ximei')).toEqual([
       'sd-2.0-mx933',
-      'sd-2.5-mx',
-      'sd-2.5-mx-2000'
+      'sd-2.5-mx'
     ])
     expect(getSeedanceModelsByVideoProvider('weijin')).toEqual([
       'seedance2.0-one-face-reference-480p',

@@ -121,3 +121,51 @@ func TestXimeiSD20BuildRequestAllows15TotalMedia(t *testing.T) {
 	require.Equal(t, 15, len(payload.ImageURLs)+len(payload.VideoURLs)+len(payload.AudioURLs))
 	t.Logf("ximei create body accepts 15 assets route=%s images=%d videos=%d audios=%d", route, len(payload.ImageURLs), len(payload.VideoURLs), len(payload.AudioURLs))
 }
+
+func TestXimeiSD20YuniPoolAllowsNineThreeThreeWithoutTotalTwelveCap(t *testing.T) {
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceXimeiSD20Model,
+		Prompt:          "test yuni 9+3+3 create body",
+		Resolution:      VideoBillingResolution720P,
+		DurationSeconds: 10,
+		GenerateAudio:   true,
+		AspectRatio:     "16:9",
+		References:      makeBoundaryRefs(9),
+		VideoReferences: makeBoundaryVids(3),
+		AudioReferences: makeBoundaryAuds(3),
+	}
+	require.NoError(t, validateFFLinkVideoRequestInfo(info))
+	product, err := ximeiVideoProductFor(SeedanceXimeiSD20Model, VideoBillingResolution720P)
+	require.NoError(t, err)
+	require.Equal(t, "yuni_pool", product.Route)
+	require.Equal(t, 9, product.MaxImages)
+	require.Equal(t, 3, product.MaxVideos)
+	require.Equal(t, 3, product.MaxAudios)
+	require.Equal(t, ximeiDurationParameter, product.DurationMode)
+	require.NoError(t, validateXimeiReferenceDurations(info, product))
+
+	body, route, err := buildXimeiVideoCreateRequest(info)
+	require.NoError(t, err)
+	require.Equal(t, "yuni_pool", route)
+
+	var payload ximeiVideoCreateRequest
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "10", payload.Duration)
+	require.Equal(t, 9, len(payload.ImageURLs))
+	require.Equal(t, 3, len(payload.VideoURLs))
+	require.Equal(t, 3, len(payload.AudioURLs))
+	require.Equal(t, 15, len(payload.ImageURLs)+len(payload.VideoURLs)+len(payload.AudioURLs))
+
+	tooManyImages := *info
+	tooManyImages.References = makeBoundaryRefs(10)
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyImages, product), "at most 9 images")
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyImages), "at most 9")
+
+	tooManyVideos := *info
+	tooManyVideos.VideoReferences = makeBoundaryVids(4)
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyVideos, product), "at most 3 reference videos")
+
+	tooManyAudios := *info
+	tooManyAudios.AudioReferences = makeBoundaryAuds(4)
+	require.ErrorContains(t, validateXimeiReferenceDurations(&tooManyAudios, product), "at most 3 reference audio files")
+}
