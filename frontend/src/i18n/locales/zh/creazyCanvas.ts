@@ -47,6 +47,8 @@ export default {
       sizeCustomHintShort: '点选预设；自定义需符合模型官方尺寸规则',
       selectPlaceholder: '请选择',
       size: '尺寸',
+      imageQuality: '画质',
+      imageAspectRatio: '比例',
       sizeCustomOption: '自定义尺寸…',
       sizePresetOnlyHint: '当前模型仅支持预设尺寸',
       sizeCustomPlaceholder: '输入尺寸，如 1536x864 / 1024x1024 / auto',

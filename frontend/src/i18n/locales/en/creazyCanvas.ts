@@ -47,6 +47,8 @@ export default {
       sizeCustomHintShort: 'Pick a preset; custom sizes must match official model rules',
       selectPlaceholder: 'Select...',
       size: 'Size',
+      imageQuality: 'Quality',
+      imageAspectRatio: 'Aspect ratio',
       sizeCustomOption: 'Custom size…',
       sizePresetOnlyHint: 'This model only supports preset sizes',
       sizeCustomPlaceholder: 'Enter size, e.g. 1536x864 / 1024x1024 / auto',

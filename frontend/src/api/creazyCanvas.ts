@@ -40,6 +40,8 @@ export interface CreazyCanvasImageModel {
   id: string
   name?: string
   sizes?: string[]
+  quality_tiers?: string[]
+  aspect_ratios?: string[]
   allow_custom_size?: boolean
   size_constraints?: CreazyCanvasImageSizeConstraints | null
   prices?: Record<string, number | null | undefined>

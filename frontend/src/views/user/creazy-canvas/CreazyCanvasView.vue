@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="cc-shell" :class="{ 'cc-shell--tray': showTaskTray, 'cc-shell--tray-open': showTaskTray && taskTrayExpanded }">
+    <div class="cc-shell">
       <header class="cc-topbar">
         <div class="cc-topbar__main">
           <div class="cc-topbar__brand">
@@ -141,6 +141,48 @@
             </div>
 
             <div class="cc-field">
+              <div class="cc-label-row">
+                <label class="cc-label">{{ t('creazyCanvas.form.imageQuality') }}</label>
+                <span class="cc-size-current font-mono">{{ imageForm.qualityTier }} · {{ imageForm.size }}</span>
+              </div>
+              <div class="cc-chip-row" role="listbox" :aria-label="t('creazyCanvas.form.imageQuality')">
+                <button
+                  v-for="tier in imageQualityOptions"
+                  :key="`quality-chip-${tier}`"
+                  type="button"
+                  role="option"
+                  class="cc-chip"
+                  :class="{ 'cc-chip--active': imageForm.qualityTier === tier }"
+                  :aria-selected="imageForm.qualityTier === tier"
+                  @click="selectImageQuality(tier)"
+                >
+                  {{ tier }}
+                </button>
+              </div>
+            </div>
+
+            <div class="cc-field">
+              <div class="cc-label-row">
+                <label class="cc-label">{{ t('creazyCanvas.form.imageAspectRatio') }}</label>
+                <span class="cc-size-current font-mono">{{ imageForm.aspectRatio }}</span>
+              </div>
+              <div class="cc-chip-row" role="listbox" :aria-label="t('creazyCanvas.form.imageAspectRatio')">
+                <button
+                  v-for="ratio in imageAspectOptions"
+                  :key="`aspect-chip-${ratio}`"
+                  type="button"
+                  role="option"
+                  class="cc-chip cc-chip--ratio"
+                  :class="{ 'cc-chip--active': imageForm.aspectRatio === ratio }"
+                  :aria-selected="imageForm.aspectRatio === ratio"
+                  @click="selectImageAspect(ratio)"
+                >
+                  {{ ratio }}
+                </button>
+              </div>
+            </div>
+
+            <div class="cc-field">
               <label class="cc-label">{{ t('creazyCanvas.form.model') }}</label>
               <select
                 v-model="imageForm.model"
@@ -161,54 +203,30 @@
               </div>
             </div>
 
-            <div class="cc-field">
-              <div class="cc-label-row">
-                <label class="cc-label">{{ t('creazyCanvas.form.size') }}</label>
-                <span class="cc-size-current font-mono">{{ imageForm.size || '—' }}</span>
+            <details v-if="imageAllowCustomSize" class="cc-advanced">
+              <summary class="cc-advanced__summary">
+                <span>{{ t('creazyCanvas.form.sizeCustomOption') }}</span>
+                <strong>{{ imageForm.size }}</strong>
+              </summary>
+              <div class="cc-advanced__body">
+                <input
+                  ref="imageSizeCustomInput"
+                  v-model="imageForm.size"
+                  type="text"
+                  class="input cc-control font-mono text-sm"
+                  :placeholder="t('creazyCanvas.form.sizeCustomPlaceholder')"
+                  list="creazy-canvas-image-sizes"
+                  spellcheck="false"
+                  autocomplete="off"
+                  @blur="normalizeImageSizeInput"
+                />
+                <datalist id="creazy-canvas-image-sizes">
+                  <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
+                </datalist>
+                <p class="cc-field-hint">{{ imageSizeHintText }}</p>
+                <p v-if="imageSizeLiveError" class="cc-field__error">{{ imageSizeLiveError }}</p>
               </div>
-              <div class="cc-chip-row" role="listbox" :aria-label="t('creazyCanvas.form.size')">
-                <button
-                  v-for="s in imageSizeOptions"
-                  :key="'size-chip-' + s"
-                  type="button"
-                  role="option"
-                  class="cc-chip"
-                  :class="{ 'cc-chip--active': imageSizePresetValue === s }"
-                  :aria-selected="imageSizePresetValue === s"
-                  @click="selectImageSizePreset(s)"
-                >
-                  {{ s }}
-                </button>
-                <button
-                  v-if="imageAllowCustomSize"
-                  type="button"
-                  role="option"
-                  class="cc-chip"
-                  :class="{ 'cc-chip--active': imageSizePresetValue === '__custom__' }"
-                  :aria-selected="imageSizePresetValue === '__custom__'"
-                  @click="focusImageSizeCustom"
-                >
-                  {{ t('creazyCanvas.form.sizeCustomOption') }}
-                </button>
-              </div>
-              <input
-                v-if="imageAllowCustomSize"
-                ref="imageSizeCustomInput"
-                v-model="imageForm.size"
-                type="text"
-                class="input cc-control font-mono text-sm"
-                :placeholder="t('creazyCanvas.form.sizeCustomPlaceholder')"
-                list="creazy-canvas-image-sizes"
-                spellcheck="false"
-                autocomplete="off"
-                @blur="normalizeImageSizeInput"
-              />
-              <datalist v-if="imageAllowCustomSize" id="creazy-canvas-image-sizes">
-                <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
-              </datalist>
-              <p class="cc-field-hint">{{ imageSizeHintText }}</p>
-              <p v-if="imageSizeLiveError" class="cc-field__error">{{ imageSizeLiveError }}</p>
-            </div>
+            </details>
           </div>
 
           <div
@@ -216,16 +234,11 @@
             class="cc-media-panel"
           >
             <div class="cc-media-panel__head">
-              <div>
-                <label class="cc-label">
-                  {{ t('creazyCanvas.form.imageRefs') }}
-                  <span class="cc-media-count">({{ imageRefs.length }}/{{ imageRefMax }})</span>
-                  <span v-if="imageRefRequired" class="cc-req">*</span>
-                </label>
-                <p class="cc-field-hint">
-                  {{ imageRefRequired ? t('creazyCanvas.form.imageRefsRequiredHint') : t('creazyCanvas.form.imageRefsHint') }}
-                </p>
-              </div>
+              <label class="cc-label">
+                {{ t('creazyCanvas.form.imageRefs') }}
+                <span class="cc-media-count">({{ imageRefs.length }}/{{ imageRefMax }})</span>
+                <span v-if="imageRefRequired" class="cc-req">*</span>
+              </label>
               <button
                 v-if="imageRefs.length"
                 type="button"
@@ -237,36 +250,29 @@
               </button>
             </div>
             <div
-              class="cc-dropzone"
+              class="cc-ref-upload"
               :class="{ 'cc-field--error': imageFieldErrors.refs }"
               @dragover.prevent
               @drop="onDropMedia($event, 'imageRefs')"
             >
-              <div class="flex flex-wrap items-center gap-2">
-                <input
-                  ref="imageRefInput"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  class="hidden"
-                  @change="onPickImageRefs"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!!uploadingImageRef || !selectedKeyId || imageRefs.length >= imageRefMax"
-                  @click="openImageRefPicker"
-                >
-                  {{ uploadingImageRef ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.uploadImage') }}
-                </button>
-                <span v-if="uploadingImageRef" class="text-xs text-gray-500">{{ imageRefUploadLabel }}</span>
-                <span v-if="imageRefMax > 0" class="text-[11px] text-gray-500">{{ mediaProgressText(imageRefs.length, imageRefMax) }}</span>
-              </div>
-              <div v-if="imageRefMax > 0" class="cc-progress">
-                <div class="cc-progress__bar" :style="{ width: Math.min(100, (imageRefs.length / imageRefMax) * 100) + '%' }" />
-              </div>
-              <p class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</p>
-              <p v-if="imageRefs.length > 1" class="cc-dropzone__hint">{{ t('creazyCanvas.form.mediaReorderHint') }}</p>
+              <input
+                ref="imageRefInput"
+                type="file"
+                accept="image/*"
+                multiple
+                class="hidden"
+                @change="onPickImageRefs"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm cc-ref-upload__button"
+                :disabled="!!uploadingImageRef || !selectedKeyId || imageRefs.length >= imageRefMax"
+                @click="openImageRefPicker"
+              >
+                {{ uploadingImageRef ? t('creazyCanvas.form.uploading') : t('creazyCanvas.form.uploadImage') }}
+              </button>
+              <span v-if="uploadingImageRef" class="cc-ref-upload__status">{{ imageRefUploadLabel }}</span>
+              <span v-else class="cc-ref-upload__hint">{{ t('creazyCanvas.form.mediaDropHint') }}</span>
               <p v-if="imageFieldErrors.refs" class="cc-field__error">{{ imageFieldErrors.refs }}</p>
             </div>
             <ul v-if="imageRefs.length" class="cc-media-list">
@@ -294,40 +300,27 @@
             </ul>
           </div>
 
-          <div class="cc-rules-card" v-if="selectedImageModel || imageModelCapChips.length">
-            <div class="cc-rules-card__title">{{ t('creazyCanvas.form.rulesTitle') }}</div>
-            <div class="cc-rules-card__chips">
-              <span v-for="(chip, idx) in imageModelCapChips" :key="'img-cap-' + idx" class="cc-rules-card__chip">{{ chip }}</span>
-            </div>
-          </div>
-          <div v-else class="cc-rules-card cc-rules-card--empty">{{ t('creazyCanvas.form.rulesEmpty') }}</div>
-
-          <div class="cc-create">
-            <div class="cc-create__head">
-              <span class="cc-create__title">{{ t('creazyCanvas.form.createSection') }}</span>
-              <span class="cc-create__hint">{{ t('creazyCanvas.form.createSectionHintImage') }}</span>
-            </div>
-            <div class="cc-create__meta" aria-live="polite">
-              <span class="cc-create__price">{{ imagePriceEstimateText }}</span>
-              <span class="cc-create__shortcut">{{ t('creazyCanvas.form.submitShortcut') }}</span>
+          <div class="cc-create cc-create--compact">
+            <div class="cc-create__toolbar">
+              <span class="cc-create__price" aria-live="polite">{{ imagePriceEstimateText }}</span>
+              <div class="cc-create__actions">
+                <button
+                  type="button"
+                  class="btn btn-primary cc-submit"
+                  :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret || imageBalanceBlocked"
+                  @click="generateImage"
+                >
+                  <Icon v-if="submittingImage" name="refresh" size="sm" class="mr-2 animate-spin" />
+                  {{ submittingImage ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
+                </button>
+                <button type="button" class="btn btn-secondary cc-submit-secondary" :disabled="submittingImage" @click="clearImageForm()">
+                  {{ t('creazyCanvas.form.clearForm') }}
+                </button>
+              </div>
             </div>
             <p v-if="imageBalanceHint" class="cc-create__balance" :class="{ 'cc-create__balance--blocked': imageBalanceBlocked }">{{ imageBalanceHint }}</p>
             <p v-if="draftNotice && activeTab === 'image'" class="cc-create__draft">{{ draftNotice }}</p>
             <p v-else-if="draftSavedAtText && activeTab === 'image'" class="cc-create__draft">{{ draftSavedAtText }}</p>
-            <div class="cc-create__actions">
-            <button
-              type="button"
-              class="btn btn-primary cc-submit"
-              :disabled="submittingImage || !selectedKeyId || resolvingKeySecret || !hasKeySecret || imageBalanceBlocked"
-              @click="generateImage"
-            >
-              <Icon v-if="submittingImage" name="refresh" size="sm" class="mr-2 animate-spin" />
-              {{ submittingImage ? t('creazyCanvas.form.submitting') : t('creazyCanvas.form.generate') }}
-            </button>
-            <button type="button" class="btn btn-secondary cc-submit-secondary" :disabled="submittingImage" @click="clearImageForm()">
-              {{ t('creazyCanvas.form.clearForm') }}
-            </button>
-            </div>
             <p v-if="imageRunningCount" class="cc-callout cc-callout--live">
               {{ t('creazyCanvas.tasks.runningCount', { n: imageRunningCount }) }}
             </p>
@@ -389,15 +382,18 @@
                     {{ t('creazyCanvas.works.download') }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="reuseWork(work)">{{ t('creazyCanvas.works.reuse') }}</button>
+                  <button v-if="canDeleteWork(work)" type="button" class="btn btn-secondary btn-sm cc-task-delete" :disabled="deletingWorkId === String(work.id)" @click="removeWork(work)">
+                    {{ t('creazyCanvas.works.delete') }}
+                  </button>
                 </div>
               </article>
             </div>
             <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board">
               <span class="cc-pagination__meta">{{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}</span>
-              <div class="cc-pagination__actions">
+              <div v-if="worksPages > 1" class="cc-pagination__actions">
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage <= 1" @click="goToWorksPrevPage($event)">{{ t('creazyCanvas.works.prevPage') }}</button>
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage >= worksPages" @click="goToWorksNextPage($event)">{{ t('creazyCanvas.works.nextPage') }}</button>
-                <label class="cc-pagination__jump">
+                <label v-if="worksPages > 2" class="cc-pagination__jump">
                   <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
                   <input v-model="worksPageJumpInput" type="number" min="1" :max="worksPages" class="cc-pagination__input" :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')" @keyup.enter="jumpWorksPageFromInput" />
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">{{ t('creazyCanvas.works.pageJump') }}</button>
@@ -1087,15 +1083,18 @@
                   <button type="button" class="btn btn-secondary btn-sm" @click="copyWorkPrompt(work)">{{ t('creazyCanvas.tasks.copyPrompt') }}</button>
                   <button v-if="['failed','error'].includes(String(work.status||'').toLowerCase())" type="button" class="btn btn-primary btn-sm" @click="retryWork(work)">{{ t('creazyCanvas.tasks.retry') }}</button>
                   <button v-if="isActiveWorkStatus(work.status) && !stoppedTrackIds[String(work.id)]" type="button" class="btn btn-secondary btn-sm" @click="stopLocalTrack(work)">{{ t('creazyCanvas.tasks.stopTrack') }}</button>
+                  <button v-if="canDeleteWork(work)" type="button" class="btn btn-secondary btn-sm cc-task-delete" :disabled="deletingWorkId === String(work.id)" @click="removeWork(work)">
+                    {{ t('creazyCanvas.works.delete') }}
+                  </button>
                 </div>
               </article>
             </div>
             <div v-if="worksTotal > 0" class="cc-pagination cc-pagination--board">
               <span class="cc-pagination__meta">{{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}</span>
-              <div class="cc-pagination__actions">
+              <div v-if="worksPages > 1" class="cc-pagination__actions">
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage <= 1" @click="goToWorksPrevPage($event)">{{ t('creazyCanvas.works.prevPage') }}</button>
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks || worksPage >= worksPages" @click="goToWorksNextPage($event)">{{ t('creazyCanvas.works.nextPage') }}</button>
-                <label class="cc-pagination__jump">
+                <label v-if="worksPages > 2" class="cc-pagination__jump">
                   <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
                   <input v-model="worksPageJumpInput" type="number" min="1" :max="worksPages" class="cc-pagination__input" :placeholder="t('creazyCanvas.works.pageJumpPlaceholder')" @keyup.enter="jumpWorksPageFromInput" />
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingWorks" @click="jumpWorksPageFromInput">{{ t('creazyCanvas.works.pageJump') }}</button>
@@ -1291,7 +1290,7 @@
                   :class="workCardClass(work)"
                 >
                   <div class="cc-work-media">
-                    <label class="cc-work-check" @click.stop>
+                    <label v-if="canDeleteWork(work)" class="cc-work-check" @click.stop>
                       <input
                         type="checkbox"
                         :checked="selectedWorkIds.includes(Number(work.id))"
@@ -1438,6 +1437,7 @@
                         {{ t('creazyCanvas.works.download') }}
                       </button>
                       <button
+                        v-if="canDeleteWork(work)"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="deletingWorkId === String(work.id)"
@@ -1455,7 +1455,7 @@
             <span class="cc-pagination__meta">
               {{ t('creazyCanvas.works.pageInfo', { page: worksPage, pages: worksPages, total: worksTotal }) }}
             </span>
-            <div class="cc-pagination__actions">
+            <div v-if="worksPages > 1" class="cc-pagination__actions">
               <button
                 type="button"
                 class="btn btn-secondary btn-sm"
@@ -1472,7 +1472,7 @@
               >
                 {{ t('creazyCanvas.works.nextPage') }}
               </button>
-              <label class="cc-pagination__jump">
+              <label v-if="worksPages > 2" class="cc-pagination__jump">
                 <span class="sr-only">{{ t('creazyCanvas.works.pageJump') }}</span>
                 <input
                   v-model="worksPageJumpInput"
@@ -1500,98 +1500,6 @@
           </div>
         </div>
       </section>
-    <!-- Floating task tray for concurrent jobs -->
-    <div
-      v-if="showTaskTray"
-      class="cc-task-tray"
-      :class="{
-        'cc-task-tray--collapsed': !taskTrayExpanded,
-        'cc-task-tray--has-live': trayStatusCounts.running > 0,
-      }"
-      role="complementary"
-      :aria-label="t('creazyCanvas.tasks.trayTitle')"
-    >
-      <div class="cc-task-tray__bar">
-        <button
-          type="button"
-          class="cc-task-tray__toggle"
-          :aria-expanded="taskTrayExpanded"
-          @click="taskTrayExpanded = !taskTrayExpanded"
-        >
-          <span class="cc-task-tray__pulse" aria-hidden="true" />
-          <span class="cc-task-tray__head">
-            <span class="cc-task-tray__title-row">
-              <span class="cc-task-tray__title">{{ t('creazyCanvas.tasks.trayTitle') }}</span>
-              <span v-if="totalRunningJobs" class="cc-task-tray__badge">{{ totalRunningJobs }}</span>
-              <span class="cc-task-tray__chev" :class="{ 'is-open': taskTrayExpanded }" aria-hidden="true">▾</span>
-            </span>
-            <span class="cc-task-tray__hint">{{ t('creazyCanvas.tasks.trayHint') }}</span>
-          </span>
-          <span class="cc-task-tray__counts" aria-hidden="true">
-            <span v-if="trayStatusCounts.running" class="cc-task-tray__chip is-live">
-              <i class="cc-task-tray__chip-dot is-pulse" />
-              {{ t('creazyCanvas.tasks.trayRunning', { n: trayStatusCounts.running }) }}
-            </span>
-            <span v-if="trayStatusCounts.succeeded" class="cc-task-tray__chip is-ok">
-              {{ t('creazyCanvas.tasks.traySucceeded', { n: trayStatusCounts.succeeded }) }}
-            </span>
-            <span v-if="trayStatusCounts.failed" class="cc-task-tray__chip is-bad">
-              {{ t('creazyCanvas.tasks.trayFailed', { n: trayStatusCounts.failed }) }}
-            </span>
-          </span>
-        </button>
-        <div class="cc-task-tray__actions">
-          <button type="button" class="cc-task-tray__link" @click="() => openTrayTaskBoard()">
-            {{ t('creazyCanvas.tasks.open') }}
-          </button>
-          <button
-            type="button"
-            class="cc-task-tray__dismiss"
-            :title="t('creazyCanvas.tasks.dismiss')"
-            @click="taskTrayDismissed = true"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-      <div v-if="taskTrayExpanded" class="cc-task-tray__body">
-        <div v-if="trayWorks.length" class="cc-task-tray__list">
-          <button
-            v-for="work in trayWorks"
-            :key="'tray-' + work.id"
-            type="button"
-            class="cc-task-tray__item"
-            :class="trayItemClass(work)"
-            :title="work.prompt || work.public_model || ('#' + work.id)"
-            @click="() => openTrayTaskBoard(work)"
-          >
-            <span class="cc-task-tray__item-rail" aria-hidden="true" />
-            <span class="cc-task-tray__item-main">
-              <span class="cc-task-tray__item-top">
-                <span class="cc-task-tray__status" :class="taskStatusTone(work.status)">
-                  <i class="cc-task-tray__status-dot" :class="{ 'is-pulse': isActiveWorkStatus(work.status) }" />
-                  {{ workStatusLabel(work.status) }}
-                </span>
-                <span class="cc-task-tray__kind" :data-kind="String(work.kind || 'other').toLowerCase()">
-                  {{ trayKindLabel(work.kind) }}
-                </span>
-                <span class="cc-task-tray__model">{{ work.public_model || '—' }}</span>
-                <span v-if="isActiveWorkStatus(work.status)" class="cc-task-tray__elapsed">
-                  {{ formatElapsed(work.created_at || work.updated_at) }}
-                </span>
-                <span v-else-if="work.created_at" class="cc-task-tray__time">
-                  {{ formatDateTime(work.created_at) }}
-                </span>
-              </span>
-              <span class="cc-task-tray__prompt">{{ trayPromptText(work) }}</span>
-              <span v-if="workErrorText(work)" class="cc-task-tray__error">{{ workErrorText(work) }}</span>
-            </span>
-          </button>
-        </div>
-        <p v-else class="cc-task-tray__empty">{{ t('creazyCanvas.tasks.empty') }}</p>
-      </div>
-    </div>
-
     </div>
     <!-- Media preview lightbox (image/video with sound) -->
     <Teleport to="body">
@@ -1707,6 +1615,8 @@ const imageForm = reactive({
   prompt: '',
   model: '',
   size: '1024x1024',
+  qualityTier: '1K',
+  aspectRatio: '1:1',
 })
 const videoForm = reactive({
   prompt: '',
@@ -1987,11 +1897,9 @@ const worksPages = ref(1)
 let worksLoadSeq = 0
 /** Bumped only for non-quiet loads; used to clear loadingWorks even when quiet polls supersede. */
 let worksLoadingSeq = 0
-const taskTrayExpanded = ref(false)
 /** Skip model-change media wipe while programmatically reusing/retrying a work. */
 const suppressVideoMediaReset = ref(false)
 const suppressImageMediaTrim = ref(false)
-const taskTrayDismissed = ref(false)
 const draftNotice = ref('')
 const draftSavedAt = ref<number | null>(null)
 let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -2107,6 +2015,10 @@ function isActiveWorkStatus(status?: string) {
   )
 }
 
+function canDeleteWork(work: CreazyWork): boolean {
+  return Boolean(work?.id) && !isActiveWorkStatus(work.status)
+}
+
 function sortTaskWorks(list: CreazyWork[]) {
   return [...list].sort((a, b) => {
     const ar = isActiveWorkStatus(a.status) ? 0 : 1
@@ -2213,26 +2125,6 @@ const filteredWorks = computed(() => {
   return list
 })
 
-const totalRunningJobs = computed(
-  () =>
-    activeImageJobs.value +
-    activeVideoJobs.value +
-    works.value.filter((w) => isActiveWorkStatus(w.status)).length,
-)
-
-const trayWorks = computed(() => {
-  const active = works.value.filter((w) => isActiveWorkStatus(w.status))
-  const rest = works.value.filter((w) => !isActiveWorkStatus(w.status))
-  return [...sortTaskWorks(active), ...sortTaskWorks(rest)].slice(0, 12)
-})
-
-const showTaskTray = computed(
-  () =>
-    !taskTrayDismissed.value &&
-    Boolean(selectedKeyId.value) &&
-    (totalRunningJobs.value > 0 || trayWorks.value.some((w) => isActiveWorkStatus(w.status))),
-)
-
 function formatMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(Number(n))) return ''
   const v = Number(n)
@@ -2282,6 +2174,17 @@ function imageBillingTier(size: string): string[] {
   return out
 }
 
+function classifyImageQualityTier(size: string): string {
+  const normalized = String(size || '').trim().toUpperCase()
+  if (normalized === '1K' || normalized === '2K' || normalized === '4K') return normalized
+  const dims = parseImageSizeWxH(size)
+  if (!dims) return '1K'
+  const maxEdge = Math.max(dims.w, dims.h)
+  if (maxEdge <= 1024) return '1K'
+  if (maxEdge <= 2048) return '2K'
+  return '4K'
+}
+
 const imagePriceEstimate = computed(() => {
   const model = selectedImageModel.value
   if (!model) return null
@@ -2328,19 +2231,6 @@ const videoPriceEstimateText = computed(() => {
     price: formatMoney(p),
     seconds: Number(videoForm.duration || 0) || '-',
   })
-})
-
-const trayStatusCounts = computed(() => {
-  let running = 0
-  let succeeded = 0
-  let failed = 0
-  for (const w of works.value) {
-    const s = String(w.status || '').toLowerCase()
-    if (isActiveWorkStatus(s)) running += 1
-    else if (['succeeded', 'completed', 'success', 'done'].includes(s)) succeeded += 1
-    else if (['failed', 'error', 'expired'].includes(s)) failed += 1
-  }
-  return { running, succeeded, failed }
 })
 
 const imageBalanceBlocked = computed(() => {
@@ -2520,6 +2410,12 @@ function syncFormModelsFromCatalog() {
       imageForm.size = imageSizeOptions.value[0]
     }
   }
+  if (!imageQualityOptions.value.includes(imageForm.qualityTier)) {
+    imageForm.qualityTier = imageQualityOptions.value[0] || '1K'
+  }
+  if (!imageAspectOptions.value.includes(imageForm.aspectRatio)) {
+    imageForm.aspectRatio = imageAspectOptions.value[0] || '1:1'
+  }
   if (videoResolutionOptions.value.length && !videoResolutionOptions.value.includes(videoForm.resolution)) {
     videoForm.resolution = videoResolutionOptions.value[0]
   }
@@ -2535,6 +2431,64 @@ const imageSizeOptions = computed(() => {
   const fromModel = selectedImageModel.value?.sizes
   return fromModel?.length ? fromModel : DEFAULT_IMAGE_SIZES
 })
+
+const imageQualityOptions = computed(() => {
+  const fromModel = selectedImageModel.value?.quality_tiers
+  if (fromModel?.length) return fromModel
+  const tiers = [...new Set(imageSizeOptions.value.map((size) => classifyImageQualityTier(size)))]
+  return tiers.length ? tiers : ['1K']
+})
+
+const imageAspectOptions = computed(() => {
+  const fromModel = selectedImageModel.value?.aspect_ratios
+  return fromModel?.length
+    ? fromModel
+    : ['1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '21:9', '9:21']
+})
+
+function imageSizeForSelection(tier: string, ratio: string): string {
+  const sizes = imageSizeOptions.value
+  const candidates = sizes.filter((size) => classifyImageQualityTier(size) === tier)
+  const [rw, rh] = ratio.split(':').map(Number)
+  if (rw > 0 && rh > 0) {
+    const exact = candidates.find((size) => {
+      const dims = parseImageSizeWxH(size)
+      return dims && Math.abs(dims.w / dims.h - rw / rh) < 0.01
+    })
+    if (exact) return exact
+    if (imageAllowCustomSize.value) {
+      const maxEdge = tier === '4K' ? 3840 : tier === '2K' ? 2048 : 1536
+      const pixelBudget = tier === '4K' ? 8_294_400 : tier === '2K' ? 4_194_304 : 1_572_864
+      const idealWidth = Math.sqrt((pixelBudget * rw) / rh)
+      const idealHeight = Math.sqrt((pixelBudget * rh) / rw)
+      const scale = Math.min(1, maxEdge / Math.max(idealWidth, idealHeight))
+      const rawWidth = idealWidth * scale
+      const rawHeight = idealHeight * scale
+      const align16 = (value: number) => Math.max(16, Math.round(value / 16) * 16)
+      return `${align16(rawWidth)}x${align16(rawHeight)}`
+    }
+  }
+  if (candidates.length) return candidates[0]
+  return tier
+}
+
+function selectImageQuality(tier: string) {
+  imageForm.qualityTier = tier
+  if (!imageAspectOptions.value.includes(imageForm.aspectRatio)) {
+    imageForm.aspectRatio = imageAspectOptions.value[0] || '1:1'
+  }
+  imageForm.size = imageSizeForSelection(tier, imageForm.aspectRatio)
+}
+
+function selectImageAspect(ratio: string) {
+  imageForm.aspectRatio = ratio
+  imageForm.size = imageSizeForSelection(imageForm.qualityTier, ratio)
+}
+
+watch(
+  () => imageForm.model,
+  () => syncFormModelsFromCatalog(),
+)
 
 const imageAllowCustomSize = computed(() => Boolean(selectedImageModel.value?.allow_custom_size))
 
@@ -2559,30 +2513,6 @@ const imageSizeLiveError = computed(() => {
   if (/^\d{1,5}\s*[xX×*]\s*\d{1,5}$/.test(size) && !parseImageSizeWxH(size)) return ''
   return describeImageSizeInvalid(size)
 })
-
-const imageSizePresetValue = computed(() => {
-  const size = String(imageForm.size || '').trim()
-  if (!size) return imageSizeOptions.value[0] || ''
-  if (imageSizeOptions.value.includes(size)) return size
-  return '__custom__'
-})
-
-function selectImageSizePreset(size: string) {
-  imageForm.size = size
-}
-
-function focusImageSizeCustom() {
-  // Mark as custom by leaving freeform value; focus the text field for editing.
-  if (imageSizeOptions.value.includes(String(imageForm.size || '').trim())) {
-    // Keep current size text so user can tweak from a known preset.
-  } else if (!String(imageForm.size || '').trim()) {
-    imageForm.size = imageSizeOptions.value[0] || '1024x1024'
-  }
-  requestAnimationFrame(() => {
-    imageSizeCustomInput.value?.focus()
-    imageSizeCustomInput.value?.select()
-  })
-}
 
 function normalizeImageSizeInput() {
   const raw = String(imageForm.size || '').trim()
@@ -3305,26 +3235,6 @@ function formatClockTime(ts: number): string {
   }
 }
 
-function trayKindLabel(kind?: string | null): string {
-  const k = String(kind || '').toLowerCase()
-  if (k === 'video') return 'VID'
-  if (k === 'image' || k === 'img') return 'IMG'
-  if (k === 'audio') return 'AUD'
-  return k ? k.slice(0, 3).toUpperCase() : 'JOB'
-}
-
-function trayPromptText(work: CreazyWork): string {
-  const raw = String(work.prompt || '').replace(/\s+/g, ' ').trim()
-  if (raw) return raw
-  return work.public_model ? String(work.public_model) : `#${work.id}`
-}
-
-function trayItemClass(work: CreazyWork): string {
-  return [taskStatusTone(work.status), isActiveWorkStatus(work.status) ? 'is-active' : '']
-    .filter(Boolean)
-    .join(' ')
-}
-
 function formatElapsed(fromIso?: string | null): string {
   void nowTick.value
   if (!fromIso) return ''
@@ -3499,29 +3409,6 @@ async function retryWork(work: CreazyWork) {
   }
 }
 
-function focusWorkCard(workOrId: CreazyWork | number) {
-  const id = typeof workOrId === 'number' ? workOrId : Number(workOrId.id || 0)
-  if (!id) return
-  focusWorkId.value = id
-  const kind = typeof workOrId === 'number' ? '' : String(workOrId.kind || '').toLowerCase()
-  if (kind === 'video') switchTab('video')
-  else if (kind === 'image') switchTab('image')
-  else if (activeTab.value === 'works') {
-    /* stay */
-  } else if (kind) {
-    switchTab(kind === 'video' ? 'video' : 'image')
-  }
-  requestAnimationFrame(() => {
-    const el = document.querySelector(`[data-work-id="${id}"]`) as HTMLElement | null
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  })
-  window.setTimeout(() => {
-    if (focusWorkId.value === id) focusWorkId.value = null
-  }, 3500)
-}
-
 function onWorkSelectChange(work: CreazyWork, ev: Event) {
   const target = ev.target as HTMLInputElement | null
   toggleSelectWork(work, Boolean(target?.checked))
@@ -3529,7 +3416,7 @@ function onWorkSelectChange(work: CreazyWork, ev: Event) {
 
 function toggleSelectWork(work: CreazyWork, checked?: boolean) {
   const id = Number(work.id || 0)
-  if (!id) return
+  if (!id || !canDeleteWork(work)) return
   const set = new Set(selectedWorkIds.value)
   const on = checked == null ? !set.has(id) : Boolean(checked)
   if (on) set.add(id)
@@ -3542,7 +3429,10 @@ function selectAllWorksOnPage(on = true) {
     selectedWorkIds.value = []
     return
   }
-  selectedWorkIds.value = filteredWorks.value.map((w) => Number(w.id || 0)).filter(Boolean)
+  selectedWorkIds.value = filteredWorks.value
+    .filter(canDeleteWork)
+    .map((w) => Number(w.id || 0))
+    .filter(Boolean)
 }
 
 async function batchDeleteSelectedWorks() {
@@ -3580,6 +3470,8 @@ function scrollWorksBoardTop() {
 function clearImageForm(confirm = true) {
   if (confirm && !window.confirm(t('creazyCanvas.form.clearFormConfirm'))) return
   imageForm.prompt = ''
+  imageForm.qualityTier = imageQualityOptions.value[0] || '1K'
+  imageForm.aspectRatio = imageAspectOptions.value[0] || '1:1'
   imageForm.size = imageSizeOptions.value[0] || '1024x1024'
   for (const item of imageRefs.value) revokePreviewUrl(item)
   imageRefs.value = []
@@ -4635,6 +4527,8 @@ async function generateImage() {
     model: imageForm.model,
     prompt: imageForm.prompt.trim(),
     size: imageForm.size,
+    qualityTier: imageForm.qualityTier,
+    aspectRatio: imageForm.aspectRatio,
     preferAsync: Boolean(selectedImageModel.value?.async),
     keyId: selectedKeyId.value,
     refs: imageRefs.value.map((item) => item.media_url).filter(Boolean),
@@ -4652,7 +4546,7 @@ async function generateImage() {
       status: 'running',
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
+      params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
     if (running?.id) {
@@ -4686,7 +4580,7 @@ async function generateImage() {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
+          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
           error_message: msg,
         })
       }
@@ -4698,7 +4592,7 @@ async function generateImage() {
 
 async function runImageLifecycle(opts: {
   apiKey: string
-  snapshot: { model: string; prompt: string; size: string; preferAsync: boolean; keyId: number; refs: string[] }
+  snapshot: { model: string; prompt: string; size: string; qualityTier: string; aspectRatio: string; preferAsync: boolean; keyId: number; refs: string[] }
   runningWorkId: number | null
 }) {
   const { apiKey, snapshot } = opts
@@ -4713,6 +4607,9 @@ async function runImageLifecycle(opts: {
       prompt: snapshot.prompt,
       size: snapshot.size,
       n: 1,
+    }
+    if (/^[124]K$/i.test(snapshot.size)) {
+      imagePayload.aspect_ratio = snapshot.aspectRatio
     }
     if (useEdit) {
       imagePayload.images = snapshot.refs.map((url) => ({ image_url: url }))
@@ -4791,7 +4688,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
+          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
           gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
           gateway_remote_id: lastTaskId,
           error_message: msg,
@@ -4817,7 +4714,7 @@ async function runImageLifecycle(opts: {
       status: 'succeeded' as const,
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs, resultUrls: cleanUrls }),
+      params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs, resultUrls: cleanUrls }),
       gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
       gateway_remote_id: lastTaskId,
       preview_url: cleanUrls[0],
@@ -4854,7 +4751,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, refs: snapshot.refs }),
+          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
           gateway_type: lastGatewayType || undefined,
           gateway_remote_id: lastTaskId || undefined,
           error_message: msg,
@@ -5853,6 +5750,14 @@ async function reuseWork(work: CreazyWork) {
           partial = true
         }
       }
+      const qualityTier = pickStringParam(params, 'quality_tier', 'qualityTier')
+      if (qualityTier && imageQualityOptions.value.includes(qualityTier)) {
+        imageForm.qualityTier = qualityTier
+      }
+      const aspectRatio = pickStringParam(params, 'aspect_ratio', 'aspectRatio')
+      if (aspectRatio && imageAspectOptions.value.includes(aspectRatio)) {
+        imageForm.aspectRatio = aspectRatio
+      }
 
       const applyImageMediaFromParams = () => {
         const imgRefs = pickStringListParam(params, 'image_refs', 'ref_images', 'reference_images', 'images')
@@ -5928,6 +5833,8 @@ function collectCanvasDraft(): CanvasDraftV1 {
       prompt: imageForm.prompt,
       model: imageForm.model,
       size: imageForm.size,
+      qualityTier: imageForm.qualityTier,
+      aspectRatio: imageForm.aspectRatio,
       refs: imageRefs.value.map((x) => x.media_url).filter((u) => isReusableMediaUrl(u)),
     },
     video: {
@@ -5970,6 +5877,8 @@ function applyCanvasDraft(draft: CanvasDraftV1) {
     if (draft.image.prompt != null) imageForm.prompt = draft.image.prompt
     if (draft.image.model) imageForm.model = draft.image.model
     if (draft.image.size) imageForm.size = draft.image.size
+    if (draft.image.qualityTier) imageForm.qualityTier = draft.image.qualityTier
+    if (draft.image.aspectRatio) imageForm.aspectRatio = draft.image.aspectRatio
     if (draft.image.refs?.length) {
       imageRefs.value = draft.image.refs
         .filter((u) => isReusableMediaUrl(u))
@@ -6038,39 +5947,6 @@ function onCanvasKeydown(ev: KeyboardEvent) {
   }
 }
 
-function openTrayTaskBoard(work?: CreazyWork) {
-  taskTrayExpanded.value = true
-  if (work?.id) {
-    focusWorkCard(work)
-    return
-  }
-  if (activeTab.value === 'works') {
-    void loadWorks()
-    return
-  }
-  const running = trayWorks.value.find((w) => isActiveWorkStatus(w.status))
-  if (running) {
-    focusWorkCard(running)
-    return
-  }
-  const first = trayWorks.value[0]
-  if (first) {
-    focusWorkCard(first)
-    return
-  }
-  switchTab(activeTab.value === 'video' ? 'video' : 'image')
-}
-
-// Expand tray only when this browser session submits new jobs (not merely loading historical running works).
-watch([activeImageJobs, activeVideoJobs], ([img, vid], prev) => {
-  const prevImg = Number((prev && prev[0]) || 0)
-  const prevVid = Number((prev && prev[1]) || 0)
-  if (Number(img) > prevImg || Number(vid) > prevVid) {
-    taskTrayDismissed.value = false
-    taskTrayExpanded.value = true
-  }
-})
-
 onMounted(async () => {
   activeTab.value = resolveTabFromRoute()
   if (route.path === '/creazy-canvas') {
@@ -6095,6 +5971,8 @@ watch(
     imageForm.prompt,
     imageForm.model,
     imageForm.size,
+    imageForm.qualityTier,
+    imageForm.aspectRatio,
     imageRefs.value.map((x) => x.media_url).join('|'),
     videoForm.prompt,
     videoForm.model,
@@ -7682,6 +7560,166 @@ onBeforeUnmount(() => {
 .cc-pagination__select {
   min-height: 2rem !important; height: 2rem !important; border-radius: 0.6rem !important;
   font-size: 0.78rem !important; padding: 0 0.45rem !important;
+}
+
+/* Dense studio layout: one surface, clear dividers, no nested-card stack. */
+.cc-form-stack { gap: 0.8rem !important; }
+.cc-textarea { min-height: 7rem; }
+.cc-panel {
+  border: 0;
+  border-top: 1px solid var(--cc-line);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85rem 0 0;
+}
+.cc-panel__head { margin-bottom: 0.65rem; }
+.cc-panel > .cc-field + .cc-field,
+.cc-panel > .cc-advanced {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-line) 78%, transparent);
+}
+.cc-chip-row { gap: 0.35rem; }
+.cc-chip { padding: 0.3rem 0.62rem; }
+.cc-cap-row { margin-top: 0.45rem; }
+.cc-advanced {
+  color: var(--cc-ink);
+}
+.cc-advanced__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cc-muted);
+  list-style-position: inside;
+}
+.cc-advanced__summary strong {
+  margin-left: auto;
+  font-family: var(--cc-mono);
+  font-size: 0.72rem;
+  color: var(--cc-accent);
+}
+.cc-advanced__body {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.55rem 0 0 1rem;
+}
+.cc-media-panel {
+  border: 0;
+  border-top: 1px solid var(--cc-line);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85rem 0 0;
+}
+.cc-media-panel__head { align-items: center; margin-bottom: 0.45rem; }
+.cc-ref-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 2.85rem;
+  padding: 0.38rem 0.5rem;
+  border: 1px dashed var(--cc-line-2);
+  border-radius: 0.65rem;
+  background: var(--cc-surface);
+  color: var(--cc-muted);
+  transition: 0.12s ease;
+}
+.cc-ref-upload:hover {
+  border-color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent-soft) 35%, var(--cc-surface));
+}
+.cc-ref-upload__button { flex: 0 0 auto; }
+.cc-ref-upload__hint,
+.cc-ref-upload__status {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--cc-faint);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-ref-upload__status { color: var(--cc-muted); }
+.cc-ref-upload .cc-field__error {
+  flex: 0 0 100%;
+  margin: 0;
+}
+.cc-dropzone {
+  padding: 0.72rem 0.8rem;
+  border-radius: 0.65rem;
+}
+.cc-create {
+  gap: 0.55rem;
+  padding: 0.85rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--cc-line);
+  border-radius: 0;
+  background: transparent;
+}
+.cc-create--compact { gap: 0.45rem; padding-top: 0.7rem; }
+.cc-create__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.cc-create--compact .cc-create__actions {
+  flex: 0 0 auto;
+  flex-flow: row nowrap;
+}
+.cc-create--compact .cc-create__actions > * { width: auto; }
+.cc-create--compact .cc-submit { min-height: 2.45rem !important; }
+.cc-create__hint { text-align: right; }
+.cc-task-delete { color: var(--cc-bad) !important; }
+.cc-pagination--board {
+  min-height: 2.35rem;
+  margin-top: 0.25rem;
+}
+.cc-pagination__meta { white-space: nowrap; }
+.cc-pagination__actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.cc-pagination__jump {
+  display: inline-grid;
+  grid-template-columns: 3.2rem auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+.cc-pagination__input {
+  width: 3.2rem;
+  height: 2rem;
+  min-width: 0;
+  border: 1px solid var(--cc-line-2);
+  border-radius: 0.55rem;
+  background: var(--cc-surface);
+  color: var(--cc-ink);
+  padding: 0 0.35rem;
+  text-align: center;
+  font-family: var(--cc-mono);
+  font-size: 0.76rem;
+}
+.cc-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+@media (max-width: 640px) {
+  .cc-pagination { align-items: flex-start; }
+  .cc-pagination__actions { width: 100%; justify-content: flex-start; }
+  .cc-create__head { align-items: flex-start; }
+  .cc-create__hint { max-width: 12rem; }
+  .cc-create--compact .cc-create__actions { width: auto; flex-direction: row; }
+  .cc-create--compact .cc-create__actions > * { width: auto; }
 }
 
 .cc-shell--tray { padding-bottom: 5.5rem; }

@@ -24,6 +24,8 @@ export function sanitizeReusableUrlList(urls: unknown): string[] {
 
 export function buildImageWorkParams(input: {
   size: string
+  qualityTier?: string
+  aspectRatio?: string
   refs?: string[]
   resultUrls?: string[]
   extra?: Record<string, unknown>
@@ -32,6 +34,8 @@ export function buildImageWorkParams(input: {
   const resultUrls = sanitizeReusableUrlList(input.resultUrls || [])
   return {
     size: input.size,
+    quality_tier: input.qualityTier || undefined,
+    aspect_ratio: input.aspectRatio || undefined,
     n: 1,
     reference_count: refs.length,
     edit: refs.length > 0,
@@ -102,6 +106,8 @@ export type CanvasDraftV1 = {
     prompt?: string
     model?: string
     size?: string
+    qualityTier?: string
+    aspectRatio?: string
     refs?: string[]
   }
   video?: {

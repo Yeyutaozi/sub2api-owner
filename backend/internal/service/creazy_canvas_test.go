@@ -150,6 +150,18 @@ func (r *creazyCanvasWorkRepoStub) UpdateContentMeta(_ context.Context, work *Cr
 	return nil
 }
 
+func TestCreazyCanvasDeleteWorkOnlyAllowsTerminalTasks(t *testing.T) {
+	repo := newCreazyCanvasWorkRepoStub()
+	repo.works[1] = &CreazyCanvasWork{ID: 1, UserID: 7, Status: CreazyCanvasWorkStatusRunning}
+	repo.works[2] = &CreazyCanvasWork{ID: 2, UserID: 7, Status: CreazyCanvasWorkStatusSucceeded}
+	svc := NewCreazyCanvasService(repo, &creazyCanvasAPIKeyStub{}, nil, nil)
+
+	require.ErrorIs(t, svc.DeleteWork(context.Background(), 7, 1), ErrCreazyCanvasWorkActive)
+	require.Nil(t, repo.works[1].DeletedAt)
+	require.NoError(t, svc.DeleteWork(context.Background(), 7, 2))
+	require.NotNil(t, repo.works[2].DeletedAt)
+}
+
 func creazyCanvasI64(v int64) *int64 { return &v }
 
 func TestCreazyCanvasListKeysFiltersByAllowCreazyCanvas(t *testing.T) {
@@ -231,7 +243,6 @@ func TestCreazyCanvasCatalogRequiresOpenGroup(t *testing.T) {
 	_, err = svc.Catalog(context.Background(), 1, 23)
 	require.Error(t, err)
 }
-
 
 func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
 	groupID := int64(33)
@@ -359,7 +370,7 @@ func TestCreazyCanvasImageCatalogByPlatform(t *testing.T) {
 	require.NotEmpty(t, models)
 	require.Equal(t, "grok-imagine", models[0].ID)
 	require.Contains(t, models[0].Sizes, "1024x1024")
-	require.True(t, models[0].Async)
+	require.False(t, models[0].Async)
 	require.Equal(t, 1, models[0].MaxN)
 	require.True(t, models[0].SupportsReference)
 	require.Equal(t, 1, models[0].MaxReferenceImages)
@@ -411,6 +422,7 @@ func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
 
 	// gpt-image-2: free-form with official constraints + 2K/4K presets.
 	require.True(t, img2.AllowCustomSize)
+	require.False(t, img2.Async)
 	require.NotNil(t, img2.SizeConstraints)
 	require.Equal(t, 3840, img2.SizeConstraints.MaxEdge)
 	require.Equal(t, 16, img2.SizeConstraints.MultipleOf)
@@ -420,6 +432,12 @@ func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
 	require.Contains(t, img2.Sizes, "2048x2048")
 	require.Contains(t, img2.Sizes, "3840x2160")
 	require.Contains(t, img2.Sizes, "auto")
+	require.Equal(t, []string{"1K", "2K", "4K"}, img2.QualityTiers)
+	require.Contains(t, img2.AspectRatios, "1:1")
+	require.Contains(t, img2.AspectRatios, "16:9")
+	require.Contains(t, img2.AspectRatios, "9:16")
+	require.Contains(t, img2.AspectRatios, "21:9")
+	require.Contains(t, img2.AspectRatios, "9:21")
 
 	// gpt-image-1: presets only.
 	require.False(t, img1.AllowCustomSize)
@@ -427,6 +445,17 @@ func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
 	require.Contains(t, img1.Sizes, "1024x1024")
 	require.Contains(t, img1.Sizes, "auto")
 	require.NotContains(t, img1.Sizes, "3840x2160")
+	require.Equal(t, []string{"1K", "2K"}, img1.QualityTiers)
+}
+
+func TestCreazyCanvasGeminiImageControls(t *testing.T) {
+	group := &Group{Platform: PlatformGemini, AllowImageGeneration: true}
+	models := buildCreazyCanvasImageModels(group)
+	require.NotEmpty(t, models)
+	require.Equal(t, []string{"1K", "2K", "4K"}, models[0].QualityTiers)
+	require.Contains(t, models[0].AspectRatios, "1:1")
+	require.Contains(t, models[0].AspectRatios, "16:9")
+	require.Contains(t, models[0].AspectRatios, "9:16")
 }
 
 func TestValidateCreazyCanvasImageSizeGPTImage2(t *testing.T) {
@@ -480,18 +509,17 @@ func TestValidateCreazyCanvasImageSizeGPTImage2(t *testing.T) {
 	require.False(t, ValidateCreazyCanvasImageSize(img1, "2048x2048"))
 }
 
-
 func TestDescribeCreazyCanvasImageSizeInvalidGPTImage2(t *testing.T) {
 	model := &CreazyCanvasImageModel{
 		ID:              "gpt-image-2",
 		Sizes:           []string{"1024x1024", "1536x1024", "1024x1536", "auto"},
 		AllowCustomSize: true,
 		SizeConstraints: &CreazyCanvasImageSizeConstraints{
-			MultipleOf:      16,
-			MaxEdge:         3840,
-			MinPixels:       655360,
-			MaxPixels:       8294400,
-			MaxAspectRatio:  3,
+			MultipleOf:     16,
+			MaxEdge:        3840,
+			MinPixels:      655360,
+			MaxPixels:      8294400,
+			MaxAspectRatio: 3,
 		},
 	}
 	require.Equal(t, "", DescribeCreazyCanvasImageSizeInvalid(model, "1024x1024"))
@@ -524,7 +552,6 @@ func TestCreazyCanvasCreateRejectsInvalidKind(t *testing.T) {
 	require.Error(t, err)
 }
 
-
 func TestNormalizeCreazyCanvasGatewayType(t *testing.T) {
 	require.Equal(t, CreazyCanvasGatewayVideoJob, normalizeCreazyCanvasGatewayType("seedance", CreazyCanvasWorkKindVideo))
 	require.Equal(t, CreazyCanvasGatewayImageTask, normalizeCreazyCanvasGatewayType("images", CreazyCanvasWorkKindImage))
@@ -547,7 +574,6 @@ func TestCreazyCanvasDownloadRejectsExpired(t *testing.T) {
 	_, err = svc.GetDownloadURL(context.Background(), 1, work.ID)
 	require.Error(t, err)
 }
-
 
 func TestDescribeImageSizeInvalidForGateway(t *testing.T) {
 	// valid

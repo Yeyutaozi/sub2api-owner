@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -42,34 +42,35 @@ const (
 )
 
 var (
-	ErrCreazyCanvasWorkNotFound = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
+	ErrCreazyCanvasWorkNotFound  = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
+	ErrCreazyCanvasWorkActive    = infraerrors.BadRequest("CREAZY_CANVAS_WORK_ACTIVE", "运行中的任务不能删除")
 	ErrCreazyCanvasKeyNotAllowed = infraerrors.Forbidden("CREAZY_CANVAS_KEY_NOT_ALLOWED", "该 API Key 所属分组未开放 Creazy 画布")
 )
 
 type CreazyCanvasWork struct {
-	ID               int64
-	UserID           int64
-	APIKeyID         int64
-	GroupID          *int64
-	Kind             string
-	PublicModel      string
-	Status           string
-	Prompt           string
-	ParamsJSON       map[string]any
-	GatewayType      string
-	GatewayRemoteID  string
-	ObjectKey        string
-	StorageProvider  string
-	Bucket           string
-	ObjectURL        string
-	PreviewURL       string
-	MimeType         string
-	SizeBytes        int64
-	ErrorMessage     string
-	ExpiresAt        time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeletedAt        *time.Time
+	ID              int64
+	UserID          int64
+	APIKeyID        int64
+	GroupID         *int64
+	Kind            string
+	PublicModel     string
+	Status          string
+	Prompt          string
+	ParamsJSON      map[string]any
+	GatewayType     string
+	GatewayRemoteID string
+	ObjectKey       string
+	StorageProvider string
+	Bucket          string
+	ObjectURL       string
+	PreviewURL      string
+	MimeType        string
+	SizeBytes       int64
+	ErrorMessage    string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
 }
 
 type CreazyCanvasWorkListFilters struct {
@@ -94,7 +95,6 @@ type CreateCreazyCanvasWorkInput struct {
 	MimeType        string
 	SizeBytes       int64
 }
-
 
 type UpdateCreazyCanvasWorkInput struct {
 	UserID          int64
@@ -132,14 +132,14 @@ type CreazyCanvasCatalog struct {
 }
 
 type CreazyCanvasVideoModel struct {
-	ID                  string              `json:"id"`
-	Name                string              `json:"name,omitempty"`
-	Platform            string              `json:"platform"`
-	DefaultResolution   string              `json:"default_resolution"`
-	DefaultDuration     int                 `json:"default_duration"`
-	AllowedDurations    []int               `json:"allowed_durations"`
-	Durations           []int               `json:"durations"`
-	AllowedResolutions  []string            `json:"allowed_resolutions"`
+	ID                 string   `json:"id"`
+	Name               string   `json:"name,omitempty"`
+	Platform           string   `json:"platform"`
+	DefaultResolution  string   `json:"default_resolution"`
+	DefaultDuration    int      `json:"default_duration"`
+	AllowedDurations   []int    `json:"allowed_durations"`
+	Durations          []int    `json:"durations"`
+	AllowedResolutions []string `json:"allowed_resolutions"`
 	// resolutions/aspect_ratios: 前端常用字段别名
 	Resolutions         []string            `json:"resolutions"`
 	AllowedAspectRatios []string            `json:"allowed_aspect_ratios"`
@@ -186,19 +186,21 @@ type CreazyCanvasImageSizeConstraints struct {
 }
 
 type CreazyCanvasImageModel struct {
-	ID                 string              `json:"id"`
-	Name               string              `json:"name,omitempty"`
-	Sizes              []string            `json:"sizes"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name,omitempty"`
+	Sizes        []string `json:"sizes"`
+	QualityTiers []string `json:"quality_tiers"`
+	AspectRatios []string `json:"aspect_ratios"`
 	// AllowCustomSize marks free-form sizes beyond Sizes (WxH and/or SizeConstraints.Aliases).
 	// Gateway bills by max-edge tier via ClassifyImageBillingTier.
-	AllowCustomSize    bool                             `json:"allow_custom_size"`
+	AllowCustomSize    bool                              `json:"allow_custom_size"`
 	SizeConstraints    *CreazyCanvasImageSizeConstraints `json:"size_constraints,omitempty"`
-	Prices             map[string]*float64              `json:"prices"`
-	Async              bool                             `json:"async"`
-	MaxN               int                              `json:"max_n"`
-	SupportsReference  bool                             `json:"supports_reference"`
-	MaxReferenceImages int                              `json:"max_reference_images,omitempty"`
-	RequireReference   bool                             `json:"require_reference,omitempty"`
+	Prices             map[string]*float64               `json:"prices"`
+	Async              bool                              `json:"async"`
+	MaxN               int                               `json:"max_n"`
+	SupportsReference  bool                              `json:"supports_reference"`
+	MaxReferenceImages int                               `json:"max_reference_images,omitempty"`
+	RequireReference   bool                              `json:"require_reference,omitempty"`
 }
 
 type CreazyCanvasDownloadURL struct {
@@ -277,9 +279,9 @@ func (s *CreazyCanvasService) ListKeys(ctx context.Context, userID int64) ([]Cre
 	page := 1
 	for {
 		keys, result, err := s.apiKeyService.List(ctx, userID, pagination.PaginationParams{
-			Page:     page,
-			PageSize: 100,
-			SortBy:   "id",
+			Page:      page,
+			PageSize:  100,
+			SortBy:    "id",
 			SortOrder: pagination.SortOrderAsc,
 		}, APIKeyListFilters{Status: StatusAPIKeyActive})
 		if err != nil {
@@ -385,7 +387,6 @@ func (s *CreazyCanvasService) CreateWork(ctx context.Context, input CreateCreazy
 	return work, nil
 }
 
-
 func (s *CreazyCanvasService) UpdateWork(ctx context.Context, input UpdateCreazyCanvasWorkInput) (*CreazyCanvasWork, error) {
 	if input.UserID <= 0 {
 		return nil, infraerrors.Unauthorized("CREAZY_CANVAS_USER_REQUIRED", "需要登录")
@@ -487,6 +488,13 @@ func (s *CreazyCanvasService) DeleteWork(ctx context.Context, userID, workID int
 	}
 	if workID <= 0 {
 		return infraerrors.BadRequest("CREAZY_CANVAS_WORK_ID_INVALID", "无效的作品 ID")
+	}
+	work, err := s.workRepo.GetByIDForUser(ctx, workID, userID)
+	if err != nil {
+		return err
+	}
+	if !isCreazyCanvasWorkTerminalStatus(work.Status) {
+		return ErrCreazyCanvasWorkActive
 	}
 	return s.workRepo.SoftDelete(ctx, workID, userID)
 }
@@ -889,7 +897,6 @@ func creazyCanvasExtractMediaURL(payload map[string]any) string {
 	return ""
 }
 
-
 // SaveWorkContent 可选：将生成内容转存到 COS（前缀 creazy-canvas/）。
 func (s *CreazyCanvasService) SaveWorkContent(ctx context.Context, userID, workID int64, body io.Reader, contentType string, sizeBytes int64, filename string) (*CreazyCanvasWork, error) {
 	work, err := s.GetWork(ctx, userID, workID)
@@ -1114,10 +1121,12 @@ func buildCreazyCanvasImageModels(group *Group) []CreazyCanvasImageModel {
 			ID:                 id,
 			Name:               id,
 			Sizes:              sizes,
+			QualityTiers:       creazyCanvasImageQualityTiers(sizes),
+			AspectRatios:       creazyCanvasImageAspectRatios(group.Platform, sizes, allowCustom),
 			AllowCustomSize:    allowCustom,
 			SizeConstraints:    constraints,
 			Prices:             prices,
-			Async:              true,
+			Async:              group.Platform != PlatformOpenAI && group.Platform != PlatformGrok,
 			MaxN:               1,
 			SupportsReference:  supportsRef,
 			MaxReferenceImages: maxRefs,
@@ -1125,6 +1134,55 @@ func buildCreazyCanvasImageModels(group *Group) []CreazyCanvasImageModel {
 		})
 	}
 	return out
+}
+
+func creazyCanvasImageQualityTiers(sizes []string) []string {
+	seen := map[string]bool{}
+	for _, size := range sizes {
+		size = strings.TrimSpace(size)
+		if size == "" || strings.EqualFold(size, "auto") {
+			continue
+		}
+		seen[creazyCanvasImageSizeTier(size)] = true
+	}
+	out := make([]string, 0, 3)
+	for _, tier := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
+		if seen[tier] {
+			out = append(out, tier)
+		}
+	}
+	return out
+}
+
+func creazyCanvasImageAspectRatios(platform string, sizes []string, allowCustom bool) []string {
+	if allowCustom || platform == PlatformGemini || platform == PlatformAntigravity {
+		return []string{"1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(sizes))
+	for _, size := range sizes {
+		w, h, ok := parseCreazyCanvasImageDimensions(size)
+		if !ok || w <= 0 || h <= 0 {
+			continue
+		}
+		divisor := gcdPositiveInt(w, h)
+		ratio := fmt.Sprintf("%d:%d", w/divisor, h/divisor)
+		if !seen[ratio] {
+			seen[ratio] = true
+			out = append(out, ratio)
+		}
+	}
+	return out
+}
+
+func gcdPositiveInt(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a <= 0 {
+		return 1
+	}
+	return a
 }
 
 // creazyCanvasImageSizePolicy returns suggested presets, whether free-form size is
@@ -1135,6 +1193,7 @@ func buildCreazyCanvasImageModels(group *Group) []CreazyCanvasImageModel {
 //   - both edges multiples of 16
 //   - long:short <= 3:1
 //   - total pixels in [655360, 8294400]
+//
 // gpt-image-1 only accepts fixed presets (+ auto), not arbitrary WxH.
 func creazyCanvasImageSizePolicy(platform, modelID string) (sizes []string, allowCustom bool, constraints *CreazyCanvasImageSizeConstraints) {
 	id := strings.ToLower(strings.TrimSpace(modelID))
@@ -1477,6 +1536,18 @@ func isCreazyCanvasWorkStatus(status string) bool {
 	}
 }
 
+func isCreazyCanvasWorkTerminalStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case CreazyCanvasWorkStatusSucceeded,
+		CreazyCanvasWorkStatusFailed,
+		CreazyCanvasWorkStatusCanceled,
+		CreazyCanvasWorkStatusExpired:
+		return true
+	default:
+		return false
+	}
+}
+
 func creazyCanvasGatewayContentHint(work *CreazyCanvasWork) string {
 	if work == nil {
 		return ""
@@ -1583,12 +1654,12 @@ func sortedStringKeys(set map[string]struct{}) []string {
 	}
 	// 稳定顺序：常见分辨率优先
 	priority := map[string]int{
-		VideoBillingResolution480P: 1,
-		VideoBillingResolution720P: 2,
+		VideoBillingResolution480P:  1,
+		VideoBillingResolution720P:  2,
 		VideoBillingResolution1080P: 3,
 		VideoBillingResolution1440P: 4,
 		VideoBillingResolution2160P: 5,
-		"16:9": 1, "9:16": 2, "1:1": 3, "4:3": 4, "3:4": 5, "21:9": 6, "9:21": 7, "3:2": 8, "2:3": 9,
+		"16:9":                      1, "9:16": 2, "1:1": 3, "4:3": 4, "3:4": 5, "21:9": 6, "9:21": 7, "3:2": 8, "2:3": 9,
 	}
 	for i := 0; i < len(out); i++ {
 		for j := i + 1; j < len(out); j++ {
