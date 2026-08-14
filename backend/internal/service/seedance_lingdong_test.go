@@ -204,6 +204,24 @@ func TestDecideWeijinSeedanceRoute(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
 }
 
+func TestShouldFallbackWeijin720pCreateToMapped(t *testing.T) {
+	mapped := weijinAccountWithLingdongMapping(true, "sk_ld")
+	plain := weijinAccountWithLingdongMapping(false, "")
+	request := &SeedanceRequestInfo{Model: SeedanceWeijinFaceRef720pModel, Prompt: "hello"}
+
+	require.True(t, shouldFallbackWeijin720pCreateToMapped(mapped, request, &UpstreamFailoverError{StatusCode: http.StatusBadGateway}))
+	require.True(t, shouldFallbackWeijin720pCreateToMapped(mapped, request, &SeedanceUpstreamError{StatusCode: http.StatusServiceUnavailable}))
+	require.False(t, shouldFallbackWeijin720pCreateToMapped(mapped, request, &SeedanceUpstreamError{StatusCode: http.StatusTooManyRequests}))
+	require.False(t, shouldFallbackWeijin720pCreateToMapped(plain, request, &SeedanceUpstreamError{StatusCode: http.StatusBadGateway}))
+
+	withVideo := *request
+	withVideo.VideoReferences = []SeedanceReferenceVideo{{URL: "https://example.com/v.mp4"}}
+	require.False(t, shouldFallbackWeijin720pCreateToMapped(mapped, &withVideo, &SeedanceUpstreamError{StatusCode: http.StatusBadGateway}))
+
+	request480p := *request
+	request480p.Model = SeedanceWeijinFaceRef480pModel
+	require.False(t, shouldFallbackWeijin720pCreateToMapped(mapped, &request480p, &SeedanceUpstreamError{StatusCode: http.StatusBadGateway}))
+}
 
 func TestResolveLingdongMappedUpstreamModel(t *testing.T) {
 	acc := weijinAccountWithLingdongMapping(true, "sk_ld")
@@ -583,4 +601,3 @@ func TestBuildLingdongVideoCreateRequestInjectsQualityPrompt(t *testing.T) {
 	require.Contains(t, prompt, seedanceFaceRefQualityHintMarker)
 	require.Contains(t, prompt, "禁止远景虚化")
 }
-

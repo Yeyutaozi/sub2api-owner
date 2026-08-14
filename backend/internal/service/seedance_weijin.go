@@ -277,6 +277,9 @@ func (s *OpenAIGatewayService) forwardWeijinSeedance(
 
 	response, err := s.doWeijinSeedanceRequest(ctx, c, account, method, buildOpenAIEndpointURL(baseURL, path), path, apiKey, requestBody, "")
 	if err != nil {
+		if method == http.MethodPost && shouldFallbackWeijin720pCreateToMapped(account, requestInfo, err) {
+			return s.forwardLingdongMappedSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+		}
 		return nil, err
 	}
 	if method != http.MethodPost {
@@ -309,6 +312,31 @@ func (s *OpenAIGatewayService) forwardWeijinSeedance(
 		VideoDurationSeconds: requestInfo.DurationSeconds,
 	}
 	return response, nil
+}
+
+func shouldFallbackWeijin720pCreateToMapped(account *Account, info *SeedanceRequestInfo, err error) bool {
+	if account == nil || info == nil || err == nil || !account.IsLingdongMappingReady() {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(info.Model)) != SeedanceWeijinFaceRef720pModel ||
+		seedanceRequestHasVideoReferences(info) || seedanceRequestHasAudioReferences(info) {
+		return false
+	}
+	if _, ok := account.ResolveLingdongMappedUpstreamModel(info.Model); !ok {
+		return false
+	}
+
+	statusCode := 0
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		statusCode = failoverErr.StatusCode
+	} else {
+		var upstreamErr *SeedanceUpstreamError
+		if errors.As(err, &upstreamErr) {
+			statusCode = upstreamErr.StatusCode
+		}
+	}
+	return statusCode >= http.StatusInternalServerError && statusCode <= 599
 }
 
 func (s *OpenAIGatewayService) forwardWeijinSeedanceContent(
