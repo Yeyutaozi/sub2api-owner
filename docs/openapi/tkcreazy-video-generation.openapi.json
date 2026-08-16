@@ -367,7 +367,7 @@
           "视频生成"
         ],
         "summary": "创建异步视频生成任务",
-        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型都使用这个统一入口，只通过请求体中的 `model` 区分；不要在路径后添加模型名，也不要调用其他地址。\n\n### 模型和 API Key 分组必须一致\n\n| API Key 分组 | 可填写的 model | 清晰度与时长 |\n| --- | --- | --- |\n| Seedance | `seedance-2.0` | 480p/720p：5/10/15 秒；1080p：5/10 秒 |\n| Seedance | `seedance-2.0-fast` | 480p/720p：5/10/15 秒 |\n| Seedance | `seedance-2.0-mini` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.0-mx933` | 480p/720p：5/10/15 秒 |\n| Seedance | `sd-2.5-mx` | 仅 720p：5/10/15/30 秒 |\n| seedance特惠 | `seedance2.0-one-face-reference-480p` | 固定 480p：4-15 秒（按秒计费） |\n| seedance特惠 | `seedance2.0-one-face-reference-720p` | 固定 720p：4-15 秒（按秒计费） |\n| MiniMax | `minimax-h3` | 仅 1440p：5-15 秒 |\n| GrokImagine | `grok-imagine-1.5` | 仅 720p：3-15 秒，必须首帧 |\n| HappyHorse | `happy-horse-1.1` | 720p/1080p：3-15 秒 |\n| LTX | `ltx-2.3-pro` | 1080p/1440p/2160p：只能填 6、8、10 秒 |\n| LTX | `ltx-2.3-fast` | 1080p/1440p/2160p：6-20 秒中的偶数 |\n\n`sd-2.5-mx` 的 `duration` 只能填整数 `5`、`10`、`15` 或 `30`，省略时按 5 秒处理；除此模型外，其他 Seedance 新请求的 `duration` 只能填整数 `5`、`10` 或 `15`，省略时按 5 秒处理。`minimax-h3` 为 5-15 秒任意整数；`grok-imagine-1.5` 为 3-15 秒任意整数且必须提供首帧。`0`、`null` 或对应模型不支持的其他秒数会直接返回参数错误。\n\n### 公开模型与清晰度\n\n| 客户填写的 model | 支持的 resolution | duration |\n| --- | --- | --- |\n| `sd-2.0-mx933` | `480p`、`720p` | `5`、`10`、`15`，省略为 `5` |\n| `sd-2.5-mx` | `720p` | `5`、`10`、`15`、`30`，省略为 `5` |\n\n调用方只填写公开 `model`、`resolution` 和本文档定义的其他统一字段。任务创建、查询、计费记录和失败响应始终保留客户提交的公开模型名。\n\n### Seedance 按次计费\n\n只有 Key 所属 Seedance 分组由平台管理员显式启用按次计费时，才按公开 `model + resolution` 的单次价格、每个输出视频计费，`duration` 不作为价格乘数。`sd-2.5-mx` 的 5/10/15/30 秒档位使用同一单次价格。客户请求中没有计费单位字段。旧分组在管理员切换前继续按秒计费，避免把历史每秒价格误解释为每次价格；平台不会强制迁移旧分组。最终 `failed` 或成功取消的任务由平台按既有结算规则执行幂等退款。\n\n### 参考素材怎么填\n\n1. 有参考素材时，先调用 `POST /videos/uploads`；每次只上传一个文件，多素材就分别上传多次。\n2. 从每次上传响应中复制完整 `media_url`，包括签名查询参数，填入创建任务 JSON；不要填写 `upload_id`。\n3. 视频和音频参考对象中的 `duration_seconds` 必须填写该文件的真实时长（秒，可为小数），不是目标视频的 `duration`，也不是上传接口返回值。\n4. `sd-2.0-mx933`：首帧、尾帧和普通参考图合计最多 9 张；视频最多 3 个、音频最多 3 个；全部素材合计最多 15 个；参考视频累计最多 15 秒，参考音频累计最多 15 秒。\n5. `sd-2.5-mx`：首帧、尾帧和普通参考图合计最多 30 张；视频最多 10 个、音频最多 10 个；全部素材合计最多 50 个。\n6. 这两个模型允许首尾帧与 `guidances.image_reference` 组合；填写尾帧时必须同时填写首帧。参考音频必须同时存在至少一个 `image_reference` 或 `video_reference_base`，只有首帧/尾帧仍不够。\n7. 使用 `audio_reference` 时必须在请求顶层显式填写 `audio: true`。参考音频不是原音轨直通，`prompt` 要明确写出要保留的音色、语言内容、节奏、旋律或声音事件。\n8. `prompt` 可手写 `@ImageN` / `@AudioN` / `@VideoN`（例如 `@Image1`）引用已上传素材；未手写时平台按「参考图→首帧→尾帧」与视频/音频各自序号自动注入角色说明。手写编号时平台不再二次定义角色映射，但仍会补充无编号的首尾帧约束。\n\n既有普通 Seedance 最多 4 图、3 视频、1 音频。\n\n### 上传字段和生成字段的对应关系\n\n| 素材 | 上传接口 multipart 字段 | 创建任务 JSON 字段 |\n| --- | --- | --- |\n| 单图/多图参考 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 单视频/多视频参考 | `video` | `guidances.video_reference_base[].video.url` 和 `.duration_seconds` |\n| 单音频/多音频参考 | `audio` | `guidances.audio_reference[].audio.url` 和 `.duration_seconds` |\n\n### 在 Apifox 中选择示例\n\n两个新公开模型提供纯文本、单图、多图、首尾帧、多视频、多音频和综合参考示例；其中 sd-2.5-mx 的命名示例明确覆盖 5、10、15、30 秒四个档位。seedance特惠（one-face）请优先选择包含 **image_reference + video_reference_base + audio_reference** 的综合示例（`oneFaceRef720p` / `oneFaceRef720pMultiModal63`），不要只看纯图示例。先选请求示例，把所有 `https://replace.invalid/...` 替换为上传响应中的完整 `media_url`，并按文件真实时长修改 `duration_seconds`；再在 `202` 响应中选择同名示例。请求和响应示例下拉框彼此独立。\n\n### 成功后怎么做\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3-5 秒调用 `GET /videos/jobs/{job_id}`。HTTP 200 只表示查询接口调用成功；只有响应体 `status=completed` 才代表生成成功，随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。\n\n### seedance特惠模型补充说明（边界必读）\n\n- `seedance2.0-one-face-reference-480p` / `seedance2.0-one-face-reference-720p`：分辨率由模型名固定，仍建议显式填写对应 `resolution`。\n- `duration` 支持 4-15 的整数秒，省略为 5；按秒计费。\n- **支持三类参考同时使用**：`guidances.image_reference`（图）+ `guidances.video_reference_base`（视频）+ `guidances.audio_reference`（音频）。不要只按“图+提示词”理解本模型。\n- **素材上限（硬边界）**：\n  - 参考图（含首帧/尾帧）最多 **9** 张\n  - 参考视频最多 **3** 个\n  - 参考音频最多 **3** 个\n  - **图 + 视频 + 音频合计 ≤ 12**（例如 9+3+0、9+2+1、6+3+3 合法；9+3+3=15 超上限）\n- **路由语义（对客户透明）**：纯文字 / 仅参考图走基础特惠能力；只要带参考视频或参考音频，即启用多模态扩展能力。\n- **音频硬规则**：使用 `audio_reference` 时必须至少 1 张参考图，且顶层 `audio` 必须为 `true`；仅音频、无参考图会直接参数错误。\n- 参考视频/音频对象建议填写文件真实 `duration_seconds`（秒，可小数），不是目标成片 `duration`。\n- 推荐主示例：`oneFaceRef720p`（图+视频+音频综合）、`oneFaceRef720pMultiModal63`（6图+3视频+3音频满组合）、`oneFaceRef720pMultiModal921`（9图+2视频+1音频）。\n- 公开请求/响应字段与其它 Seedance 模型一致，仅切换 model 与对应 API Key 分组。\n",
+        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型使用同一个入口，只通过请求体中的 `model` 区分。\n\n### 示例说明\n\n下方只有一套**全参数结构示例**，用于集中展示统一接口支持的字段。它使用 `seedance-2.5-c1-03`，替换素材 URL 后可直接请求；其他模型不一定支持示例中的全部字段或组合。请先查看下表，再删除目标模型不支持的字段并调整取值。\n\n模型所属分组、价格和当前可用状态会动态变化，请前往主站**模型广场**查看；本文档不重复维护分组归属。\n\n### 模型能力与参数限制\n\n| model | resolution | duration | aspect_ratio | 图片/首尾帧 | 参考视频 | 参考音频 | 其他限制 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| `seedance-2.5-c1-03` | 480p、720p | 4–30 秒整数 | 16:9、9:16、1:1 | 参考图最多 30；首帧、尾帧各 1 | 最多 10；单个 3–10 秒、24–60 FPS，累计 ≤30 秒 | 最多 10 | 音频参考必须同时提供普通参考图；支持首帧、首尾帧和多模态参考 |\n| `sd-2.0-900-720p` | 固定 720p | 5–15 秒整数 | 固定 16:9 | 仅普通参考图，最多 9 | 不支持 | 不支持 | 不支持首帧、尾帧和生成音频，`audio` 必须为 false 或省略 |\n| `seedance-2.0` | 480p、720p；1080p | 480p/720p：5、10、15；1080p：5、10 | 16:9、9:16、1:1、4:3、3:4、21:9、9:21 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `seedance-2.0-fast` | 480p、720p | 5、10、15 | 同上 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `seedance-2.0-mini` | 480p、720p | 5、10、15 | 16:9、1:1、9:16 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `sd-2.0-mx933` | 480p、720p | 5、10、15 | 16:9、9:16、1:1、4:3、3:4、3:2、2:3 | 含首尾帧最多 9 | 最多 3，累计 ≤15 秒 | 最多 3，累计 ≤15 秒 | 全部素材合计最多 15 |\n| `sd-2.5-mx` | 固定 720p | 5、10、15、30 | 16:9、9:16、1:1、4:3、3:4、21:9 | 含首尾帧最多 30 | 最多 10，累计 ≤30 秒 | 最多 10，累计 ≤30 秒 | 全部素材合计最多 50 |\n| `seedance2.0-one-face-reference-480p` | 固定 480p | 4–15 秒整数 | 21:9、16:9、4:3、1:1、3:4、9:16 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 全部素材合计最多 15；音频参考至少搭配 1 张普通参考图 |\n| `seedance2.0-one-face-reference-720p` | 固定 720p | 4–15 秒整数 | 同上 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 同上 |\n| `minimax-h3` | 固定 1440p | 5–15 秒整数 | 16:9、9:16 | 最多 5，支持首尾帧 | 不支持 | 最多 3 | 全部素材合计最多 8，原生生成音频 |\n| `grok-imagine-1.5` | 固定 720p | 3–15 秒整数 | 16:9、9:16 | 必须提供首帧 | 不支持 | 不支持 | 不支持普通参考图和尾帧 |\n| `happy-horse-1.1` | 720p、1080p | 3–15 秒整数 | 16:9、4:3、1:1、3:4、9:16 | 最多 9，支持首帧 | 不支持 | 不支持参考音频 | 支持生成音频，不支持尾帧 |\n| `ltx-2.3-pro` | 1080p、1440p、2160p | 6、8、10 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n| `ltx-2.3-fast` | 1080p、1440p、2160p | 6–20 秒偶数 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n\n### 参考素材规则\n\n1. 先调用 `POST /videos/uploads`，每次上传一个文件，再把响应中的完整 `media_url` 填入生成请求；不要填写 `upload_id`，不要删除签名参数。\n2. `duration` 是目标视频时长；视频和音频对象中的 `duration_seconds` 是参考文件真实时长，可为小数。\n3. 填写 `end_frame_url` 时必须同时填写 `start_frame_url`；`image_url` 是首帧兼容字段，不能与 `start_frame_url` 同时填写。\n4. 使用 `guidances.audio_reference` 时，顶层必须显式填写 `audio: true`，并满足对应模型的图片/视频搭配条件。\n5. `prompt` 可用 `@ImageN`、`@VideoN`、`@AudioN` 引用素材；数组顺序就是编号顺序。\n\n### 上传字段与生成字段\n\n| 素材 | 上传字段 | 生成字段 |\n| --- | --- | --- |\n| 参考图 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 参考视频 | `video` | `guidances.video_reference_base[].video.url`、`duration_seconds` |\n| 参考音频 | `audio` | `guidances.audio_reference[].audio.url`、`duration_seconds` |\n\n### 任务生命周期\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3–5 秒查询 `GET /videos/jobs/{job_id}`。只有 `status=completed` 才代表成功；随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。",
         "operationId": "createVideoGenerationJob",
         "security": [
           {
@@ -421,6 +421,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/SeedanceOneFaceReference720pRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Seedance25C103Request"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Seedance900Request"
                   }
                 ],
                 "discriminator": {
@@ -437,1294 +443,53 @@
                     "minimax-h3": "#/components/schemas/MiniMaxH3Request",
                     "grok-imagine-1.5": "#/components/schemas/GrokImagineRequest",
                     "seedance2.0-one-face-reference-480p": "#/components/schemas/SeedanceOneFaceReference480pRequest",
-                    "seedance2.0-one-face-reference-720p": "#/components/schemas/SeedanceOneFaceReference720pRequest"
+                    "seedance2.0-one-face-reference-720p": "#/components/schemas/SeedanceOneFaceReference720pRequest",
+                    "seedance-2.5-c1-03": "#/components/schemas/Seedance25C103Request",
+                    "sd-2.0-900-720p": "#/components/schemas/Seedance900Request"
                   }
                 }
               },
               "examples": {
-                "sd20MXText480": {
-                  "summary": "sd-2.0-mx933｜480p｜纯文本",
+                "fullParameters": {
+                  "summary": "统一全参数结构示例（seedance-2.5-c1-03）",
+                  "description": "展示统一接口的全部主要字段。其他模型请按上方能力表删除不支持的字段并调整取值。将 replace.invalid URL 替换为上传接口返回的完整 media_url。",
                   "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "清晨的滨海公路上，一辆银色电动汽车平稳驶过，镜头从低机位侧后方连续跟拍，阳光在车身上自然移动，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false
-                  }
-                },
-                "sd20MXSingleImage720": {
-                  "summary": "sd-2.0-mx933｜720p｜单图参考",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "保持参考图中的人物身份、服装和场景一致，让人物从窗边转身走向桌前并拿起咖啡杯，动作自然连续，无字幕，无水印。",
+                    "model": "seedance-2.5-c1-03",
+                    "prompt": "@Image1 是人物外观参考，首帧和尾帧控制镜头起止；参考 @Video1 的运镜，并保留 @Audio1 的节奏和音色。",
                     "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-single-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd20MXMultiImage480": {
-                  "summary": "sd-2.0-mx933｜480p｜多图参考",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "保持三张参考图中的人物、背包和街角咖啡店外观一致，让人物背着背包走到店门前并推门进入，镜头平稳跟随，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 10,
-                    "aspect_ratio": "9:16",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-character-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-backpack-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-cafe-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd20MXFirstLast720": {
-                  "summary": "sd-2.0-mx933｜720p｜首尾帧",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "严格从首帧构图开始，让人物沿走廊连续走向镜头并自然停在尾帧位置，保持人物身份、服装、光线和空间关系一致，禁止跳切，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "start_frame_url": "https://replace.invalid/sd20-first-frame-media-url-from-upload",
-                    "end_frame_url": "https://replace.invalid/sd20-last-frame-media-url-from-upload"
-                  }
-                },
-                "sd20MXMultiVideo480": {
-                  "summary": "sd-2.0-mx933｜480p｜多视频参考",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "参考第一个视频的行走节奏和第二个视频的环绕运镜，生成一段人物在展厅中走向产品并停下展示的连续镜头，不复制参考视频中的无关人物，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 15,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd20-walking-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 6
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd20-camera-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 7
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd20MXMultiAudio720": {
-                  "summary": "sd-2.0-mx933｜720p｜单图与多音频参考",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "保持参考图中的播音员身份和演播室外观一致。播音员面向镜头自然说出参考人声音频中的中文短句，尽量保留该人声的音色、语速和停顿；背景保留第二段音频中的轻柔雨声，口型与人声同步，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-presenter-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd20-voice-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 6
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd20-rain-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 5
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd20MXCombined480": {
-                  "summary": "sd-2.0-mx933｜480p｜图片、视频与音频综合参考",
-                  "value": {
-                    "model": "sd-2.0-mx933",
-                    "prompt": "保持两张图片中的人物和产品外观一致，参考第一段视频的拿起动作与第二段视频的推进运镜。人物拿起产品并说出参考人声中的中文短句，保留其音色、语速和停顿，同时使用第二段音频的轻快节奏作为背景，口型同步，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 15,
-                    "aspect_ratio": "9:16",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-combined-person-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd20-combined-product-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd20-combined-action-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 5
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd20-combined-camera-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 5
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd20-combined-voice-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 6
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd20-combined-music-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 6
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd25MXText720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜5 秒｜纯文本",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "傍晚的现代美术馆中，一名舞者从大厅中央缓慢起身并完成连续旋转，镜头沿弧线平稳环绕，衣料和灯光变化自然，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": true
-                  }
-                },
-                "sd25MXSingleImage720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜10 秒｜单图参考",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "保持参考图中的人物身份、服装和美术馆场景一致，让人物从静止站姿自然转身并走向展品，镜头平稳跟随，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-single-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd25MXMultiImage720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜15 秒｜多图参考",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "保持三张参考图中的人物、银色礼服和舞台布景一致，让人物走到舞台中央完成一次连续旋转，镜头沿弧线环绕，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 15,
-                    "aspect_ratio": "9:16",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-multi-person-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-multi-costume-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-multi-stage-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd25MXMultiVideo720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜30 秒｜多视频参考",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "参考第一段视频的连续舞蹈动作和第二段视频的环绕运镜，生成同一舞者在舞台中央完成动作的连续镜头，不复制无关人物身份，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 30,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd25-multi-dance-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 8
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd25-multi-camera-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 7
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd25MXMultiAudio720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜单图与多音频参考",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "保持参考图中的人物身份和舞台一致。人物自然说出第一段音频中的中文短句，尽量保留其音色、语速和停顿；背景使用第二段音频的鼓点节奏，口型同步，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 30,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-audio-person-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd25-audio-voice-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 7
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd25-audio-rhythm-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 6
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "sd25MXFirstLast720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜首尾帧",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "严格从首帧开始，让舞者连续完成一个转身动作并自然收束到尾帧姿态，保持人物身份、服装、镜位和场景光线一致，禁止跳切，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 30,
-                    "aspect_ratio": "9:16",
-                    "audio": false,
-                    "start_frame_url": "https://replace.invalid/sd25-first-frame-media-url-from-upload",
-                    "end_frame_url": "https://replace.invalid/sd25-last-frame-media-url-from-upload"
-                  }
-                },
-                "sd25MXCombined720": {
-                  "summary": "sd-2.5-mx（官方）｜720p｜多图、多视频与多音频综合参考",
-                  "value": {
-                    "model": "sd-2.5-mx",
-                    "prompt": "保持三张图片中的人物、服装和舞台一致，参考两段视频的舞蹈动作和环绕运镜。人物按参考人声的音色、中文语句、语速和停顿完成口播，背景使用第二段音频的鼓点节奏，口型同步，动作连续，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 30,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-person-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-costume-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/sd25-stage-image-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd25-dance-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 8
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/sd25-camera-video-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 7
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd25-voice-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 9
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/sd25-rhythm-audio-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 8
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedance20Text": {
-                  "summary": "Seedance 01｜已验证：2.0 纯文本",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "prompt": "清晨的海边城市逐渐亮起灯光，镜头从海面平稳推进到城市天际线，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "prompt_enhance": "AUTO"
-                  }
-                },
-                "seedanceSingleImage": {
-                  "summary": "Seedance 02｜已验证：单图参考（先上传 1 图）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "保持参考图中的商品外观和标志一致，让商品在摄影棚转台上缓慢旋转，镜头平稳推进，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "1:1",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceMultiImage": {
-                  "summary": "Seedance 03｜已验证：多图参考（先上传 2-4 图）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "第一张图决定人物和商品，第二张图决定品牌标志；人物拿起带有该标志的商品袋，转向镜头并向前走两步，保持人物、商品和标志一致。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-2-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-3-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "MID",
-                          "order": 2
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-4-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "MID",
-                          "order": 3
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceFirstFrame": {
-                  "summary": "Seedance 04｜已验证：首帧图生视频（先上传 1 图）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "从上传的首帧开始，让人物拿起桌上的商品并转向镜头，动作连续自然，保持首帧人物和商品外观一致。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "image_url": "https://replace.invalid/image-media-url-1-from-upload"
-                  }
-                },
-                "seedanceFirstLastFrames": {
-                  "summary": "Seedance 05｜已验证：首尾帧（先上传 2 图）",
-                  "value": {
-                    "model": "seedance-2.0",
-                    "prompt": "从第一张图的构图和站位连续过渡到第二张图，人物动作完整可见，镜头平稳推进，不跳切。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "start_frame_url": "https://replace.invalid/image-media-url-1-from-upload",
-                    "end_frame_url": "https://replace.invalid/image-media-url-2-from-upload"
-                  }
-                },
-                "seedanceSingleVideo": {
-                  "summary": "Seedance 06｜已验证：单视频参考（先上传 1 视频）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "参考上传视频中的主体动作和镜头节奏，生成连续、自然的商品展示视频；保持动作完整可见，无字幕，无水印。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/video-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceMultiVideo": {
-                  "summary": "Seedance 07｜多视频参考（先上传 2-3 视频）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "综合三个参考视频的主体动作、镜头运动和节奏，生成一个连续的商品展示镜头；保持动作自然衔接，不直接拼接原视频。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "guidances": {
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/video-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/video-media-url-2-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/video-media-url-3-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceImageAudio": {
-                  "summary": "Seedance 08｜已验证：单图 + 参考音频（上传 1 图、1 音频）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "以参考图片中的商品为主体生成 5 秒展示视频。明确保留参考音频中的 660Hz 持续电子提示音，使相同音高、稳定节奏和强弱从开头持续到结尾；不要替换成环境音乐、对白或其他音效。",
-                    "resolution": "480p",
-                    "duration": 5,
-                    "aspect_ratio": "1:1",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 0
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/audio-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceVideoAudio": {
-                  "summary": "Seedance 09｜单视频 + 参考音频（上传 1 视频、1 音频）",
-                  "value": {
-                    "model": "seedance-2.0-fast",
-                    "prompt": "沿用参考视频中的动作节奏和镜头运动，同时保留参考音频中的连续电子提示音、相同音高和稳定节拍；不要替换为音乐或对白。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "guidances": {
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/video-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/audio-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "seedanceMiniText": {
-                  "summary": "Seedance 10｜已验证提交：Mini 纯文本",
-                  "value": {
-                    "model": "seedance-2.0-mini",
-                    "prompt": "明亮摄影棚内，一只红色购物袋缓慢旋转，镜头平稳推进，无字幕，无水印。",
-                    "resolution": "480p",
-                    "duration": 5,
-                    "aspect_ratio": "1:1",
-                    "audio": false
-                  }
-                },
-                "happyHorseText": {
-                  "summary": "HappyHorse 01｜已验证：纯文本",
-                  "value": {
-                    "model": "happy-horse-1.1",
-                    "prompt": "A horse runs through a sunlit meadow, cinematic tracking shot.",
-                    "resolution": "1080p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "prompt_enhance": "OFF"
-                  }
-                },
-                "happyHorseFirstFrame": {
-                  "summary": "HappyHorse 02｜已验证：首帧图生视频（先上传 1 图）",
-                  "value": {
-                    "model": "happy-horse-1.1",
-                    "prompt": "Animate the subject in the uploaded first frame with a slow cinematic camera push.",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "9:16",
-                    "audio": false,
-                    "prompt_enhance": "OFF",
-                    "start_frame_url": "https://replace.invalid/image-media-url-1-from-upload"
-                  }
-                },
-                "happyHorseSingleImage": {
-                  "summary": "HappyHorse 03｜单图参考（先上传 1 图）",
-                  "value": {
-                    "model": "happy-horse-1.1",
-                    "prompt": "Keep the subject and product from the uploaded reference image recognizable while the presenter turns toward the camera.",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "prompt_enhance": "OFF",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 0
-                        }
-                      ]
-                    }
-                  }
-                },
-                "happyHorseMultiAudio": {
-                  "summary": "HappyHorse 04｜已验证：多图 + 生成音轨（先上传 2-9 图）",
-                  "value": {
-                    "model": "happy-horse-1.1",
-                    "prompt": "A person holds a shopping bag carrying the product mark from the first image and the brand mark from the second image, turns it toward the camera, then takes two steps forward. Keep both marks recognizable and add synchronized studio ambience.",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "prompt_enhance": "OFF",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-1-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 0
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/image-media-url-2-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "strength": "HIGH",
-                          "order": 1
-                        }
-                      ]
-                    }
-                  }
-                },
-                "ltxProText": {
-                  "summary": "LTX 01｜已验证：Pro 纯文本",
-                  "value": {
-                    "model": "ltx-2.3-pro",
-                    "prompt": "A cinematic sunrise over a coastal city, smooth aerial camera movement.",
-                    "resolution": "1080p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "prompt_enhance": "AUTO"
-                  }
-                },
-                "ltxFastText": {
-                  "summary": "LTX 02｜已验证：Fast 纯文本",
-                  "value": {
-                    "model": "ltx-2.3-fast",
-                    "prompt": "A fast tracking shot through a neon city street.",
-                    "resolution": "1080p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "audio": false,
-                    "prompt_enhance": "AUTO"
-                  }
-                },
-                "ltxFirstFrame": {
-                  "summary": "LTX 03｜首帧图生视频（先上传 1 图）",
-                  "value": {
-                    "model": "ltx-2.3-fast",
-                    "prompt": "Animate the uploaded first frame with a smooth forward camera move and synchronized studio ambience.",
-                    "resolution": "1080p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "prompt_enhance": "AUTO",
-                    "image_url": "https://replace.invalid/image-media-url-1-from-upload"
-                  }
-                },
-                "ltxFramesAudio": {
-                  "summary": "LTX 04｜已验证：首尾帧 + 生成音轨（先上传 2 图）",
-                  "value": {
-                    "model": "ltx-2.3-pro",
-                    "prompt": "Create a smooth studio transition from the first uploaded composition to the second. Keep the camera centered and add subtle synchronized electronic ambience.",
-                    "resolution": "1080p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "prompt_enhance": "AUTO",
-                    "start_frame_url": "https://replace.invalid/image-media-url-1-from-upload",
-                    "end_frame_url": "https://replace.invalid/image-media-url-2-from-upload"
-                  }
-                },
-
-
-
-
-
-
-
-                "minimaxH3Text": {
-                  "summary": "minimax-h3｜1440p｜纯文本 5 秒",
-                  "value": {
-                    "model": "minimax-h3",
-                    "prompt": "一位年轻女子缓步走向窗边，阳光洒落，镜头缓慢跟随，电影感。",
-                    "resolution": "1440p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "audio": true
-                  }
-                },
-                "minimaxH3FirstFrame": {
-                  "summary": "minimax-h3｜1440p｜首帧",
-                  "value": {
-                    "model": "minimax-h3",
-                    "prompt": "保持主体身份，镜头缓推，自然光，动作连贯。",
-                    "resolution": "1440p",
-                    "duration": 8,
-                    "aspect_ratio": "16:9",
-                    "start_frame_url": "https://tkcreazy.top/v1/videos/uploads/file-start?token=...",
-                    "audio": true
-                  }
-                },
-                "minimaxH3FirstLast": {
-                  "summary": "minimax-h3｜1440p｜首尾帧",
-                  "value": {
-                    "model": "minimax-h3",
-                    "prompt": "从首帧姿态过渡到尾帧姿态，动作自然流畅。",
-                    "resolution": "1440p",
-                    "duration": 10,
-                    "aspect_ratio": "9:16",
-                    "start_frame_url": "https://tkcreazy.top/v1/videos/uploads/file-start?token=...",
-                    "end_frame_url": "https://tkcreazy.top/v1/videos/uploads/file-end?token=...",
-                    "audio": true
-                  }
-                },
-                "minimaxH3Refs": {
-                  "summary": "minimax-h3｜1440p｜参考图",
-                  "value": {
-                    "model": "minimax-h3",
-                    "prompt": "参考图中的人物与场景风格，镜头缓慢环绕。",
-                    "resolution": "1440p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "audio": true,
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "media_url": "https://tkcreazy.top/v1/videos/uploads/file-ref1?token=..."
-                          }
-                        }
-                      ]
-                    }
-                  }
-                },
-                "minimaxH3AudioRef": {
-                  "summary": "minimax-h3｜1440p｜参考图+参考音频",
-                  "value": {
-                    "model": "minimax-h3",
-                    "prompt": "画面跟随参考图主体表演，节奏贴合参考音频。",
-                    "resolution": "1440p",
                     "duration": 8,
                     "aspect_ratio": "16:9",
                     "audio": true,
+                    "start_frame_url": "https://replace.invalid/first-frame.png",
+                    "end_frame_url": "https://replace.invalid/last-frame.png",
                     "guidances": {
                       "image_reference": [
                         {
                           "image": {
-                            "media_url": "https://tkcreazy.top/v1/videos/uploads/file-ref1?token=..."
-                          }
+                            "url": "https://replace.invalid/reference-image.png"
+                          },
+                          "order": 0
                         }
                       ],
-                      "audio_reference": [
+                      "video_reference_base": [
                         {
-                          "audio": {
-                            "media_url": "https://tkcreazy.top/v1/videos/uploads/file-audio?token=...",
+                          "video": {
+                            "url": "https://replace.invalid/reference-video.mp4",
                             "duration_seconds": 6.5
-                          }
+                          },
+                          "order": 0
+                        }
+                      ],
+                      "audio_reference": [
+                        {
+                          "audio": {
+                            "url": "https://replace.invalid/reference-audio.mp3",
+                            "duration_seconds": 6.5
+                          },
+                          "order": 0
                         }
                       ]
                     }
-                  }
-                },
-                "grokImagineFirstFrame": {
-                  "summary": "grok-imagine-1.5｜720p｜首帧必填",
-                  "value": {
-                    "model": "grok-imagine-1.5",
-                    "prompt": "Keep subject identity, slow cinematic push-in, natural daylight.",
-                    "resolution": "720p",
-                    "duration": 6,
-                    "aspect_ratio": "16:9",
-                    "start_frame_url": "https://tkcreazy.top/v1/videos/uploads/file-start?token=...",
-                    "audio": true
-                  }
-                },
-                "grokImagineImageUrlCompat": {
-                  "summary": "grok-imagine-1.5｜720p｜image_url 兼容首帧",
-                  "value": {
-                    "model": "grok-imagine-1.5",
-                    "prompt": "Gentle camera move, preserve face identity.",
-                    "resolution": "720p",
-                    "duration": 8,
-                    "aspect_ratio": "9:16",
-                    "image_url": "https://tkcreazy.top/v1/videos/uploads/file-start?token=...",
-                    "audio": false
-                  }
-                },
-                "oneFaceRef480p": {
-                  "summary": "seedance2.0-one-face-reference-480p｜固定480p｜图+视频+音频综合参考（推荐）",
-                  "description": "特惠 480p 主示例：必须同时包含 image_reference、video_reference_base、audio_reference。请先上传素材，把 replace.invalid URL 换成 media_url。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-480p",
-                    "prompt": "场景为白天；8K，真人质感，真实质感，电影画质，禁止生成字幕；人物表演自然，微表情到位。保持多张参考图中人物身份与服装一致，参考视频的运镜与站位关系，口型与参考人声节奏同步；画面锐利清晰、深景深，禁止远景虚化与柔焦；无水印无台标。",
-                    "resolution": "480p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        }
-                      ]
-                    },
-                    "audio": true
-                  }
-                },
-                "oneFaceRef720p": {
-                  "summary": "seedance2.0-one-face-reference-720p｜固定720p｜图+视频+音频综合参考（推荐）",
-                  "description": "特惠 720p 主示例：必须同时包含 image_reference、video_reference_base、audio_reference。请先上传素材，把 replace.invalid URL 换成 media_url。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "场景为白天；8K，真人质感，真实质感，电影画质，禁止生成字幕；人物表演自然，微表情到位。保持多张参考图中人物身份与服装一致，参考视频的运镜与站位关系，口型与参考人声节奏同步；画面锐利清晰、深景深，禁止远景虚化与柔焦；无水印无台标。",
-                    "resolution": "720p",
-                    "duration": 10,
-                    "aspect_ratio": "16:9",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        }
-                      ]
-                    },
-                    "audio": true
-                  }
-                },
-                "oneFaceRef720pMultiModal63": {
-                  "summary": "seedance2.0-one-face-reference-720p｜6图+3视频+3音频（合计12，合法满组合）",
-                  "description": "合计 12 个素材的合法满载示例。超过合计 12 会被拒绝或截断，请勿提交 9+3+3。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "场景为白天；8K，真人质感，真实质感，电影画质，禁止生成字幕；人物表演自然，微表情到位。保持多张参考图中人物身份与服装一致，参考视频的运镜与站位关系，口型与参考人声节奏同步；画面锐利清晰、深景深，禁止远景虚化与柔焦；无水印无台标。",
-                    "resolution": "720p",
-                    "duration": 15,
-                    "aspect_ratio": "16:9",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-03-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 3
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-04-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 4
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-05-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 5
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-06-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 6
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-02-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-03-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-02-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        },
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-03-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        }
-                      ]
-                    },
-                    "audio": true
-                  }
-                },
-                "oneFaceRef720pMultiModal921": {
-                  "summary": "seedance2.0-one-face-reference-720p｜9图+2视频+1音频（合计12，合法）",
-                  "description": "高图量多模态示例：9 张参考图 + 2 参考视频 + 1 参考音频。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "场景为白天；8K，真人质感，真实质感，电影画质，禁止生成字幕；人物表演自然，微表情到位。保持多张参考图中人物身份与服装一致，参考视频的运镜与站位关系，口型与参考人声节奏同步；画面锐利清晰、深景深，禁止远景虚化与柔焦；无水印无台标。",
-                    "resolution": "720p",
-                    "duration": 15,
-                    "aspect_ratio": "16:9",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-03-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 3
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-04-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 4
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-05-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 5
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-06-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 6
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-07-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 7
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-08-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 8
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-09-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 9
-                        }
-                      ],
-                      "video_reference_base": [
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        },
-                        {
-                          "video": {
-                            "url": "https://replace.invalid/one-face-video-02-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 4
-                          }
-                        }
-                      ],
-                      "audio_reference": [
-                        {
-                          "audio": {
-                            "url": "https://replace.invalid/one-face-audio-01-media-url-from-upload",
-                            "type": "UPLOADED",
-                            "duration_seconds": 3
-                          }
-                        }
-                      ]
-                    },
-                    "audio": true
-                  }
-                },
-                "oneFaceRef720pPureImages": {
-                  "summary": "seedance2.0-one-face-reference-720p｜仅多图参考（无视频无音频）",
-                  "description": "仅图+提示词场景。若需要运镜/口型参考，请改用图+视频+音频综合示例。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "场景为白天；8K，真人质感，真实质感，电影画质，禁止生成字幕；人物表演自然，微表情到位。保持多张参考图中人物身份与服装一致，参考视频的运镜与站位关系，口型与参考人声节奏同步；画面锐利清晰、深景深，禁止远景虚化与柔焦；无水印无台标。",
-                    "resolution": "720p",
-                    "duration": 8,
-                    "aspect_ratio": "16:9",
-                    "guidances": {
-                      "image_reference": [
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-01-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 1
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-02-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 2
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-03-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 3
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-04-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 4
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-05-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 5
-                        },
-                        {
-                          "image": {
-                            "url": "https://replace.invalid/one-face-image-06-media-url-from-upload",
-                            "type": "UPLOADED"
-                          },
-                          "order": 6
-                        }
-                      ]
-                    }
-                  }
-                },
-                "oneFaceRef720pPureText": {
-                  "summary": "seedance2.0-one-face-reference-720p｜纯文生（无参考素材）",
-                  "description": "无参考素材的纯提示词创建。",
-                  "value": {
-                    "model": "seedance2.0-one-face-reference-720p",
-                    "prompt": "古装宫廷日戏，近景对话，人物表情自然，电影画质，锐利清晰，深景深，禁止虚化背景与字幕。",
-                    "resolution": "720p",
-                    "duration": 5,
-                    "aspect_ratio": "16:9"
                   }
                 }
               }
@@ -1757,400 +522,16 @@
                   "$ref": "#/components/schemas/CreateJobResponse"
                 },
                 "examples": {
-                  "sd20MXText480": {
-                    "summary": "sd-2.0-mx933｜480p｜纯文本",
+                  "queued": {
+                    "summary": "任务已受理",
                     "value": {
-                      "job_id": "vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
+                      "job_id": "vidjob_example_123456",
                       "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXSingleImage720": {
-                    "summary": "sd-2.0-mx933｜720p｜单图参考",
-                    "value": {
-                      "job_id": "vidjob_M3n4O5p6Q7r8S9t0U1v2W3x4",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_M3n4O5p6Q7r8S9t0U1v2W3x4",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXMultiImage480": {
-                    "summary": "sd-2.0-mx933｜480p｜多图参考",
-                    "value": {
-                      "job_id": "vidjob_Y5z6A7b8C9d0E1f2G3h4I5j6",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_Y5z6A7b8C9d0E1f2G3h4I5j6",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXFirstLast720": {
-                    "summary": "sd-2.0-mx933｜720p｜首尾帧",
-                    "value": {
-                      "job_id": "vidjob_K7l8M9n0O1p2Q3r4S5t6U7v8",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_K7l8M9n0O1p2Q3r4S5t6U7v8",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXMultiVideo480": {
-                    "summary": "sd-2.0-mx933｜480p｜多视频参考",
-                    "value": {
-                      "job_id": "vidjob_W9x0Y1z2A3b4C5d6E7f8G9h0",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_W9x0Y1z2A3b4C5d6E7f8G9h0",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXMultiAudio720": {
-                    "summary": "sd-2.0-mx933｜720p｜单图与多音频参考",
-                    "value": {
-                      "job_id": "vidjob_I1j2K3l4M5n6O7p8Q9r0S1t2",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_I1j2K3l4M5n6O7p8Q9r0S1t2",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd20MXCombined480": {
-                    "summary": "sd-2.0-mx933｜480p｜图片、视频与音频综合参考",
-                    "value": {
-                      "job_id": "vidjob_U3v4W5x6Y7z8A9b0C1d2E3f4",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_U3v4W5x6Y7z8A9b0C1d2E3f4",
-                      "model": "sd-2.0-mx933"
-                    }
-                  },
-                  "sd25MXText720": {
-                    "summary": "sd-2.5-mx｜720p｜纯文本",
-                    "value": {
-                      "job_id": "vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXSingleImage720": {
-                    "summary": "sd-2.5-mx｜720p｜单图参考",
-                    "value": {
-                      "job_id": "vidjob_S7t8U9v0W1x2Y3z4A5b6C7d8",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_S7t8U9v0W1x2Y3z4A5b6C7d8",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXMultiImage720": {
-                    "summary": "sd-2.5-mx｜720p｜多图参考",
-                    "value": {
-                      "job_id": "vidjob_E9f0G1h2I3j4K5l6M7n8O9p0",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_E9f0G1h2I3j4K5l6M7n8O9p0",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXMultiVideo720": {
-                    "summary": "sd-2.5-mx｜720p｜多视频参考",
-                    "value": {
-                      "job_id": "vidjob_Q1r2S3t4U5v6W7x8Y9z0A1b2",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_Q1r2S3t4U5v6W7x8Y9z0A1b2",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXMultiAudio720": {
-                    "summary": "sd-2.5-mx｜720p｜单图与多音频参考",
-                    "value": {
-                      "job_id": "vidjob_C3d4E5f6G7h8I9j0K1l2M3n4",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_C3d4E5f6G7h8I9j0K1l2M3n4",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXFirstLast720": {
-                    "summary": "sd-2.5-mx｜720p｜首尾帧",
-                    "value": {
-                      "job_id": "vidjob_O5p6Q7r8S9t0U1v2W3x4Y5z6",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_O5p6Q7r8S9t0U1v2W3x4Y5z6",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "sd25MXCombined720": {
-                    "summary": "sd-2.5-mx｜720p｜多图、多视频与多音频综合参考",
-                    "value": {
-                      "job_id": "vidjob_A7b8C9d0E1f2G3h4I5j6K7l8",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_A7b8C9d0E1f2G3h4I5j6K7l8",
-                      "model": "sd-2.5-mx"
-                    }
-                  },
-                  "seedance20Text": {
-                    "summary": "Seedance 01｜已验证：2.0 纯文本",
-                    "value": {
-                      "job_id": "vidjob_seedance20Text_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedance20Text_example_123",
-                      "model": "seedance-2.0",
+                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_example_123456",
+                      "model": "seedance-2.5-c1-03",
                       "resolution": "720p",
-                      "duration": 10,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceSingleImage": {
-                    "summary": "Seedance 02｜已验证：单图参考（先上传 1 图）",
-                    "value": {
-                      "job_id": "vidjob_seedanceSingleImage_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceSingleImage_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "1:1",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceMultiImage": {
-                    "summary": "Seedance 03｜已验证：多图参考（先上传 2-4 图）",
-                    "value": {
-                      "job_id": "vidjob_seedanceMultiImage_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceMultiImage_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceFirstFrame": {
-                    "summary": "Seedance 04｜已验证：首帧图生视频（先上传 1 图）",
-                    "value": {
-                      "job_id": "vidjob_seedanceFirstFrame_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceFirstFrame_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceFirstLastFrames": {
-                    "summary": "Seedance 05｜已验证：首尾帧（先上传 2 图）",
-                    "value": {
-                      "job_id": "vidjob_seedanceFirstLastFrames_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceFirstLastFrames_example_123",
-                      "model": "seedance-2.0",
-                      "resolution": "720p",
-                      "duration": 10,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceSingleVideo": {
-                    "summary": "Seedance 06｜已验证：单视频参考（先上传 1 视频）",
-                    "value": {
-                      "job_id": "vidjob_seedanceSingleVideo_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceSingleVideo_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceMultiVideo": {
-                    "summary": "Seedance 07｜多视频参考（先上传 2-3 视频）",
-                    "value": {
-                      "job_id": "vidjob_seedanceMultiVideo_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceMultiVideo_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 10,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceImageAudio": {
-                    "summary": "Seedance 08｜已验证：单图 + 参考音频（上传 1 图、1 音频）",
-                    "value": {
-                      "job_id": "vidjob_seedanceImageAudio_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceImageAudio_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "480p",
-                      "duration": 5,
-                      "aspect_ratio": "1:1",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceVideoAudio": {
-                    "summary": "Seedance 09｜单视频 + 参考音频（上传 1 视频、1 音频）",
-                    "value": {
-                      "job_id": "vidjob_seedanceVideoAudio_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceVideoAudio_example_123",
-                      "model": "seedance-2.0-fast",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "seedanceMiniText": {
-                    "summary": "Seedance 10｜已验证提交：Mini 纯文本",
-                    "value": {
-                      "job_id": "vidjob_seedanceMiniText_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_seedanceMiniText_example_123",
-                      "model": "seedance-2.0-mini",
-                      "resolution": "480p",
-                      "duration": 5,
-                      "aspect_ratio": "1:1",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "happyHorseText": {
-                    "summary": "HappyHorse 01｜已验证：纯文本",
-                    "value": {
-                      "job_id": "vidjob_happyHorseText_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseText_example_123",
-                      "model": "happy-horse-1.1",
-                      "resolution": "1080p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "happyHorseFirstFrame": {
-                    "summary": "HappyHorse 02｜已验证：首帧图生视频（先上传 1 图）",
-                    "value": {
-                      "job_id": "vidjob_happyHorseFirstFrame_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseFirstFrame_example_123",
-                      "model": "happy-horse-1.1",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "9:16",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "happyHorseSingleImage": {
-                    "summary": "HappyHorse 03｜单图参考（先上传 1 图）",
-                    "value": {
-                      "job_id": "vidjob_happyHorseSingleImage_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseSingleImage_example_123",
-                      "model": "happy-horse-1.1",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "happyHorseMultiAudio": {
-                    "summary": "HappyHorse 04｜已验证：多图 + 生成音轨（先上传 2-9 图）",
-                    "value": {
-                      "job_id": "vidjob_happyHorseMultiAudio_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_happyHorseMultiAudio_example_123",
-                      "model": "happy-horse-1.1",
-                      "resolution": "720p",
-                      "duration": 5,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "ltxProText": {
-                    "summary": "LTX 01｜已验证：Pro 纯文本",
-                    "value": {
-                      "job_id": "vidjob_ltxProText_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxProText_example_123",
-                      "model": "ltx-2.3-pro",
-                      "resolution": "1080p",
-                      "duration": 6,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "ltxFastText": {
-                    "summary": "LTX 02｜已验证：Fast 纯文本",
-                    "value": {
-                      "job_id": "vidjob_ltxFastText_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxFastText_example_123",
-                      "model": "ltx-2.3-fast",
-                      "resolution": "1080p",
-                      "duration": 6,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "ltxFirstFrame": {
-                    "summary": "LTX 03｜首帧图生视频（先上传 1 图）",
-                    "value": {
-                      "job_id": "vidjob_ltxFirstFrame_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxFirstFrame_example_123",
-                      "model": "ltx-2.3-fast",
-                      "resolution": "1080p",
-                      "duration": 6,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "ltxFramesAudio": {
-                    "summary": "LTX 04｜已验证：首尾帧 + 生成音轨（先上传 2 图）",
-                    "value": {
-                      "job_id": "vidjob_ltxFramesAudio_example_123",
-                      "status": "pending",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/vidjob_ltxFramesAudio_example_123",
-                      "model": "ltx-2.3-pro",
-                      "resolution": "1080p",
-                      "duration": 6,
-                      "aspect_ratio": "16:9",
-                      "created_at": "2026-08-03T12:00:00+08:00"
-                    }
-                  },
-                  "oneFaceRef480p": {
-                    "summary": "seedance2.0-one-face-reference-480p｜图+视频+音频综合参考已受理",
-                    "value": {
-                      "job_id": "task_oneFaceRef480pExample001",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/task_oneFaceRef480pExample001",
-                      "model": "seedance2.0-one-face-reference-480p"
-                    }
-                  },
-                  "oneFaceRef720p": {
-                    "summary": "seedance2.0-one-face-reference-720p｜图+视频+音频综合参考已受理",
-                    "value": {
-                      "job_id": "task_oneFaceRef480pExample001",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/task_oneFaceRef480pExample001",
-                      "model": "seedance2.0-one-face-reference-720p"
-                    }
-                  },
-                  "oneFaceRef720pMultiModal63": {
-                    "summary": "seedance2.0-one-face-reference-720p｜6图+3视频+3音频已受理",
-                    "value": {
-                      "job_id": "task_oneFaceRef480pExample001",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/task_oneFaceRef480pExample001",
-                      "model": "seedance2.0-one-face-reference-720p"
-                    }
-                  },
-                  "oneFaceRef720pMultiModal921": {
-                    "summary": "seedance2.0-one-face-reference-720p｜9图+2视频+1音频已受理",
-                    "value": {
-                      "job_id": "task_oneFaceRef480pExample001",
-                      "status": "queued",
-                      "status_url": "https://tkcreazy.top/v1/videos/jobs/task_oneFaceRef480pExample001",
-                      "model": "seedance2.0-one-face-reference-720p"
+                      "duration": 8,
+                      "aspect_ratio": "16:9"
                     }
                   }
                 }
@@ -2184,7 +565,7 @@
           "视频生成"
         ],
         "summary": "列出当前 API Key 创建的视频任务",
-        "description": "返回本地持久化任务索引，严格按当前用户、当前 API Key 和当前分组隔离，不会返回共享视频账号中其他客户的任务。默认 50 条，最多 100 条。服务端后台结算器会持续轮询未结算任务；列表请求也会读取最新状态，并推进等待中的自动容灾。暂时读不到状态时该项 status=unknown，但 job_id 仍可用于单任务查询。对 seedance-2.0/seedance-2.0-fast 720p，第一次执行失败不是终态，只有容灾执行也明确失败后才进入最终 failed。直接请求 sd-2.0-mx933 或 sd-2.5-mx 时，明确 failed 就是终态失败；后台结算器或列表查询确认后执行幂等退款。自动容灾不会改变客户提交的公开 model、job_id 或计费模型。新 sd-2.0-mx933 和 sd-2.5-mx 的公开任务号使用 vidjob_*。列表中的 status_url 以及完成任务的 mp4_url、url、local_url 都是以 /v1 开头的站点相对路径，完整地址固定为 https://tkcreazy.top + 路径。",
+        "description": "返回当前用户、当前 API Key 和当前分组创建的任务，不会混入共享上游账号中其他客户的数据。默认 50 条，最多 100 条。服务端会持续轮询、结算和处理可用的自动容灾，调用方无需依靠列表请求触发退款。暂时无法读取上游状态时可能返回 status=unknown，但公开 job_id 仍可用于单任务查询。任务始终保留客户提交的公开 model 和 job_id；完成后的结果地址为本站 /v1 相对路径。模型所属分组、价格和当前可用状态请前往主站模型广场查看。",
         "operationId": "listVideoGenerationJobs",
         "security": [
           {
@@ -2274,7 +655,7 @@
           "视频生成"
         ],
         "summary": "查询一个视频任务",
-        "description": "建议每 3-5 秒查询一次以获取最新状态，但退款不依赖客户持续轮询，服务端后台结算器会持续处理未结算任务。对 seedance-2.0/seedance-2.0-fast 720p，第一次执行失败不是终态，只有容灾执行也明确失败后才返回最终 failed；容灾不会改变客户提交的 model、公开 job_id 或计费模型。直接请求 sd-2.0-mx933 或 sd-2.5-mx 时，任务明确返回 failed 就是终态失败，后台结算器或本接口确认后执行幂等退款。新 sd-2.0-mx933 和 sd-2.5-mx 的公开 job_id 固定使用 vidjob_*，查询响应中的 id、job_id、task_id 均为该公开任务号，不会暴露或要求客户保存内部任务号。HTTP 200 只表示查询接口调用成功，必须以响应体 status 判断生成结果。status=completed 后读取 result.data[0].mp4_url；status=failed 时读取 error。mp4_url 是以 /v1 开头的站点相对路径，完整下载地址固定为 https://tkcreazy.top + mp4_url。只有创建该任务的同一个 API Key 能查询。",
+        "description": "建议每 3-5 秒查询一次。HTTP 200 只表示查询成功，必须以响应体 status 判断任务状态：queued/processing 继续轮询，completed 表示成功，failed 表示终态失败。服务端后台结算器负责未结算任务、自动容灾和幂等退款，不依赖客户持续轮询。响应始终使用公开 job_id 和客户提交的 model，不暴露上游任务号；completed 后可读取 result.data[0].mp4_url，或调用 /videos/jobs/{job_id}/content 下载。只有创建任务的同一个 API Key 能查询。",
         "operationId": "getVideoGenerationJob",
         "security": [
           {
@@ -2295,7 +676,7 @@
                   "$ref": "#/components/schemas/VideoJob"
                 },
                 "examples": {
-                  "running": {
+                  "processing": {
                     "summary": "运行中",
                     "value": {
                       "job_id": "vidjob_example_123",
@@ -2333,124 +714,6 @@
                       "status_url": "/v1/videos/jobs/vidjob_example_123",
                       "error": {
                         "message": "Video generation failed"
-                      }
-                    }
-                  },
-                  "sd20MXCompleted": {
-                    "summary": "新 SD 2.0｜completed 终态（公开 job_id 与下载路径）",
-                    "value": {
-                      "id": "vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
-                      "job_id": "vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
-                      "task_id": "vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
-                      "model": "sd-2.0-mx933",
-                      "status": "completed",
-                      "status_url": "/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2",
-                      "content": {
-                        "video_url": "/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2/content"
-                      },
-                      "result": {
-                        "data": [
-                          {
-                            "mp4_url": "/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2/content",
-                            "url": "/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2/content",
-                            "local_url": "/v1/videos/jobs/vidjob_A1b2C3d4E5f6G7h8I9j0K1l2/content"
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "sd20MXFailed": {
-                    "summary": "新 SD 2.0｜failed 终态（平台执行幂等退款）",
-                    "value": {
-                      "id": "vidjob_M9n8B7v6C5x4Z3a2S1d0F9g8",
-                      "job_id": "vidjob_M9n8B7v6C5x4Z3a2S1d0F9g8",
-                      "task_id": "vidjob_M9n8B7v6C5x4Z3a2S1d0F9g8",
-                      "model": "sd-2.0-mx933",
-                      "status": "failed",
-                      "status_url": "/v1/videos/jobs/vidjob_M9n8B7v6C5x4Z3a2S1d0F9g8",
-                      "error": "Video generation failed"
-                    }
-                  },
-                  "sd25MXCompleted": {
-                    "summary": "新 SD 2.5｜completed 终态（公开 job_id 与下载路径）",
-                    "value": {
-                      "id": "vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "job_id": "vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "task_id": "vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "model": "sd-2.5-mx",
-                      "status": "completed",
-                      "status_url": "/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6",
-                      "content": {
-                        "video_url": "/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6/content"
-                      },
-                      "result": {
-                        "data": [
-                          {
-                            "mp4_url": "/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6/content",
-                            "url": "/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6/content",
-                            "local_url": "/v1/videos/jobs/vidjob_G5h6I7j8K9l0M1n2O3p4Q5r6/content"
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "sd25MXFailed": {
-                    "summary": "新 SD 2.5｜failed 终态（平台执行幂等退款）",
-                    "value": {
-                      "id": "vidjob_H7j6K5l4P3o2I1u0Y9t8R7e6",
-                      "job_id": "vidjob_H7j6K5l4P3o2I1u0Y9t8R7e6",
-                      "task_id": "vidjob_H7j6K5l4P3o2I1u0Y9t8R7e6",
-                      "model": "sd-2.5-mx",
-                      "status": "failed",
-                      "status_url": "/v1/videos/jobs/vidjob_H7j6K5l4P3o2I1u0Y9t8R7e6",
-                      "error": "Video generation failed"
-                    }
-                  },
-                  "oneFaceRef720pCompleted": {
-                    "summary": "seedance2.0-one-face-reference-720p｜completed",
-                    "value": {
-                      "id": "task_oneFaceRef720pExample001",
-                      "job_id": "task_oneFaceRef720pExample001",
-                      "task_id": "task_oneFaceRef720pExample001",
-                      "object": "video",
-                      "model": "seedance2.0-one-face-reference-720p",
-                      "status": "completed",
-                      "progress": 100,
-                      "status_url": "/v1/videos/jobs/task_oneFaceRef720pExample001",
-                      "url": "/v1/videos/jobs/task_oneFaceRef720pExample001/content",
-                      "video_url": "/v1/videos/jobs/task_oneFaceRef720pExample001/content",
-                      "result": {
-                        "data": [
-                          {
-                            "url": "/v1/videos/jobs/task_oneFaceRef720pExample001/content",
-                            "mp4_url": "/v1/videos/jobs/task_oneFaceRef720pExample001/content",
-                            "local_url": "/v1/videos/jobs/task_oneFaceRef720pExample001/content"
-                          }
-                        ]
-                      }
-                    }
-                  },
-                  "oneFaceRef480pCompleted": {
-                    "summary": "seedance2.0-one-face-reference-480p｜completed",
-                    "value": {
-                      "id": "task_oneFaceRef480pExample001",
-                      "job_id": "task_oneFaceRef480pExample001",
-                      "task_id": "task_oneFaceRef480pExample001",
-                      "object": "video",
-                      "model": "seedance2.0-one-face-reference-480p",
-                      "status": "completed",
-                      "progress": 100,
-                      "status_url": "/v1/videos/jobs/task_oneFaceRef480pExample001",
-                      "url": "/v1/videos/jobs/task_oneFaceRef480pExample001/content",
-                      "video_url": "/v1/videos/jobs/task_oneFaceRef480pExample001/content",
-                      "result": {
-                        "data": [
-                          {
-                            "url": "/v1/videos/jobs/task_oneFaceRef480pExample001/content",
-                            "mp4_url": "/v1/videos/jobs/task_oneFaceRef480pExample001/content",
-                            "local_url": "/v1/videos/jobs/task_oneFaceRef480pExample001/content"
-                          }
-                        ]
                       }
                     }
                   }
@@ -4485,7 +2748,6 @@
           }
         }
       },
-
       "MiniMaxH3Request": {
         "title": "minimax-h3 请求",
         "type": "object",
@@ -5004,6 +3266,212 @@
                 "description": "参考音频最多 3 个；必须与至少 1 张参考图同用，并顶层 audio=true。每个音频建议填写完整 media_url 与真实 duration_seconds。图+视频+音频总数仍受合计 ≤12 限制。",
                 "items": {
                   "$ref": "#/components/schemas/SeedanceTimedAudioReference"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Seedance25C103Request": {
+        "title": "seedance-2.5-c1-03 请求",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "prompt",
+          "resolution"
+        ],
+        "description": "支持 480p/720p、4-30 秒、最多 30 图/10 视频/10 音频。参考视频累计不超过 30 秒；参考音频必须同时提供普通参考图。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "seedance-2.5-c1-03"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 30,
+            "default": 5
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "使用 audio_reference 时必须显式填写 true。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 30,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "image"
+                  ],
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "url"
+                      ],
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedVideoReference"
+                },
+                "description": "单个 3-10 秒、24-60 FPS，累计不超过 30 秒。"
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
+                },
+                "description": "必须同时提供至少一张普通 image_reference。"
+              }
+            }
+          }
+        }
+      },
+      "Seedance900Request": {
+        "title": "sd-2.0-900-720p 请求",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "description": "固定 720p、16:9，支持 5-15 秒整数。只支持纯文本和最多 9 张普通参考图；不支持首尾帧、参考视频、参考音频或生成音频。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "sd-2.0-900-720p"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 15,
+            "default": 5
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "default": false
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 9,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "image"
+                  ],
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "url"
+                      ],
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
                 }
               }
             }

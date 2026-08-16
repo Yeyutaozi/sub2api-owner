@@ -37,7 +37,8 @@ describe('useModelWhitelist', () => {
       'sd-2.5-mx',
       'seedance2.0-one-face-reference-480p',
       'seedance2.0-one-face-reference-720p',
-      'sd-2.0-900-720p'
+      'sd-2.0-900-720p',
+      'seedance-2.5-c1-03'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -49,6 +50,7 @@ describe('useModelWhitelist', () => {
       { from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p' },
       { from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p' },
       { from: 'sd-2.0-900-720p', to: 'seedance2.0-900-3' },
+      { from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
       { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
     ])
@@ -72,12 +74,18 @@ describe('useModelWhitelist', () => {
       'seedance2.0-one-face-reference-720p',
       'sd-2.0-900-720p'
     ])
+    expect(getSeedanceModelsByVideoProvider('globalaiopc')).toEqual([
+      'seedance-2.5-c1-03'
+    ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
     expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
       'https://liantongyidong.ximeiedu.org'
     )
     expect(getSeedanceVideoProviderBaseUrl('weijin')).toBe('https://www.weijinapi.top')
+    expect(getSeedanceVideoProviderBaseUrl('globalaiopc')).toBe(
+      'https://zcbservice.aizfw.cn/kyyReactApiServer'
+    )
   })
 
   it('always maps the public Weijin 900 ID to its dedicated upstream model', () => {
@@ -88,6 +96,17 @@ describe('useModelWhitelist', () => {
       { from: 'sd-2.0-900-720p', to: 'sd-2.0-900-720p' }
     ])).toEqual({
       'sd-2.0-900-720p': 'seedance2.0-900-3'
+    })
+  })
+
+  it('always maps the GlobalAiOpc public model to the upstream C1 model', () => {
+    expect(buildModelMappingObject('whitelist', ['seedance-2.5-c1-03'], [])).toEqual({
+      'seedance-2.5-c1-03': 'seedance-2.5-c1'
+    })
+    expect(buildModelMappingObject('mapping', [], [
+      { from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1-03' }
+    ])).toEqual({
+      'seedance-2.5-c1-03': 'seedance-2.5-c1'
     })
   })
 

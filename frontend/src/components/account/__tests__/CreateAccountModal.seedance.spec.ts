@@ -21,7 +21,7 @@ describe('CreateAccountModal video platform account types', () => {
     expect(source).toContain('@click="form.platform = \'ltx\'"')
     expect(source).toContain('@click="form.platform = \'happyhorse\'"')
     expect(source).toContain('@click="form.platform = \'minimax\'"')
-    expect(source).toContain("form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'glm'")
+    expect(source).toContain("form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine' || form.platform === 'glm'")
     expect(source).toContain("accountCategory.value = 'apikey'")
     expect(source).toContain("form.type = 'apikey'")
     expect(source).toContain("? 'https://api.fflink.top'")
@@ -36,9 +36,10 @@ describe('CreateAccountModal video platform account types', () => {
 
   it('persists the internal Seedance video provider on create and edit', () => {
     expect(source).toContain('v-model="seedanceVideoProvider"')
-    expect(source).toContain('<option value="fflink">')
-    expect(source).toContain('<option value="huiqu">')
-    expect(source).toContain('<option value="ximei">')
+    expect(source).toContain('value="fflink"')
+    expect(source).toContain('value="huiqu"')
+    expect(source).toContain('value="ximei"')
+    expect(source).toContain('value="globalaiopc"')
     expect(source).toContain("const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')")
     expect(source).toContain('credentials.video_provider = seedanceVideoProvider.value')
     expect(source).toContain('apiKeyBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
@@ -46,11 +47,13 @@ describe('CreateAccountModal video platform account types', () => {
     expect(editSource).toContain('data-testid="edit-seedance-video-provider"')
     expect(editSource).toContain("credentials?.video_provider === 'huiqu'")
     expect(editSource).toContain("credentials?.video_provider === 'ximei'")
+    expect(editSource).toContain("credentials?.video_provider === 'globalaiopc'")
     expect(editSource).toContain('newCredentials.video_provider = seedanceVideoProvider.value')
     expect(editSource).toContain('getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
     expect(editSource).toContain('getMiniMaxVideoProviderBaseUrl')
     expect(providerSource).toContain("huiqu: 'https://api.bjhuiqu.net'")
     expect(providerSource).toContain("ximei: 'https://liantongyidong.ximeiedu.org'")
+    expect(providerSource).toContain("globalaiopc: 'https://zcbservice.aizfw.cn/kyyReactApiServer'")
   })
 
   it('requires an explicit model mapping for every video account', () => {

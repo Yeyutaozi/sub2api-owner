@@ -640,6 +640,7 @@ export default {
         huiqu: 'Huiqu MX933',
         ximei: 'Ximei Developer API V3',
         weijin: 'Seedance Special Offer',
+        globalaiopc: 'GlobalAiOpc Seedance 2.5 C1',
         lingdongMappingTitle: 'Extended reference-video mapping (admin)',
         lingdongMappingHint: 'When enabled, configure public request model → extension upstream model. Only mapped models with video/audio use the extension upstream; prompt/image-only stays on Weijin. Default maps 720p only so 480p cheap pricing cannot hit expensive cost. Toggle and keys are admin-only.',
         lingdongMappingEnabled: 'Enable reference-video extension mapping',
