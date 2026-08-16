@@ -4,6 +4,9 @@ import {
   createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
   normalizeVideoBillingUnitForPlatform,
+  normalizeVideoModelBillingUnit,
+  normalizeVideoModelBillingUnitForPlatform,
+  resolveVideoModelBillingUnit,
   supportsVideoModelPricingPlatform,
   supportedResolutionsForVideoModel,
   validateVideoModelPriceRows,
@@ -32,6 +35,7 @@ describe("video model pricing form conversion", () => {
       createVideoModelPriceRow("sd2-mx933"),
       createVideoModelPriceRow("sd2-mx933-fast"),
       createVideoModelPriceRow("sd-2.0-mx933"),
+      createVideoModelPriceRow("sd-2.0-900-720p"),
       createVideoModelPriceRow("sd-2.5-mx"),
       createVideoModelPriceRow("seedance2.0-one-face-reference-480p"),
       createVideoModelPriceRow("seedance2.0-one-face-reference-720p"),
@@ -70,6 +74,9 @@ describe("video model pricing form conversion", () => {
       "720p",
     ]);
     expect(supportedResolutionsForVideoModel("seedance", "sd-2.5-mx")).toEqual([
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("seedance", "sd-2.0-900-720p")).toEqual([
       "720p",
     ]);
     expect(supportedResolutionsForVideoModel("seedance", "seedance2.0-one-face-reference-480p")).toEqual([
@@ -111,6 +118,7 @@ describe("video model pricing form conversion", () => {
       videoModelPriceRowsToPrices([
         {
           model: "  Seedance-2.0 ",
+          billing_unit: "per_request",
           price_480p: 0,
           price_720p: "0.16",
           price_1080p: null,
@@ -122,19 +130,68 @@ describe("video model pricing form conversion", () => {
       "seedance-2.0": {
         "480p": 0,
         "720p": 0.16,
+        billing_unit: "per_request",
       },
     });
   });
 
+  it("inherits the group unit when blank and serializes explicit model overrides", () => {
+    expect(resolveVideoModelBillingUnit("", "per_request", "seedance")).toBe("per_request");
+    expect(resolveVideoModelBillingUnit("per_second", "per_request", "seedance")).toBe("per_second");
+    expect(normalizeVideoModelBillingUnit("unexpected")).toBeUndefined();
+
+    const inherited = createVideoModelPriceRow("seedance-2.0", { "720p": 0.08 });
+    const overridden = createVideoModelPriceRow("seedance-2.0-fast", {
+      "720p": 0.04,
+      billing_unit: "per_request",
+    });
+    expect(videoModelPriceRowsToPrices([inherited, overridden])).toEqual({
+      "seedance-2.0": { "720p": 0.08 },
+      "seedance-2.0-fast": {
+        "720p": 0.04,
+        billing_unit: "per_request",
+      },
+    });
+  });
+
+  it("drops unsupported per-request model units outside Seedance", () => {
+    expect(
+      normalizeVideoModelBillingUnitForPlatform("ltx", "per_request"),
+    ).toBeUndefined();
+    expect(
+      resolveVideoModelBillingUnit("per_request", "per_second", "ltx"),
+    ).toBe("per_second");
+
+    const dirtyRow = createVideoModelPriceRow("ltx-2.3-pro", {
+      "1440p": 0.2,
+      billing_unit: "per_request",
+    });
+    dirtyRow.billing_unit = "per_request";
+    expect(videoModelPriceRowsToPrices([dirtyRow], "ltx")).toEqual({
+      "ltx-2.3-pro": { "1440p": 0.2 },
+    });
+    expect(
+      createVideoModelPriceRow("ltx-2.3-pro", {
+        "1440p": 0.2,
+        billing_unit: "per_request",
+      }, "ltx").billing_unit,
+    ).toBe("");
+  });
+
   it("round-trips an API matrix without inventing missing resolution prices", () => {
     const prices = {
-      "seedance-2.0": { "480p": 0, "1080p": 0.2 },
+      "seedance-2.0": {
+        "480p": 0,
+        "1080p": 0.2,
+        billing_unit: "per_request" as const,
+      },
       "seedance-2.0-fast": { "720p": 0.08 },
     };
 
     expect(videoModelPricesToRows(prices, "seedance")).toEqual([
       {
         model: "seedance-2.0",
+        billing_unit: "per_request",
         price_480p: 0,
         price_720p: null,
         price_1080p: 0.2,
@@ -143,6 +200,7 @@ describe("video model pricing form conversion", () => {
       },
       {
         model: "seedance-2.0-fast",
+        billing_unit: "",
         price_480p: null,
         price_720p: 0.08,
         price_1080p: null,
@@ -210,6 +268,18 @@ describe("video model pricing form conversion", () => {
 
     expect(
       videoModelPriceRowsToPrices([
+        createVideoModelPriceRow("sd-2.0-900-720p", {
+          "480p": 0.03,
+          "720p": 0.05,
+          "1080p": 0.08,
+        }),
+      ], "seedance"),
+    ).toEqual({
+      "sd-2.0-900-720p": { "720p": 0.05 },
+    });
+
+    expect(
+      videoModelPriceRowsToPrices([
         createVideoModelPriceRow("ltx-2.3-pro", {
           "720p": 0.1,
           "1440p": 0.2,
@@ -251,7 +321,15 @@ describe("video model pricing form conversion", () => {
     ).toMatchObject({ code: "duplicateModel", row: 2 });
     expect(
       validateVideoModelPriceRows([
-        { model: "pro", price_480p: -1, price_720p: null, price_1080p: null },
+        {
+          model: "pro",
+          billing_unit: "",
+          price_480p: -1,
+          price_720p: null,
+          price_1080p: null,
+          price_1440p: null,
+          price_2160p: null,
+        },
       ]),
     ).toMatchObject({ code: "invalidPrice", row: 1 });
     expect(

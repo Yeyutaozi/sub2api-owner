@@ -53,7 +53,17 @@ func (s *OpenAIGatewayService) RecordSeedanceUsage(ctx context.Context, input *S
 			return fmt.Errorf("load user video prices: %w", err)
 		}
 		if override, ok := findVideoModelPrice(group.Platform, userPrices, requestedModel); ok {
-			base, _ := findVideoModelPrice(group.Platform, group.VideoModelPrices, requestedModel)
+			base, hasModelPrice := findVideoModelPrice(group.Platform, group.VideoModelPrices, requestedModel)
+			if !hasModelPrice && len(group.VideoModelPrices) == 0 {
+				base = VideoModelPrice{
+					BillingUnit: group.EffectiveVideoBillingUnit(),
+					Price480P:   cloneFloat64Pointer(group.GetVideoPrice(VideoBillingResolution480P)),
+					Price720P:   cloneFloat64Pointer(group.GetVideoPrice(VideoBillingResolution720P)),
+					Price1080P:  cloneFloat64Pointer(group.GetVideoPrice(VideoBillingResolution1080P)),
+					Price1440P:  cloneFloat64Pointer(group.GetVideoPrice(VideoBillingResolution1440P)),
+					Price2160P:  cloneFloat64Pointer(group.GetVideoPrice(VideoBillingResolution2160P)),
+				}
+			}
 			group.VideoModelPrices[strings.ToLower(requestedModel)] = mergeVideoModelPrice(base, override)
 		}
 	}
@@ -82,7 +92,8 @@ func (s *OpenAIGatewayService) RecordSeedanceUsage(ctx context.Context, input *S
 
 func mergeVideoModelPrice(base, override VideoModelPrice) VideoModelPrice {
 	out := VideoModelPrice{
-		Price480P: cloneFloat64Pointer(base.Price480P), Price720P: cloneFloat64Pointer(base.Price720P),
+		BillingUnit: base.BillingUnit,
+		Price480P:   cloneFloat64Pointer(base.Price480P), Price720P: cloneFloat64Pointer(base.Price720P),
 		Price1080P: cloneFloat64Pointer(base.Price1080P), Price1440P: cloneFloat64Pointer(base.Price1440P),
 		Price2160P: cloneFloat64Pointer(base.Price2160P),
 	}

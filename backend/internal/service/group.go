@@ -45,10 +45,10 @@ type Group struct {
 	DefaultValidityDays int
 
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
-	AllowImageGeneration         bool
-	AllowBatchImageGeneration    bool
+	AllowImageGeneration      bool
+	AllowBatchImageGeneration bool
 	// Creazy 画布网页准入（默认 true；不影响 /v1 API）
-	AllowCreazyCanvas bool
+	AllowCreazyCanvas            bool
 	ImageRateIndependent         bool
 	ImageRateMultiplier          float64
 	ImagePrice1K                 *float64
@@ -124,6 +124,52 @@ func (g *Group) EffectiveVideoBillingUnit() string {
 	return EffectiveVideoBillingUnit(g.Platform, g.VideoBillingUnit)
 }
 
+// EffectiveVideoBillingUnitForModel returns a model price card override when
+// configured, otherwise it preserves the group's legacy default.
+func (g *Group) EffectiveVideoBillingUnitForModel(model string) string {
+	if g == nil {
+		return VideoBillingUnitPerSecond
+	}
+	if IsFFLinkVideoPlatform(g.Platform) && len(g.VideoModelPrices) > 0 {
+		if price, ok := findVideoModelPrice(g.Platform, g.VideoModelPrices, model); ok {
+			if strings.TrimSpace(price.BillingUnit) != "" {
+				return EffectiveVideoBillingUnit(g.Platform, price.BillingUnit)
+			}
+		}
+	}
+	return g.EffectiveVideoBillingUnit()
+}
+
+// HasExplicitVideoModelPrice reports whether the group has a model-specific
+// price card. It intentionally does not fall back to legacy group-level prices.
+func (g *Group) HasExplicitVideoModelPrice(model string) bool {
+	if g == nil || !IsFFLinkVideoPlatform(g.Platform) || len(g.VideoModelPrices) == 0 {
+		return false
+	}
+	_, ok := findVideoModelPrice(g.Platform, g.VideoModelPrices, model)
+	return ok
+}
+
+// GroupAllowsVideoModelExposure keeps internal provider IDs out of public
+// catalogs and requires dedicated-credential models to be explicitly priced.
+// For existing video models, an empty matrix retains legacy group pricing.
+func GroupAllowsVideoModelExposure(group *Group, model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" || isRetiredWeijin900PublicModel(model) || isWeijin900UpstreamModel(model) {
+		return false
+	}
+	if isWeijin900PublicModel(model) {
+		return model == SeedanceWeijin900Model &&
+			group != nil &&
+			group.Platform == PlatformSeedance &&
+			group.HasExplicitVideoModelPrice(SeedanceWeijin900Model)
+	}
+	if group != nil && IsFFLinkVideoPlatform(group.Platform) && len(group.VideoModelPrices) > 0 {
+		return group.HasExplicitVideoModelPrice(model)
+	}
+	return true
+}
+
 func (g *Group) IsActive() bool {
 	return g.Status == StatusActive
 }
@@ -190,6 +236,10 @@ func (g *Group) GetVideoPriceForModel(model, resolution string) *float64 {
 	if !ok {
 		return nil
 	}
+	return videoModelPriceForResolution(price, resolution)
+}
+
+func videoModelPriceForResolution(price VideoModelPrice, resolution string) *float64 {
 	switch NormalizeVideoBillingResolutionOrDefault(resolution) {
 	case VideoBillingResolution480P:
 		return price.Price480P

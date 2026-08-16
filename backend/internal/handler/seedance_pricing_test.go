@@ -10,6 +10,7 @@ import (
 
 func TestSeedanceVideoPricingError(t *testing.T) {
 	pro720P := 0.16
+	weijin900PerRequest := 0.05
 	legacy720P := 0.09
 
 	tests := []struct {
@@ -65,6 +66,47 @@ func TestSeedanceVideoPricingError(t *testing.T) {
 			},
 			model:      "legacy-seedance-model",
 			resolution: service.VideoBillingResolution720P,
+		},
+		{
+			name: "weijin 900 requires an explicit model price card",
+			group: &service.Group{
+				Platform:       service.PlatformSeedance,
+				VideoPrice720P: &legacy720P,
+			},
+			model:      service.SeedanceWeijin900Model,
+			resolution: service.VideoBillingResolution720P,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "model_not_supported",
+		},
+		{
+			name: "weijin 900 accepts an explicit per-request price card",
+			group: &service.Group{
+				Platform: service.PlatformSeedance,
+				VideoModelPrices: service.VideoModelPrices{
+					service.SeedanceWeijin900Model: {
+						BillingUnit: service.VideoBillingUnitPerRequest,
+						Price720P:   &weijin900PerRequest,
+					},
+				},
+			},
+			model:      service.SeedanceWeijin900Model,
+			resolution: service.VideoBillingResolution720P,
+		},
+		{
+			name: "legacy weijin 900 public id is rejected",
+			group: &service.Group{
+				Platform: service.PlatformSeedance,
+				VideoModelPrices: service.VideoModelPrices{
+					service.SeedanceWeijin900Model: {
+						BillingUnit: service.VideoBillingUnitPerRequest,
+						Price720P:   &weijin900PerRequest,
+					},
+				},
+			},
+			model:      "sd-2.0-900",
+			resolution: service.VideoBillingResolution720P,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "model_not_supported",
 		},
 		{
 			name: "empty matrix without legacy price is unconfigured",

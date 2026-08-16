@@ -1049,9 +1049,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	// Get available models from account configurations for the selected group platform.
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	rawAvailableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	availableModels := filterModelsForGroupExposure(rawAvailableModels, apiKey)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		fallbackModels := defaultModelIDsForPlatform(platform)
+		fallbackModels := filterModelsForGroupExposure(defaultModelIDsForPlatform(platform), apiKey)
+		if service.IsFFLinkVideoPlatform(platform) && len(rawAvailableModels) > 0 && len(availableModels) == 0 {
+			fallbackModels = nil
+		}
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
 		return
@@ -1080,6 +1084,14 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 	if platform == service.PlatformGrok {
 		writeGrokModelsList(c, xai.DefaultModelIDs())
+		return
+	}
+	if service.IsFFLinkVideoPlatform(platform) {
+		if len(rawAvailableModels) > 0 {
+			writeModelsList(c, platform, nil)
+			return
+		}
+		writeModelsList(c, platform, filterModelsForGroupExposure(defaultModelIDsForPlatform(platform), apiKey))
 		return
 	}
 
@@ -1239,6 +1251,20 @@ func customModelsListSource(platform string, availableModels, fallbackModels []s
 	return availableModels
 }
 
+func filterModelsForGroupExposure(models []string, apiKey *service.APIKey) []string {
+	var group *service.Group
+	if apiKey != nil {
+		group = apiKey.Group
+	}
+	out := make([]string, 0, len(models))
+	for _, model := range models {
+		if service.GroupAllowsVideoModelExposure(group, model) {
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
 func filterModelsByCustomList(availableModels, fallbackModels, selectedModels []string) []string {
 	if len(selectedModels) == 0 {
 		return availableModels
@@ -1320,6 +1346,12 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return xai.DefaultModelIDs()
 	case service.PlatformGLM:
 		return service.DefaultGLMModelIDs()
+	case service.PlatformSeedance,
+		service.PlatformMiniMax,
+		service.PlatformGrokImagine,
+		service.PlatformLTX,
+		service.PlatformHappyHorse:
+		return service.FFLinkVideoModelIDsForPlatform(platform)
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})

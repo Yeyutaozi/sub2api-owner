@@ -406,6 +406,7 @@ type OpenAIGatewayService struct {
 	userGroupRateRepo     UserGroupRateRepository
 	userGroupRateResolver *userGroupRateResolver
 	httpUpstream          HTTPUpstream
+	imageInputHTTPClient  *http.Client
 	deferredService       *DeferredService
 	openAITokenProvider   *OpenAITokenProvider
 	grokTokenProvider     *GrokTokenProvider
@@ -475,6 +476,8 @@ func NewOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) *OpenAIGatewayService {
+	imageInputHTTPClient := newSeedanceMediaHTTPClient()
+	imageInputHTTPClient.Timeout = seedanceImageFetchTimeout
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,
 		usageLogRepo:        usageLogRepo,
@@ -498,6 +501,7 @@ func NewOpenAIGatewayService(
 			"service.openai_gateway",
 		),
 		httpUpstream:          httpUpstream,
+		imageInputHTTPClient:  imageInputHTTPClient,
 		deferredService:       deferredService,
 		openAITokenProvider:   openAITokenProvider,
 		grokTokenProvider:     grokTokenProvider,

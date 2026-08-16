@@ -26,7 +26,7 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSeedanceVideoModelPrices(t *te
 			Status:           StatusActive,
 			VideoBillingUnit: VideoBillingUnitPerRequest,
 			VideoModelPrices: VideoModelPrices{
-				"seedance-2.0": {Price720P: &pro720P},
+				"seedance-2.0": {BillingUnit: VideoBillingUnitPerSecond, Price720P: &pro720P},
 			},
 		},
 	}
@@ -83,7 +83,7 @@ func TestAPIKeyService_SnapshotIgnoresVideoModelPricesForOtherPlatforms(t *testi
 func TestAPIKeyService_RejectsV15AuthSnapshotForExistingPlatforms(t *testing.T) {
 	groupID := int64(803)
 	svc := &APIKeyService{}
-	require.Equal(t, 19, apiKeyAuthSnapshotVersion)
+	require.Equal(t, 21, apiKeyAuthSnapshotVersion)
 
 	apiKey, ok, err := svc.applyAuthCacheEntry("existing-grok-key", &APIKeyAuthCacheEntry{
 		Snapshot: &APIKeyAuthSnapshot{

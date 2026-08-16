@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlazaModelCards, normalizeModelKey, paidTokenUnit, resolveOfferTokenBase } from '../plazaCatalog'
+import {
+  buildPlazaModelCards,
+  normalizeModelKey,
+  paidTokenUnit,
+  resolveOfferTokenBase,
+  resolvePlazaVideoBillingUnit,
+} from '../plazaCatalog'
 import type { ModelPlazaResponse } from '@/api/modelPlaza'
 
 function group(
@@ -77,6 +83,14 @@ describe('buildPlazaModelCards', () => {
 
     const cards = buildPlazaModelCards(response)
     expect(cards).toHaveLength(2)
+  })
+})
+
+describe('video billing units', () => {
+  it('uses the model unit and safely defaults missing catalog data to per second', () => {
+    expect(resolvePlazaVideoBillingUnit({ video_billing_unit: 'per_request' })).toBe('per_request')
+    expect(resolvePlazaVideoBillingUnit({ video_billing_unit: 'per_second' })).toBe('per_second')
+    expect(resolvePlazaVideoBillingUnit({})).toBe('per_second')
   })
 })
 

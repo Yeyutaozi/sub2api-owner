@@ -10,6 +10,7 @@ import type {
   PlazaModelKind,
   PlazaVideoPrices
 } from '@/api/modelPlaza'
+import type { VideoBillingUnit } from '@/types'
 import { resolvePlazaVendor } from './plazaVendors'
 
 export interface PlazaOffer {
@@ -67,6 +68,12 @@ export function normalizePlazaKind(m: PlazaModel): PlazaModelKind | string {
   if (mode === 'image' || m.image_prices) return 'image'
   if (m.kind) return m.kind
   return 'chat'
+}
+
+export function resolvePlazaVideoBillingUnit(
+  model: Pick<PlazaModel, 'video_billing_unit'>
+): VideoBillingUnit {
+  return model.video_billing_unit === 'per_request' ? 'per_request' : 'per_second'
 }
 
 /** Normalize model name so GPT-4o / gpt-4o / gpt_4o merge into one card. */

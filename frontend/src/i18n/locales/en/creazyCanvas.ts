@@ -5,6 +5,7 @@ export default {
     heroTagline: 'Pick a key. Generate. Archive.',
     subtitle: 'Pick a group API key, generate image or video. Results stay private to the selected key and your works library.',
     tabs: {
+      workflow: 'Workflow',
       image: 'Image',
       video: 'Video',
       works: 'My Works',

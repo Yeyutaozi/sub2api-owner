@@ -262,6 +262,50 @@ func TestSeedanceMediaUploadRejectsStreamingBodyOverLimit(t *testing.T) {
 	require.Empty(t, store.puts)
 }
 
+func TestSeedanceCanvasMediaUploadSkipsImageAndVideoBusinessSizeLimits(t *testing.T) {
+	t.Run("image", func(t *testing.T) {
+		store := newSeedanceMediaMemoryStore()
+		service := NewSeedanceMediaService(store, nil, nil)
+		pngBytes := seedanceMediaTestImage(t, "png", 2, 2)
+		totalSize := SeedanceMaxImageBytes + 1
+		body := io.MultiReader(
+			bytes.NewReader(pngBytes),
+			io.LimitReader(seedanceMediaZeroReader{}, totalSize-int64(len(pngBytes))),
+		)
+
+		upload, err := service.UploadImage(context.Background(), SeedanceImageUploadInput{
+			Owner:         seedanceMediaTestOwner(),
+			Body:          body,
+			SizeBytes:     totalSize,
+			ContentType:   "image/png",
+			SkipSizeLimit: true,
+		})
+		require.NoError(t, err)
+		require.Equal(t, totalSize, upload.SizeBytes)
+		require.Len(t, store.puts, 1)
+	})
+
+	t.Run("video", func(t *testing.T) {
+		store := newSeedanceMediaMemoryStore()
+		service := NewSeedanceMediaService(store, nil, nil)
+		service.maxVideoBytes = 4
+		videoBytes := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+
+		upload, err := service.UploadMedia(context.Background(), SeedanceImageUploadInput{
+			Owner:         seedanceMediaTestOwner(),
+			Body:          bytes.NewReader(videoBytes),
+			SizeBytes:     int64(len(videoBytes)),
+			ContentType:   "video/mp4",
+			Filename:      "reference.mp4",
+			MediaKind:     "video",
+			SkipSizeLimit: true,
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(len(videoBytes)), upload.SizeBytes)
+		require.Len(t, store.puts, 1)
+	})
+}
+
 func TestSeedanceMediaUploadDataURIStrictBase64(t *testing.T) {
 	store := newSeedanceMediaMemoryStore()
 	service := NewSeedanceMediaService(store, nil, nil)

@@ -7,9 +7,15 @@
       :class="[sidebarCollapsed ? 'lg:ml-[76px]' : 'lg:ml-64']"
     >
       <AppHeader />
-      <main class="relative px-3 py-3 md:px-5 md:py-4 lg:px-6 lg:py-5 desk-main-shell">
-        <div class="relative relay-stage">
-          <div class="relay-stage__inner">
+      <main
+        class="relative desk-main-shell"
+        :class="props.workspace ? 'desk-main-shell--workspace' : 'px-3 py-3 md:px-5 md:py-4 lg:px-6 lg:py-5'"
+      >
+        <div class="relative relay-stage" :class="{ 'relay-stage--workspace': props.workspace }">
+          <div
+            class="relay-stage__inner"
+            :class="{ 'relay-stage__inner--workspace': props.workspace }"
+          >
             <slot />
           </div>
         </div>
@@ -27,6 +33,15 @@ import { useOnboardingTour } from '@/composables/useOnboardingTour'
 import { useOnboardingStore } from '@/stores/onboarding'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
+
+const props = withDefaults(
+  defineProps<{
+    workspace?: boolean
+  }>(),
+  {
+    workspace: false,
+  },
+)
 
 const appStore = useAppStore()
 const authStore = useAuthStore()

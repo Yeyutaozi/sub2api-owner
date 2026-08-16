@@ -18,7 +18,7 @@ export default {
       status: '状态',
       refund: '退款',
       prompt: '提示词',
-      createdAt: '创建时间',
+      createdAt: '时间 / 耗时',
       actions: '操作'
     },
     status: {
@@ -28,6 +28,10 @@ export default {
       failed: '失败',
       cancelled: '已取消',
       unknown: '未知'
+    },
+    timing: {
+      running: '已运行',
+      elapsed: '耗时'
     },
     refund: {
       pending: '待退款',
@@ -71,6 +75,7 @@ export default {
       lastError: '最近错误',
       snapshotJson: '请求快照',
       fields: {
+        executionDuration: '执行耗时',
         jobId: '任务 ID',
         upstreamJobId: '上游任务 ID',
         user: '用户',

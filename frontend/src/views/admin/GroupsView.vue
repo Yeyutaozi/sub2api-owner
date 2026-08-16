@@ -1093,16 +1093,14 @@
               t(
                 videoPricingI18nKey(
                   supportsVideoModelPricingPlatform(createForm.platform)
-                    ? createForm.video_billing_unit === "per_request"
-                      ? "perRequestModelDescription"
-                      : "modelDescription"
+                    ? "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
           <div v-if="createForm.platform === 'seedance'" class="mb-4">
-            <label class="input-label">{{ t(videoPricingI18nKey("billingUnit")) }}</label>
+            <label class="input-label">{{ t(videoPricingI18nKey("groupBillingUnit")) }}</label>
             <select
               v-model="createForm.video_billing_unit"
               class="input"
@@ -1199,8 +1197,8 @@
                 class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-dark-600 dark:bg-dark-800/60"
                 data-testid="create-seedance-price-row"
               >
-                <div class="mb-3 flex items-end gap-2">
-                  <div class="min-w-0 flex-1">
+                <div class="mb-3 flex flex-wrap items-end gap-2">
+                  <div class="min-w-[12rem] flex-[1.2]">
                     <label class="input-label">
                       {{ t(videoPricingI18nKey("model")) }}
                     </label>
@@ -1213,6 +1211,31 @@
                       :placeholder="videoModelPricePlaceholder(createForm.platform)"
                       data-testid="create-seedance-model-input"
                     />
+                  </div>
+                  <div class="min-w-[12rem] flex-1">
+                    <label class="input-label">
+                      {{ t(videoPricingI18nKey("modelBillingUnit")) }}
+                    </label>
+                    <select
+                      v-model="row.billing_unit"
+                      class="input"
+                      data-testid="create-video-model-billing-unit"
+                    >
+                      <option value="">
+                        {{
+                          t(videoPricingI18nKey("inheritGroupBillingUnit"), {
+                            unit: videoPriceUnitLabel(createForm.video_billing_unit),
+                          })
+                        }}
+                      </option>
+                      <option value="per_second">{{ t(videoPricingI18nKey("perSecond")) }}</option>
+                      <option
+                        v-if="supportsPerRequestVideoBilling(createForm.platform)"
+                        value="per_request"
+                      >
+                        {{ t(videoPricingI18nKey("perRequest")) }}
+                      </option>
+                    </select>
                   </div>
                   <button
                     type="button"
@@ -1227,7 +1250,7 @@
                 </div>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '480p')">
-                    <label class="input-label">480p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
+                    <label class="input-label">480p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_480p"
                       type="number"
@@ -1239,7 +1262,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '720p')">
-                    <label class="input-label">720p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
+                    <label class="input-label">720p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_720p"
                       type="number"
@@ -1251,7 +1274,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1080p')">
-                    <label class="input-label">1080p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
+                    <label class="input-label">1080p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_1080p"
                       type="number"
@@ -1263,7 +1286,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '1440p')">
-                    <label class="input-label">1440p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
+                    <label class="input-label">1440p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_1440p"
                       type="number"
@@ -1275,7 +1298,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(createForm.platform, row.model, '2160p')">
-                    <label class="input-label">2160p ({{ videoPriceUnitLabel(createForm.video_billing_unit) }})</label>
+                    <label class="input-label">2160p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_2160p"
                       type="number"
@@ -1292,11 +1315,7 @@
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
               {{
                 t(
-                  videoPricingI18nKey(
-                    createForm.video_billing_unit === "per_request"
-                      ? "perRequestModelModeHint"
-                      : "modelModeHint",
-                  ),
+                  videoPricingI18nKey("modelModeHint"),
                 )
               }}
             </p>
@@ -2879,16 +2898,14 @@
               t(
                 videoPricingI18nKey(
                   supportsVideoModelPricingPlatform(editForm.platform)
-                    ? editForm.video_billing_unit === "per_request"
-                      ? "perRequestModelDescription"
-                      : "modelDescription"
+                    ? "modelDescription"
                     : "description",
                 ),
               )
             }}
           </p>
           <div v-if="editForm.platform === 'seedance'" class="mb-4">
-            <label class="input-label">{{ t(videoPricingI18nKey("billingUnit")) }}</label>
+            <label class="input-label">{{ t(videoPricingI18nKey("groupBillingUnit")) }}</label>
             <select
               v-model="editForm.video_billing_unit"
               class="input"
@@ -2985,8 +3002,8 @@
                 class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-dark-600 dark:bg-dark-800/60"
                 data-testid="edit-seedance-price-row"
               >
-                <div class="mb-3 flex items-end gap-2">
-                  <div class="min-w-0 flex-1">
+                <div class="mb-3 flex flex-wrap items-end gap-2">
+                  <div class="min-w-[12rem] flex-[1.2]">
                     <label class="input-label">
                       {{ t(videoPricingI18nKey("model")) }}
                     </label>
@@ -2999,6 +3016,31 @@
                       :placeholder="videoModelPricePlaceholder(editForm.platform)"
                       data-testid="edit-seedance-model-input"
                     />
+                  </div>
+                  <div class="min-w-[12rem] flex-1">
+                    <label class="input-label">
+                      {{ t(videoPricingI18nKey("modelBillingUnit")) }}
+                    </label>
+                    <select
+                      v-model="row.billing_unit"
+                      class="input"
+                      data-testid="edit-video-model-billing-unit"
+                    >
+                      <option value="">
+                        {{
+                          t(videoPricingI18nKey("inheritGroupBillingUnit"), {
+                            unit: videoPriceUnitLabel(editForm.video_billing_unit),
+                          })
+                        }}
+                      </option>
+                      <option value="per_second">{{ t(videoPricingI18nKey("perSecond")) }}</option>
+                      <option
+                        v-if="supportsPerRequestVideoBilling(editForm.platform)"
+                        value="per_request"
+                      >
+                        {{ t(videoPricingI18nKey("perRequest")) }}
+                      </option>
+                    </select>
                   </div>
                   <button
                     type="button"
@@ -3013,7 +3055,7 @@
                 </div>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '480p')">
-                    <label class="input-label">480p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
+                    <label class="input-label">480p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_480p"
                       type="number"
@@ -3025,7 +3067,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '720p')">
-                    <label class="input-label">720p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
+                    <label class="input-label">720p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_720p"
                       type="number"
@@ -3037,7 +3079,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1080p')">
-                    <label class="input-label">1080p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
+                    <label class="input-label">1080p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_1080p"
                       type="number"
@@ -3049,7 +3091,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '1440p')">
-                    <label class="input-label">1440p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
+                    <label class="input-label">1440p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_1440p"
                       type="number"
@@ -3061,7 +3103,7 @@
                     />
                   </div>
                   <div v-if="videoModelSupportsResolution(editForm.platform, row.model, '2160p')">
-                    <label class="input-label">2160p ({{ videoPriceUnitLabel(editForm.video_billing_unit) }})</label>
+                    <label class="input-label">2160p ({{ videoPriceUnitLabel(resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)) }})</label>
                     <input
                       v-model.number="row.price_2160p"
                       type="number"
@@ -3078,11 +3120,7 @@
             <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
               {{
                 t(
-                  videoPricingI18nKey(
-                    editForm.video_billing_unit === "per_request"
-                      ? "perRequestModelModeHint"
-                      : "modelModeHint",
-                  ),
+                  videoPricingI18nKey("modelModeHint"),
                 )
               }}
             </p>
@@ -4583,6 +4621,8 @@ import {
   createDefaultVideoModelPriceRows,
   createVideoModelPriceRow,
   normalizeVideoBillingUnitForPlatform,
+  resolveVideoModelBillingUnit,
+  supportsPerRequestVideoBilling,
   supportsVideoModelPricingPlatform,
   videoModelPricePlaceholder,
   videoModelSupportsResolution,

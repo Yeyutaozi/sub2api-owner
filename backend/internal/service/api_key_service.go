@@ -1063,6 +1063,19 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 	return rates, nil
 }
 
+// GetVideoModelPricesByUserAndGroup exposes the same user-specific absolute
+// video prices used by settlement so user-facing estimates can stay aligned.
+func (s *APIKeyService) GetVideoModelPricesByUserAndGroup(ctx context.Context, userID, groupID int64) (VideoModelPrices, error) {
+	if s == nil || s.userGroupRateRepo == nil {
+		return VideoModelPrices{}, nil
+	}
+	prices, err := s.userGroupRateRepo.GetVideoModelPricesByUserAndGroup(ctx, userID, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("get user video model prices: %w", err)
+	}
+	return cloneVideoModelPrices(prices), nil
+}
+
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)
 // Returns nil if valid, error if invalid
 func (s *APIKeyService) CheckAPIKeyQuotaAndExpiry(apiKey *APIKey) error {

@@ -27,19 +27,43 @@ const (
 	SeedanceWeijinFaceRef480pModel = "seedance2.0-one-face-reference-480p"
 	SeedanceWeijinFaceRef720pModel = "seedance2.0-one-face-reference-720p"
 
+	// SeedanceWeijin900Model is the platform-owned public model ID. The
+	// provider's private ID must only appear in account model_mapping values.
+	SeedanceWeijin900Model         = "sd-2.0-900-720p"
+	SeedanceWeijin900UpstreamModel = "seedance2.0-900-3"
+	seedanceWeijin900RetiredModel  = "sd-2.0-900"
+
 	weijinVideoCreatePath = "/v1/videos"
 	weijinVideoTaskPath   = "/v1/videos"
 )
 
-var weijinPrivateNamePattern = regexp.MustCompile(`(?i)\b(?:weijin|weijinapi|xmanway|one[\s_-]?api|oneapi)\b`)
+var (
+	weijinPrivateNamePattern     = regexp.MustCompile(`(?i)\b(?:weijin|weijinapi|xmanway|one[\s_-]?api|oneapi)\b`)
+	weijin900PrivateModelPattern = regexp.MustCompile(`(?i)\bseedance2\.0-900-3\b`)
+)
 
 func isWeijinVideoModel(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
-	case SeedanceWeijinFaceRef480pModel, SeedanceWeijinFaceRef720pModel:
+	case SeedanceWeijinFaceRef480pModel,
+		SeedanceWeijinFaceRef720pModel,
+		SeedanceWeijin900Model,
+		SeedanceWeijin900UpstreamModel:
 		return true
 	default:
 		return false
 	}
+}
+
+func isWeijin900PublicModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), SeedanceWeijin900Model)
+}
+
+func isWeijin900UpstreamModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), SeedanceWeijin900UpstreamModel)
+}
+
+func isRetiredWeijin900PublicModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), seedanceWeijin900RetiredModel)
 }
 
 func IsWeijinVideoModel(model string) bool {
@@ -50,6 +74,10 @@ func isWeijinFaceReferenceDurationSupported(duration int) bool {
 	return duration >= 4 && duration <= 15
 }
 
+func isWeijin900DurationSupported(duration int) bool {
+	return duration >= 5 && duration <= 15
+}
+
 func (a *Account) IsWeijinVideo() bool {
 	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderWeijin
 }
@@ -58,9 +86,22 @@ func weijinUpstreamModelFor(info *SeedanceRequestInfo, mappedModel string) (stri
 	if info == nil {
 		return "", errors.New("Seedance create request is required")
 	}
+	publicModel := strings.ToLower(strings.TrimSpace(info.Model))
 	model := strings.ToLower(strings.TrimSpace(mappedModel))
+	if isWeijin900PublicModel(publicModel) {
+		if err := validateFFLinkVideoRequestInfo(info); err != nil {
+			return "", err
+		}
+		if !isWeijin900UpstreamModel(model) {
+			return "", fmt.Errorf("model %s requires an explicit account mapping to its supported upstream model", SeedanceWeijin900Model)
+		}
+		return SeedanceWeijin900UpstreamModel, nil
+	}
+	if isWeijin900UpstreamModel(model) {
+		return "", fmt.Errorf("upstream model %s may only be mapped from %s", SeedanceWeijin900UpstreamModel, SeedanceWeijin900Model)
+	}
 	if model == "" {
-		model = strings.ToLower(strings.TrimSpace(info.Model))
+		model = publicModel
 	}
 	if !isWeijinVideoModel(model) {
 		return "", fmt.Errorf("unsupported Weijin video model: %s", model)
@@ -79,11 +120,10 @@ func weijinUpstreamModelFor(info *SeedanceRequestInfo, mappedModel string) (stri
 	return model, nil
 }
 
-
 // Default quality constraints injected for public one-face-reference models.
 // Applied only on the Weijin special-offer path and its Pixelle multi-modal mapping.
 const (
-	seedanceFaceRefQualityHintMarker = "【画质强制约束】"
+	seedanceFaceRefQualityHintMarker   = "【画质强制约束】"
 	seedanceFaceRefDefaultQualityHints = `【画质强制约束】
 - 全程锐利清晰的真人电影画质：禁止远景虚化、背景发糊、浅景深 bohek 虚化主体外背景。
 - 中景/全景/建立镜头必须深景深：建筑轮廓、街道、屋檐、辇车与人物前后景均清晰可辨。
@@ -127,10 +167,28 @@ func buildWeijinVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel stri
 	if !isWeijinVideoModel(upstreamModel) {
 		return nil, fmt.Errorf("unsupported Weijin video model: %s", upstreamModel)
 	}
-	if !isWeijinFaceReferenceDurationSupported(info.DurationSeconds) {
+	if isWeijin900PublicModel(upstreamModel) {
+		return nil, fmt.Errorf("model %s requires an explicit account mapping to its supported upstream model", SeedanceWeijin900Model)
+	}
+	is900 := isWeijin900UpstreamModel(upstreamModel)
+	if is900 {
+		if !isWeijin900PublicModel(info.Model) {
+			return nil, fmt.Errorf("upstream model %s may only be mapped from %s", SeedanceWeijin900UpstreamModel, SeedanceWeijin900Model)
+		}
+		if err := validateFFLinkVideoRequestInfo(info); err != nil {
+			return nil, err
+		}
+	}
+	if is900 && !isWeijin900DurationSupported(info.DurationSeconds) {
+		return nil, fmt.Errorf("duration %d is not supported by model %s", info.DurationSeconds, SeedanceWeijin900Model)
+	}
+	if !is900 && !isWeijinFaceReferenceDurationSupported(info.DurationSeconds) {
 		return nil, fmt.Errorf("duration %d is not supported by model %s", info.DurationSeconds, upstreamModel)
 	}
-	prompt := composeWeijinFaceRefPrompt(info.Prompt)
+	prompt := strings.TrimSpace(info.Prompt)
+	if !is900 {
+		prompt = composeWeijinFaceRefPrompt(info.Prompt)
+	}
 	images := weijinImageURLs(info)
 	videos := weijinVideoURLs(info)
 	// 720p Weijin path is images + prompt only; reference videos/audio for 720p are
@@ -468,6 +526,7 @@ func (s *OpenAIGatewayService) doWeijinSeedanceRequest(
 
 func sanitizeWeijinSeedanceUpstreamErrorBody(body []byte) []byte {
 	sanitized := sanitizeHuiquSeedanceUpstreamErrorBody(body)
+	sanitized = weijin900PrivateModelPattern.ReplaceAll(sanitized, []byte(SeedanceWeijin900Model))
 	sanitized = weijinPrivateNamePattern.ReplaceAll(sanitized, []byte("upstream provider"))
 	return lingdongPrivateNamePattern.ReplaceAll(sanitized, []byte("upstream provider"))
 }

@@ -121,6 +121,11 @@ func RegisterUserRoutes(
 		{
 			creazyCanvas.GET("/keys", h.CreazyCanvas.ListKeys)
 			creazyCanvas.GET("/catalog", h.CreazyCanvas.Catalog)
+			creazyCanvas.GET("/documents", h.CreazyCanvas.ListDocuments)
+			creazyCanvas.POST("/documents", h.CreazyCanvas.CreateDocument)
+			creazyCanvas.GET("/documents/:id", h.CreazyCanvas.GetDocument)
+			creazyCanvas.PATCH("/documents/:id", h.CreazyCanvas.UpdateDocument)
+			creazyCanvas.DELETE("/documents/:id", h.CreazyCanvas.DeleteDocument)
 			creazyCanvas.GET("/works", h.CreazyCanvas.ListWorks)
 			creazyCanvas.POST("/works", h.CreazyCanvas.CreateWork)
 			creazyCanvas.PATCH("/works/:id", h.CreazyCanvas.UpdateWork)

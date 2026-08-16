@@ -101,7 +101,7 @@ export function pickStringListParam(params: Record<string, unknown>, ...keys: st
 export type CanvasDraftV1 = {
   v: 1
   selectedKeyId?: number
-  activeTab?: 'image' | 'video' | 'works'
+  activeTab?: 'workflow' | 'image' | 'video' | 'works'
   image?: {
     prompt?: string
     model?: string

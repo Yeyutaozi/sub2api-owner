@@ -1,6 +1,6 @@
 <template>
-  <AppLayout>
-    <div class="cc-shell">
+  <AppLayout :workspace="activeTab === 'workflow'">
+    <div class="cc-shell" :class="{ 'cc-shell--workspace': activeTab === 'workflow' }">
       <header class="cc-topbar">
         <div class="cc-topbar__main">
           <div class="cc-topbar__brand">
@@ -68,8 +68,16 @@
         </button>
       </div>
 
+      <CreazyWorkflowCanvas
+        v-if="activeTab === 'workflow'"
+        :api-key-id="selectedKeyId"
+        :api-key-secret="selectedApiKeySecret"
+        :catalog="catalog"
+        @work-created="handleWorkflowWorkCreated"
+      />
+
       <!-- Image -->
-      <section v-if="activeTab === 'image'" class="grid gap-5 lg:grid-cols-2">
+      <section v-else-if="activeTab === 'image'" class="grid gap-5 lg:grid-cols-2">
         <div class="card cc-form-card cc-surface cc-form-stack">
           <div class="cc-studio-head">
             <div class="cc-studio-head__kicker">
@@ -291,7 +299,7 @@
                     <span class="cc-media-token">@Image{{ idx + 1 }}</span>
                     <p class="cc-media-item__name">{{ item.name }}</p>
                   </div>
-                  <p class="cc-media-item__url">{{ item.media_url }}</p>
+                  <p v-if="item.media_url" class="cc-media-item__url">{{ item.media_url }}</p>
                 </div>
                 <button type="button" class="cc-link-danger" @click="removeImageRef(idx)">
                   {{ t('creazyCanvas.form.remove') }}
@@ -1506,36 +1514,57 @@
     <Teleport to="body">
       <div
         v-if="mediaPreview"
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+        class="cc-media-preview"
         role="dialog"
         aria-modal="true"
+        :aria-busy="!mediaPreviewLoaded && !mediaPreviewError"
         @click.self="closeMediaPreview"
       >
-        <button
-          type="button"
-          class="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
-          @click="closeMediaPreview"
-        >
-          {{ t('creazyCanvas.result.closePreview') }}
-        </button>
-        <img
-          v-if="mediaPreview.type === 'image'"
-          :src="mediaPreview.url"
-          alt="preview"
-          class="max-h-[90vh] max-w-[95vw] rounded-lg object-contain shadow-2xl"
-          @click.stop
-        />
-        <video
-          v-else
-          :src="mediaPreview.url"
-          controls
-          autoplay
-          playsinline
-          preload="auto"
-          :muted="false"
-          class="max-h-[90vh] max-w-[95vw] rounded-lg bg-black shadow-2xl"
-          @click.stop
-        />
+        <div class="cc-media-preview__frame" @click.stop>
+          <button
+            type="button"
+            class="cc-media-preview__close"
+            :aria-label="t('creazyCanvas.result.closePreview')"
+            :title="t('creazyCanvas.result.closePreview')"
+            @click="closeMediaPreview"
+          >
+            <Icon name="x" size="md" />
+          </button>
+          <div
+            v-if="!mediaPreviewLoaded && !mediaPreviewError"
+            class="cc-media-preview__status"
+            role="status"
+          >
+            <Icon name="refresh" size="lg" class="animate-spin" />
+            <span>{{ t('creazyCanvas.works.previewLoading') }}</span>
+          </div>
+          <div v-else-if="mediaPreviewError" class="cc-media-preview__status is-error" role="alert">
+            <Icon name="exclamationCircle" size="lg" />
+            <span>{{ mediaPreviewError }}</span>
+          </div>
+          <img
+            v-if="mediaPreview.type === 'image'"
+            :src="mediaPreview.url"
+            alt="preview"
+            class="cc-media-preview__asset"
+            :class="{ 'is-ready': mediaPreviewLoaded }"
+            @load="onMediaPreviewLoaded"
+            @error="onMediaPreviewFailed"
+          />
+          <video
+            v-else
+            :src="mediaPreview.url"
+            controls
+            autoplay
+            playsinline
+            preload="auto"
+            :muted="false"
+            class="cc-media-preview__asset"
+            :class="{ 'is-ready': mediaPreviewLoaded }"
+            @loadeddata="onMediaPreviewLoaded"
+            @error="onMediaPreviewFailed"
+          />
+        </div>
       </div>
     </Teleport>
   </AppLayout>
@@ -1547,6 +1576,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CreazyWorkflowCanvas from './CreazyWorkflowCanvas.vue'
+import {
+  canDeleteWork,
+  isActiveWorkStatus,
+  isExpiredWork as isExpired,
+} from './composables/workLifecycle'
 import {
   createWork,
   updateWork,
@@ -1592,16 +1627,50 @@ const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-type TabId = 'image' | 'video' | 'works'
-type MediaItem = { name: string; media_url: string; duration_seconds?: number; preview_url?: string }
+type TabId = 'workflow' | 'image' | 'video' | 'works'
+type MediaItem = {
+  name: string
+  media_url: string
+  duration_seconds?: number
+  preview_url?: string
+  file?: File
+}
+
+type ImageRunSnapshot = {
+  model: string
+  prompt: string
+  size: string
+  qualityTier: string
+  aspectRatio: string
+  preferAsync: boolean
+  keyId: number
+  refs: string[]
+  refFiles: File[]
+}
+
+function buildImageRunWorkParams(snapshot: ImageRunSnapshot, resultUrls?: string[]) {
+  const referenceCount = snapshot.refs.length + snapshot.refFiles.length
+  return buildImageWorkParams({
+    size: snapshot.size,
+    qualityTier: snapshot.qualityTier,
+    aspectRatio: snapshot.aspectRatio,
+    refs: snapshot.refs,
+    resultUrls,
+    extra: {
+      reference_count: referenceCount,
+      edit: referenceCount > 0,
+    },
+  })
+}
 
 const tabs = computed(() => [
+  { id: 'workflow' as const, label: t('creazyCanvas.tabs.workflow') },
   { id: 'image' as const, label: t('creazyCanvas.tabs.image') },
   { id: 'video' as const, label: t('creazyCanvas.tabs.video') },
   { id: 'works' as const, label: t('creazyCanvas.tabs.works') },
 ])
 
-const activeTab = ref<TabId>('image')
+const activeTab = ref<TabId>('workflow')
 const keys = ref<CreazyCanvasKey[]>([])
 const selectedKeyId = ref(0)
 const loadingKeys = ref(false)
@@ -1609,6 +1678,7 @@ const catalog = ref<CreazyCanvasCatalog | null>(null)
 const loadingCatalog = ref(false)
 /** Secret only in memory (hydrated from user /keys; never localStorage/sessionStorage) */
 const keySecrets = reactive<Record<number, string>>({})
+const selectedApiKeySecret = computed(() => keySecrets[selectedKeyId.value] || '')
 const resolvingKeySecret = ref(false)
 const keySecretHydrated = ref(false)
 
@@ -1878,11 +1948,14 @@ const imageSaveMessage = ref('')
 const videoSaveMessage = ref('')
 /** Fullscreen image/video preview */
 const mediaPreview = ref<{ type: 'image' | 'video'; url: string } | null>(null)
+const mediaPreviewLoaded = ref(false)
+const mediaPreviewError = ref('')
 /** Cached playable URLs for works list (may be blob:) */
 const workPreviewUrls = reactive<Record<string, string>>({})
 const workCoverReady = reactive<Record<string, boolean>>({})
 const workPreviewLoading = reactive<Record<string, boolean>>({})
 const workPreviewBlobUrls = new Set<string>()
+const workPreviewRequests = new Map<string, Promise<boolean>>()
 
 const works = ref<CreazyWork[]>([])
 const loadingWorks = ref(false)
@@ -1998,27 +2071,6 @@ const keyReadyDotClass = computed(() => {
   if (hasKeySecret.value) return 'is-ready'
   return 'is-bad'
 })
-
-function isActiveWorkStatus(status?: string) {
-  const s = String(status || '').toLowerCase()
-  return (
-    s === 'created' ||
-    s === 'queued' ||
-    s === 'running' ||
-    s === 'pending' ||
-    s === 'processing' ||
-    s === 'settling' ||
-    s === 'in_progress' ||
-    s === 'inprogress' ||
-    s === 'generating' ||
-    s === 'working' ||
-    s === 'submitted'
-  )
-}
-
-function canDeleteWork(work: CreazyWork): boolean {
-  return Boolean(work?.id) && !isActiveWorkStatus(work.status)
-}
 
 function sortTaskWorks(list: CreazyWork[]) {
   return [...list].sort((a, b) => {
@@ -2686,6 +2738,7 @@ function keyLabel(item: CreazyCanvasKey): string {
 
 function resolveTabFromRoute(): TabId {
   const path = route.path
+  if (path === '/creazy-canvas' || path.endsWith('/workspace')) return 'workflow'
   if (path.endsWith('/video')) return 'video'
   if (path.endsWith('/works')) return 'works'
   return 'image'
@@ -2694,10 +2747,20 @@ function resolveTabFromRoute(): TabId {
 function switchTab(tab: TabId) {
   activeTab.value = tab
   const target =
-    tab === 'image' ? '/creazy-canvas/image' : tab === 'video' ? '/creazy-canvas/video' : '/creazy-canvas/works'
+    tab === 'workflow'
+      ? '/creazy-canvas/workspace'
+      : tab === 'image'
+        ? '/creazy-canvas/image'
+        : tab === 'video'
+          ? '/creazy-canvas/video'
+          : '/creazy-canvas/works'
   if (route.path !== target) router.replace(target)
   resetWorksPage()
   void loadWorks({ quiet: tab !== 'works' })
+}
+
+function handleWorkflowWorkCreated() {
+  void loadWorks({ quiet: true })
 }
 
 
@@ -3559,12 +3622,6 @@ function onDropMedia(ev: DragEvent, target: 'imageRefs' | 'refImages' | 'refVide
   else if (target === 'endFrame') void onPickEndFrame({ target: { files } } as any)
 }
 
-function isExpired(work: CreazyWork) {
-  if ((work.status || '').toLowerCase() === 'expired') return true
-  if (!work.expires_at) return false
-  return new Date(work.expires_at).getTime() < Date.now()
-}
-
 function isBlobUrl(url?: string) {
   return Boolean(url && url.startsWith('blob:'))
 }
@@ -3587,6 +3644,10 @@ function canPreviewWork(work: CreazyWork) {
 }
 
 function workStaticMediaUrl(work: CreazyWork): string {
+  // Archived works must use a fresh signed URL from download-url. The stored
+  // provider URL may already be expired, and a private object URL is not
+  // necessarily browser-readable without a signature.
+  if (work.object_key) return ''
   const params = (work.params || {}) as Record<string, unknown>
   const resultUrls = Array.isArray(params.result_urls) ? (params.result_urls as string[]) : []
   const poster =
@@ -3595,14 +3656,17 @@ function workStaticMediaUrl(work: CreazyWork): string {
       : typeof params.start_frame_url === 'string'
         ? params.start_frame_url
         : ''
-  const candidates = [poster, work.preview_url, work.object_url, ...resultUrls]
+  const candidates = isImageWork(work)
+    ? [work.object_url, work.preview_url, ...resultUrls]
+    : [poster, work.object_url, ...resultUrls, work.preview_url]
+  const sanitizedCandidates = candidates
     .map((c) => sanitizeMediaUrl(typeof c === 'string' ? c : ''))
     .filter(Boolean) as string[]
-  for (const c of candidates) {
+  for (const c of sanitizedCandidates) {
     if (!needsAuthForMediaPlayback(c)) return c
   }
   // Prefer relative gateway path over invalid placeholders (never return bare "b64").
-  return candidates.find((c) => c.startsWith('/') || c.startsWith('http')) || ''
+  return sanitizedCandidates.find((c) => c.startsWith('/') || c.startsWith('http')) || ''
 }
 
 function workPosterUrl(work: CreazyWork): string {
@@ -3755,11 +3819,25 @@ function setVideoResultPlayback(playable: string, persist?: string) {
 
 function openMediaPreview(item: { type: 'image' | 'video'; url: string }) {
   if (!item?.url) return
+  mediaPreviewLoaded.value = false
+  mediaPreviewError.value = ''
   mediaPreview.value = { type: item.type, url: item.url }
 }
 
 function closeMediaPreview() {
   mediaPreview.value = null
+  mediaPreviewLoaded.value = false
+  mediaPreviewError.value = ''
+}
+
+function onMediaPreviewLoaded() {
+  mediaPreviewLoaded.value = true
+  mediaPreviewError.value = ''
+}
+
+function onMediaPreviewFailed() {
+  mediaPreviewLoaded.value = false
+  mediaPreviewError.value = t('creazyCanvas.works.previewFailed')
 }
 
 async function resolvePlayableVideoUrl(
@@ -3790,10 +3868,9 @@ async function resolvePlayableVideoUrl(
   return { playable: '', persist: fallbackPersist }
 }
 
-async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
+async function performLoadWorkPreview(work: CreazyWork): Promise<boolean> {
   const id = String(work.id)
   if (workPreviewUrls[id]) return true
-  if (workPreviewLoading[id]) return false
   workPreviewLoading[id] = true
   workCoverReady[id] = false
   let lastError: any = null
@@ -3875,11 +3952,28 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
       return true
     }
     if (lastError) {
-      ;(work as any).__previewError = mapContentPreviewError(lastError)
+      (work as any).__previewError = mapContentPreviewError(lastError)
     }
     return Boolean(workPreviewUrls[id])
   } finally {
     workPreviewLoading[id] = false
+  }
+}
+
+async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
+  const id = String(work.id)
+  if (workPreviewUrls[id]) return true
+  const activeRequest = workPreviewRequests.get(id)
+  if (activeRequest) return activeRequest
+
+  const request = performLoadWorkPreview(work)
+  workPreviewRequests.set(id, request)
+  try {
+    return await request
+  } finally {
+    if (workPreviewRequests.get(id) === request) {
+      workPreviewRequests.delete(id)
+    }
   }
 }
 
@@ -3889,7 +3983,7 @@ async function openWorkPreview(work: CreazyWork) {
     selectedKeyId.value = work.api_key_id
     await loadCatalog()
   }
-  ;(work as any).__previewError = ''
+  (work as any).__previewError = ''
   const ok = await loadWorkPreview(work)
   const url = workPreviewUrl(work) || workCoverUrl(work)
   if (!url) {
@@ -3977,9 +4071,8 @@ async function onPickImageRefs(ev: Event) {
   try {
     for (let i = 0; i < batch.length; i++) {
       const file = batch[i]
-      const media_url = await uploadPickedFile(file, 'image')
       const preview_url = URL.createObjectURL(file)
-      imageRefs.value.push({ name: file.name, media_url, preview_url })
+      imageRefs.value.push({ name: file.name, media_url: '', preview_url, file })
       imageRefUploadLabel.value = t('creazyCanvas.form.uploadingProgress', {
         done: i + 1,
         total: batch.length,
@@ -4107,6 +4200,7 @@ async function readMediaDuration(file: File): Promise<number> {
 }
 
 async function uploadPickedFile(file: File, kind: 'image' | 'video' | 'audio') {
+  await ensureKeySecret(selectedKeyId.value)
   const apiKey = resolveApiKeySecret()
   const uploaded = await uploadVideoAsset(apiKey, file, file.name, kind)
   const mediaUrl = String(uploaded.media_url || uploaded.url || '')
@@ -4533,6 +4627,7 @@ async function generateImage() {
     preferAsync: Boolean(selectedImageModel.value?.async),
     keyId: selectedKeyId.value,
     refs: imageRefs.value.map((item) => item.media_url).filter(Boolean),
+    refFiles: imageRefs.value.map((item) => item.file).filter((file): file is File => file instanceof File),
   }
   let gatewayAttempted = false
   let runningWorkId: number | null = null
@@ -4547,7 +4642,7 @@ async function generateImage() {
       status: 'running',
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
+      params: buildImageRunWorkParams(snapshot),
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
     if (running?.id) {
@@ -4581,7 +4676,7 @@ async function generateImage() {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
+          params: buildImageRunWorkParams(snapshot),
           error_message: msg,
         })
       }
@@ -4593,7 +4688,7 @@ async function generateImage() {
 
 async function runImageLifecycle(opts: {
   apiKey: string
-  snapshot: { model: string; prompt: string; size: string; qualityTier: string; aspectRatio: string; preferAsync: boolean; keyId: number; refs: string[] }
+  snapshot: ImageRunSnapshot
   runningWorkId: number | null
 }) {
   const { apiKey, snapshot } = opts
@@ -4602,7 +4697,7 @@ async function runImageLifecycle(opts: {
   let lastGatewayType: 'image_task' | 'image_sync' | '' = ''
   let lastTaskId = ''
   try {
-    const useEdit = snapshot.refs.length > 0
+    const useEdit = snapshot.refs.length > 0 || snapshot.refFiles.length > 0
     const imagePayload: ImageGenerationRequest = {
       model: snapshot.model,
       prompt: snapshot.prompt,
@@ -4617,20 +4712,28 @@ async function runImageLifecycle(opts: {
       // Grok-compatible alias
       imagePayload.reference_images = snapshot.refs.map((url) => ({ image_url: url }))
     }
-    let usedAsync = snapshot.preferAsync
+    let usedAsync = snapshot.preferAsync && snapshot.refFiles.length === 0
     let response: any
     try {
-      response = await gatewayGenerateImage(apiKey, imagePayload, { async: snapshot.preferAsync, edit: useEdit })
+      response = await gatewayGenerateImage(apiKey, imagePayload, {
+        async: usedAsync,
+        edit: useEdit,
+        imageFiles: snapshot.refFiles,
+      })
     } catch (asyncErr: any) {
       const status = Number(asyncErr?.status || 0)
       const msg = String(asyncErr?.message || asyncErr?.code || '')
       const asyncUnavailable =
-        snapshot.preferAsync &&
+        usedAsync &&
         (status === 404 ||
           /async.*not enabled|not_found_error|model not found|unknown model/i.test(msg))
       if (!asyncUnavailable) throw asyncErr
       usedAsync = false
-      response = await gatewayGenerateImage(apiKey, imagePayload, { async: false, edit: useEdit })
+      response = await gatewayGenerateImage(apiKey, imagePayload, {
+        async: false,
+        edit: useEdit,
+        imageFiles: snapshot.refFiles,
+      })
     }
 
     let urls = extractImageUrls(response)
@@ -4689,7 +4792,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
+          params: buildImageRunWorkParams(snapshot),
           gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
           gateway_remote_id: lastTaskId,
           error_message: msg,
@@ -4715,7 +4818,7 @@ async function runImageLifecycle(opts: {
       status: 'succeeded' as const,
       public_model: snapshot.model,
       prompt: snapshot.prompt,
-      params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs, resultUrls: cleanUrls }),
+      params: buildImageRunWorkParams(snapshot, cleanUrls),
       gateway_type: lastGatewayType || (taskId ? 'image_task' : 'image_sync'),
       gateway_remote_id: lastTaskId,
       preview_url: cleanUrls[0],
@@ -4752,7 +4855,7 @@ async function runImageLifecycle(opts: {
           status: 'failed',
           public_model: snapshot.model,
           prompt: snapshot.prompt,
-          params: buildImageWorkParams({ size: snapshot.size, qualityTier: snapshot.qualityTier, aspectRatio: snapshot.aspectRatio, refs: snapshot.refs }),
+          params: buildImageRunWorkParams(snapshot),
           gateway_type: lastGatewayType || undefined,
           gateway_remote_id: lastTaskId || undefined,
           error_message: msg,
@@ -5951,7 +6054,7 @@ function onCanvasKeydown(ev: KeyboardEvent) {
 onMounted(async () => {
   activeTab.value = resolveTabFromRoute()
   if (route.path === '/creazy-canvas') {
-    router.replace('/creazy-canvas/image')
+    router.replace('/creazy-canvas/workspace')
   }
   await loadKeys()
   const draft = readCanvasDraft()
@@ -6034,6 +6137,82 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.cc-media-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 3vw, 32px);
+  background: rgb(3 7 12 / 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.cc-media-preview__frame {
+  position: relative;
+  display: flex;
+  width: min(94vw, 1180px);
+  height: min(90vh, 920px);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 8px;
+  background: #070b10;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
+}
+
+.cc-media-preview__asset {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.cc-media-preview__asset.is-ready {
+  opacity: 1;
+}
+
+.cc-media-preview__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 6px;
+  color: #fff;
+  background: rgb(7 11 16 / 0.78);
+  backdrop-filter: blur(8px);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.cc-media-preview__close:hover {
+  border-color: rgb(255 255 255 / 0.32);
+  background: rgb(28 35 44 / 0.92);
+}
+
+.cc-media-preview__status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #cbd5e1;
+  font-size: 0.875rem;
+}
+
+.cc-media-preview__status.is-error {
+  color: #fda4af;
+}
+
 /* =========================================================
    Creazy Canvas / Stage Console
    Media-first workbench: cool graphite, cyan signal, stage bezels.
@@ -6080,6 +6259,14 @@ onBeforeUnmount(() => {
   gap: 1.05rem;
   color: var(--cc-ink);
   font-family: var(--cc-font);
+}
+.cc-shell--workspace {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+.cc-shell--workspace::before {
+  display: none;
 }
 .cc-shell::before {
   content: "";
@@ -6389,7 +6576,7 @@ onBeforeUnmount(() => {
 
 /* Tabs */
 .cc-tabs {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.3rem; padding: 0.3rem;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem; padding: 0.3rem;
   border: 1px solid var(--cc-line); border-radius: calc(var(--cc-radius) + 2px);
   background: var(--cc-surface-2); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45);
 }
@@ -8138,7 +8325,14 @@ onBeforeUnmount(() => {
   .cc-params-grid { grid-template-columns: 1fr; }
   .cc-create__actions { flex-direction: column; }
   .cc-create__actions > * { width: 100%; }
-  .cc-tabs { grid-template-columns: 1fr; }
+  .cc-tabs {
+    grid-template-columns: repeat(4, minmax(76px, 1fr));
+    gap: 0.2rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .cc-tabs::-webkit-scrollbar { display: none; }
+  .cc-tab { padding: 0.62rem 0.35rem; font-size: 0.8rem; white-space: nowrap; }
   .cc-works-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

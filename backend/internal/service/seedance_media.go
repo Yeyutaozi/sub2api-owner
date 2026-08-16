@@ -137,6 +137,10 @@ type SeedanceImageUploadInput struct {
 	Persistent  bool
 	Filename    string
 	MediaKind   string
+	// SkipSizeLimit is reserved for canvas file uploads. Those requests are
+	// already bounded by the server-wide request limit, so the media service
+	// must not add a smaller image/video-specific business limit.
+	SkipSizeLimit bool
 }
 
 type SeedanceImageUpload struct {
@@ -420,9 +424,11 @@ func (s *SeedanceMediaService) UploadMedia(ctx context.Context, input SeedanceIm
 	if input.Body == nil {
 		return nil, infraerrors.BadRequest("media_required", "media file is required")
 	}
-	maxBytes := seedanceMaxUploadBytesForKind(s, input.MediaKind)
-	if input.SizeBytes > 0 && input.SizeBytes > maxBytes {
-		return nil, seedanceUploadTooLargeError(input.MediaKind)
+	if !input.SkipSizeLimit {
+		maxBytes := seedanceMaxUploadBytesForKind(s, input.MediaKind)
+		if input.SizeBytes > 0 && input.SizeBytes > maxBytes {
+			return nil, seedanceUploadTooLargeError(input.MediaKind)
+		}
 	}
 
 	uploadID := "sdupl_" + strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -430,7 +436,7 @@ func (s *SeedanceMediaService) UploadMedia(ctx context.Context, input SeedanceIm
 	if input.Persistent {
 		kind = "staged"
 	}
-	record, err := s.storeSeedanceMedia(ctx, input.Owner, uploadID, kind, input.Body, input.SizeBytes, input.ContentType, input.Filename, input.MediaKind)
+	record, err := s.storeSeedanceMedia(ctx, input.Owner, uploadID, kind, input.Body, input.SizeBytes, input.ContentType, input.Filename, input.MediaKind, input.SkipSizeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -1054,6 +1060,7 @@ func (s *SeedanceMediaService) storeSeedanceMedia(
 	declaredType string,
 	filename string,
 	mediaKind string,
+	skipSizeLimit bool,
 ) (seedanceMediaRecord, error) {
 	tmp, err := os.CreateTemp(seedanceTempDirectory(), "media-*")
 	if err != nil {
@@ -1066,12 +1073,17 @@ func (s *SeedanceMediaService) storeSeedanceMedia(
 	}()
 
 	hasher := sha256.New()
-	maxBytes := seedanceMaxUploadBytesForKind(s, mediaKind)
-	written, err := io.Copy(tmp, io.TeeReader(io.LimitReader(body, maxBytes+1), hasher))
+	reader := body
+	maxBytes := int64(0)
+	if !skipSizeLimit {
+		maxBytes = seedanceMaxUploadBytesForKind(s, mediaKind)
+		reader = io.LimitReader(body, maxBytes+1)
+	}
+	written, err := io.Copy(tmp, io.TeeReader(reader, hasher))
 	if err != nil {
 		return seedanceMediaRecord{}, fmt.Errorf("read Seedance media: %w", err)
 	}
-	if written > maxBytes {
+	if maxBytes > 0 && written > maxBytes {
 		return seedanceMediaRecord{}, seedanceUploadTooLargeError(mediaKind)
 	}
 	if sizeHint > 0 && written != sizeHint {

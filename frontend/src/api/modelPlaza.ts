@@ -6,6 +6,7 @@
 
 import { apiClient } from './client'
 import type { UserSupportedModelPricing } from './channels'
+import type { VideoBillingUnit } from '@/types'
 
 /** LiteLLM 官方参考价（USD per token，字段缺失 = 官方数据未覆盖）。 */
 export interface PlazaOfficialPricing {
@@ -36,7 +37,7 @@ export interface PlazaModel {
   pricing: UserSupportedModelPricing | null
   official_pricing: PlazaOfficialPricing | null
   /** per_second | per_request — video only */
-  video_billing_unit?: string
+  video_billing_unit?: VideoBillingUnit
   /** Allowed resolution keys for this video model (may be unpriced). */
   video_resolutions?: string[]
   video_prices?: PlazaVideoPrices | null

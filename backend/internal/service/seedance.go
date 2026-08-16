@@ -73,6 +73,21 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 	}
 	if mapping := stringMappingFromRaw(credentials["model_mapping"]); len(mapping) > 0 {
 		for requestedModel, upstreamModel := range mapping {
+			requestedModel = strings.TrimSpace(requestedModel)
+			upstreamModel = strings.TrimSpace(upstreamModel)
+			involvesWeijin900 := isWeijin900PublicModel(requestedModel) ||
+				isRetiredWeijin900PublicModel(requestedModel) ||
+				isWeijin900UpstreamModel(requestedModel) ||
+				isWeijin900PublicModel(upstreamModel) ||
+				isRetiredWeijin900PublicModel(upstreamModel) ||
+				isWeijin900UpstreamModel(upstreamModel)
+			if provider == VideoProviderWeijin && involvesWeijin900 &&
+				(requestedModel != SeedanceWeijin900Model || upstreamModel != SeedanceWeijin900UpstreamModel) {
+				return infraerrors.BadRequest(
+					"VIDEO_PROVIDER_MODEL_MISMATCH",
+					fmt.Sprintf("model %s must use the canonical dedicated Weijin mapping", requestedModel),
+				)
+			}
 			if !videoProviderSupportsModelForPlatform(platform, provider, requestedModel) || !videoProviderSupportsModelForPlatform(platform, provider, upstreamModel) {
 				return infraerrors.BadRequest(
 					"VIDEO_PROVIDER_MODEL_MISMATCH",
@@ -767,6 +782,7 @@ var seedanceUserMediaReferencePattern = regexp.MustCompile(`(?i)(?:@)?(?:image|a
 //  1. 普通参考图按上传顺序占 @Image1 起
 //  2. 首帧追加到数组末尾（若有）
 //  3. 尾帧再追加到数组最后（若有）
+//
 // 提示词按实际 Index 动态注入，而不是写死 @Image1=首帧。
 type seedanceImageSlot struct {
 	Index int    // 1-based @ImageN
@@ -867,7 +883,6 @@ func composeSeedancePromptWithMediaHints(info *SeedanceRequestInfo) string {
 	}
 	return prompt + "\n\n" + injection
 }
-
 
 func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error) {
 	if i == nil {
@@ -2163,7 +2178,6 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 	}
 	return response, nil
 }
-
 
 // seedanceForwardTaskID chooses the id used when the gateway itself polls
 // upstream (settlement worker / list hydration). Pixelle-mapped public ids

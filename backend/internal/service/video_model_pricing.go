@@ -50,6 +50,12 @@ func normalizeVideoModelPrices(platform string, prices VideoModelPrices) (VideoM
 		if price.Price2160P, err = normalizeVideoModelUnitPrice(model, VideoBillingResolution2160P, rawPrice.Price2160P); err != nil {
 			return nil, err
 		}
+		if price.BillingUnit, err = normalizeVideoModelBillingUnitOverride(platform, rawPrice.BillingUnit); err != nil {
+			return nil, infraerrors.BadRequest(
+				"SEEDANCE_VIDEO_BILLING_UNIT_INVALID",
+				fmt.Sprintf("video model %s: %v", model, err),
+			)
+		}
 		if price.Price480P == nil && price.Price720P == nil && price.Price1080P == nil && price.Price1440P == nil && price.Price2160P == nil {
 			return nil, infraerrors.BadRequest(
 				"SEEDANCE_VIDEO_PRICE_REQUIRED",
@@ -102,14 +108,23 @@ func cloneVideoModelPrices(prices VideoModelPrices) VideoModelPrices {
 	out := make(VideoModelPrices, len(prices))
 	for model, price := range prices {
 		out[model] = VideoModelPrice{
-			Price480P:  cloneFloat64Pointer(price.Price480P),
-			Price720P:  cloneFloat64Pointer(price.Price720P),
-			Price1080P: cloneFloat64Pointer(price.Price1080P),
-			Price1440P: cloneFloat64Pointer(price.Price1440P),
-			Price2160P: cloneFloat64Pointer(price.Price2160P),
+			BillingUnit: price.BillingUnit,
+			Price480P:   cloneFloat64Pointer(price.Price480P),
+			Price720P:   cloneFloat64Pointer(price.Price720P),
+			Price1080P:  cloneFloat64Pointer(price.Price1080P),
+			Price1440P:  cloneFloat64Pointer(price.Price1440P),
+			Price2160P:  cloneFloat64Pointer(price.Price2160P),
 		}
 	}
 	return out
+}
+
+func normalizeVideoModelBillingUnitOverride(platform, value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", nil
+	}
+	return normalizeVideoBillingUnit(platform, value)
 }
 
 func cloneFloat64Pointer(value *float64) *float64 {

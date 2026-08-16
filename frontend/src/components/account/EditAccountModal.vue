@@ -3421,7 +3421,7 @@ const presetMappings = computed(() => {
   const presets = getPresetMappingsByPlatform(platform)
   if (platform !== 'seedance') return presets
   const supportedModels = new Set(getSeedanceModelsByVideoProvider(seedanceVideoProvider.value))
-  return presets.filter(preset => supportedModels.has(preset.to))
+  return presets.filter(preset => supportedModels.has(preset.from) || supportedModels.has(preset.to))
 })
 const tempUnschedPresets = computed(() => [
   {

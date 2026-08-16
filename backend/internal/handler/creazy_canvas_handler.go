@@ -39,6 +39,16 @@ type createCreazyCanvasWorkRequest struct {
 	SizeBytes       int64          `json:"size_bytes"`
 }
 
+type createCreazyCanvasDocumentRequest struct {
+	Name  string         `json:"name"`
+	Graph map[string]any `json:"graph"`
+}
+
+type updateCreazyCanvasDocumentRequest struct {
+	Name             *string        `json:"name"`
+	Graph            map[string]any `json:"graph"`
+	ExpectedRevision int64          `json:"expected_revision"`
+}
 
 type updateCreazyCanvasWorkRequest struct {
 	Status          *string        `json:"status"`
@@ -79,6 +89,15 @@ type creazyCanvasWorkResponse struct {
 	UpdatedAt       string         `json:"updated_at"`
 }
 
+type creazyCanvasDocumentResponse struct {
+	ID        int64          `json:"id"`
+	Name      string         `json:"name"`
+	Graph     map[string]any `json:"graph,omitempty"`
+	Revision  int64          `json:"revision"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
 func (h *CreazyCanvasHandler) ListKeys(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -110,6 +129,111 @@ func (h *CreazyCanvasHandler) Catalog(c *gin.Context) {
 		return
 	}
 	response.Success(c, catalog)
+}
+
+func (h *CreazyCanvasHandler) ListDocuments(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	items, err := h.svc.ListDocuments(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]creazyCanvasDocumentResponse, 0, len(items))
+	for i := range items {
+		out = append(out, *creazyCanvasDocumentToResponse(&items[i], false))
+	}
+	response.Success(c, out)
+}
+
+func (h *CreazyCanvasHandler) CreateDocument(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	var req createCreazyCanvasDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	document, err := h.svc.CreateDocument(c.Request.Context(), service.CreateCreazyCanvasDocumentInput{
+		UserID:    subject.UserID,
+		Name:      req.Name,
+		GraphJSON: req.Graph,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Created(c, creazyCanvasDocumentToResponse(document, true))
+}
+
+func (h *CreazyCanvasHandler) GetDocument(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	documentID, ok := parseIDParam(c, "id", "Invalid document ID")
+	if !ok {
+		return
+	}
+	document, err := h.svc.GetDocument(c.Request.Context(), subject.UserID, documentID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, creazyCanvasDocumentToResponse(document, true))
+}
+
+func (h *CreazyCanvasHandler) UpdateDocument(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	documentID, ok := parseIDParam(c, "id", "Invalid document ID")
+	if !ok {
+		return
+	}
+	var req updateCreazyCanvasDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	document, err := h.svc.UpdateDocument(c.Request.Context(), service.UpdateCreazyCanvasDocumentInput{
+		UserID:           subject.UserID,
+		DocumentID:       documentID,
+		Name:             req.Name,
+		GraphJSON:        req.Graph,
+		ExpectedRevision: req.ExpectedRevision,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, creazyCanvasDocumentToResponse(document, true))
+}
+
+func (h *CreazyCanvasHandler) DeleteDocument(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	documentID, ok := parseIDParam(c, "id", "Invalid document ID")
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteDocument(c.Request.Context(), subject.UserID, documentID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"id": documentID, "deleted": true})
 }
 
 func (h *CreazyCanvasHandler) ListWorks(c *gin.Context) {
@@ -178,7 +302,6 @@ func (h *CreazyCanvasHandler) CreateWork(c *gin.Context) {
 	}
 	response.Created(c, creazyCanvasWorkToResponse(work))
 }
-
 
 func (h *CreazyCanvasHandler) UpdateWork(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -301,7 +424,7 @@ func (h *CreazyCanvasHandler) GetWorkContent(c *gin.Context) {
 		c.Redirect(http.StatusFound, content.RedirectURL)
 		return
 	}
-if content.Body != nil {
+	if content.Body != nil {
 		defer func() { _ = content.Body.Close() }()
 	}
 	status := content.StatusCode
@@ -362,5 +485,26 @@ func creazyCanvasWorkToResponse(work *service.CreazyCanvasWork) *creazyCanvasWor
 		ExpiresAt:       work.ExpiresAt.Format(time.RFC3339),
 		CreatedAt:       work.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       work.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func creazyCanvasDocumentToResponse(document *service.CreazyCanvasDocument, includeGraph bool) *creazyCanvasDocumentResponse {
+	if document == nil {
+		return nil
+	}
+	var graph map[string]any
+	if includeGraph {
+		graph = document.GraphJSON
+		if graph == nil {
+			graph = map[string]any{}
+		}
+	}
+	return &creazyCanvasDocumentResponse{
+		ID:        document.ID,
+		Name:      document.Name,
+		Graph:     graph,
+		Revision:  document.Revision,
+		CreatedAt: document.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: document.UpdatedAt.Format(time.RFC3339),
 	}
 }

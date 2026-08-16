@@ -87,7 +87,12 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
         user_notes: '',
         user_status: 'active',
         rate_multiplier: null,
-        video_model_prices: { 'ltx-2.3-pro': { '1440p': 0.2 } },
+        video_model_prices: {
+          'ltx-2.3-pro': {
+            '1440p': 0.2,
+            billing_unit: 'per_request',
+          },
+        },
       },
     ])
     const wrapper = await mountAndOpen(makeGroup('ltx', {
@@ -95,10 +100,13 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
     }))
 
     const configure = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+      button.text().includes('admin.groups.videoPriceOverrides.configure')
+      || button.text().includes('admin.groups.videoPriceOverrides.collapse'),
     )
     expect(configure).toBeTruthy()
-    await configure!.trigger('click')
+    if (configure!.text().includes('admin.groups.videoPriceOverrides.configure')) {
+      await configure!.trigger('click')
+    }
 
     expect(wrapper.text()).toContain('ltx-2.3-pro')
     const price2160 = wrapper.findAll('label').find(label => label.text().includes('2160p'))
@@ -139,9 +147,12 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
     }))
 
     const configure = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+      button.text().includes('admin.groups.videoPriceOverrides.configure')
+      || button.text().includes('admin.groups.videoPriceOverrides.collapse'),
     )
-    await configure!.trigger('click')
+    if (configure!.text().includes('admin.groups.videoPriceOverrides.configure')) {
+      await configure!.trigger('click')
+    }
 
     expect(wrapper.text()).toContain('happy-horse-1.1')
     expect(wrapper.text()).toContain('legacy-horse-alias')
@@ -174,9 +185,12 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
     }))
 
     const configure = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+      button.text().includes('admin.groups.videoPriceOverrides.configure')
+      || button.text().includes('admin.groups.videoPriceOverrides.collapse'),
     )
-    await configure!.trigger('click')
+    if (configure!.text().includes('admin.groups.videoPriceOverrides.configure')) {
+      await configure!.trigger('click')
+    }
 
     expect(wrapper.text()).toContain('sd2-mx933')
     expect(wrapper.text()).toContain('sd2-mx933-fast')
@@ -204,7 +218,7 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
     ])
   })
 
-  it('shows Seedance per-request units for per-user price overrides', async () => {
+  it('uses each Seedance model unit for per-user price overrides', async () => {
     apiMocks.getGroupRateMultipliers.mockResolvedValue([
       {
         user_id: 12,
@@ -217,17 +231,28 @@ describe('GroupRateMultipliersModal per-user video pricing', () => {
       },
     ])
     const group = makeGroup('seedance', {
-      'sd-2.0-mx933': { '480p': 0.4, '720p': 0.6 },
+      'sd-2.0-mx933': {
+        '480p': 0.4,
+        '720p': 0.6,
+        billing_unit: 'per_second',
+      },
     })
     group.video_billing_unit = 'per_request'
 
     const wrapper = await mountAndOpen(group)
     const configure = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.groups.videoPriceOverrides.configure'),
+      button.text().includes('admin.groups.videoPriceOverrides.configure')
+      || button.text().includes('admin.groups.videoPriceOverrides.collapse'),
     )
-    await configure!.trigger('click')
+    if (configure!.text().includes('admin.groups.videoPriceOverrides.configure')) {
+      await configure!.trigger('click')
+    }
 
-    expect(wrapper.text()).toContain('admin.groups.videoPricing.priceUnitPerRequest')
-    expect(wrapper.text()).not.toContain('admin.groups.videoPricing.priceUnitPerSecond')
+    const modelRow = wrapper.findAll('div').find((node) =>
+      node.text().includes('sd-2.0-mx933')
+      && node.findAll('label').some((label) => label.text().includes('480p')),
+    )
+    expect(modelRow).toBeTruthy()
+    expect(modelRow!.text()).toContain('admin.groups.videoPricing.priceUnitPerSecond')
   })
 })

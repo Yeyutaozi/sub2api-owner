@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -35,6 +38,7 @@ const (
 	creazyCanvasWorkTTL      = 3 * 24 * time.Hour
 	creazyCanvasDownloadTTL  = time.Hour
 	creazyCanvasObjectPrefix = "creazy-canvas"
+	creazyCanvasGraphMaxSize = 2 * 1024 * 1024
 
 	// 公开 gateway_type（作品元数据，非上游供应商名）
 	CreazyCanvasGatewayImageTask = "image_task"
@@ -43,10 +47,12 @@ const (
 )
 
 var (
-	ErrCreazyCanvasWorkNotFound   = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
-	ErrCreazyCanvasWorkActive     = infraerrors.BadRequest("CREAZY_CANVAS_WORK_ACTIVE", "运行中的任务不能删除")
-	ErrCreazyCanvasWorkTerminated = infraerrors.Conflict("CREAZY_CANVAS_WORK_TERMINATED", "任务已被管理员终止")
-	ErrCreazyCanvasKeyNotAllowed  = infraerrors.Forbidden("CREAZY_CANVAS_KEY_NOT_ALLOWED", "该 API Key 所属分组未开放 Creazy 画布")
+	ErrCreazyCanvasWorkNotFound     = infraerrors.NotFound("CREAZY_CANVAS_WORK_NOT_FOUND", "作品不存在")
+	ErrCreazyCanvasWorkActive       = infraerrors.BadRequest("CREAZY_CANVAS_WORK_ACTIVE", "运行中的任务不能删除")
+	ErrCreazyCanvasWorkTerminated   = infraerrors.Conflict("CREAZY_CANVAS_WORK_TERMINATED", "任务已被管理员终止")
+	ErrCreazyCanvasKeyNotAllowed    = infraerrors.Forbidden("CREAZY_CANVAS_KEY_NOT_ALLOWED", "该 API Key 所属分组未开放 Creazy 画布")
+	ErrCreazyCanvasDocumentNotFound = infraerrors.NotFound("CREAZY_CANVAS_DOCUMENT_NOT_FOUND", "画布文档不存在")
+	ErrCreazyCanvasDocumentConflict = infraerrors.Conflict("CREAZY_CANVAS_DOCUMENT_CONFLICT", "画布已在其他位置更新，请刷新后重试")
 )
 
 type CreazyCanvasWork struct {
@@ -73,6 +79,31 @@ type CreazyCanvasWork struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       *time.Time
+}
+
+type CreazyCanvasDocument struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	GraphJSON map[string]any
+	Revision  int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+}
+
+type CreateCreazyCanvasDocumentInput struct {
+	UserID    int64
+	Name      string
+	GraphJSON map[string]any
+}
+
+type UpdateCreazyCanvasDocumentInput struct {
+	UserID           int64
+	DocumentID       int64
+	Name             *string
+	GraphJSON        map[string]any
+	ExpectedRevision int64
 }
 
 type CreazyCanvasWorkListFilters struct {
@@ -249,6 +280,14 @@ type CreazyCanvasWorkRepository interface {
 	UpdateContentMeta(ctx context.Context, work *CreazyCanvasWork) error
 }
 
+type CreazyCanvasDocumentRepository interface {
+	CreateDocument(ctx context.Context, document *CreazyCanvasDocument) error
+	ListDocumentsByUser(ctx context.Context, userID int64, limit int) ([]CreazyCanvasDocument, error)
+	GetDocumentByIDForUser(ctx context.Context, id, userID int64) (*CreazyCanvasDocument, error)
+	UpdateDocument(ctx context.Context, document *CreazyCanvasDocument, expectedRevision int64) error
+	SoftDeleteDocument(ctx context.Context, id, userID int64) error
+}
+
 type CreazyCanvasWorkAdminRepository interface {
 	ListAdminImageWorks(ctx context.Context, params pagination.PaginationParams, filters CreazyCanvasAdminWorkFilters) ([]CreazyCanvasAdminWork, *pagination.PaginationResult, error)
 	GetAdminImageWork(ctx context.Context, id int64) (*CreazyCanvasAdminWork, error)
@@ -261,12 +300,17 @@ type CreazyCanvasAPIKeyService interface {
 	CheckAPIKeyQuotaAndExpiry(apiKey *APIKey) error
 }
 
+type creazyCanvasVideoPriceOverrideLoader interface {
+	GetVideoModelPricesByUserAndGroup(ctx context.Context, userID, groupID int64) (VideoModelPrices, error)
+}
+
 type CreazyCanvasService struct {
-	workRepo      CreazyCanvasWorkRepository
-	apiKeyService CreazyCanvasAPIKeyService
-	artifactStore AgentArtifactStore
-	cfg           *config.Config
-	httpClient    *http.Client
+	workRepo        CreazyCanvasWorkRepository
+	apiKeyService   CreazyCanvasAPIKeyService
+	artifactStore   AgentArtifactStore
+	cfg             *config.Config
+	httpClient      *http.Client
+	mediaHTTPClient *http.Client
 }
 
 func NewCreazyCanvasService(
@@ -279,10 +323,11 @@ func NewCreazyCanvasService(
 		artifactStore = disabledAgentArtifactStore{}
 	}
 	return &CreazyCanvasService{
-		workRepo:      workRepo,
-		apiKeyService: apiKeyService,
-		artifactStore: artifactStore,
-		cfg:           cfg,
+		workRepo:        workRepo,
+		apiKeyService:   apiKeyService,
+		artifactStore:   artifactStore,
+		cfg:             cfg,
+		mediaHTTPClient: newSeedanceMediaHTTPClient(),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Minute,
 			// Manual redirect handling so Authorization is not leaked to foreign hosts.
@@ -331,6 +376,10 @@ func (s *CreazyCanvasService) Catalog(ctx context.Context, userID, apiKeyID int6
 		return nil, err
 	}
 	group := apiKey.Group
+	videoPriceOverrides, err := s.catalogVideoPriceOverrides(ctx, userID, group)
+	if err != nil {
+		return nil, err
+	}
 	platform := ""
 	groupID := apiKey.GroupID
 	allowImage := false
@@ -344,10 +393,118 @@ func (s *CreazyCanvasService) Catalog(ctx context.Context, userID, apiKeyID int6
 		GroupID:              groupID,
 		Platform:             platform,
 		AllowImageGeneration: allowImage,
-		VideoModels:          buildCreazyCanvasVideoModels(group),
+		VideoModels:          buildCreazyCanvasVideoModelsWithOverrides(group, videoPriceOverrides),
 		ImageModels:          buildCreazyCanvasImageModels(group),
 	}
 	return catalog, nil
+}
+
+func (s *CreazyCanvasService) catalogVideoPriceOverrides(ctx context.Context, userID int64, group *Group) (VideoModelPrices, error) {
+	if group == nil || !IsFFLinkVideoPlatform(group.Platform) || group.ID <= 0 {
+		return VideoModelPrices{}, nil
+	}
+	loader, ok := s.apiKeyService.(creazyCanvasVideoPriceOverrideLoader)
+	if !ok || loader == nil {
+		return VideoModelPrices{}, nil
+	}
+	overrides, err := loader.GetVideoModelPricesByUserAndGroup(ctx, userID, group.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load canvas user video prices: %w", err)
+	}
+	return cloneVideoModelPrices(overrides), nil
+}
+
+func (s *CreazyCanvasService) ListDocuments(ctx context.Context, userID int64) ([]CreazyCanvasDocument, error) {
+	if userID <= 0 {
+		return nil, infraerrors.Unauthorized("CREAZY_CANVAS_USER_REQUIRED", "需要登录")
+	}
+	repo, err := s.documentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.ListDocumentsByUser(ctx, userID, 50)
+}
+
+func (s *CreazyCanvasService) GetDocument(ctx context.Context, userID, documentID int64) (*CreazyCanvasDocument, error) {
+	if userID <= 0 {
+		return nil, infraerrors.Unauthorized("CREAZY_CANVAS_USER_REQUIRED", "需要登录")
+	}
+	if documentID <= 0 {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_DOCUMENT_ID_INVALID", "画布文档 ID 无效")
+	}
+	repo, err := s.documentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.GetDocumentByIDForUser(ctx, documentID, userID)
+}
+
+func (s *CreazyCanvasService) CreateDocument(ctx context.Context, input CreateCreazyCanvasDocumentInput) (*CreazyCanvasDocument, error) {
+	if input.UserID <= 0 {
+		return nil, infraerrors.Unauthorized("CREAZY_CANVAS_USER_REQUIRED", "需要登录")
+	}
+	graph, err := normalizeCreazyCanvasGraph(input.GraphJSON)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	document := &CreazyCanvasDocument{
+		UserID:    input.UserID,
+		Name:      normalizeCreazyCanvasDocumentName(input.Name),
+		GraphJSON: graph,
+		Revision:  1,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repo, err := s.documentRepo()
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.CreateDocument(ctx, document); err != nil {
+		return nil, err
+	}
+	return document, nil
+}
+
+func (s *CreazyCanvasService) UpdateDocument(ctx context.Context, input UpdateCreazyCanvasDocumentInput) (*CreazyCanvasDocument, error) {
+	document, err := s.GetDocument(ctx, input.UserID, input.DocumentID)
+	if err != nil {
+		return nil, err
+	}
+	if input.Name != nil {
+		document.Name = normalizeCreazyCanvasDocumentName(*input.Name)
+	}
+	if input.GraphJSON != nil {
+		document.GraphJSON, err = normalizeCreazyCanvasGraph(input.GraphJSON)
+		if err != nil {
+			return nil, err
+		}
+	}
+	expectedRevision := input.ExpectedRevision
+	if expectedRevision <= 0 {
+		expectedRevision = document.Revision
+	}
+	document.Revision = expectedRevision + 1
+	document.UpdatedAt = time.Now()
+	repo, err := s.documentRepo()
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.UpdateDocument(ctx, document, expectedRevision); err != nil {
+		return nil, err
+	}
+	return document, nil
+}
+
+func (s *CreazyCanvasService) DeleteDocument(ctx context.Context, userID, documentID int64) error {
+	if _, err := s.GetDocument(ctx, userID, documentID); err != nil {
+		return err
+	}
+	repo, err := s.documentRepo()
+	if err != nil {
+		return err
+	}
+	return repo.SoftDeleteDocument(ctx, documentID, userID)
 }
 
 func (s *CreazyCanvasService) CreateWork(ctx context.Context, input CreateCreazyCanvasWorkInput) (*CreazyCanvasWork, error) {
@@ -406,6 +563,7 @@ func (s *CreazyCanvasService) CreateWork(ctx context.Context, input CreateCreazy
 	if err := s.workRepo.Create(ctx, work); err != nil {
 		return nil, err
 	}
+	s.archiveSucceededImageBestEffort(ctx, work)
 	applyCreazyCanvasWorkView(work)
 	return work, nil
 }
@@ -473,6 +631,7 @@ func (s *CreazyCanvasService) UpdateWork(ctx context.Context, input UpdateCreazy
 	if err := s.workRepo.UpdateContentMeta(ctx, work); err != nil {
 		return nil, err
 	}
+	s.archiveSucceededImageBestEffort(ctx, work)
 	applyCreazyCanvasWorkView(work)
 	return work, nil
 }
@@ -552,6 +711,72 @@ func (s *CreazyCanvasService) adminWorkRepo() (CreazyCanvasWorkAdminRepository, 
 	return repo, nil
 }
 
+func (s *CreazyCanvasService) documentRepo() (CreazyCanvasDocumentRepository, error) {
+	if s == nil || s.workRepo == nil {
+		return nil, errors.New("creazy canvas document repository is unavailable")
+	}
+	repo, ok := s.workRepo.(CreazyCanvasDocumentRepository)
+	if !ok || repo == nil {
+		return nil, errors.New("creazy canvas document repository is unavailable")
+	}
+	return repo, nil
+}
+
+func normalizeCreazyCanvasDocumentName(value string) string {
+	name := strings.TrimSpace(value)
+	if name == "" {
+		return "我的工作流"
+	}
+	runes := []rune(name)
+	if len(runes) > 120 {
+		name = string(runes[:120])
+	}
+	return name
+}
+
+func normalizeCreazyCanvasGraph(graph map[string]any) (map[string]any, error) {
+	if graph == nil {
+		graph = map[string]any{}
+	}
+	raw, err := json.Marshal(graph)
+	if err != nil {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "画布数据无法序列化")
+	}
+	if len(raw) > creazyCanvasGraphMaxSize {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_TOO_LARGE", "画布数据不能超过 2 MB")
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "画布数据无效")
+	}
+	if _, ok := normalized["nodes"]; !ok {
+		normalized["nodes"] = []any{}
+	}
+	if _, ok := normalized["edges"]; !ok {
+		normalized["edges"] = []any{}
+	}
+	if _, ok := normalized["viewport"]; !ok {
+		normalized["viewport"] = map[string]any{"x": 0, "y": 0, "zoom": 1}
+	}
+	if _, ok := normalized["nodes"].([]any); !ok {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "nodes 必须是数组")
+	}
+	if _, ok := normalized["edges"].([]any); !ok {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "edges 必须是数组")
+	}
+	if _, ok := normalized["viewport"].(map[string]any); !ok {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "viewport 必须是对象")
+	}
+	normalizedRaw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_INVALID", "画布数据无法序列化")
+	}
+	if len(normalizedRaw) > creazyCanvasGraphMaxSize {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_GRAPH_TOO_LARGE", "画布数据不能超过 2 MB")
+	}
+	return normalized, nil
+}
+
 func (s *CreazyCanvasService) ListWorks(ctx context.Context, userID int64, params pagination.PaginationParams, filters CreazyCanvasWorkListFilters) ([]CreazyCanvasWork, *pagination.PaginationResult, error) {
 	if userID <= 0 {
 		return nil, nil, infraerrors.Unauthorized("CREAZY_CANVAS_USER_REQUIRED", "需要登录")
@@ -594,6 +819,7 @@ func (s *CreazyCanvasService) DeleteWork(ctx context.Context, userID, workID int
 	if err != nil {
 		return err
 	}
+	applyCreazyCanvasWorkView(work)
 	if !isCreazyCanvasWorkTerminalStatus(work.Status) {
 		return ErrCreazyCanvasWorkActive
 	}
@@ -918,12 +1144,14 @@ func creazyCanvasPublicMediaURL(work *CreazyCanvasWork) string {
 	if work == nil {
 		return ""
 	}
-	candidates := []string{
-		strings.TrimSpace(work.ObjectURL),
-		strings.TrimSpace(work.PreviewURL),
+	candidates := []string{strings.TrimSpace(work.ObjectURL)}
+	// A gateway-backed video's preview is commonly its poster/start frame. It is
+	// not the generated media and must not short-circuit the video content proxy.
+	if work.Kind != CreazyCanvasWorkKindVideo || !creazyCanvasWorkHasGatewayContent(work) {
+		candidates = append(candidates, strings.TrimSpace(work.PreviewURL))
 	}
 	if work.ParamsJSON != nil {
-		for _, key := range []string{"poster_url", "result_url", "video_url", "content_url"} {
+		for _, key := range []string{"result_url", "video_url", "content_url"} {
 			if v, ok := work.ParamsJSON[key].(string); ok {
 				candidates = append(candidates, strings.TrimSpace(v))
 			}
@@ -933,6 +1161,10 @@ func creazyCanvasPublicMediaURL(work *CreazyCanvasWork) string {
 				if s, ok := item.(string); ok {
 					candidates = append(candidates, strings.TrimSpace(s))
 				}
+			}
+		} else if arr, ok := work.ParamsJSON["result_urls"].([]string); ok {
+			for _, item := range arr {
+				candidates = append(candidates, strings.TrimSpace(item))
 			}
 		}
 	}
@@ -946,6 +1178,145 @@ func creazyCanvasPublicMediaURL(work *CreazyCanvasWork) string {
 		}
 	}
 	return ""
+}
+
+func (s *CreazyCanvasService) archiveSucceededImageBestEffort(ctx context.Context, work *CreazyCanvasWork) {
+	if err := s.archiveSucceededImage(ctx, work); err != nil {
+		slog.Warn("creazy canvas image archive failed",
+			"work_id", work.ID,
+			"user_id", work.UserID,
+			"error", err,
+		)
+	}
+}
+
+func (s *CreazyCanvasService) archiveSucceededImage(ctx context.Context, work *CreazyCanvasWork) error {
+	if s == nil || work == nil || s.workRepo == nil || s.artifactStore == nil || !s.artifactStore.IsConfigured() {
+		return nil
+	}
+	if work.Kind != CreazyCanvasWorkKindImage || work.Status != CreazyCanvasWorkStatusSucceeded || strings.TrimSpace(work.ObjectKey) != "" {
+		return nil
+	}
+
+	sourceURL := creazyCanvasPublicMediaURL(work)
+	if sourceURL == "" {
+		return nil
+	}
+	validatedURL, err := validateSeedanceMediaRemoteURL(sourceURL)
+	if err != nil {
+		return fmt.Errorf("validate image source: %w", err)
+	}
+
+	// Once a generated image is accepted, finish its archive even if the browser
+	// navigates away and cancels the PATCH request.
+	archiveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), seedanceImageFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(archiveCtx, http.MethodGet, validatedURL, nil)
+	if err != nil {
+		return fmt.Errorf("create image archive request: %w", err)
+	}
+	req.Header.Set("Accept", "image/png,image/jpeg,image/webp")
+	req.Header.Set("Accept-Encoding", "identity")
+
+	client := s.mediaHTTPClient
+	if client == nil {
+		client = newSeedanceMediaHTTPClient()
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Err != nil {
+			return fmt.Errorf("fetch image source: %w", urlErr.Err)
+		}
+		return errors.New("fetch image source failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("image source returned HTTP %d", resp.StatusCode)
+	}
+
+	maxBytes := SeedanceMaxImageBytes
+	if s.cfg != nil && s.cfg.AgentArtifacts.MaxUploadBytes > 0 && s.cfg.AgentArtifacts.MaxUploadBytes < maxBytes {
+		maxBytes = s.cfg.AgentArtifacts.MaxUploadBytes
+	}
+	if resp.ContentLength > maxBytes {
+		return fmt.Errorf("image source exceeds %d bytes", maxBytes)
+	}
+
+	tmp, err := os.CreateTemp("", "creazy-canvas-image-*")
+	if err != nil {
+		return fmt.Errorf("create image archive buffer: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	sizeBytes, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return fmt.Errorf("read image source: %w", err)
+	}
+	if sizeBytes > maxBytes {
+		return fmt.Errorf("image source exceeds %d bytes", maxBytes)
+	}
+	mimeType, extension, err := inspectSeedanceImage(tmp, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return fmt.Errorf("validate image source content: %w", err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind image archive buffer: %w", err)
+	}
+
+	objectKey := buildCreazyCanvasObjectKey(work, "result."+extension)
+	put, err := s.artifactStore.Put(archiveCtx, AgentArtifactStorePutInput{
+		Key:         objectKey,
+		Body:        tmp,
+		ContentType: mimeType,
+		SizeBytes:   sizeBytes,
+		Metadata: map[string]string{
+			"creazy-canvas-work-id": strconv.FormatInt(work.ID, 10),
+			"creazy-canvas-user-id": strconv.FormatInt(work.UserID, 10),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("store archived image: %w", err)
+	}
+	if put == nil {
+		return errors.New("store archived image: empty result")
+	}
+
+	archived := *work
+	archived.ObjectKey = strings.TrimSpace(put.ObjectKey)
+	if archived.ObjectKey == "" {
+		archived.ObjectKey = objectKey
+	}
+	archived.StorageProvider = strings.TrimSpace(put.Provider)
+	if archived.StorageProvider == "" {
+		archived.StorageProvider = strings.TrimSpace(s.artifactStore.Provider())
+	}
+	archived.Bucket = strings.TrimSpace(put.Bucket)
+	if archived.Bucket == "" {
+		archived.Bucket = strings.TrimSpace(s.artifactStore.Bucket())
+	}
+	archived.ObjectURL = strings.TrimSpace(put.ObjectURL)
+	if archived.ObjectURL != "" {
+		archived.PreviewURL = archived.ObjectURL
+	}
+	archived.MimeType = mimeType
+	archived.SizeBytes = sizeBytes
+	if err := s.workRepo.UpdateContentMeta(archiveCtx, &archived); err != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), seedanceObjectCleanupTimeout)
+		_ = s.artifactStore.DeleteObject(cleanupCtx, AgentArtifactObjectLocation{
+			StorageProvider: archived.StorageProvider,
+			Bucket:          archived.Bucket,
+			ObjectKey:       archived.ObjectKey,
+		})
+		cleanupCancel()
+		return fmt.Errorf("persist archived image metadata: %w", err)
+	}
+	*work = archived
+	return nil
 }
 
 func creazyCanvasContentFilename(work *CreazyCanvasWork) string {
@@ -1103,7 +1474,16 @@ func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
 	}
 	platformIDs := FFLinkVideoModelIDsForPlatform(group.Platform)
 	if len(group.VideoModelPrices) == 0 {
-		return platformIDs
+		out := make([]string, 0, len(platformIDs))
+		for _, id := range platformIDs {
+			// This dedicated upstream credential pool must be explicitly priced
+			// before the user-facing canvas can expose it.
+			if group.Platform == PlatformSeedance && strings.EqualFold(id, SeedanceWeijin900Model) {
+				continue
+			}
+			out = append(out, id)
+		}
+		return out
 	}
 
 	allowed := make(map[string]struct{}, len(group.VideoModelPrices))
@@ -1147,12 +1527,15 @@ func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
 }
 
 func buildCreazyCanvasVideoModels(group *Group) []CreazyCanvasVideoModel {
+	return buildCreazyCanvasVideoModelsWithOverrides(group, nil)
+}
+
+func buildCreazyCanvasVideoModelsWithOverrides(group *Group, overrides VideoModelPrices) []CreazyCanvasVideoModel {
 	if group == nil || !IsFFLinkVideoPlatform(group.Platform) {
 		return []CreazyCanvasVideoModel{}
 	}
 	modelIDs := creazyCanvasVideoModelIDsForGroup(group)
 	out := make([]CreazyCanvasVideoModel, 0, len(modelIDs))
-	billingUnit := group.EffectiveVideoBillingUnit()
 	for _, modelID := range modelIDs {
 		profile, ok := ffLinkVideoModelProfileFor(modelID)
 		if !ok {
@@ -1161,8 +1544,15 @@ func buildCreazyCanvasVideoModels(group *Group) []CreazyCanvasVideoModel {
 		// 价格：优先 VideoModelPrices，否则回落 legacy 分组级分辨率价
 		prices := map[string]*float64{}
 		resolutions := sortedStringKeys(profile.AllowedResolutions)
+		override, hasOverride := findVideoModelPrice(group.Platform, overrides, modelID)
 		for _, res := range resolutions {
-			prices[res] = group.GetVideoPriceForModel(modelID, res)
+			price := group.GetVideoPriceForModel(modelID, res)
+			if hasOverride {
+				if userPrice := videoModelPriceForResolution(override, res); userPrice != nil {
+					price = userPrice
+				}
+			}
+			prices[res] = price
 		}
 		aspects := sortedStringKeys(profile.AllowedAspectRatios)
 		durations := creazyCanvasDurationsForProfile(profile)
@@ -1181,7 +1571,7 @@ func buildCreazyCanvasVideoModels(group *Group) []CreazyCanvasVideoModel {
 			AllowedAspectRatios:     aspects,
 			AspectRatios:            append([]string(nil), aspects...),
 			Prices:                  prices,
-			BillingUnit:             billingUnit,
+			BillingUnit:             group.EffectiveVideoBillingUnitForModel(modelID),
 			AllowStartFrame:         profile.AllowStartFrame,
 			RequireStartFrame:       profile.RequireStartFrame,
 			AllowEndFrame:           profile.AllowEndFrame,

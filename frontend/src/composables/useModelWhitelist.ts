@@ -194,7 +194,8 @@ const seedanceXimeiModels = [
 
 const seedanceWeijinModels = [
   'seedance2.0-one-face-reference-480p',
-  'seedance2.0-one-face-reference-720p'
+  'seedance2.0-one-face-reference-720p',
+  'sd-2.0-900-720p'
 ]
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels]
@@ -385,6 +386,7 @@ const seedancePresetMappings = [
   { label: 'Ximei SD 2.5 MX', from: 'sd-2.5-mx', to: 'sd-2.5-mx', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: 'Seedance特惠 480p', from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: 'Seedance特惠 720p', from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },
+  { label: 'SD 2.0 900 (720P)', from: 'sd-2.0-900-720p', to: 'seedance2.0-900-3', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
   { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Legacy Fast alias', from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
 ]
@@ -554,6 +556,13 @@ export interface ModelMappingEntry {
   to: string
 }
 
+const resolveDefaultModelMappingTarget = (from: string, to: string): string => {
+  if (from === 'sd-2.0-900-720p' && to === 'sd-2.0-900-720p') {
+    return 'seedance2.0-900-3'
+  }
+  return to
+}
+
 export function splitModelMappingObject(
   modelMapping?: Record<string, unknown> | null
 ): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {
@@ -595,7 +604,7 @@ export function buildModelMappingObject(
       // 写入 model_mapping 会导致 GetMappedModel() 把真实模型映射成 "claude-*"，从而转发失败。
       // 因此这里跳过包含通配符的条目。
       if (!normalizedModel.includes('*')) {
-        mapping[normalizedModel] = normalizedModel
+        mapping[normalizedModel] = resolveDefaultModelMappingTarget(normalizedModel, normalizedModel)
       }
     }
   }
@@ -615,7 +624,7 @@ export function buildModelMappingObject(
         console.warn(`[buildModelMappingObject] Target model cannot contain a wildcard, skipped: ${from} -> ${to}`)
         continue
       }
-      mapping[from] = to
+      mapping[from] = resolveDefaultModelMappingTarget(from, to)
     }
   }
 

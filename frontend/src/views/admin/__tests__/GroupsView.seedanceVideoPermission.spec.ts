@@ -37,4 +37,20 @@ describe("video platform group permission", () => {
       "video_billing_unit: normalizeVideoBillingUnitForPlatform(",
     );
   });
+
+  it("lets each model inherit or override the group billing unit", () => {
+    expect(groupsViewSource).toMatch(
+      /v-model="row\.billing_unit"[\s\S]*?data-testid="create-video-model-billing-unit"[\s\S]*?<option value="">[\s\S]*?<option value="per_second">[\s\S]*?v-if="supportsPerRequestVideoBilling\(createForm\.platform\)"[\s\S]*?value="per_request"/,
+    );
+    expect(groupsViewSource).toMatch(
+      /v-model="row\.billing_unit"[\s\S]*?data-testid="edit-video-model-billing-unit"[\s\S]*?<option value="">[\s\S]*?<option value="per_second">[\s\S]*?v-if="supportsPerRequestVideoBilling\(editForm\.platform\)"[\s\S]*?value="per_request"/,
+    );
+    expect(groupsViewSource).toContain(
+      "resolveVideoModelBillingUnit(row.billing_unit, createForm.video_billing_unit, createForm.platform)",
+    );
+    expect(groupsViewSource).toContain(
+      "resolveVideoModelBillingUnit(row.billing_unit, editForm.video_billing_unit, editForm.platform)",
+    );
+    expect(groupsViewSource).toContain("videoModelPricesPayloadForPlatform(");
+  });
 });

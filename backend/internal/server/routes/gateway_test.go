@@ -15,6 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCanvasMediaUploadPlatform(t *testing.T) {
+	require.True(t, canvasMediaUploadPlatform(service.PlatformOpenAI))
+	require.True(t, canvasMediaUploadPlatform(service.PlatformGrok))
+	require.True(t, canvasMediaUploadPlatform(service.PlatformSeedance))
+	require.False(t, canvasMediaUploadPlatform(service.PlatformGemini))
+	require.False(t, canvasMediaUploadPlatform(""))
+}
+
 func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
 	return newGatewayRoutesTestRouterWithConfig(&config.Config{
 		Gateway: config.GatewayConfig{

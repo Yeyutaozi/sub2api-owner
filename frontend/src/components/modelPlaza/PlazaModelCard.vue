@@ -90,6 +90,12 @@
               <strong>{{ formatVideoPrice(offer, res) }}</strong>
             </span>
             <span v-if="!(multiVideoResolutions.length || videoResolutions(offer).length)" class="mp-empty-price">{{ t('modelPlaza.detail.noPricing') }}</span>
+            <span
+              class="mp-offer__billing-unit"
+              data-testid="plaza-offer-video-billing-unit"
+            >
+              {{ videoBillingUnitLabel(offer) }}
+            </span>
           </div>
           <div v-else-if="card.kind === 'image'" class="mp-offer__prices">
             <template v-if="hasImageConfiguredPrice(offer) || siblingImagePrices">
@@ -132,9 +138,8 @@
         </div>
       </div>
       <p class="mp-multi__note">
-        <template v-if="card.kind === 'video'">{{ t('modelPlaza.table.videoBillingPerClipHint') }} · </template>
-          <template v-else-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
-          <template v-else>{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
+        <template v-if="card.kind === 'image'">{{ t('modelPlaza.table.imageBillingHint') }} · </template>
+        <template v-else-if="card.kind !== 'video'">{{ t('modelPlaza.table.tokenBillingHint') }} · </template>
         {{ t('modelPlaza.table.rateAppliedNote') }}
         <span v-if="hasAnyFallback" class="mp-multi__fallback"> · {{ t('modelPlaza.table.priceFallbackNote') }}</span>
       </p>
@@ -259,6 +264,7 @@ import { useI18n } from 'vue-i18n'
 import {
   IMAGE_TIER_KEYS,
   VIDEO_RESOLUTION_KEYS,
+  resolvePlazaVideoBillingUnit,
   type PlazaModelCard,
   type PlazaOffer
 } from './plazaCatalog'
@@ -373,6 +379,10 @@ function groupTicketStyle(idx: number): Record<string, string> {
 
 function isBestOffer(idx: number): boolean {
   if (idx !== 0 || props.card.offers.length < 2) return false
+  if (
+    props.card.kind === 'video'
+    && new Set(props.card.offers.map((offer) => resolvePlazaVideoBillingUnit(offer.model))).size > 1
+  ) return false
   return props.card.minRate < props.card.maxRate
 }
 
@@ -420,11 +430,15 @@ function formatRes(res: string): string {
 
 
 function videoHint(offer: PlazaOffer): string {
-  const unit = String(offer.model.video_billing_unit || '').toLowerCase()
-  if (unit === 'second' || unit === 'per_second' || unit === 'sec') {
-    return t('modelPlaza.table.videoBillingPerSecondHint')
-  }
-  return t('modelPlaza.table.videoBillingPerClipHint')
+  return resolvePlazaVideoBillingUnit(offer.model) === 'per_request'
+    ? t('modelPlaza.table.videoBillingPerClipHint')
+    : t('modelPlaza.table.videoBillingPerSecondHint')
+}
+
+function videoBillingUnitLabel(offer: PlazaOffer): string {
+  return resolvePlazaVideoBillingUnit(offer.model) === 'per_request'
+    ? t('modelPlaza.table.perRequest')
+    : t('modelPlaza.table.perSecond')
 }
 
 function hasImageConfiguredPrice(offer: PlazaOffer): boolean {
@@ -759,6 +773,7 @@ function peakWindow(offer: PlazaOffer): string {
   border-color: #e2e8f0;
 }
 .mp-offer__prices { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.mp-offer__billing-unit { margin-left:auto; align-self:center; font-size:10px; font-weight:700; color:#64748b; }
 .mp-chip-price--xs { padding:2px 6px !important; font-size:10.5px !important; }
 .mp-chip-price--xs em { font-size:9.5px !important; }
 .mp-chip-price--xs strong { font-size:11px !important; }

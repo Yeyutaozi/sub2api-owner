@@ -938,7 +938,7 @@ export default {
         overrideCount: '{count} set',
         userTitle: 'Model/resolution prices for {user}',
         priorityHint: 'Billing priority: per-user model/resolution price > group model/resolution price. Existing group multiplier rules still apply; leave a price blank to inherit the group value.',
-        inheritHint: 'Enter an absolute price ({unit}) for each model and resolution. Leave blank to inherit the group price.',
+        inheritHint: 'Enter an absolute price for each model and resolution. Leave blank to inherit the group price and that model\'s billing unit.',
         fillThenSave: 'Remember to click Save at the bottom-right after filling prices.',
         selectUserFirst: 'Search and select a user from the dropdown first',
         addedConfigureHint: 'User added. Configure model/resolution prices below, then save.',
@@ -1024,12 +1024,15 @@ export default {
         description:
           'Configure Grok video generation prices in USD per second of output video. Leave empty to use the default per-second rates (grok-imagine-video: $0.05/s 480p, $0.07/s 720p; video-1.5: $0.08/s 480p, $0.14/s 720p, $0.25/s 1080p).',
         modelDescription:
-          'Configure video prices in USD per generated second for each requested model and resolution.',
+          'Configure video prices by requested model and resolution. Each model can inherit the group billing unit or override it.',
         perRequestModelDescription:
           'Configure a flat USD price per generated video for each requested model and resolution.',
         billingUnit: 'Billing unit',
+        groupBillingUnit: 'Group default billing unit',
+        modelBillingUnit: 'Model billing unit',
+        inheritGroupBillingUnit: 'Inherit group default ({unit})',
         billingUnitHint:
-          'Per-request billing is available only for Seedance. Duration still controls generation, but it does not multiply the configured price; each generated output is charged once.',
+          'The group-level per-request default is available only for Seedance. A model-level selection below overrides this default.',
         perSecond: 'Per generated second',
         perRequest: 'Per generated video',
         priceUnitPerSecond: '$/s',
@@ -1048,7 +1051,7 @@ export default {
         modeHint:
           'Videos are billed per second: per-second price × duration (1-15s, default 8s). By default the current effective group multiplier applies; independent mode uses the video multiplier instead.',
         modelModeHint:
-          'Videos are billed per second: the requested model and resolution price × actual generated duration. A non-empty matrix is also the allowed model list; clear it to fall back to the legacy group resolution prices.',
+          'Each model inherits the group billing unit unless overridden. Per-second prices multiply by generated duration; per-request prices are charged once per output. A non-empty matrix is also the allowed model list.',
         perRequestModelModeHint:
           'Videos are billed per request: the requested model and resolution price is charged once for each generated video, without multiplying by duration. A non-empty matrix is also the allowed model list; clear it to fall back to legacy group resolution prices.',
         finalPricePreview: 'Final per-second price preview',

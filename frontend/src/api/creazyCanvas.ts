@@ -7,6 +7,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from './client'
+import type { VideoBillingUnit } from '@/types'
 
 // ==================== Types ====================
 
@@ -66,7 +67,7 @@ export interface CreazyCanvasVideoModel {
   allowed_durations?: number[]
   durations?: number[]
   prices?: Record<string, number | null | undefined>
-  billing_unit?: string
+  billing_unit?: VideoBillingUnit
   allow_start_frame?: boolean
   require_start_frame?: boolean
   allow_end_frame?: boolean
@@ -90,6 +91,22 @@ export interface CreazyCanvasCatalog {
   allow_image_generation?: boolean
   image_models: CreazyCanvasImageModel[]
   video_models: CreazyCanvasVideoModel[]
+}
+
+export interface CreazyCanvasGraph {
+  nodes: Array<Record<string, unknown>>
+  edges: Array<Record<string, unknown>>
+  viewport?: { x?: number; y?: number; zoom?: number }
+  [key: string]: unknown
+}
+
+export interface CreazyCanvasDocument {
+  id: number
+  name: string
+  graph?: CreazyCanvasGraph
+  revision: number
+  created_at?: string
+  updated_at?: string
 }
 
 export type CreazyWorkKind = 'image' | 'video'
@@ -352,6 +369,41 @@ export async function getCatalog(apiKeyId: number): Promise<CreazyCanvasCatalog>
   }
 }
 
+export async function listDocuments(): Promise<CreazyCanvasDocument[]> {
+  const { data } = await apiClient.get('/creazy-canvas/documents')
+  return normalizeListPayload<CreazyCanvasDocument>(data)
+}
+
+export async function createDocument(payload: {
+  name?: string
+  graph: CreazyCanvasGraph
+}): Promise<CreazyCanvasDocument> {
+  const { data } = await apiClient.post<CreazyCanvasDocument>('/creazy-canvas/documents', payload)
+  return data
+}
+
+export async function getDocument(id: number | string): Promise<CreazyCanvasDocument> {
+  const { data } = await apiClient.get<CreazyCanvasDocument>(
+    `/creazy-canvas/documents/${encodeURIComponent(String(id))}`,
+  )
+  return data
+}
+
+export async function updateDocument(
+  id: number | string,
+  payload: { name?: string; graph?: CreazyCanvasGraph; expected_revision?: number },
+): Promise<CreazyCanvasDocument> {
+  const { data } = await apiClient.patch<CreazyCanvasDocument>(
+    `/creazy-canvas/documents/${encodeURIComponent(String(id))}`,
+    payload,
+  )
+  return data
+}
+
+export async function deleteDocument(id: number | string): Promise<void> {
+  await apiClient.delete(`/creazy-canvas/documents/${encodeURIComponent(String(id))}`)
+}
+
 export async function listWorks(params?: {
   page?: number
   page_size?: number
@@ -403,6 +455,7 @@ export async function updateWork(
   const { data } = await apiClient.patch<CreazyWork>(
     `/creazy-canvas/works/${encodeURIComponent(String(id))}`,
     payload,
+    { timeout: 90 * 1000 },
   )
   return data
 }
@@ -484,7 +537,7 @@ export async function getWorkContentBlob(id: number | string): Promise<string> {
 export async function generateImage(
   apiKey: string,
   payload: ImageGenerationRequest,
-  options?: { async?: boolean; edit?: boolean },
+  options?: { async?: boolean; edit?: boolean; imageFiles?: File[] },
 ): Promise<ImageGenerationResponse> {
   const edit = Boolean(options?.edit)
   const path = edit
@@ -494,10 +547,31 @@ export async function generateImage(
     : options?.async
       ? '/v1/images/generations/async'
       : '/v1/images/generations'
+  const imageFiles = (options?.imageFiles || []).filter((file) => file instanceof File)
+  let headers: HeadersInit
+  let body: BodyInit
+  if (edit && imageFiles.length) {
+    const form = new FormData()
+    for (const [name, value] of Object.entries(payload)) {
+      if (name === 'images' || name === 'reference_images' || value == null) continue
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        form.append(name, String(value))
+      }
+    }
+    const imageField = imageFiles.length > 1 ? 'image[]' : 'image'
+    for (const file of imageFiles) {
+      form.append(imageField, file, file.name || 'reference-image')
+    }
+    headers = authHeaders(apiKey)
+    body = form
+  } else {
+    headers = authHeaders(apiKey, { 'Content-Type': 'application/json' })
+    body = JSON.stringify(payload)
+  }
   const response = await fetch(buildGatewayUrl(path), {
     method: 'POST',
-    headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify(payload),
+    headers,
+    body,
   })
   if (!response.ok) throw await parseGatewayError(response)
   return response.json()
@@ -568,6 +642,11 @@ export async function getVideoContentURL(apiKey: string, jobId: string): Promise
 export const creazyCanvasAPI = {
   listKeys,
   getCatalog,
+  listDocuments,
+  createDocument,
+  getDocument,
+  updateDocument,
+  deleteDocument,
   listWorks,
   createWork,
   updateWork,

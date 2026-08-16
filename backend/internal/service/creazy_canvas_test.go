@@ -13,11 +13,13 @@ import (
 )
 
 type creazyCanvasAPIKeyStub struct {
-	keys     map[int64]*APIKey
-	listKeys []APIKey
-	quotaErr error
-	getErr   error
-	listErr  error
+	keys           map[int64]*APIKey
+	listKeys       []APIKey
+	videoPrices    VideoModelPrices
+	videoPricesErr error
+	quotaErr       error
+	getErr         error
+	listErr        error
 }
 
 func (s *creazyCanvasAPIKeyStub) GetByID(_ context.Context, id int64) (*APIKey, error) {
@@ -55,6 +57,13 @@ func (s *creazyCanvasAPIKeyStub) List(_ context.Context, userID int64, params pa
 
 func (s *creazyCanvasAPIKeyStub) CheckAPIKeyQuotaAndExpiry(_ *APIKey) error {
 	return s.quotaErr
+}
+
+func (s *creazyCanvasAPIKeyStub) GetVideoModelPricesByUserAndGroup(_ context.Context, _, _ int64) (VideoModelPrices, error) {
+	if s.videoPricesErr != nil {
+		return nil, s.videoPricesErr
+	}
+	return cloneVideoModelPrices(s.videoPrices), nil
 }
 
 type creazyCanvasWorkRepoStub struct {
@@ -196,12 +205,18 @@ func TestCreazyCanvasDeleteWorkOnlyAllowsTerminalTasks(t *testing.T) {
 	repo := newCreazyCanvasWorkRepoStub()
 	repo.works[1] = &CreazyCanvasWork{ID: 1, UserID: 7, Status: CreazyCanvasWorkStatusRunning}
 	repo.works[2] = &CreazyCanvasWork{ID: 2, UserID: 7, Status: CreazyCanvasWorkStatusSucceeded}
+	repo.works[3] = &CreazyCanvasWork{ID: 3, UserID: 7, Status: CreazyCanvasWorkStatusRunning, ExpiresAt: time.Now().Add(-time.Minute)}
+	repo.works[4] = &CreazyCanvasWork{ID: 4, UserID: 7, Status: CreazyCanvasWorkStatusRunning, ExpiresAt: time.Now().Add(time.Hour)}
 	svc := NewCreazyCanvasService(repo, &creazyCanvasAPIKeyStub{}, nil, nil)
 
 	require.ErrorIs(t, svc.DeleteWork(context.Background(), 7, 1), ErrCreazyCanvasWorkActive)
 	require.Nil(t, repo.works[1].DeletedAt)
 	require.NoError(t, svc.DeleteWork(context.Background(), 7, 2))
 	require.NotNil(t, repo.works[2].DeletedAt)
+	require.NoError(t, svc.DeleteWork(context.Background(), 7, 3))
+	require.NotNil(t, repo.works[3].DeletedAt)
+	require.ErrorIs(t, svc.DeleteWork(context.Background(), 7, 4), ErrCreazyCanvasWorkActive)
+	require.Nil(t, repo.works[4].DeletedAt)
 }
 
 func TestCreazyCanvasAdminCanAuditAndTerminateImageWork(t *testing.T) {
@@ -287,6 +302,7 @@ func TestCreazyCanvasCatalogRequiresOpenGroup(t *testing.T) {
 	require.Empty(t, catalog.ImageModels)
 	foundSeedance := false
 	for _, model := range catalog.VideoModels {
+		require.NotEqual(t, SeedanceWeijin900Model, model.ID)
 		if model.ID == "seedance-2.0" {
 			foundSeedance = true
 			require.Contains(t, model.AllowedResolutions, VideoBillingResolution720P)
@@ -331,7 +347,8 @@ func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
 		VideoBillingUnit:  VideoBillingUnitPerSecond,
 		VideoModelPrices: VideoModelPrices{
 			"seedance-2.0": {
-				Price720P: &price720,
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &price720,
 			},
 			// Legacy alias should surface as the public Huiqu model only when present.
 			"sd2-mx933-720-1s": {
@@ -357,6 +374,11 @@ func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
 	require.NotContains(t, ids, "seedance-2.0-fast")
 	require.NotContains(t, ids, SeedanceXimeiSD25Model)
 	require.NotContains(t, ids, SeedanceMX933LegacyModel)
+	for _, model := range catalog.VideoModels {
+		if model.ID == "seedance-2.0" {
+			require.Equal(t, VideoBillingUnitPerRequest, model.BillingUnit)
+		}
+	}
 
 	// Deleting every matrix entry except one keeps the catalog tight.
 	group.VideoModelPrices = VideoModelPrices{
@@ -366,6 +388,82 @@ func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, catalog.VideoModels, 1)
 	require.Equal(t, "seedance-2.0-mini", catalog.VideoModels[0].ID)
+}
+
+func TestCreazyCanvasCatalogUsesUserVideoPriceWithoutChangingBillingUnit(t *testing.T) {
+	groupID := int64(34)
+	groupPrice := 0.05
+	userPrice := 0.02
+	group := &Group{
+		ID: groupID, Platform: PlatformSeedance, AllowCreazyCanvas: true,
+		VideoBillingUnit: VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			SeedanceWeijin900Model: {
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &groupPrice,
+			},
+		},
+	}
+	keys := map[int64]*APIKey{
+		42: {ID: 42, UserID: 7, Status: StatusAPIKeyActive, GroupID: &groupID, Group: group},
+	}
+	apiKeys := &creazyCanvasAPIKeyStub{
+		keys: keys,
+		videoPrices: VideoModelPrices{
+			SeedanceWeijin900Model: {
+				BillingUnit: VideoBillingUnitPerSecond,
+				Price720P:   &userPrice,
+			},
+		},
+	}
+	svc := NewCreazyCanvasService(newCreazyCanvasWorkRepoStub(), apiKeys, nil, nil)
+
+	catalog, err := svc.Catalog(context.Background(), 7, 42)
+	require.NoError(t, err)
+	require.Len(t, catalog.VideoModels, 1)
+	model := catalog.VideoModels[0]
+	require.Equal(t, SeedanceWeijin900Model, model.ID)
+	require.NotEqual(t, legacyWeijin900PublicModelForTest, model.ID)
+	require.Equal(t, VideoBillingUnitPerRequest, model.BillingUnit)
+	require.NotNil(t, model.Prices[VideoBillingResolution720P])
+	require.InDelta(t, userPrice, *model.Prices[VideoBillingResolution720P], 1e-12)
+	require.InDelta(t, groupPrice, *group.VideoModelPrices[SeedanceWeijin900Model].Price720P, 1e-12)
+}
+
+func TestCreazyCanvasCatalogAppliesUserPriceWithoutShrinkingLegacyCatalog(t *testing.T) {
+	groupID := int64(35)
+	legacyPrice := 0.08
+	userPrice := 0.04
+	group := &Group{
+		ID: groupID, Platform: PlatformSeedance, AllowCreazyCanvas: true,
+		VideoBillingUnit: VideoBillingUnitPerSecond,
+		VideoPrice720P:   &legacyPrice,
+	}
+	keys := map[int64]*APIKey{
+		43: {ID: 43, UserID: 8, Status: StatusAPIKeyActive, GroupID: &groupID, Group: group},
+	}
+	apiKeys := &creazyCanvasAPIKeyStub{
+		keys: keys,
+		videoPrices: VideoModelPrices{
+			"seedance-2.0": {Price720P: &userPrice},
+		},
+	}
+	svc := NewCreazyCanvasService(newCreazyCanvasWorkRepoStub(), apiKeys, nil, nil)
+
+	catalog, err := svc.Catalog(context.Background(), 8, 43)
+	require.NoError(t, err)
+	require.Greater(t, len(catalog.VideoModels), 1)
+
+	models := make(map[string]CreazyCanvasVideoModel, len(catalog.VideoModels))
+	for _, model := range catalog.VideoModels {
+		models[model.ID] = model
+	}
+	require.NotContains(t, models, SeedanceWeijin900Model)
+	require.Contains(t, models, "seedance-2.0")
+	require.Contains(t, models, "seedance-2.0-fast")
+	require.InDelta(t, userPrice, *models["seedance-2.0"].Prices[VideoBillingResolution720P], 1e-12)
+	require.InDelta(t, legacyPrice, *models["seedance-2.0-fast"].Prices[VideoBillingResolution720P], 1e-12)
+	require.Equal(t, VideoBillingUnitPerSecond, models["seedance-2.0"].BillingUnit)
 }
 
 func TestCreazyCanvasCreateWorkAndDownloadHint(t *testing.T) {

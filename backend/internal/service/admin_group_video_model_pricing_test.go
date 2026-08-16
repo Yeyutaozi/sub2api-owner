@@ -21,6 +21,7 @@ func TestDefaultModelsListCandidateIDsSeedance(t *testing.T) {
 		SeedanceXimeiSD25Model,
 		SeedanceWeijinFaceRef480pModel,
 		SeedanceWeijinFaceRef720pModel,
+		SeedanceWeijin900Model,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 	require.Equal(t, []string{
 		SeedanceMiniMaxH3Model,

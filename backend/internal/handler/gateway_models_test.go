@@ -69,6 +69,66 @@ func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
 	require.Contains(t, compositeIDs, antigravityIDs[0])
 }
 
+func TestGatewayModels_Weijin900RequiresExplicitPriceAndHidesPrivateID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	price720 := 0.05
+
+	for _, tt := range []struct {
+		name       string
+		prices     service.VideoModelPrices
+		wantPublic bool
+	}{
+		{name: "unpriced", wantPublic: false},
+		{
+			name: "explicitly priced",
+			prices: service.VideoModelPrices{
+				service.SeedanceWeijin900Model: {
+					BillingUnit: service.VideoBillingUnitPerRequest,
+					Price720P:   &price720,
+				},
+			},
+			wantPublic: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			groupID := int64(900)
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+				byGroup: map[int64][]service.Account{
+					groupID: {{
+						ID:       1,
+						Platform: service.PlatformSeedance,
+						Credentials: map[string]any{"model_mapping": map[string]any{
+							service.SeedanceWeijin900Model:         service.SeedanceWeijin900UpstreamModel,
+							service.SeedanceWeijin900UpstreamModel: service.SeedanceWeijin900UpstreamModel,
+						}},
+					}},
+				},
+			})
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{
+				ID: groupID, Platform: service.PlatformSeedance, VideoModelPrices: tt.prices,
+			}})
+			h.Models(c)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var got gatewayModelsResponseForTest
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			ids := modelIDsForTest(got.Data)
+			if tt.wantPublic {
+				require.Contains(t, ids, service.SeedanceWeijin900Model)
+			} else {
+				require.Empty(t, ids)
+				require.NotContains(t, ids, service.SeedanceWeijin900Model)
+			}
+			require.NotContains(t, ids, "sd-2.0-900")
+			require.NotContains(t, ids, service.SeedanceWeijin900UpstreamModel)
+		})
+	}
+}
+
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

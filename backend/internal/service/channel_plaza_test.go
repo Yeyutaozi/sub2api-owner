@@ -20,7 +20,6 @@ func newPlazaChannelService(channels []Channel, groups []Group, pricing *Pricing
 	return svc
 }
 
-
 // stubPlazaAccountSource implements PlazaAccountSource for unit tests.
 type stubPlazaAccountSource struct {
 	byGroup map[int64][]Account
@@ -73,7 +72,6 @@ func plazaUnrestrictedAccount(id int64, platform string) Account {
 		Credentials: map[string]any{"api_key": "k"},
 	}
 }
-
 
 func plazaPricedChannel(id int64, name string, groupIDs []int64, platform string, models ...string) Channel {
 	return Channel{
@@ -248,7 +246,6 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	require.ErrorIs(t, err2, sentinel)
 }
 
-
 func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
 	price720 := 0.15
 	price1k := 0.04
@@ -257,7 +254,7 @@ func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
 			ID: 10, Name: "seedance-a", Platform: PlatformSeedance, RateMultiplier: 1,
 			VideoBillingUnit: VideoBillingUnitPerSecond,
 			VideoModelPrices: VideoModelPrices{
-				"seedance-2.0": {Price720P: &price720},
+				"seedance-2.0": {BillingUnit: VideoBillingUnitPerRequest, Price720P: &price720},
 			},
 			ModelsListConfig: GroupModelsListConfig{Enabled: true, Models: []string{"seedance-2.0"}},
 		},
@@ -288,7 +285,7 @@ func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
 	m0 := byName["seedance-a"].Models[0]
 	require.Equal(t, "seedance-2.0", m0.Name)
 	require.Equal(t, PlazaKindVideo, m0.Kind)
-	require.Equal(t, VideoBillingUnitPerSecond, m0.VideoBillingUnit)
+	require.Equal(t, VideoBillingUnitPerRequest, m0.VideoBillingUnit)
 	require.NotNil(t, m0.VideoPrices)
 	require.NotNil(t, m0.VideoPrices.Price720P)
 	require.InDelta(t, 0.15, *m0.VideoPrices.Price720P, 1e-12)
@@ -310,7 +307,6 @@ func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
 	require.NotNil(t, img.ImagePrices["1K"])
 	require.InDelta(t, 0.04, *img.ImagePrices["1K"], 1e-12)
 }
-
 
 func TestListPlazaGroups_AvgFirstTokenAlwaysPresent(t *testing.T) {
 	channels := []Channel{
@@ -334,7 +330,6 @@ func TestListPlazaGroups_AvgFirstTokenAlwaysPresent(t *testing.T) {
 		t.Fatal("expected disclaimer")
 	}
 }
-
 
 func TestListPlazaGroups_AccountMappingIsSourceOfTruth(t *testing.T) {
 	// Channel catalog lists image2 + claude, but group accounts only enable claude.
@@ -366,6 +361,37 @@ func TestListPlazaGroups_AccountMappingIsSourceOfTruth(t *testing.T) {
 	require.Contains(t, names, "gpt-4o-mini")
 	require.NotContains(t, names, "gpt-image-2", "accounts do not enable image2")
 	require.NotContains(t, names, "gpt-image-1", "defaults must not invent image models without account support")
+}
+
+func TestPlazaWeijin900RequiresExplicitPriceAndNeverShowsPrivateID(t *testing.T) {
+	price720 := 0.05
+	account := Account{
+		ID: 1, Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"api_key": "k", "model_mapping": map[string]any{
+			SeedanceWeijin900Model:         SeedanceWeijin900UpstreamModel,
+			SeedanceWeijin900UpstreamModel: SeedanceWeijin900UpstreamModel,
+		}},
+	}
+	unpriced := &Group{ID: 10, Platform: PlatformSeedance}
+	priced := &Group{
+		ID: 20, Platform: PlatformSeedance,
+		VideoModelPrices: VideoModelPrices{
+			SeedanceWeijin900Model: {BillingUnit: VideoBillingUnitPerRequest, Price720P: &price720},
+		},
+	}
+
+	require.NotContains(t, plazaCollectCandidateModels(unpriced, []Account{account}, nil), SeedanceWeijin900Model)
+	require.NotContains(t, plazaOpenVideoModelIDs(unpriced), SeedanceWeijin900Model)
+
+	pricedCandidates := plazaCollectCandidateModels(priced, []Account{account}, nil)
+	require.Contains(t, pricedCandidates, SeedanceWeijin900Model)
+	require.NotContains(t, pricedCandidates, legacyWeijin900PublicModelForTest)
+	require.NotContains(t, pricedCandidates, SeedanceWeijin900UpstreamModel)
+	openModels := plazaOpenVideoModelIDs(priced)
+	require.Contains(t, openModels, SeedanceWeijin900Model)
+	require.NotContains(t, openModels, legacyWeijin900PublicModelForTest)
+	require.NotContains(t, openModels, SeedanceWeijin900UpstreamModel)
 }
 
 func TestListPlazaGroups_SameModelOnlyOnGroupsWithSupportingAccounts(t *testing.T) {
@@ -420,7 +446,6 @@ func TestListPlazaGroups_UnrestrictedAccountUsesCatalogButStillSchedulable(t *te
 	// Unrestricted can serve default image models when group allows image generation.
 	require.Contains(t, names, "gpt-image-2")
 }
-
 
 func TestListPlazaGroups_MixedMappedAndUnrestrictedUsesMappingOnly(t *testing.T) {
 	// One unrestricted account must NOT expand image catalog when another account
@@ -498,7 +523,6 @@ func TestListPlazaGroups_NoSchedulableAccountsHidesGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out, 0)
 }
-
 
 func TestFillPlazaMissingPricing_NormalizedCrossGroupAndMedia(t *testing.T) {
 	in := 3e-6
@@ -587,4 +611,3 @@ func modelNames(g PlazaGroup) []string {
 	}
 	return out
 }
-

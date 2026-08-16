@@ -34,6 +34,7 @@ export interface AdminVideoJob {
   last_polled_at?: string | null
   settled_at?: string | null
   refunded_at?: string | null
+  execution_duration_ms?: number | null
   created_at: string
   updated_at: string
 }

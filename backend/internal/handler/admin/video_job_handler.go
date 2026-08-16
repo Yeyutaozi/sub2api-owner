@@ -27,34 +27,35 @@ func NewVideoJobHandler(gateway *service.OpenAIGatewayService, canvas *service.C
 }
 
 type adminVideoJobDTO struct {
-	ID                 int64          `json:"id"`
-	JobID              string         `json:"job_id"`
-	UpstreamJobID      string         `json:"upstream_job_id"`
-	UserID             int64          `json:"user_id"`
-	UserEmail          string         `json:"user_email"`
-	Username           string         `json:"username"`
-	APIKeyID           int64          `json:"api_key_id"`
-	APIKeyName         string         `json:"api_key_name"`
-	GroupID            int64          `json:"group_id"`
-	GroupName          string         `json:"group_name"`
-	AccountID          int64          `json:"account_id"`
-	Model              string         `json:"model"`
-	FallbackModel      string         `json:"fallback_model,omitempty"`
-	FallbackStatus     string         `json:"fallback_status,omitempty"`
-	TaskStatus         string         `json:"task_status"`
-	RefundStatus       string         `json:"refund_status"`
-	RefundAttempts     int            `json:"refund_attempts"`
-	SettlementAttempts int            `json:"settlement_attempts"`
-	LastError          string         `json:"last_error,omitempty"`
-	Prompt             string         `json:"prompt,omitempty"`
-	RequestSnapshot    map[string]any `json:"request_snapshot,omitempty"`
-	ResultPath         string         `json:"result_path,omitempty"`
-	NextPollAt         *string        `json:"next_poll_at,omitempty"`
-	LastPolledAt       *string        `json:"last_polled_at,omitempty"`
-	SettledAt          *string        `json:"settled_at,omitempty"`
-	RefundedAt         *string        `json:"refunded_at,omitempty"`
-	CreatedAt          string         `json:"created_at"`
-	UpdatedAt          string         `json:"updated_at"`
+	ID                  int64          `json:"id"`
+	JobID               string         `json:"job_id"`
+	UpstreamJobID       string         `json:"upstream_job_id"`
+	UserID              int64          `json:"user_id"`
+	UserEmail           string         `json:"user_email"`
+	Username            string         `json:"username"`
+	APIKeyID            int64          `json:"api_key_id"`
+	APIKeyName          string         `json:"api_key_name"`
+	GroupID             int64          `json:"group_id"`
+	GroupName           string         `json:"group_name"`
+	AccountID           int64          `json:"account_id"`
+	Model               string         `json:"model"`
+	FallbackModel       string         `json:"fallback_model,omitempty"`
+	FallbackStatus      string         `json:"fallback_status,omitempty"`
+	TaskStatus          string         `json:"task_status"`
+	RefundStatus        string         `json:"refund_status"`
+	RefundAttempts      int            `json:"refund_attempts"`
+	SettlementAttempts  int            `json:"settlement_attempts"`
+	LastError           string         `json:"last_error,omitempty"`
+	Prompt              string         `json:"prompt,omitempty"`
+	RequestSnapshot     map[string]any `json:"request_snapshot,omitempty"`
+	ResultPath          string         `json:"result_path,omitempty"`
+	NextPollAt          *string        `json:"next_poll_at,omitempty"`
+	LastPolledAt        *string        `json:"last_polled_at,omitempty"`
+	SettledAt           *string        `json:"settled_at,omitempty"`
+	RefundedAt          *string        `json:"refunded_at,omitempty"`
+	ExecutionDurationMs *int64         `json:"execution_duration_ms,omitempty"`
+	CreatedAt           string         `json:"created_at"`
+	UpdatedAt           string         `json:"updated_at"`
 }
 
 type killVideoJobRequest struct {
@@ -494,6 +495,10 @@ func toAdminVideoJobDTO(item *service.SeedanceTaskAdminItem) adminVideoJobDTO {
 	if !item.SettledAt.IsZero() {
 		v := item.SettledAt.UTC().Format(time.RFC3339)
 		dto.SettledAt = &v
+		if !item.CreatedAt.IsZero() && !item.SettledAt.Before(item.CreatedAt) {
+			durationMs := item.SettledAt.Sub(item.CreatedAt).Milliseconds()
+			dto.ExecutionDurationMs = &durationMs
+		}
 	}
 	if !item.RefundedAt.IsZero() {
 		v := item.RefundedAt.UTC().Format(time.RFC3339)

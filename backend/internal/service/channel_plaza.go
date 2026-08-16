@@ -341,6 +341,9 @@ func plazaCollectCandidateModels(g *Group, accounts []Account, channelModels []s
 		if id == "" {
 			return
 		}
+		if !GroupAllowsVideoModelExposure(g, id) {
+			return
+		}
 		// Skip pure wildcard patterns as display names.
 		if strings.Contains(id, "*") {
 			return
@@ -618,8 +621,8 @@ func appendPlazaMediaModelsOpt(pg *PlazaGroup, g *Group, idx map[string]int, inv
 	}
 
 	if IsFFLinkVideoPlatform(g.Platform) {
-		unit := g.EffectiveVideoBillingUnit()
 		for _, modelID := range plazaOpenVideoModelIDs(g) {
+			unit := g.EffectiveVideoBillingUnitForModel(modelID)
 			prices := plazaVideoPricesForModel(g, modelID)
 			resolutions := plazaVideoResolutionsForModel(modelID)
 			if at, seen := idx[modelID]; seen {
@@ -690,7 +693,13 @@ func plazaOpenVideoModelIDs(g *Group) []string {
 	}
 	defaults := FFLinkVideoModelIDsForPlatform(g.Platform)
 	if !g.CustomModelsListEnabled() {
-		return defaults
+		out := make([]string, 0, len(defaults))
+		for _, id := range defaults {
+			if GroupAllowsVideoModelExposure(g, id) {
+				out = append(out, id)
+			}
+		}
+		return out
 	}
 	allowed := make(map[string]struct{}, len(defaults))
 	for _, id := range defaults {
@@ -701,6 +710,9 @@ func plazaOpenVideoModelIDs(g *Group) []string {
 	for _, raw := range g.ModelsListConfig.Models {
 		id := strings.ToLower(strings.TrimSpace(raw))
 		if id == "" {
+			continue
+		}
+		if !GroupAllowsVideoModelExposure(g, id) {
 			continue
 		}
 		if _, ok := allowed[id]; !ok {
@@ -826,7 +838,6 @@ func plazaImagePricesForGroup(g *Group) map[string]*float64 {
 	// Drop entirely-null map for cleaner JSON (all nil still useful for UI "未配置").
 	return out
 }
-
 
 // plazaNormalizeModelKey aligns plaza model names for cross-group matching.
 // Mirrors frontend normalizeModelKey: lower-case, collapse spaces/underscores to '-'.

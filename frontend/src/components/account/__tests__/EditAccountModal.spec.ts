@@ -418,6 +418,54 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('switches Seedance to Weijin with the dedicated 900 upstream mapping', async () => {
+    const account = buildSeedanceAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-seedance-video-provider"]').setValue('weijin')
+    await wrapper.find('input[type="password"]').setValue('sk_live_weijin_900')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      base_url: 'https://www.weijinapi.top',
+      video_provider: 'weijin',
+      api_key: 'sk_live_weijin_900',
+      model_mapping: {
+        'seedance2.0-one-face-reference-480p': 'seedance2.0-one-face-reference-480p',
+        'seedance2.0-one-face-reference-720p': 'seedance2.0-one-face-reference-720p',
+        'sd-2.0-900-720p': 'seedance2.0-900-3'
+      }
+    })
+  })
+
+  it('preserves the mixed Weijin whitelist and dedicated 900 mapping on edit', async () => {
+    const account = buildSeedanceAccount()
+    account.credentials = {
+      base_url: 'https://www.weijinapi.top',
+      video_provider: 'weijin',
+      model_mapping: {
+        'seedance2.0-one-face-reference-480p': 'seedance2.0-one-face-reference-480p',
+        'seedance2.0-one-face-reference-720p': 'seedance2.0-one-face-reference-720p',
+        'sd-2.0-900-720p': 'seedance2.0-900-3'
+      }
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
+      'seedance2.0-one-face-reference-480p': 'seedance2.0-one-face-reference-480p',
+      'seedance2.0-one-face-reference-720p': 'seedance2.0-one-face-reference-720p',
+      'sd-2.0-900-720p': 'seedance2.0-900-3'
+    })
+  })
+
   it('blocks a video account with no model mapping', async () => {
     const account = buildSeedanceAccount()
     account.credentials.model_mapping = {}

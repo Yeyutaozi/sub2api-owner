@@ -1,0 +1,148 @@
+<template>
+  <g
+    class="wf-signal-edge"
+    :class="{
+      'wf-signal-edge--active': active,
+      'wf-signal-edge--selected': selected,
+      'wf-signal-edge--dashed': data?.dashed,
+    }"
+  >
+    <path :d="edgePath" class="wf-signal-edge__rail" />
+    <BaseEdge
+      :id="id"
+      :path="edgePath"
+      :marker-start="markerStart"
+      :marker-end="markerEnd"
+      :interaction-width="interactionWidth || 24"
+      class="wf-signal-edge__path"
+      :style="pathStyle"
+    />
+
+    <EdgeLabelRenderer>
+      <div
+        v-if="showLabel"
+        class="wf-signal-edge__label nodrag nopan"
+        :style="labelPosition"
+      >
+        <i :style="{ background: color }"></i>
+        {{ data?.label || '数据' }}
+      </div>
+    </EdgeLabelRenderer>
+  </g>
+</template>
+
+<script setup lang="ts">
+import { computed, type CSSProperties } from 'vue'
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  useVueFlow,
+  type EdgeProps,
+} from '@vue-flow/core'
+
+interface SignalEdgeData {
+  color?: string
+  dashed?: boolean
+  label?: string
+  signal?: string
+}
+
+const props = defineProps<EdgeProps<SignalEdgeData>>()
+const { viewport } = useVueFlow()
+
+const pathData = computed(() =>
+  getSmoothStepPath({
+    sourceX: props.sourceX,
+    sourceY: props.sourceY,
+    sourcePosition: props.sourcePosition,
+    targetX: props.targetX,
+    targetY: props.targetY,
+    targetPosition: props.targetPosition,
+    borderRadius: 18,
+    offset: 28,
+  }),
+)
+
+const edgePath = computed(() => pathData.value[0])
+const labelX = computed(() => pathData.value[1])
+const labelY = computed(() => pathData.value[2])
+const color = computed(() => props.data?.color || '#52606d')
+const active = computed(
+  () => props.sourceNode?.data?.status === 'running' || props.targetNode?.data?.status === 'running',
+)
+const showLabel = computed(() => Boolean(props.selected || active.value || viewport.value.zoom >= 0.58))
+const pathStyle = computed<CSSProperties>(() => ({
+  '--edge-color': color.value,
+  stroke: color.value,
+  strokeWidth: props.selected ? 2.8 : 2.1,
+  strokeDasharray: props.data?.dashed ? '7 5' : undefined,
+} as CSSProperties))
+const labelPosition = computed<CSSProperties>(() => ({
+  transform: `translate(-50%, -50%) translate(${labelX.value}px, ${labelY.value}px)`,
+}))
+</script>
+
+<style scoped>
+.wf-signal-edge__rail {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.wf-signal-edge__path {
+  fill: none;
+  opacity: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 160ms ease, stroke-width 160ms ease;
+}
+
+.wf-signal-edge--selected .wf-signal-edge__path,
+.wf-signal-edge--active .wf-signal-edge__path {
+  opacity: 1;
+}
+
+.wf-signal-edge--active .wf-signal-edge__path {
+  stroke-dasharray: 9 6;
+  animation: wf-signal-flow 850ms linear infinite;
+}
+
+.wf-signal-edge__label {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid #d8dee6;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(37, 45, 55, 0.08);
+  color: #495463;
+  font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.wf-signal-edge__label i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+@keyframes wf-signal-flow {
+  to { stroke-dashoffset: -30; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-signal-edge--active .wf-signal-edge__path { animation: none; }
+}
+</style>

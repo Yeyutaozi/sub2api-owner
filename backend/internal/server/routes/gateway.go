@@ -146,7 +146,7 @@ func RegisterGatewayRoutes(
 		})
 	}
 	videoUploadHandler := func(c *gin.Context) {
-		if service.IsFFLinkVideoPlatform(getGroupPlatform(c)) {
+		if canvasMediaUploadPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.SeedanceUploadMedia(c)
 			return
 		}
@@ -528,6 +528,12 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
+}
+
+func canvasMediaUploadPlatform(platform string) bool {
+	return service.IsFFLinkVideoPlatform(platform) ||
+		platform == service.PlatformOpenAI ||
+		platform == service.PlatformGrok
 }
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.

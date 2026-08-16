@@ -231,6 +231,18 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/creazy-canvas',
     name: 'CreazyCanvas',
+    redirect: '/creazy-canvas/workspace',
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creazy Canvas',
+      titleKey: 'creazyCanvasPage.title',
+      descriptionKey: 'creazyCanvasPage.description'
+    }
+  },
+  {
+    path: '/creazy-canvas/workspace',
+    name: 'CreazyCanvasWorkspace',
     component: () => import('@/views/user/creazy-canvas/CreazyCanvasView.vue'),
     meta: {
       requiresAuth: true,

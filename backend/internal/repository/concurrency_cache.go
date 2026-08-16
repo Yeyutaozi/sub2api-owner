@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -71,16 +72,16 @@ var (
 	acquireScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local liveKey = KEYS[2]
 		local maxConcurrency = tonumber(ARGV[1])
 		local ttl = tonumber(ARGV[2])
 		local requestID = ARGV[3]
+		local providedNow = tonumber(ARGV[4])
 
 		-- 使用 Redis 服务器时间，确保多实例时钟一致
-		local timeResult = redis.call('TIME')
-		local now = tonumber(timeResult[1])
+		local timeResult = {providedNow}
+		local now = providedNow or tonumber(timeResult[1])
 		local expireBefore = now - ttl
 
 		-- 清理过期槽位
@@ -113,14 +114,14 @@ var (
 	getCountScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local liveKey = KEYS[2]
 		local ttl = tonumber(ARGV[1])
+		local providedNow = tonumber(ARGV[2])
 
 		-- 使用 Redis 服务器时间
-		local timeResult = redis.call('TIME')
-		local now = tonumber(timeResult[1])
+		local timeResult = {providedNow}
+		local now = providedNow or tonumber(timeResult[1])
 		local expireBefore = now - ttl
 
 		redis.call('ZREMRANGEBYSCORE', key, '-inf', expireBefore)
@@ -129,7 +130,6 @@ var (
 	`)
 
 	acquireLiveLeaseScript = redis.NewScript(`
-		redis.replicate_commands()
 		local accountRegular = KEYS[1]
 		local accountLive = KEYS[2]
 		local userRegular = KEYS[3]
@@ -164,7 +164,6 @@ var (
 	`)
 
 	refreshLiveLeaseScript = redis.NewScript(`
-		redis.replicate_commands()
 		local ttl = tonumber(ARGV[1])
 		local leaseID = ARGV[2]
 		local now = tonumber(redis.call('TIME')[1])
@@ -187,13 +186,13 @@ var (
 	trackSlotScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local ttl = tonumber(ARGV[1])
 		local requestID = ARGV[2]
+		local providedNow = tonumber(ARGV[3])
 
-		local timeResult = redis.call('TIME')
-		local now = tonumber(timeResult[1])
+		local timeResult = {providedNow}
+		local now = providedNow or tonumber(timeResult[1])
 		local expireBefore = now - ttl
 
 		redis.call('ZREMRANGEBYSCORE', key, '-inf', expireBefore)
@@ -205,7 +204,6 @@ var (
 	// acquireOpenAIWSIngressLeaseScript atomically reaps crashed members and
 	// acquires or refreshes one API-key-scoped ingress lease using Redis TIME.
 	acquireOpenAIWSIngressLeaseScript = redis.NewScript(`
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local maxConnections = tonumber(ARGV[1])
 		local ttl = tonumber(ARGV[2])
@@ -230,7 +228,6 @@ var (
 	// process that lost its lease must terminate its local WebSocket instead of
 	// silently continuing beyond the distributed cap.
 	refreshOpenAIWSIngressLeaseScript = redis.NewScript(`
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local ttl = tonumber(ARGV[1])
 		local leaseID = ARGV[2]
@@ -253,7 +250,6 @@ var (
 	incrementWaitScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local current = redis.call('GET', KEYS[1])
 		if current == false then
 			current = 0
@@ -279,7 +275,6 @@ var (
 	incrementAccountWaitScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local current = redis.call('GET', KEYS[1])
 		if current == false then
 			current = 0
@@ -315,7 +310,6 @@ var (
 	cleanupExpiredSlotsScript = redis.NewScript(`
 		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
 		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
-		redis.replicate_commands()
 		local key = KEYS[1]
 		local ttl = tonumber(ARGV[1])
 		local timeResult = redis.call('TIME')
@@ -631,7 +625,7 @@ func runScriptInt64Pair(ctx context.Context, rdb *redis.Client, script *redis.Sc
 func (c *concurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
 	key := accountSlotKey(accountID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
-	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveAccountSlotKey(accountID)}, maxConcurrency, c.slotTTLSeconds, requestID)
+	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveAccountSlotKey(accountID)}, maxConcurrency, c.slotTTLSeconds, requestID, time.Now().Unix())
 	if err != nil {
 		return false, err
 	}
@@ -655,7 +649,7 @@ func (c *concurrencyCache) ReleaseAccountSlot(ctx context.Context, accountID int
 func (c *concurrencyCache) GetAccountConcurrency(ctx context.Context, accountID int64) (int, error) {
 	key := accountSlotKey(accountID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
-	result, err := getCountScript.Run(ctx, c.rdb, []string{key, liveAccountSlotKey(accountID)}, c.slotTTLSeconds).Int()
+	result, err := getCountScript.Run(ctx, c.rdb, []string{key, liveAccountSlotKey(accountID)}, c.slotTTLSeconds, time.Now().Unix()).Int()
 	if err != nil {
 		return 0, err
 	}
@@ -708,7 +702,7 @@ func (c *concurrencyCache) GetAccountConcurrencyBatch(ctx context.Context, accou
 func (c *concurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
 	key := userSlotKey(userID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
-	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveUserSlotKey(userID)}, maxConcurrency, c.slotTTLSeconds, requestID)
+	result, now, err := runScriptInt64Pair(ctx, c.rdb, acquireScript, []string{key, liveUserSlotKey(userID)}, maxConcurrency, c.slotTTLSeconds, requestID, time.Now().Unix())
 	if err != nil {
 		return false, err
 	}
@@ -732,7 +726,7 @@ func (c *concurrencyCache) ReleaseUserSlot(ctx context.Context, userID int64, re
 func (c *concurrencyCache) GetUserConcurrency(ctx context.Context, userID int64) (int, error) {
 	key := userSlotKey(userID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
-	result, err := getCountScript.Run(ctx, c.rdb, []string{key, liveUserSlotKey(userID)}, c.slotTTLSeconds).Int()
+	result, err := getCountScript.Run(ctx, c.rdb, []string{key, liveUserSlotKey(userID)}, c.slotTTLSeconds, time.Now().Unix()).Int()
 	if err != nil {
 		return 0, err
 	}
@@ -741,7 +735,7 @@ func (c *concurrencyCache) GetUserConcurrency(ctx context.Context, userID int64)
 
 func (c *concurrencyCache) TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error {
 	key := apiKeySlotKey(apiKeyID)
-	_, err := trackSlotScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds, requestID).Result()
+	_, err := trackSlotScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds, requestID, time.Now().Unix()).Result()
 	return err
 }
 

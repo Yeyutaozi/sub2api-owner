@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const legacyWeijin900PublicModelForTest = "sd-2.0-900"
+
 func TestWeijinVideoProviderRoutesOnlySupportedModels(t *testing.T) {
 	account := &Account{
 		Platform: PlatformSeedance,
@@ -22,9 +24,13 @@ func TestWeijinVideoProviderRoutesOnlySupportedModels(t *testing.T) {
 	}
 
 	require.True(t, account.IsWeijinVideo())
+	require.Equal(t, "sd-2.0-900-720p", SeedanceWeijin900Model)
+	require.Equal(t, "seedance2.0-900-3", SeedanceWeijin900UpstreamModel)
 	require.Equal(t, DefaultWeijinVideoBaseURL, account.GetSeedanceBaseURL())
 	require.True(t, account.IsModelSupported(SeedanceWeijinFaceRef480pModel))
 	require.True(t, account.IsModelSupported(SeedanceWeijinFaceRef720pModel))
+	require.False(t, account.IsModelSupported(SeedanceWeijin900Model), "the dedicated 900 tier requires an explicit account mapping")
+	require.False(t, account.IsModelSupported(legacyWeijin900PublicModelForTest))
 	require.False(t, account.IsModelSupported("seedance-2.0"))
 	require.False(t, account.IsModelSupported(SeedanceMX933Model))
 	require.False(t, account.IsModelSupported(SeedanceXimeiSD20Model))
@@ -40,6 +46,57 @@ func TestWeijinVideoProviderRoutesOnlySupportedModels(t *testing.T) {
 	require.True(t, videoProviderSupportsModelForPlatform(PlatformSeedance, VideoProviderWeijin, SeedanceWeijinFaceRef480pModel))
 	require.False(t, videoProviderSupportsModelForPlatform(PlatformSeedance, VideoProviderFFLink, SeedanceWeijinFaceRef480pModel))
 	require.False(t, videoProviderSupportsModelForPlatform(PlatformMiniMax, VideoProviderWeijin, SeedanceWeijinFaceRef480pModel))
+}
+
+func TestWeijin900AccountMappingIsolatesUpstreamKeys(t *testing.T) {
+	legacy := &Account{
+		Platform: PlatformSeedance,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "sk_legacy",
+			"video_provider": VideoProviderWeijin,
+			"model_mapping": map[string]any{
+				SeedanceWeijinFaceRef480pModel: SeedanceWeijinFaceRef480pModel,
+				SeedanceWeijinFaceRef720pModel: SeedanceWeijinFaceRef720pModel,
+			},
+		},
+	}
+	dedicated := &Account{
+		Platform: PlatformSeedance,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "sk_900",
+			"video_provider": VideoProviderWeijin,
+			"model_mapping": map[string]any{
+				SeedanceWeijin900Model: SeedanceWeijin900UpstreamModel,
+			},
+		},
+	}
+	legacyAlias := &Account{
+		Platform: PlatformSeedance,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":        "sk_old_alias",
+			"video_provider": VideoProviderWeijin,
+			"model_mapping": map[string]any{
+				legacyWeijin900PublicModelForTest: SeedanceWeijin900UpstreamModel,
+			},
+		},
+	}
+
+	require.False(t, legacy.IsModelSupported(SeedanceWeijin900Model))
+	require.True(t, legacy.IsModelSupported(SeedanceWeijinFaceRef720pModel))
+	require.True(t, dedicated.IsModelSupported(SeedanceWeijin900Model))
+	require.False(t, dedicated.IsModelSupported(legacyWeijin900PublicModelForTest))
+	require.False(t, dedicated.IsModelSupported(SeedanceWeijinFaceRef720pModel))
+	require.False(t, legacyAlias.IsModelSupported(SeedanceWeijin900Model))
+	require.False(t, legacyAlias.IsModelSupported(legacyWeijin900PublicModelForTest))
+	require.Equal(t, SeedanceWeijin900UpstreamModel, dedicated.GetMappedModel(SeedanceWeijin900Model))
+
+	gateway := &GatewayService{}
+	require.True(t, gateway.isModelSupportedByAccount(dedicated, SeedanceWeijin900Model))
+	require.False(t, gateway.isModelSupportedByAccount(legacy, SeedanceWeijin900Model))
+	require.False(t, gateway.isModelSupportedByAccount(legacyAlias, SeedanceWeijin900Model))
 }
 
 func TestValidateWeijinVideoAccountConfiguration(t *testing.T) {
@@ -64,6 +121,150 @@ func TestValidateWeijinVideoAccountConfiguration(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestValidateWeijin900AccountConfigurationRequiresDedicatedMapping(t *testing.T) {
+	require.NoError(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeAPIKey, map[string]any{
+		"api_key":        "sk_900",
+		"video_provider": VideoProviderWeijin,
+		"model_mapping": map[string]any{
+			SeedanceWeijin900Model: SeedanceWeijin900UpstreamModel,
+		},
+	}))
+
+	for _, mapping := range []map[string]any{
+		{SeedanceWeijin900Model: SeedanceWeijin900Model},
+		{legacyWeijin900PublicModelForTest: SeedanceWeijin900UpstreamModel},
+		{legacyWeijin900PublicModelForTest: legacyWeijin900PublicModelForTest},
+		{SeedanceWeijinFaceRef720pModel: SeedanceWeijin900UpstreamModel},
+		{SeedanceWeijin900UpstreamModel: SeedanceWeijinFaceRef720pModel},
+		{SeedanceWeijin900UpstreamModel: SeedanceWeijin900UpstreamModel},
+		{strings.ToUpper(SeedanceWeijin900Model): SeedanceWeijin900UpstreamModel},
+	} {
+		require.Error(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeAPIKey, map[string]any{
+			"api_key":        "sk_invalid",
+			"video_provider": VideoProviderWeijin,
+			"model_mapping":  mapping,
+		}))
+	}
+}
+
+func TestGroupAllowsWeijin900ExposureOnlyWithCanonicalPublicIDAndPriceCard(t *testing.T) {
+	price720 := 0.05
+	legacyPrice720 := 0.02
+	group := &Group{
+		Platform:       PlatformSeedance,
+		VideoPrice720P: &legacyPrice720,
+	}
+
+	require.False(t, GroupAllowsVideoModelExposure(group, SeedanceWeijin900Model))
+	require.False(t, GroupAllowsVideoModelExposure(group, legacyWeijin900PublicModelForTest))
+	require.False(t, GroupAllowsVideoModelExposure(group, SeedanceWeijin900UpstreamModel))
+	require.True(t, GroupAllowsVideoModelExposure(group, SeedanceWeijinFaceRef720pModel))
+
+	group.VideoModelPrices = VideoModelPrices{
+		SeedanceWeijin900Model: {BillingUnit: VideoBillingUnitPerRequest, Price720P: &price720},
+	}
+	require.True(t, GroupAllowsVideoModelExposure(group, SeedanceWeijin900Model))
+	require.False(t, GroupAllowsVideoModelExposure(group, legacyWeijin900PublicModelForTest))
+	require.False(t, GroupAllowsVideoModelExposure(group, strings.ToUpper(SeedanceWeijin900Model)))
+	require.False(t, GroupAllowsVideoModelExposure(group, SeedanceWeijin900UpstreamModel))
+}
+
+func TestWeijin900ProfileExposesOnlyVerifiedCapabilities(t *testing.T) {
+	models := FFLinkVideoModelIDsForPlatform(PlatformSeedance)
+	require.Contains(t, models, SeedanceWeijin900Model)
+	require.NotContains(t, models, legacyWeijin900PublicModelForTest)
+	require.NotContains(t, models, SeedanceWeijin900UpstreamModel)
+	_, legacyProfileExists := ffLinkVideoModelProfileFor(legacyWeijin900PublicModelForTest)
+	require.False(t, legacyProfileExists)
+
+	profile, ok := ffLinkVideoModelProfileFor(SeedanceWeijin900Model)
+	require.True(t, ok)
+	require.Equal(t, VideoBillingResolution720P, profile.DefaultResolution)
+	require.Equal(t, 9, profile.MaxImageReferences)
+	require.Equal(t, 9, profile.MaxTotalImages)
+	require.Zero(t, profile.MaxVideoReferences)
+	require.Zero(t, profile.MaxAudioReferences)
+	require.Equal(t, 9, profile.MaxTotalMedia)
+	require.False(t, profile.AllowGeneratedAudio)
+	require.Equal(t, ratioSet("16:9"), profile.AllowedAspectRatios)
+
+	for duration := 5; duration <= 15; duration++ {
+		info := &SeedanceRequestInfo{
+			Model: SeedanceWeijin900Model, Prompt: "animate all references",
+			Resolution: VideoBillingResolution720P, DurationSeconds: duration, AspectRatio: "16:9",
+			References: make([]SeedanceReferenceImage, 9),
+		}
+		require.NoError(t, validateFFLinkVideoRequestInfo(info), "duration=%d", duration)
+	}
+
+	for _, duration := range []int{4, 16} {
+		info := &SeedanceRequestInfo{
+			Model: SeedanceWeijin900Model, Prompt: "duration boundary",
+			Resolution: VideoBillingResolution720P, DurationSeconds: duration, AspectRatio: "16:9",
+		}
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(info), "duration")
+	}
+
+	base := func() *SeedanceRequestInfo {
+		return &SeedanceRequestInfo{
+			Model: SeedanceWeijin900Model, Prompt: "capability validation",
+			Resolution: VideoBillingResolution720P, DurationSeconds: 5, AspectRatio: "16:9",
+		}
+	}
+	tooManyImages := base()
+	tooManyImages.References = make([]SeedanceReferenceImage, 10)
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooManyImages), "at most 9 reference images")
+	withVideo := base()
+	withVideo.VideoReferences = []SeedanceReferenceVideo{{URL: "https://example.com/reference.mp4"}}
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(withVideo), "at most 0 reference videos")
+	withAudio := base()
+	withAudio.AudioReferences = []SeedanceReferenceAudio{{URL: "https://example.com/reference.mp3"}}
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(withAudio), "at most 0 reference audio files")
+	generatedAudio := base()
+	generatedAudio.GenerateAudio = true
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(generatedAudio), "does not support generated audio")
+	wrongRatio := base()
+	wrongRatio.AspectRatio = "9:16"
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(wrongRatio), "aspect_ratio")
+	wrongResolution := base()
+	wrongResolution.Resolution = VideoBillingResolution480P
+	require.ErrorContains(t, validateFFLinkVideoRequestInfo(wrongResolution), "resolution")
+}
+
+func TestBuildWeijin900RequestUsesPrivateModelWithoutFacePromptInjection(t *testing.T) {
+	images := make([]SeedanceReferenceImage, 9)
+	for i := range images {
+		images[i] = SeedanceReferenceImage{URL: fmt.Sprintf("https://example.com/image-%d.png", i+1)}
+	}
+	info := &SeedanceRequestInfo{
+		Model: SeedanceWeijin900Model, Prompt: "Keep the nine reference subjects consistent.",
+		Resolution: VideoBillingResolution720P, DurationSeconds: 11, AspectRatio: "16:9",
+		References: images,
+	}
+	upstreamModel, err := weijinUpstreamModelFor(info, SeedanceWeijin900UpstreamModel)
+	require.NoError(t, err)
+	require.Equal(t, SeedanceWeijin900UpstreamModel, upstreamModel)
+
+	body, err := buildWeijinVideoCreateRequest(info, upstreamModel)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, SeedanceWeijin900UpstreamModel, payload["model"])
+	require.Equal(t, info.Prompt, payload["prompt"])
+	require.EqualValues(t, 11, payload["seconds"])
+	require.Equal(t, "16:9", payload["aspect_ratio"])
+	require.Len(t, payload["images"], 9)
+	require.NotContains(t, payload, "videos")
+	require.NotContains(t, payload, "audios")
+	require.NotContains(t, payload, "audio")
+	require.NotContains(t, payload, "resolution")
+
+	_, err = weijinUpstreamModelFor(info, SeedanceWeijin900Model)
+	require.ErrorContains(t, err, "explicit account mapping")
+	_, err = buildWeijinVideoCreateRequest(info, SeedanceWeijin900Model)
+	require.ErrorContains(t, err, "explicit account mapping")
+}
+
 func TestBuildWeijinRequestMapsPublicSchema(t *testing.T) {
 	info := &SeedanceRequestInfo{
 		Model:           SeedanceWeijinFaceRef720pModel,
@@ -71,7 +272,7 @@ func TestBuildWeijinRequestMapsPublicSchema(t *testing.T) {
 		DurationSeconds: 5,
 		Resolution:      VideoBillingResolution720P,
 		AspectRatio:     "16:9",
-		References: []SeedanceReferenceImage{{URL: "https://example.com/face.png"}},
+		References:      []SeedanceReferenceImage{{URL: "https://example.com/face.png"}},
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/ref.mp4"}},
 		StartFrameURL:   "https://example.com/start.png",
 		EndFrameURL:     "https://example.com/end.png",
@@ -173,8 +374,8 @@ func TestWeijinFaceModelsAllowNineThreeThreeMedia(t *testing.T) {
 		}
 		info := &SeedanceRequestInfo{
 			Model: model, Prompt: "face test", DurationSeconds: 5, Resolution: res, AspectRatio: "16:9",
-			GenerateAudio: true,
-			References: make([]SeedanceReferenceImage, 9),
+			GenerateAudio:   true,
+			References:      make([]SeedanceReferenceImage, 9),
 			VideoReferences: make([]SeedanceReferenceVideo, 3),
 			AudioReferences: make([]SeedanceReferenceAudio, 3),
 		}
@@ -185,7 +386,6 @@ func TestWeijinFaceModelsAllowNineThreeThreeMedia(t *testing.T) {
 		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyAudio), "at most 3 reference audio files")
 	}
 }
-
 
 func TestSeedancePublicUpstreamErrorKeepsReadableAdapterMessage(t *testing.T) {
 	body := []byte(`{"error":{"code":"adapter_error","message":"Xmanway HTTP 400: 参考视频分辨率必须在 480p 和 720p 之间"}}`)
@@ -206,13 +406,15 @@ func TestSeedancePublicUpstreamErrorKeepsReadableAdapterMessage(t *testing.T) {
 }
 
 func TestSanitizeWeijinSeedanceUpstreamErrorBodyScrubsVendor(t *testing.T) {
-	body := []byte(`{"error":{"message":"weijinapi upstream failed at https://www.weijinapi.top/v1/videos one-api channel","code":"upstream_error"}}`)
+	body := []byte(`{"error":{"message":"weijinapi upstream rejected SEEDANCE2.0-900-3 at https://www.weijinapi.top/v1/videos one-api channel","code":"upstream_error"}}`)
 	sanitized := sanitizeWeijinSeedanceUpstreamErrorBody(body)
 	text := string(sanitized)
 	require.NotContains(t, strings.ToLower(text), "weijin")
 	require.NotContains(t, strings.ToLower(text), "weijinapi")
 	require.NotContains(t, strings.ToLower(text), "one-api")
 	require.NotContains(t, strings.ToLower(text), "oneapi")
+	require.NotContains(t, strings.ToLower(text), SeedanceWeijin900UpstreamModel)
+	require.Contains(t, text, SeedanceWeijin900Model)
 }
 
 func TestNormalizeWeijinFailedJobHidesUpstreamError(t *testing.T) {

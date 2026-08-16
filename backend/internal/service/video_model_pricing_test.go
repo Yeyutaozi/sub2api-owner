@@ -19,8 +19,9 @@ func TestNormalizeVideoModelPricesSeedance(t *testing.T) {
 	fast480P := 0.06
 	input := VideoModelPrices{
 		" Seedance-2.0 ": {
-			Price480P: &free,
-			Price720P: &pro720P,
+			BillingUnit: " PER_REQUEST ",
+			Price480P:   &free,
+			Price720P:   &pro720P,
 		},
 		"SEEDANCE-2.0-FAST": {
 			Price480P: &fast480P,
@@ -34,12 +35,40 @@ func TestNormalizeVideoModelPricesSeedance(t *testing.T) {
 	require.Contains(t, normalized, "seedance-2.0")
 	require.Contains(t, normalized, "seedance-2.0-fast")
 	require.Zero(t, *normalized["seedance-2.0"].Price480P)
+	require.Equal(t, VideoBillingUnitPerRequest, normalized["seedance-2.0"].BillingUnit)
 	require.InDelta(t, 0.16, *normalized["seedance-2.0"].Price720P, 1e-12)
 	require.Nil(t, normalized["seedance-2.0"].Price1080P)
 	require.NotSame(t, input[" Seedance-2.0 "].Price480P, normalized["seedance-2.0"].Price480P)
 
 	*normalized["seedance-2.0"].Price480P = 1
 	require.Zero(t, *input[" Seedance-2.0 "].Price480P)
+}
+
+func TestNormalizeVideoModelPricesRejectsUnsupportedBillingUnitOverride(t *testing.T) {
+	price := 0.2
+
+	for _, test := range []struct {
+		name     string
+		platform string
+		model    string
+		unit     string
+	}{
+		{name: "invalid unit", platform: PlatformSeedance, model: "seedance-2.0", unit: "minute"},
+		{name: "per request is seedance only", platform: PlatformLTX, model: "ltx-2.3-pro", unit: VideoBillingUnitPerRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			card := VideoModelPrice{BillingUnit: test.unit, Price720P: &price}
+			if test.platform == PlatformLTX {
+				card.Price720P = nil
+				card.Price1440P = &price
+			}
+			prices, err := normalizeVideoModelPrices(test.platform, VideoModelPrices{
+				test.model: card,
+			})
+			require.Error(t, err)
+			require.Nil(t, prices)
+		})
+	}
 }
 
 func TestNormalizeVideoModelPricesSupportsSeedanceMiniAndLTX(t *testing.T) {
@@ -211,4 +240,23 @@ func TestGroupGetVideoPriceForModelKeepsGrokGroupWidePricing(t *testing.T) {
 
 	require.Same(t, group.VideoPrice480P, group.GetVideoPriceForModel("seedance-2.0", "480p"))
 	require.InDelta(t, 0.08, *group.GetVideoPriceForModel("any-grok-model", "480p"), 1e-12)
+}
+
+func TestGroupEffectiveVideoBillingUnitForModelUsesOverrideAndGroupFallback(t *testing.T) {
+	price := 0.16
+	group := &Group{
+		Platform:         PlatformSeedance,
+		VideoBillingUnit: VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			"seedance-2.0":      {BillingUnit: VideoBillingUnitPerRequest, Price720P: &price},
+			"seedance-2.0-fast": {Price720P: &price},
+		},
+	}
+
+	require.Equal(t, VideoBillingUnitPerRequest, group.EffectiveVideoBillingUnitForModel("seedance-2.0"))
+	require.Equal(t, VideoBillingUnitPerSecond, group.EffectiveVideoBillingUnitForModel("seedance-2.0-fast"))
+	require.Equal(t, VideoBillingUnitPerSecond, group.EffectiveVideoBillingUnitForModel("unlisted"))
+
+	group.VideoBillingUnit = VideoBillingUnitPerRequest
+	require.Equal(t, VideoBillingUnitPerRequest, group.EffectiveVideoBillingUnitForModel("seedance-2.0-fast"))
 }

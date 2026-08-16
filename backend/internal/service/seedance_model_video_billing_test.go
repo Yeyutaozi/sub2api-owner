@@ -105,6 +105,69 @@ func TestRecordSeedanceUsage_PerRequestIgnoresDurationAndUsesVideoCountAndMultip
 	}
 }
 
+func TestCalculateOpenAIVideoCost_UsesPerModelBillingUnitOverride(t *testing.T) {
+	price := 0.16
+	groupID := int64(707)
+	svc := &OpenAIGatewayService{billingService: NewBillingService(&config.Config{}, nil)}
+	apiKey := &APIKey{GroupID: &groupID, Group: &Group{
+		ID: groupID, Platform: PlatformSeedance, VideoBillingUnit: VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			"seedance-2.0":      {BillingUnit: VideoBillingUnitPerRequest, Price720P: &price},
+			"seedance-2.0-fast": {Price720P: &price},
+		},
+	}}
+	result := &OpenAIForwardResult{
+		VideoCount: 1, VideoResolution: VideoBillingResolution720P, VideoDurationSeconds: 10,
+	}
+
+	perRequest := svc.calculateOpenAIVideoCost(context.Background(), "seedance-2.0", apiKey, result, 1)
+	perSecond := svc.calculateOpenAIVideoCost(context.Background(), "seedance-2.0-fast", apiKey, result, 1)
+
+	require.InDelta(t, price, perRequest.TotalCost, 1e-12)
+	require.InDelta(t, price*10, perSecond.TotalCost, 1e-12)
+}
+
+func TestRecordSeedanceUsage_UserPriceKeepsPerModelBillingUnitOverride(t *testing.T) {
+	groupPrice := 0.16
+	userPrice := 0.05
+	groupID := int64(708)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		&openAIUserGroupRateRepoStub{videoPrices: VideoModelPrices{
+			"seedance-2.0": {Price720P: &userPrice},
+		}},
+	)
+	apiKey := &APIKey{
+		ID: 1708, UserID: 2708, GroupID: &groupID, User: &User{ID: 2708},
+		Group: &Group{
+			ID: groupID, Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: VideoBillingUnitPerSecond,
+			VideoModelPrices: VideoModelPrices{
+				"seedance-2.0": {BillingUnit: VideoBillingUnitPerRequest, Price720P: &groupPrice},
+			},
+		},
+	}
+
+	err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				Model: "seedance-2.0", VideoCount: 1,
+				VideoResolution: VideoBillingResolution720P, VideoDurationSeconds: 15,
+			},
+			APIKey: apiKey, User: apiKey.User,
+			Account: &Account{ID: 3708, Platform: PlatformSeedance},
+		},
+		TaskID: "per-model-unit-user-price", RequestedModel: "seedance-2.0",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, userPrice, usageRepo.lastLog.TotalCost, 1e-12)
+}
+
 func TestRecordSeedanceUsage_PerRequestUsesUserResolutionOverride(t *testing.T) {
 	group720P := 0.16
 	user720P := 0.05
@@ -201,6 +264,99 @@ func TestRecordSeedanceUsage_UserVideoPriceOverridesGroupPricePerResolution(t *t
 
 	require.GreaterOrEqual(t, rateRepo.videoPriceCalls, 2)
 	require.InDelta(t, group720P, *apiKey.Group.VideoModelPrices["seedance-2.0"].Price720P, 1e-12)
+}
+
+func TestRecordSeedanceUsage_UserPriceInheritsLegacyGroupResolutionPrices(t *testing.T) {
+	group720P := 0.16
+	group1080P := 0.24
+	user720P := 0.05
+	groupID := int64(709)
+	rateRepo := &openAIUserGroupRateRepoStub{videoPrices: VideoModelPrices{
+		"seedance-2.0": {Price720P: &user720P},
+	}}
+	apiKey := &APIKey{
+		ID: 1709, UserID: 2709, GroupID: &groupID, User: &User{ID: 2709},
+		Group: &Group{
+			ID: groupID, Platform: PlatformSeedance, RateMultiplier: 1,
+			VideoBillingUnit: VideoBillingUnitPerRequest,
+			VideoPrice720P:   &group720P,
+			VideoPrice1080P:  &group1080P,
+		},
+	}
+
+	for _, test := range []struct {
+		resolution string
+		want       float64
+	}{
+		{resolution: VideoBillingResolution720P, want: user720P},
+		{resolution: VideoBillingResolution1080P, want: group1080P},
+	} {
+		t.Run(test.resolution, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(
+				usageRepo,
+				&openAIRecordUsageUserRepoStub{},
+				&openAIRecordUsageSubRepoStub{},
+				rateRepo,
+			)
+			err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+				OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+					Result: &OpenAIForwardResult{
+						Model: "seedance-2.0", VideoCount: 1,
+						VideoResolution: test.resolution, VideoDurationSeconds: 15,
+					},
+					APIKey: apiKey, User: apiKey.User,
+					Account: &Account{ID: 3709, Platform: PlatformSeedance},
+				},
+				TaskID: "legacy-user-price-" + test.resolution, RequestedModel: "seedance-2.0",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.InDelta(t, test.want, usageRepo.lastLog.TotalCost, 1e-12)
+		})
+	}
+
+	require.Empty(t, apiKey.Group.VideoModelPrices, "settlement must not mutate the API key group")
+}
+
+func TestRecordSeedanceUsage_UserPriceInheritsLegacyHighResolutionPrice(t *testing.T) {
+	legacyPrice := 0.03
+	user1080P := 0.01
+	groupID := int64(710)
+	rateRepo := &openAIUserGroupRateRepoStub{videoPrices: VideoModelPrices{
+		"ltx-2.3-pro": {Price1080P: &user1080P},
+	}}
+	apiKey := &APIKey{
+		ID: 1710, UserID: 2710, GroupID: &groupID, User: &User{ID: 2710},
+		Group: &Group{
+			ID: groupID, Platform: PlatformLTX, RateMultiplier: 1,
+			VideoPrice480P: &legacyPrice,
+		},
+	}
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		rateRepo,
+	)
+
+	err := svc.RecordSeedanceUsage(context.Background(), &SeedanceRecordUsageInput{
+		OpenAIRecordUsageInput: OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				Model: "ltx-2.3-pro", VideoCount: 1,
+				VideoResolution: VideoBillingResolution2160P, VideoDurationSeconds: 6,
+			},
+			APIKey: apiKey, User: apiKey.User,
+			Account: &Account{ID: 3710, Platform: PlatformLTX},
+		},
+		TaskID: "legacy-ltx-user-price-2160p", RequestedModel: "ltx-2.3-pro",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, legacyPrice*6, usageRepo.lastLog.TotalCost, 1e-12)
+	require.Empty(t, apiKey.Group.VideoModelPrices, "settlement must not mutate the API key group")
 }
 
 func TestOpenAIGatewayServiceRecordSeedanceUsage_UsesInboundRequestedModel(t *testing.T) {

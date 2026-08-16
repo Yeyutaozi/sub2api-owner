@@ -48,7 +48,9 @@
             class="grid grid-cols-[minmax(160px,1.2fr)_minmax(0,2fr)] gap-2 rounded bg-gray-50 px-2 py-1.5 dark:bg-dark-700/60"
           >
             <span class="font-mono text-gray-700 dark:text-gray-300">{{ row.model }}</span>
-            <span class="text-gray-600 dark:text-gray-400">{{ row.pricesText }}</span>
+            <span class="text-gray-600 dark:text-gray-400">
+              {{ row.pricesText }} ({{ row.unit }})
+            </span>
           </div>
         </div>
       </div>
@@ -170,7 +172,7 @@
       </div>
 
       <div
-        v-if="isVideoPricingGroup && localEntries.length > 0"
+        v-if="!loading && isVideoPricingGroup && localEntries.length > 0"
         class="flex items-center justify-end rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-600"
       >
         <button
@@ -183,7 +185,7 @@
       </div>
 
       <!-- 已设置的用户列表 -->
-      <div v-else>
+      <div v-if="!loading">
         <h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ isVideoPricingGroup ? t('admin.groups.videoPriceOverrides.configuredUsers') : t('admin.groups.rateMultipliers') }} ({{ localEntries.length }})
         </h4>
@@ -286,11 +288,7 @@
                             {{ t('admin.groups.videoPriceOverrides.userTitle', { user: entry.user_email }) }}
                           </div>
                           <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                            {{
-                              t('admin.groups.videoPriceOverrides.inheritHint', {
-                                unit: videoPriceUnitLabel,
-                              })
-                            }}
+                            {{ t('admin.groups.videoPriceOverrides.inheritHint') }}
                           </p>
                           <p class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                             {{ t('admin.groups.videoPriceOverrides.fillThenSave') }}
@@ -321,7 +319,7 @@
                               class="block"
                             >
                               <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
-                                {{ resolution }} ({{ videoPriceUnitLabel }})
+                                {{ resolution }} ({{ videoModelPriceUnitLabel(model) }})
                               </span>
                               <input
                                 type="number"
@@ -406,7 +404,9 @@ import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import {
   normalizeVideoBillingUnitForPlatform,
   normalizeVideoModelPricesForPlatform,
+  resolveVideoModelBillingUnit,
   supportsVideoModelPricingPlatform,
+  VIDEO_MODEL_PRICE_RESOLUTIONS,
   videoModelsForPricingPlatform,
   supportedResolutionsForVideoModel,
   type VideoModelPriceResolution,
@@ -478,16 +478,6 @@ const videoPriceUnitLabel = computed(() =>
   )
 )
 
-const videoPricePeriodLabel = computed(() =>
-  t(
-    `admin.groups.videoPricing.${
-      videoBillingUnit.value === 'per_request'
-        ? 'pricePeriodPerRequest'
-        : 'pricePeriodPerSecond'
-    }`,
-  )
-)
-
 const groupVideoModelPrices = computed(() =>
   normalizeVideoModelPricesForPlatform(
     props.group?.platform ?? '',
@@ -509,15 +499,19 @@ const groupDefaultPriceRows = computed(() => {
       const card = groupVideoModelPrices.value[model] || {}
       const parts = supportedVideoResolutions(model)
         .map((resolution) => {
-          const price = card[resolution as keyof VideoModelPrice]
+          const price = card[resolution]
           if (price == null) return null
           return `${resolution}=${price}`
         })
         .filter(Boolean)
       if (parts.length === 0) return null
-      return { model, pricesText: parts.join(' · ') }
+      return {
+        model,
+        pricesText: parts.join(' · '),
+        unit: videoModelPriceUnitLabel(model),
+      }
     })
-    .filter((row): row is { model: string; pricesText: string } => row != null)
+    .filter((row): row is { model: string; pricesText: string; unit: string } => row != null)
 })
 
 const canAddUser = computed(() => {
@@ -543,12 +537,25 @@ const videoPriceGridStyle = (model: string) => ({
 })
 
 const cloneVideoModelPrices = (prices: VideoModelPrices | undefined): VideoModelPrices => {
-  return normalizeVideoModelPricesForPlatform(props.group?.platform ?? '', prices)
+  const source = normalizeVideoModelPricesForPlatform(
+    props.group?.platform ?? '',
+    prices,
+  )
+  const cloned: VideoModelPrices = {}
+  for (const [model, price] of Object.entries(source)) {
+    const card: VideoModelPrice = {}
+    for (const resolution of VIDEO_MODEL_PRICE_RESOLUTIONS) {
+      const value = price[resolution]
+      if (value != null) card[resolution] = value
+    }
+    if (Object.keys(card).length > 0) cloned[model] = card
+  }
+  return cloned
 }
 
 const hasVideoPrices = (entry: GroupRateMultiplierEntry): boolean =>
   Object.values(entry.video_model_prices ?? {}).some((price) =>
-    Object.values(price ?? {}).some((value) => value != null),
+    VIDEO_MODEL_PRICE_RESOLUTIONS.some((resolution) => price?.[resolution] != null),
   )
 
 const videoPricesFingerprint = (prices: VideoModelPrices | undefined): string =>
@@ -557,13 +564,12 @@ const videoPricesFingerprint = (prices: VideoModelPrices | undefined): string =>
       .sort()
       .reduce<Record<string, VideoModelPrice>>((result, model) => {
         const price = prices?.[model] ?? {}
-        result[model] = Object.keys(price)
-          .sort()
-          .reduce<VideoModelPrice>((card, resolution) => {
-            const value = price[resolution as keyof VideoModelPrice]
-            if (value != null) card[resolution as keyof VideoModelPrice] = value
-            return card
-          }, {})
+        const card: VideoModelPrice = {}
+        for (const resolution of VIDEO_MODEL_PRICE_RESOLUTIONS) {
+          const value = price[resolution]
+          if (value != null) card[resolution] = value
+        }
+        result[model] = card
         return result
       }, {}),
   )
@@ -762,7 +768,9 @@ const toggleVideoPrices = (userId: number) => {
 
 const countVideoPriceOverrides = (entry: GroupRateMultiplierEntry): number =>
   Object.values(entry.video_model_prices ?? {}).reduce(
-    (count, price) => count + Object.values(price ?? {}).filter(value => value != null).length,
+    (count, price) => count + VIDEO_MODEL_PRICE_RESOLUTIONS.filter(
+      resolution => price?.[resolution] != null,
+    ).length,
     0,
   )
 
@@ -781,8 +789,36 @@ const groupVideoPricePlaceholder = (
     ? t('admin.groups.videoPriceOverrides.notConfigured')
     : t('admin.groups.videoPriceOverrides.inheritPrice', {
         price: groupPrice,
-        unit: videoPricePeriodLabel.value,
+        unit: videoModelPricePeriodLabel(model),
       })
+}
+
+function effectiveVideoModelBillingUnit(model: string) {
+  return resolveVideoModelBillingUnit(
+    groupVideoModelPrices.value[model]?.billing_unit,
+    videoBillingUnit.value,
+    props.group?.platform ?? '',
+  )
+}
+
+function videoModelPriceUnitLabel(model: string) {
+  return t(
+    `admin.groups.videoPricing.${
+      effectiveVideoModelBillingUnit(model) === 'per_request'
+        ? 'priceUnitPerRequest'
+        : 'priceUnitPerSecond'
+    }`,
+  )
+}
+
+function videoModelPricePeriodLabel(model: string) {
+  return t(
+    `admin.groups.videoPricing.${
+      effectiveVideoModelBillingUnit(model) === 'per_request'
+        ? 'pricePeriodPerRequest'
+        : 'pricePeriodPerSecond'
+    }`,
+  )
 }
 
 const setEntryVideoPrice = (
@@ -796,7 +832,11 @@ const setEntryVideoPrice = (
   entry.video_model_prices[model] ??= {}
   if (value === '') {
     delete entry.video_model_prices[model][resolution]
-    if (Object.values(entry.video_model_prices[model]).every(item => item == null)) {
+    if (
+      VIDEO_MODEL_PRICE_RESOLUTIONS.every(
+        item => entry.video_model_prices?.[model]?.[item] == null,
+      )
+    ) {
       delete entry.video_model_prices[model]
     }
     return

@@ -954,7 +954,7 @@ export default {
         overrideCount: '已设 {count} 项',
         userTitle: '{user} 的模型/清晰度单价',
         priorityHint: '计费优先级：用户专属模型/清晰度单价 > 分组模型/清晰度单价。倍率仍按现有分组计费规则应用；单价留空即继承分组配置。',
-        inheritHint: '按模型和清晰度填写绝对单价，单位为{unit}；留空继承分组价格。',
+        inheritHint: '按模型和清晰度填写绝对单价；留空则继承分组价格及该模型的计费单位。',
         fillThenSave: '填完单价后记得点右下角「保存」，否则不会生效。',
         selectUserFirst: '请先搜索并从下拉列表点选用户',
         addedConfigureHint: '用户已添加，请在下方表格配置模型/清晰度单价后保存',
@@ -1021,11 +1021,14 @@ export default {
         description:
           '配置 Grok 视频生成的每秒单价（USD/秒），留空则使用默认每秒价（grok-imagine-video：480p $0.05/s、720p $0.07/s；video-1.5：480p $0.08/s、720p $0.14/s、1080p $0.25/s）',
         modelDescription:
-          '按请求模型和分辨率配置视频每生成一秒的价格（USD/秒）。',
+          '按请求模型和分辨率配置视频价格；每个模型可继承分组计费单位，或单独覆盖。',
         perRequestModelDescription:
           '按请求模型和分辨率配置每次视频生成的固定价格（USD/次）。',
         billingUnit: '计费单位',
-        billingUnitHint: '仅 Seedance 支持按次计费。时长仍控制生成结果，但不会再乘到配置价格中；多输出时按实际输出视频个数计次。',
+        groupBillingUnit: '分组默认计费单位',
+        modelBillingUnit: '本模型计费单位',
+        inheritGroupBillingUnit: '继承分组默认（{unit}）',
+        billingUnitHint: '仅 Seedance 可将分组默认设为按次；下方每个模型可单独覆盖该默认值。',
         perSecond: '按生成秒数',
         perRequest: '按次（每个输出视频）',
         priceUnitPerSecond: '$/秒',
@@ -1044,7 +1047,7 @@ export default {
         modeHint:
           '视频按秒计费：费用 = 每秒价格 × 时长（1-15 秒，未指定默认 8 秒）。默认叠加当前分组有效倍率；开启独立倍率后改用视频独立倍率。',
         modelModeHint:
-          '视频按秒计费：费用 = 请求模型对应分辨率的每秒价格 × 实际生成时长。非空矩阵同时作为模型白名单；清空后回退旧版分组分辨率价格。',
+          '模型默认继承分组计费单位，也可单独覆盖。按秒价格乘实际生成时长；按次价格对每个输出收取一次。非空矩阵同时作为模型白名单。',
         perRequestModelModeHint:
           '视频按次计费：每生成一个视频，仅收取一次请求模型对应分辨率的价格，不再乘以时长。非空矩阵同时作为模型白名单；清空后回退旧版分组分辨率价格。',
         finalPricePreview: '最终每秒价格预览',

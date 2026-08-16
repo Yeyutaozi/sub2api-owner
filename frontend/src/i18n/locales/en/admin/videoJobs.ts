@@ -18,7 +18,7 @@ export default {
       status: 'Status',
       refund: 'Refund',
       prompt: 'Prompt',
-      createdAt: 'Created',
+      createdAt: 'Time / duration',
       actions: 'Actions'
     },
     status: {
@@ -28,6 +28,10 @@ export default {
       failed: 'Failed',
       cancelled: 'Cancelled',
       unknown: 'Unknown'
+    },
+    timing: {
+      running: 'Running',
+      elapsed: 'Elapsed'
     },
     refund: {
       pending: 'Pending',
@@ -71,6 +75,7 @@ export default {
       lastError: 'Last error',
       snapshotJson: 'Request snapshot',
       fields: {
+        executionDuration: 'Execution time',
         jobId: 'Job ID',
         upstreamJobId: 'Upstream job ID',
         user: 'User',

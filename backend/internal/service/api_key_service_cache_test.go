@@ -278,6 +278,47 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
 }
 
+func TestAPIKeyService_SnapshotRoundTrip_PreservesCreazyCanvasPermission(t *testing.T) {
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
+	groupID := int64(9)
+	apiKey := &APIKey{
+		ID:      1,
+		UserID:  2,
+		GroupID: &groupID,
+		Key:     "k-canvas",
+		Status:  StatusActive,
+		User: &User{
+			ID:          2,
+			Status:      StatusActive,
+			Role:        RoleUser,
+			Balance:     10,
+			Concurrency: 3,
+		},
+		Group: &Group{
+			ID:                   groupID,
+			Name:                 "openai-canvas",
+			Platform:             PlatformOpenAI,
+			Status:               StatusActive,
+			SubscriptionType:     SubscriptionTypeStandard,
+			RateMultiplier:       1,
+			AllowImageGeneration: true,
+			AllowCreazyCanvas:    true,
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
+
+	require.NotNil(t, snapshot)
+	require.NotNil(t, snapshot.Group)
+	require.True(t, snapshot.Group.AllowImageGeneration)
+	require.True(t, snapshot.Group.AllowCreazyCanvas)
+	require.NotNil(t, roundTrip)
+	require.NotNil(t, roundTrip.Group)
+	require.True(t, roundTrip.Group.AllowImageGeneration)
+	require.True(t, roundTrip.Group.AllowCreazyCanvas)
+}
+
 func TestAPIKeyService_SnapshotRoundTrip_PreservesReasoningEffortPolicy(t *testing.T) {
 	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
 	groupID := int64(9)

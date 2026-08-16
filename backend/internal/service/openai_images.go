@@ -14,11 +14,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -37,8 +39,7 @@ const (
 	openAIChatGPTStartURL          = "https://chatgpt.com/"
 	openAIChatGPTFilesURL          = "https://chatgpt.com/backend-api/files"
 	openAIImageBackendUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per image download
-	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
+	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per generated image download
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
 )
 
@@ -56,6 +57,20 @@ type OpenAIImagesUpload struct {
 	Data        []byte
 	Width       int
 	Height      int
+}
+
+type openAIImagesInputError struct {
+	statusCode int
+	code       string
+	param      string
+	message    string
+}
+
+func (e *openAIImagesInputError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
 }
 
 type OpenAIImagesRequest struct {
@@ -331,7 +346,7 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			continue
 		}
 
-		data, err := io.ReadAll(io.LimitReader(part, openAIImageMaxUploadPartSize))
+		data, err := io.ReadAll(part)
 		_ = part.Close()
 		if err != nil {
 			return fmt.Errorf("read multipart field %s: %w", name, err)
@@ -597,7 +612,22 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		parsed.Endpoint,
 		account.Type,
 	)
-	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
+	forwardBody, forwardContentType, err := s.prepareOpenAIImagesAPIKeyForwardBody(ctx, body, parsed.ContentType, parsed)
+	if err != nil {
+		if inputErr, ok := err.(*openAIImagesInputError); ok {
+			clientErr := &OpenAIImagesUpstreamError{
+				StatusCode: inputErr.statusCode,
+				ErrorType:  "invalid_request_error",
+				Code:       inputErr.code,
+				Message:    inputErr.message,
+				Param:      inputErr.param,
+			}
+			writeOpenAIImagesUpstreamErrorResponse(c, clientErr)
+			return nil, clientErr
+		}
+		return nil, err
+	}
+	forwardBody, forwardContentType, err = rewriteOpenAIImagesModel(forwardBody, forwardContentType, upstreamModel)
 	if err != nil {
 		return nil, err
 	}
@@ -729,6 +759,240 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: nonStreamSizes,
 		}, nil
 	}
+}
+
+func (s *OpenAIGatewayService) prepareOpenAIImagesAPIKeyForwardBody(
+	ctx context.Context,
+	body []byte,
+	contentType string,
+	parsed *OpenAIImagesRequest,
+) ([]byte, string, error) {
+	if parsed == nil || !parsed.IsEdits() || parsed.Multipart {
+		return body, contentType, nil
+	}
+
+	uploads := make([]OpenAIImagesUpload, 0, len(parsed.InputImageURLs))
+	for index, imageURL := range parsed.InputImageURLs {
+		param := fmt.Sprintf("images.%d.image_url", index)
+		upload, err := s.downloadOpenAIImagesInput(ctx, imageURL, param, fmt.Sprintf("reference-%d", index+1))
+		if err != nil {
+			return nil, "", err
+		}
+		uploads = append(uploads, upload)
+	}
+	if len(uploads) == 0 {
+		return nil, "", newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"reference_image_required",
+			"images",
+			"at least one reference image is required",
+		)
+	}
+
+	var maskUpload *OpenAIImagesUpload
+	if strings.TrimSpace(parsed.MaskImageURL) != "" {
+		upload, err := s.downloadOpenAIImagesInput(ctx, parsed.MaskImageURL, "mask.image_url", "mask")
+		if err != nil {
+			return nil, "", err
+		}
+		maskUpload = &upload
+	}
+
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	writeField := func(name, value string, include bool) error {
+		if !include {
+			return nil
+		}
+		if err := writer.WriteField(name, value); err != nil {
+			return fmt.Errorf("write image edit multipart field %s: %w", name, err)
+		}
+		return nil
+	}
+
+	fields := []struct {
+		name    string
+		value   string
+		include bool
+	}{
+		{name: "model", value: parsed.Model, include: true},
+		{name: "prompt", value: parsed.Prompt, include: true},
+		{name: "size", value: parsed.Size, include: strings.TrimSpace(parsed.Size) != ""},
+		{name: "n", value: strconv.Itoa(parsed.N), include: true},
+		{name: "response_format", value: parsed.ResponseFormat, include: strings.TrimSpace(parsed.ResponseFormat) != ""},
+		{name: "quality", value: parsed.Quality, include: strings.TrimSpace(parsed.Quality) != ""},
+		{name: "background", value: parsed.Background, include: strings.TrimSpace(parsed.Background) != ""},
+		{name: "output_format", value: parsed.OutputFormat, include: strings.TrimSpace(parsed.OutputFormat) != ""},
+		{name: "moderation", value: parsed.Moderation, include: strings.TrimSpace(parsed.Moderation) != ""},
+		{name: "input_fidelity", value: parsed.InputFidelity, include: strings.TrimSpace(parsed.InputFidelity) != ""},
+		{name: "style", value: parsed.Style, include: strings.TrimSpace(parsed.Style) != ""},
+		{name: "stream", value: strconv.FormatBool(parsed.Stream), include: parsed.Stream},
+	}
+	for _, field := range fields {
+		if err := writeField(field.name, field.value, field.include); err != nil {
+			return nil, "", err
+		}
+	}
+	if parsed.OutputCompression != nil {
+		if err := writeField("output_compression", strconv.Itoa(*parsed.OutputCompression), true); err != nil {
+			return nil, "", err
+		}
+	}
+	if parsed.PartialImages != nil {
+		if err := writeField("partial_images", strconv.Itoa(*parsed.PartialImages), true); err != nil {
+			return nil, "", err
+		}
+	}
+
+	imageField := "image"
+	if len(uploads) > 1 {
+		imageField = "image[]"
+	}
+	for _, upload := range uploads {
+		if err := writeOpenAIImagesMultipartFile(writer, imageField, upload); err != nil {
+			return nil, "", err
+		}
+	}
+	if maskUpload != nil {
+		if err := writeOpenAIImagesMultipartFile(writer, "mask", *maskUpload); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("close image edit multipart body: %w", err)
+	}
+	return buffer.Bytes(), writer.FormDataContentType(), nil
+}
+
+func (s *OpenAIGatewayService) downloadOpenAIImagesInput(
+	ctx context.Context,
+	rawURL string,
+	param string,
+	filenamePrefix string,
+) (OpenAIImagesUpload, error) {
+	validatedURL, err := validateSeedanceMediaRemoteURL(rawURL)
+	if err != nil {
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"invalid_reference_image_url",
+			param,
+			"reference image URL is invalid: "+err.Error(),
+		)
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, seedanceImageFetchTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, validatedURL, nil)
+	if err != nil {
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"invalid_reference_image_url",
+			param,
+			"reference image URL is invalid",
+		)
+	}
+	request.Header.Set("Accept", "image/png,image/jpeg,image/webp")
+	request.Header.Set("Accept-Encoding", "identity")
+
+	client := s.imageInputHTTPClient
+	if client == nil {
+		client = newSeedanceMediaHTTPClient()
+		client.Timeout = seedanceImageFetchTimeout
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"reference_image_unavailable",
+			param,
+			"failed to download reference image",
+		)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"reference_image_unavailable",
+			param,
+			fmt.Sprintf("reference image returned HTTP %d", response.StatusCode),
+		)
+	}
+	file, err := os.CreateTemp("", "openai-image-input-*")
+	if err != nil {
+		return OpenAIImagesUpload{}, fmt.Errorf("create temporary image input: %w", err)
+	}
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}()
+
+	_, err = io.Copy(file, response.Body)
+	if err != nil {
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			"reference_image_unavailable",
+			param,
+			"failed to download reference image",
+		)
+	}
+	contentType, extension, err := inspectSeedanceImage(file, response.Header.Get("Content-Type"))
+	if err != nil {
+		message := strings.TrimSpace(infraerrors.Message(err))
+		if message == "" || message == infraerrors.UnknownMessage {
+			message = "reference image data is invalid"
+		}
+		code := strings.TrimSpace(infraerrors.Reason(err))
+		if code == "" {
+			code = "invalid_reference_image"
+		}
+		return OpenAIImagesUpload{}, newOpenAIImagesInputError(
+			http.StatusBadRequest,
+			code,
+			param,
+			message,
+		)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return OpenAIImagesUpload{}, fmt.Errorf("rewind temporary image input: %w", err)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return OpenAIImagesUpload{}, fmt.Errorf("read temporary image input: %w", err)
+	}
+	return OpenAIImagesUpload{
+		FileName:    filenamePrefix + "." + extension,
+		ContentType: contentType,
+		Data:        data,
+	}, nil
+}
+
+func newOpenAIImagesInputError(statusCode int, code, param, message string) *openAIImagesInputError {
+	return &openAIImagesInputError{
+		statusCode: statusCode,
+		code:       strings.TrimSpace(code),
+		param:      strings.TrimSpace(param),
+		message:    strings.TrimSpace(message),
+	}
+}
+
+func writeOpenAIImagesMultipartFile(writer *multipart.Writer, fieldName string, upload OpenAIImagesUpload) error {
+	if writer == nil {
+		return fmt.Errorf("image edit multipart writer is required")
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+		"name":     fieldName,
+		"filename": upload.FileName,
+	}))
+	header.Set("Content-Type", upload.ContentType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("create image edit multipart file %s: %w", fieldName, err)
+	}
+	if _, err := part.Write(upload.Data); err != nil {
+		return fmt.Errorf("write image edit multipart file %s: %w", fieldName, err)
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) buildOpenAIImagesRequest(

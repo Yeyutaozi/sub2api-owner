@@ -5,6 +5,7 @@ export default {
     heroTagline: '选 Key，生成，归档',
     subtitle: '选择分组 API Key，直接生图 / 生视频；结果只显示当前 Key，并沉淀到作品库。',
     tabs: {
+      workflow: '工作流',
       image: '生图',
       video: '生视频',
       works: '我的作品',

@@ -7,6 +7,7 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   "sd2-mx933",
   "sd2-mx933-fast",
   "sd-2.0-mx933",
+  "sd-2.0-900-720p",
   "sd-2.5-mx",
   "seedance2.0-one-face-reference-480p",
   "seedance2.0-one-face-reference-720p",
@@ -41,6 +42,7 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "sd2-mx933": ["480p", "720p"],
   "sd2-mx933-fast": ["480p", "720p"],
   "sd-2.0-mx933": ["480p", "720p"],
+  "sd-2.0-900-720p": ["720p"],
   "sd-2.5-mx": ["720p"],
   "seedance2.0-one-face-reference-480p": ["480p"],
   "seedance2.0-one-face-reference-720p": ["720p"],
@@ -96,6 +98,7 @@ export type VideoModelPriceInput = number | string | null;
 
 export interface VideoModelPriceRow {
   model: string;
+  billing_unit: VideoBillingUnit | "";
   price_480p: VideoModelPriceInput;
   price_720p: VideoModelPriceInput;
   price_1080p: VideoModelPriceInput;
@@ -124,6 +127,31 @@ export const normalizeVideoBillingUnitForPlatform = (
     ? "per_request"
     : "per_second";
 
+export const normalizeVideoModelBillingUnit = (
+  billingUnit: unknown,
+): VideoBillingUnit | undefined =>
+  billingUnit === "per_second" || billingUnit === "per_request"
+    ? billingUnit
+    : undefined;
+
+export const normalizeVideoModelBillingUnitForPlatform = (
+  platform: string,
+  billingUnit: unknown,
+): VideoBillingUnit | undefined => {
+  const normalized = normalizeVideoModelBillingUnit(billingUnit);
+  return normalized === "per_request" && !supportsPerRequestVideoBilling(platform)
+    ? undefined
+    : normalized;
+};
+
+export const resolveVideoModelBillingUnit = (
+  billingUnit: unknown,
+  groupBillingUnit: VideoBillingUnit,
+  platform: string,
+): VideoBillingUnit =>
+  normalizeVideoModelBillingUnitForPlatform(platform, billingUnit) ??
+  normalizeVideoBillingUnitForPlatform(platform, groupBillingUnit);
+
 export const videoModelPricePlaceholder = (platform: string): string =>
   videoModelsForPricingPlatform(platform)[0] ?? "video-model";
 
@@ -149,8 +177,13 @@ const parsePrice = (value: VideoModelPriceInput): number | null => {
 export const createVideoModelPriceRow = (
   model = "",
   price: VideoModelPrice = {},
+  platform = "seedance",
 ): VideoModelPriceRow => ({
   model,
+  billing_unit: normalizeVideoModelBillingUnitForPlatform(
+    platform,
+    price.billing_unit,
+  ) ?? "",
   price_480p: price["480p"] ?? null,
   price_720p: price["720p"] ?? null,
   price_1080p: price["1080p"] ?? null,
@@ -162,7 +195,7 @@ export const createDefaultVideoModelPriceRows = (
   platform = "seedance",
 ): VideoModelPriceRow[] =>
   videoModelsForPricingPlatform(platform).map((model) =>
-    createVideoModelPriceRow(model),
+    createVideoModelPriceRow(model, {}, platform),
   );
 
 const LEGACY_SEEDANCE_VIDEO_MODEL_ALIASES: Record<string, string> = {
@@ -208,7 +241,7 @@ export const videoModelPricesToRows = (
   platform: string,
 ): VideoModelPriceRow[] =>
   Object.entries(normalizeVideoModelPricesForPlatform(platform, prices)).map(([model, price]) =>
-    createVideoModelPriceRow(model, price),
+    createVideoModelPriceRow(model, price, platform),
   );
 
 export const validateVideoModelPriceRows = (
@@ -288,6 +321,13 @@ export const videoModelPriceRowsToPrices = (
       }
     }
     if (Object.keys(card).length > 0) {
+      const billingUnit = normalizeVideoModelBillingUnitForPlatform(
+        platform,
+        row.billing_unit,
+      );
+      if (billingUnit) {
+        card.billing_unit = billingUnit;
+      }
       prices[model] = card;
     }
   }

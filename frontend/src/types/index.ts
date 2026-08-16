@@ -769,17 +769,18 @@ export interface OpenAIMessagesDispatchModelConfig {
   exact_model_mappings?: Record<string, string>
 }
 
+export type VideoBillingUnit = 'per_second' | 'per_request'
+
 export interface VideoModelPrice {
   '480p'?: number | null
   '720p'?: number | null
   '1080p'?: number | null
   '1440p'?: number | null
   '2160p'?: number | null
+  billing_unit?: VideoBillingUnit
 }
 
 export type VideoModelPrices = Record<string, VideoModelPrice>
-
-export type VideoBillingUnit = 'per_second' | 'per_request'
 
 export interface ReasoningEffortMapping {
   from: string

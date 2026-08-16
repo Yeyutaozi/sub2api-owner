@@ -430,8 +430,14 @@ func (h *OpenAIGatewayHandler) handleSeedanceUpload(c *gin.Context, public bool)
 	if !ok {
 		return
 	}
-	if !h.ensureSeedanceGroup(c, apiKey) {
-		return
+	if public {
+		if !h.ensureCanvasMediaUploadGroup(c, apiKey) {
+			return
+		}
+	} else {
+		if !h.ensureSeedanceGroup(c, apiKey) {
+			return
+		}
 	}
 	if h.seedanceMediaService == nil || !h.seedanceMediaService.SupportsManagedUploads() {
 		seedanceError(c, http.StatusServiceUnavailable, "media_storage_not_configured", "Seedance media storage is not configured")
@@ -450,10 +456,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceUpload(c *gin.Context, public bool)
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
 	case "multipart/form-data":
 		bodyLimit := service.SeedanceMaxImageBytes + service.SeedanceUploadBodyOverhead
-		if public {
-			bodyLimit = 512<<20 + service.SeedanceUploadBodyOverhead
+		if !public {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
 		fieldNames := []string{"image"}
 		if public {
 			fieldNames = []string{"image", "video", "audio"}
@@ -476,11 +481,11 @@ func (h *OpenAIGatewayHandler) handleSeedanceUpload(c *gin.Context, public bool)
 			}
 			return
 		}
-		openLimit := bodyLimit
-		if public && strings.EqualFold(mediaKind, "image") {
-			openLimit = service.SeedanceMaxImageBytes + service.SeedanceUploadBodyOverhead
+		if public && canvasMediaUploadImageOnly(apiKey) && !strings.EqualFold(mediaKind, "image") {
+			seedanceError(c, http.StatusForbidden, "media_kind_not_allowed", "This API key group only allows image uploads")
+			return
 		}
-		if file.Size > openLimit {
+		if !public && file.Size > bodyLimit {
 			seedanceError(c, http.StatusRequestEntityTooLarge, "media_too_large", "uploaded media exceeds the configured size limit")
 			return
 		}
@@ -492,13 +497,14 @@ func (h *OpenAIGatewayHandler) handleSeedanceUpload(c *gin.Context, public bool)
 		defer func() { _ = source.Close() }()
 		if public {
 			upload, err = h.seedanceMediaService.UploadMedia(c.Request.Context(), service.SeedanceImageUploadInput{
-				Owner:       owner,
-				Body:        source,
-				SizeBytes:   file.Size,
-				ContentType: file.Header.Get("Content-Type"),
-				Filename:    file.Filename,
-				MediaKind:   mediaKind,
-				Persistent:  true,
+				Owner:         owner,
+				Body:          source,
+				SizeBytes:     file.Size,
+				ContentType:   file.Header.Get("Content-Type"),
+				Filename:      file.Filename,
+				MediaKind:     mediaKind,
+				Persistent:    true,
+				SkipSizeLimit: strings.EqualFold(mediaKind, "image") || strings.EqualFold(mediaKind, "video"),
 			})
 		} else {
 			upload, err = h.seedanceMediaService.UploadImage(c.Request.Context(), service.SeedanceImageUploadInput{
@@ -1669,15 +1675,34 @@ func (h *OpenAIGatewayHandler) ensureSeedanceGroup(c *gin.Context, apiKey *servi
 	return true
 }
 
+// ensureCanvasMediaUploadGroup lets image-enabled canvas keys stage reference
+// images without pretending that they belong to a video provider. Video and
+// audio uploads remain restricted to FFLink video groups.
+func (h *OpenAIGatewayHandler) ensureCanvasMediaUploadGroup(c *gin.Context, apiKey *service.APIKey) bool {
+	if apiKey == nil || apiKey.GroupID == nil || apiKey.Group == nil {
+		seedanceError(c, http.StatusForbidden, "permission_denied", "API key must be assigned to a canvas-enabled group")
+		return false
+	}
+	if service.IsFFLinkVideoPlatform(apiKey.Group.Platform) {
+		return h.ensureSeedanceGroup(c, apiKey)
+	}
+	if !apiKey.Group.AllowCreazyCanvas || !service.GroupAllowsImageGeneration(apiKey.Group) {
+		seedanceError(c, http.StatusForbidden, "permission_denied", "API key group does not support canvas image uploads")
+		return false
+	}
+	return true
+}
+
+func canvasMediaUploadImageOnly(apiKey *service.APIKey) bool {
+	return apiKey != nil && apiKey.Group != nil && !service.IsFFLinkVideoPlatform(apiKey.Group.Platform)
+}
+
 func seedanceVideoPricingError(group *service.Group, requestedModel, resolution string) (int, string, string) {
 	if group == nil {
 		return http.StatusServiceUnavailable, "billing_not_configured", "Video pricing is not configured"
 	}
-	if service.IsFFLinkVideoPlatform(group.Platform) && len(group.VideoModelPrices) > 0 {
-		model := strings.ToLower(strings.TrimSpace(requestedModel))
-		if _, ok := group.VideoModelPrices[model]; !ok {
-			return http.StatusBadRequest, "model_not_supported", "The requested model is not configured for this video group"
-		}
+	if service.IsFFLinkVideoPlatform(group.Platform) && !service.GroupAllowsVideoModelExposure(group, requestedModel) {
+		return http.StatusBadRequest, "model_not_supported", "The requested model is not configured for this video group"
 	}
 	if group.GetVideoPriceForModel(requestedModel, resolution) == nil {
 		return http.StatusServiceUnavailable, "billing_not_configured", "Video price per second is not configured for the requested model and resolution"

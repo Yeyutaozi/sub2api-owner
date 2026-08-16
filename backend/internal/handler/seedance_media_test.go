@@ -120,6 +120,54 @@ func TestSeedanceUploadMediaPublicAudioReturnsSignedMediaURL(t *testing.T) {
 	require.True(t, strings.HasPrefix(store.lastKey(), "seedance/inputs/staged/"))
 }
 
+func TestCanvasImageUploadAllowsOpenAIImageGroup(t *testing.T) {
+	miniRedis := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+	store := &seedanceHandlerMediaStore{configured: true}
+	handler := &OpenAIGatewayHandler{
+		seedanceMediaService: service.NewSeedanceMediaService(store, nil, redisClient),
+	}
+
+	body := `{"image_base64":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5YQAAAAASUVORK5CYII=","content_type":"image/png","filename":"reference.png"}`
+	c, recorder := newSeedanceMediaHandlerContext(t, http.MethodPost, service.SeedancePublicUploadsEndpoint, "application/json", strings.NewReader(body), service.PlatformOpenAI)
+	handler.SeedanceUploadMedia(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		MediaURL  string `json:"media_url"`
+		MediaType string `json:"media_type"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "https://cos.example.com/object", response.MediaURL)
+	require.Equal(t, "image", response.MediaType)
+	require.Equal(t, 1, store.putCount())
+}
+
+func TestCanvasImageUploadRejectsVideoForOpenAIGroup(t *testing.T) {
+	miniRedis := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+	store := &seedanceHandlerMediaStore{configured: true}
+	handler := &OpenAIGatewayHandler{
+		seedanceMediaService: service.NewSeedanceMediaService(store, nil, redisClient),
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("video", "reference.mp4")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("not a real video"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	c, recorder := newSeedanceMediaHandlerContext(t, http.MethodPost, service.SeedancePublicUploadsEndpoint, writer.FormDataContentType(), &body, service.PlatformOpenAI)
+	handler.SeedanceUploadMedia(c)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "media_kind_not_allowed")
+	require.Equal(t, 0, store.putCount())
+}
+
 func TestSeedanceUploadRejectsOtherPlatformsBeforeStorageAccess(t *testing.T) {
 	store := &seedanceHandlerMediaStore{configured: true}
 	handler := &OpenAIGatewayHandler{
@@ -186,7 +234,7 @@ func newSeedanceMediaHandlerContext(
 		c.Request.Header.Set("Content-Type", contentType)
 	}
 	groupID := int64(303)
-	group := &service.Group{ID: groupID, Platform: platform, AllowImageGeneration: true}
+	group := &service.Group{ID: groupID, Platform: platform, AllowCreazyCanvas: true, AllowImageGeneration: true}
 	apiKey := &service.APIKey{ID: 202, UserID: 101, GroupID: &groupID, Group: group}
 	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 101})

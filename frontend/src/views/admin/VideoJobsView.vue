@@ -153,7 +153,17 @@
           </template>
 
           <template #cell-created_at="{ row }">
-            <span class="text-xs text-gray-600 dark:text-gray-300">{{ formatDateTime(row.created_at) }}</span>
+            <div class="flex flex-col gap-1 whitespace-nowrap text-xs">
+              <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.created_at) }}</span>
+              <span
+                class="inline-flex items-center gap-1.5"
+                :class="isActiveJob(row) ? 'text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'"
+              >
+                <i v-if="isActiveJob(row)" class="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden="true" />
+                {{ t(isActiveJob(row) ? 'admin.videoJobs.timing.running' : 'admin.videoJobs.timing.elapsed') }}
+                <span class="font-mono tabular-nums">{{ formatExecutionDuration(row) }}</span>
+              </span>
+            </div>
           </template>
 
           <template #cell-actions="{ row }">
@@ -215,6 +225,7 @@
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.resolution') }}:</span> {{ snapshotField(detail, 'resolution') }}</div>
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.duration') }}:</span> {{ snapshotField(detail, 'duration_seconds') }}</div>
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.aspectRatio') }}:</span> {{ snapshotField(detail, 'aspect_ratio') }}</div>
+            <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.executionDuration') }}:</span> <span class="font-mono tabular-nums">{{ formatExecutionDuration(detail) }}</span></div>
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.createdAt') }}:</span> {{ formatDateTime(detail.created_at) }}</div>
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.settledAt') }}:</span> {{ detail.settled_at ? formatDateTime(detail.settled_at) : '-' }}</div>
             <div><span class="text-gray-500">{{ t('admin.videoJobs.detail.fields.lastPolledAt') }}:</span> {{ detail.last_polled_at ? formatDateTime(detail.last_polled_at) : '-' }}</div>
@@ -329,7 +340,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { Column } from '@/components/common/types'
@@ -355,6 +366,8 @@ const jobs = ref<AdminVideoJob[]>([])
 const detail = ref<AdminVideoJob | null>(null)
 const killTarget = ref<AdminVideoJob | null>(null)
 const forceFailTarget = ref<AdminVideoJob | null>(null)
+const nowTick = ref(Date.now())
+let durationTimer: ReturnType<typeof setInterval> | null = null
 const selectedKeys = ref<Array<string | number>>([])
 const batchAction = ref<'kill' | 'forceFail' | null>(null)
 
@@ -658,6 +671,43 @@ function formatDateTime(value?: string | null) {
   return new Date(value).toLocaleString(undefined, { hour12: false })
 }
 
+function isActiveJob(job: AdminVideoJob): boolean {
+  const status = String(job.task_status || '').toLowerCase()
+  return ['queued', 'running'].includes(status) && !job.settled_at
+}
+
+function isTerminalJob(job: AdminVideoJob): boolean {
+  const status = String(job.task_status || '').toLowerCase()
+  return ['succeeded', 'failed', 'cancelled', 'canceled'].includes(status)
+}
+
+function executionDurationMs(job: AdminVideoJob): number | null {
+  const serverDuration = Number(job.execution_duration_ms)
+  if (job.execution_duration_ms != null && Number.isFinite(serverDuration) && serverDuration >= 0) {
+    return serverDuration
+  }
+  const startedAt = Date.parse(job.created_at)
+  if (!Number.isFinite(startedAt)) return null
+  let endedAt = Number.NaN
+  if (job.settled_at) endedAt = Date.parse(job.settled_at)
+  else if (isActiveJob(job)) endedAt = nowTick.value
+  else if (isTerminalJob(job)) endedAt = Date.parse(job.updated_at)
+  if (!Number.isFinite(endedAt) || endedAt < startedAt) return null
+  return endedAt - startedAt
+}
+
+function formatExecutionDuration(job: AdminVideoJob): string {
+  const milliseconds = executionDurationMs(job)
+  if (milliseconds == null) return '-'
+  let seconds = Math.max(0, Math.floor(milliseconds / 1000))
+  const hours = Math.floor(seconds / 3600)
+  seconds %= 3600
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+  return `${minutes}:${String(remainder).padStart(2, '0')}`
+}
+
 function snapshotField(job: AdminVideoJob, key: string) {
   const snap = job.request_snapshot || {}
   const val = snap[key]
@@ -790,6 +840,13 @@ function onImgError(e: Event) {
 
 onMounted(() => {
   void loadJobs()
+  durationTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
+})
+
+onBeforeUnmount(() => {
+  if (durationTimer) clearInterval(durationTimer)
 })
 </script>
 

@@ -843,6 +843,13 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		return true
 	}
 	mapping := a.GetModelMapping()
+	// The Weijin 900 tier is sold under a platform-owned alias but uses a
+	// different upstream credential pool. Require the exact account-level
+	// mapping so legacy Weijin keys with an empty allowlist cannot be selected.
+	if a.IsWeijinVideo() && isWeijin900PublicModel(requestedModel) {
+		mappedModel, matched := mapping[SeedanceWeijin900Model]
+		return matched && isWeijin900UpstreamModel(mappedModel)
+	}
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
 			return isOpenAIOAuthServableModel(requestedModel)
