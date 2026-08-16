@@ -29,27 +29,25 @@
             <Icon name="layout" size="sm" />
           </button>
         </div>
-        <div class="wf-zoom-group" aria-label="画布缩放">
-          <button type="button" class="wf-zoom-readout" title="恢复 100% 缩放" @click="resetZoom">
-            {{ currentZoom }}%
-          </button>
-          <button type="button" class="wf-icon-button" title="适应全部节点" @click="fitCanvas">
-            <Icon name="grid" size="sm" />
-          </button>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || saveState === 'conflict'" @click="saveDocument(true)">
-          <Icon name="cloud" size="sm" class="mr-1.5" />
-          保存
+        <button
+          type="button"
+          class="wf-icon-button"
+          title="立即保存"
+          aria-label="立即保存"
+          :disabled="saving || saveState === 'conflict'"
+          @click="saveDocument(true)"
+        >
+          <Icon name="cloud" size="sm" />
         </button>
         <div class="wf-run-group">
           <button
             type="button"
             class="btn btn-primary btn-sm wf-run-button"
-            :disabled="!canRunSelected || workflowRun.active"
-            @click="prepareRun('node')"
+            :disabled="!generationNodes.length || workflowRun.active"
+            @click="prepareRun('workflow')"
           >
             <Icon name="play" size="sm" class="mr-1.5" />
-            {{ selectedNodeRunning ? '生成中' : '运行所选节点' }}
+            {{ workflowRun.active ? '运行中' : '运行工作流' }}
           </button>
           <button
             type="button"
@@ -99,27 +97,28 @@
       </div>
       <aside class="wf-palette" aria-label="节点工具">
         <div class="wf-palette__heading">
-          <span>节点</span>
-          <small>拖入或点击添加</small>
+          <span>添加</span>
         </div>
-        <button type="button" class="wf-tool wf-tool--asset" :disabled="!apiReady" @click="openAssetPicker">
+        <button type="button" class="wf-tool wf-tool--asset" title="上传资产" :disabled="!apiReady" @click="openAssetPicker">
           <span class="wf-tool__icon"><Icon name="upload" size="sm" /></span>
-          <span><strong>上传资产</strong><small>图片 / 视频 / 音频</small></span>
+          <strong>资产</strong>
         </button>
         <button
           type="button"
           class="wf-tool wf-tool--prompt"
+          title="添加提示词节点"
           draggable="true"
           @dragstart="onPaletteDragStart($event, 'prompt')"
           @dragend="onPaletteDragEnd"
           @click="addNode('prompt')"
         >
           <span class="wf-tool__icon"><Icon name="document" size="sm" /></span>
-          <span><strong>提示词</strong><small>为下游提供描述</small></span>
+          <strong>提示词</strong>
         </button>
         <button
           type="button"
           class="wf-tool wf-tool--image"
+          title="添加图片生成节点"
           draggable="true"
           :disabled="!imageModels.length"
           @dragstart="onPaletteDragStart($event, 'image')"
@@ -127,11 +126,12 @@
           @click="addNode('image')"
         >
           <span class="wf-tool__icon"><Icon name="sparkles" size="sm" /></span>
-          <span><strong>图片生成</strong><small>参考图与尺寸参数</small></span>
+          <strong>生图</strong>
         </button>
         <button
           type="button"
           class="wf-tool wf-tool--video"
+          title="添加视频生成节点"
           draggable="true"
           :disabled="!videoModels.length"
           @dragstart="onPaletteDragStart($event, 'video')"
@@ -139,16 +139,11 @@
           @click="addNode('video')"
         >
           <span class="wf-tool__icon"><Icon name="play" size="sm" /></span>
-          <span><strong>视频生成</strong><small>首帧、参考与音频</small></span>
+          <strong>视频</strong>
         </button>
         <div class="wf-palette__divider"></div>
-        <p class="wf-palette__note">
-          从节点右侧端口拖到生成节点左侧。上游提示词和媒体会自动成为生成参数。
-        </p>
-        <a class="wf-task-link" href="/creazy-canvas/works">
+        <a class="wf-task-link" href="/creazy-canvas/works" title="查看全部任务" aria-label="查看全部任务">
           <Icon name="inbox" size="sm" />
-          查看全部任务
-          <Icon name="chevronRight" size="xs" />
         </a>
       </aside>
 
@@ -197,8 +192,9 @@
           @pane-click="onPaneClick"
           @viewport-change-end="onViewportChangeEnd"
         >
-          <Background pattern-color="#c7ced6" :gap="28" :size="1.15" />
+          <Background pattern-color="#d9dee4" :gap="28" :size="1" />
           <MiniMap
+            v-if="nodes.length > 5"
             class="wf-minimap"
             :pannable="true"
             :zoomable="true"
@@ -230,6 +226,8 @@
                   class="wf-handle wf-handle--target"
                   :class="`wf-handle--${port.signal}`"
                   :style="{ top: port.position, '--port-color': port.color }"
+                  :title="`${port.label}输入`"
+                  :aria-label="`${port.label}输入端口`"
                 />
                 <span
                   class="wf-port-label wf-port-label--target"
@@ -242,6 +240,22 @@
                   <strong>{{ slotProps.data.title }}</strong>
                   <small>{{ nodeTypeLabel(slotProps.data) }}</small>
                 </div>
+                <button
+                  v-if="slotProps.data.kind === 'image' || slotProps.data.kind === 'video'"
+                  type="button"
+                  class="wf-node__quick-run nodrag"
+                  :title="slotProps.data.status === 'failed' ? '重新运行节点' : '运行节点'"
+                  :aria-label="slotProps.data.status === 'failed' ? '重新运行节点' : '运行节点'"
+                  :disabled="slotProps.data.status === 'running' || activeNodeRuns.has(slotProps.id) || workflowRun.active || !apiReady"
+                  @pointerdown.stop
+                  @click.stop="runNode(slotProps.id)"
+                >
+                  <Icon
+                    :name="slotProps.data.status === 'running' ? 'refresh' : 'play'"
+                    size="xs"
+                    :class="{ 'animate-spin': slotProps.data.status === 'running' }"
+                  />
+                </button>
                 <span class="wf-node__status" :title="statusLabel(slotProps.data.status)">
                   <i></i>{{ statusShortLabel(slotProps.data.status) }}
                 </span>
@@ -283,7 +297,6 @@
                     <span>{{ slotProps.data.aspectRatio || '1:1' }}</span>
                     <span v-if="incomingCount(slotProps.id)">{{ incomingCount(slotProps.id) }} 个输入</span>
                   </div>
-                  <img v-if="slotProps.data.outputUrl" :src="slotProps.data.outputUrl" alt="" class="wf-node__output" />
                 </template>
 
                 <template v-else-if="slotProps.data.kind === 'video'">
@@ -293,24 +306,10 @@
                     <span>{{ slotProps.data.duration || 5 }}s</span>
                     <span>{{ slotProps.data.aspectRatio || '16:9' }}</span>
                   </div>
-                  <div v-if="slotProps.data.outputUrl" class="wf-node__video-ready">
-                    <Icon name="checkCircle" size="sm" /> 视频已生成
-                  </div>
                 </template>
 
                 <p v-if="slotProps.data.error" class="wf-node__error">{{ slotProps.data.error }}</p>
               </div>
-
-              <footer v-if="slotProps.data.kind === 'image' || slotProps.data.kind === 'video'" class="wf-node__footer">
-                <button
-                  type="button"
-                  :disabled="slotProps.data.status === 'running' || activeNodeRuns.has(slotProps.id) || workflowRun.active || !apiReady"
-                  @click.stop="runNode(slotProps.id)"
-                >
-                  <Icon :name="slotProps.data.status === 'running' ? 'refresh' : 'play'" size="xs" :class="{ 'animate-spin': slotProps.data.status === 'running' }" />
-                  {{ slotProps.data.status === 'running' ? '生成中' : slotProps.data.status === 'failed' ? '重试' : '运行' }}
-                </button>
-              </footer>
 
               <Handle
                 id="output"
@@ -319,6 +318,8 @@
                 class="wf-handle wf-handle--source"
                 :class="`wf-handle--${outputPort(slotProps.data).signal}`"
                 :style="{ '--port-color': outputPort(slotProps.data).color }"
+                :title="`${outputPort(slotProps.data).label}输出`"
+                :aria-label="`${outputPort(slotProps.data).label}输出端口`"
               />
               <span
                 class="wf-port-label wf-port-label--source"
@@ -328,7 +329,7 @@
           </template>
         </VueFlow>
 
-        <div v-if="selectionCount" class="wf-selection-toolbar" role="toolbar" aria-label="所选元素操作">
+        <div v-if="selectedNodes.length > 1 || selectedEdges.length" class="wf-selection-toolbar" role="toolbar" aria-label="所选元素操作">
           <span>已选 {{ selectedNodes.length }} 个节点<span v-if="selectedEdges.length"> · {{ selectedEdges.length }} 条连线</span></span>
           <button type="button" title="复制所选节点" :disabled="!selectedNodes.length" @click="copySelection">
             <Icon name="copy" size="sm" />
@@ -462,14 +463,20 @@
         <template v-if="selectedNode && selectedNode.data">
           <div class="wf-inspector__head">
             <div>
-              <span>节点参数</span>
+              <span>节点参数 · {{ incomingCount(selectedNode.id) }} 输入</span>
               <strong>{{ selectedNode.data.title }}</strong>
             </div>
-            <button type="button" class="wf-icon-button" title="删除节点" @click="deleteSelectedNode">
-              <Icon name="trash" size="sm" />
-            </button>
+            <div class="wf-inspector__tools">
+              <button type="button" class="wf-icon-button" title="删除节点" aria-label="删除节点" @click="deleteSelectedNode">
+                <Icon name="trash" size="sm" />
+              </button>
+              <button type="button" class="wf-icon-button" title="关闭参数栏" aria-label="关闭参数栏" @click="clearElementSelection">
+                <Icon name="x" size="sm" />
+              </button>
+            </div>
           </div>
 
+          <div class="wf-inspector__body">
           <label class="wf-field">
             <span>名称</span>
             <input :value="selectedNode.data.title" maxlength="80" @input="updateSelected({ title: inputValue($event) })" />
@@ -589,16 +596,14 @@
             </button>
           </template>
 
-          <div class="wf-input-summary">
-            <span>输入连线</span>
-            <strong>{{ incomingCount(selectedNode.id) }}</strong>
-            <small v-if="incomingCount(selectedNode.id)">上游内容会在运行时自动解析</small>
-            <small v-else>从其他节点右侧拖线到这里</small>
+          <p v-if="selectedNode.data.error" class="wf-inspector__error">{{ selectedNode.data.error }}</p>
           </div>
 
-          <p v-if="selectedNode.data.error" class="wf-inspector__error">{{ selectedNode.data.error }}</p>
-          <button
+          <div
             v-if="selectedNode.data.kind === 'image' || selectedNode.data.kind === 'video'"
+            class="wf-inspector__actions"
+          >
+          <button
             type="button"
             class="btn btn-primary wf-inspector__run"
             :disabled="selectedNode.data.status === 'running' || activeNodeRuns.has(selectedNode.id) || workflowRun.active || !apiReady"
@@ -607,6 +612,7 @@
             <Icon name="play" size="sm" class="mr-2" />
             {{ selectedNode.data.status === 'failed' ? '重新运行节点' : '运行节点' }}
           </button>
+          </div>
         </template>
 
       </aside>
@@ -871,7 +877,7 @@ let pendingNodeEdit: {
   timer: ReturnType<typeof setTimeout> | null
 } | null = null
 
-const { fitView, screenToFlowCoordinate, setViewport, viewport, zoomTo } = useVueFlow('creazy-workflow')
+const { fitView, screenToFlowCoordinate, setViewport } = useVueFlow('creazy-workflow')
 const editorHistory = useWorkflowHistory()
 const { canUndo, canRedo } = editorHistory
 
@@ -880,11 +886,8 @@ const videoModels = computed(() => props.catalog?.video_models || [])
 const apiReady = computed(() => Boolean(props.apiKeyId && props.apiKeySecret))
 const selectedNodes = computed(() => nodes.value.filter((node) => Boolean(node.selected)))
 const selectedEdges = computed(() => edges.value.filter((edge) => Boolean(edge.selected)))
-const selectionCount = computed(() => selectedNodes.value.length + selectedEdges.value.length)
 const selectedNode = computed(() => selectedNodes.value.length === 1 ? selectedNodes.value[0] : null)
 const generationNodes = computed(() => nodes.value.filter((node) => node.data.kind === 'image' || node.data.kind === 'video'))
-const currentZoom = computed(() => Math.round(viewport.value.zoom * 100))
-const selectedNodeRunning = computed(() => selectedNode.value?.data.status === 'running')
 const graphEditingLocked = computed(() => workflowRun.value.active || activeNodeRunCount.value > 0)
 const canRunSelected = computed(() => {
   const data = selectedNode.value?.data
@@ -1045,8 +1048,8 @@ const defaultEdgeOptions = {
   markerEnd: {
     type: MarkerType.ArrowClosed,
     color: SIGNAL_META.data.color,
-    width: 20,
-    height: 20,
+    width: 12,
+    height: 12,
   },
   interactionWidth: 24,
 }
@@ -1269,8 +1272,8 @@ function makeEdge(source: string, target: string, nodeList = nodes.value, id = u
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: meta.color,
-      width: 20,
-      height: 20,
+      width: 12,
+      height: 12,
     },
     interactionWidth: 24,
     data: {
@@ -2034,14 +2037,22 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
     let response: any
     let usedAsync = Boolean(model.async)
     try {
-      response = await generateImage(props.apiKeySecret, payload as any, { async: usedAsync, edit: usableRefs.length > 0 })
+      response = await generateImage(props.apiKeySecret, payload as any, {
+        async: usedAsync,
+        edit: usableRefs.length > 0,
+        workId,
+      })
     } catch (error: any) {
       const status = Number(error?.status || 0)
       const message = String(error?.message || '')
       if (!usedAsync || !(status === 404 || /async.*not enabled|model not found|unknown model/i.test(message))) throw error
       usedAsync = false
       gatewayType = 'image_sync'
-      response = await generateImage(props.apiKeySecret, payload as any, { async: false, edit: usableRefs.length > 0 })
+      response = await generateImage(props.apiKeySecret, payload as any, {
+        async: false,
+        edit: usableRefs.length > 0,
+        workId,
+      })
     }
     remoteId = String(response.task_id || response.id || '')
     if (remoteId) {
@@ -2216,7 +2227,7 @@ async function runVideoNode(node: WorkflowNode): Promise<boolean> {
     }
     if (Object.keys(guidances).length) payload.guidances = guidances
 
-    let job: any = await generateVideo(props.apiKeySecret, payload as any)
+    let job: any = await generateVideo(props.apiKeySecret, payload as any, { workId })
     remoteId = String(job.id || job.job_id || '')
     if (remoteId) {
       await updateWork(workId, { status: 'running', gateway_type: 'video_job', gateway_remote_id: remoteId })
@@ -2657,12 +2668,34 @@ function onViewportChangeEnd(viewport: ViewportTransform) {
   scheduleSave()
 }
 
-async function fitCanvas() {
-  await fitView({ padding: 0.18, duration: 320, minZoom: 0.45, maxZoom: 1.05 })
+async function revealSelectedNodeBesideInspector() {
+  if (!selectedNode.value || window.matchMedia('(max-width: 900px)').matches) return
+  await nextTick()
+  const stage = stageEl.value
+  const inspector = stage?.parentElement?.querySelector<HTMLElement>('.wf-inspector')
+  const selected = stage?.querySelector<HTMLElement>('.vue-flow__node.selected')
+  if (!stage || !inspector || !selected) return
+
+  const stageRect = stage.getBoundingClientRect()
+  const inspectorRect = inspector.getBoundingClientRect()
+  const selectedRect = selected.getBoundingClientRect()
+  const rightOverlap = selectedRect.right - (inspectorRect.left - 24)
+  const leftOverlap = (stageRect.left + 24) - selectedRect.left
+  const shiftX = rightOverlap > 0 ? -rightOverlap : leftOverlap > 0 ? leftOverlap : 0
+  if (Math.abs(shiftX) < 1) return
+
+  const nextViewport = {
+    ...savedViewport.value,
+    x: savedViewport.value.x + shiftX,
+  }
+  savedViewport.value = nextViewport
+  await setViewport(nextViewport, {
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160,
+  })
 }
 
-async function resetZoom() {
-  await zoomTo(1, { duration: 240 })
+async function fitCanvas() {
+  await fitView({ padding: 0.18, duration: 320, minZoom: 0.45, maxZoom: 1.05 })
 }
 
 async function undoEditor() {
@@ -2909,8 +2942,14 @@ function autoLayout() {
   graph.setGraph({ rankdir: 'LR', ranksep: 104, nodesep: 52, marginx: 56, marginy: 56 })
   graph.setDefaultEdgeLabel(() => ({}))
   for (const node of nodes.value) {
-    const height = node.data.kind === 'asset' || node.data.kind === 'result' ? 194 : node.data.kind === 'prompt' ? 132 : 170
-    graph.setNode(node.id, { width: 248, height })
+    const wrapper = Array.from(stageEl.value?.querySelectorAll<HTMLElement>('.vue-flow__node') || [])
+      .find((element) => element.dataset.id === node.id)
+    const element = wrapper?.querySelector<HTMLElement>('.wf-node')
+    const fallbackHeight = node.data.kind === 'asset' || node.data.kind === 'result' ? 214 : 116
+    graph.setNode(node.id, {
+      width: element?.offsetWidth || 236,
+      height: element?.offsetHeight || fallbackHeight,
+    })
   }
   for (const edge of edges.value) graph.setEdge(edge.source, edge.target)
   dagre.layout(graph)
@@ -3609,6 +3648,13 @@ watch(
   },
 )
 
+watch(
+  () => selectedNode.value?.id || '',
+  (nodeId) => {
+    if (nodeId) void revealSelectedNodeBesideInspector()
+  },
+)
+
 onMounted(async () => {
   document.addEventListener('keydown', onWorkspaceKeydown)
   await loadDocument()
@@ -3635,29 +3681,34 @@ onBeforeUnmount(() => {
 .wf-shell {
   --wf-ink: #20262e;
   --wf-muted: #687380;
-  --wf-line: #d3d9e0;
-  --wf-paper: #f6f7f8;
-  --wf-stage: #e7eaee;
+  --wf-line: #d9dee5;
+  --wf-paper: #f8f9fa;
+  --wf-stage: #f2f4f6;
   --wf-asset: #0f766e;
   --wf-prompt: #a16207;
   --wf-image: #2563eb;
   --wf-video: #7c3aed;
   --wf-result: #059669;
-  min-height: calc(100vh - 8.5rem);
+  height: calc(100dvh - 114px);
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   color: var(--wf-ink);
-  background: #f8fafc;
+  background: #fbfcfd;
   font-family: "IBM Plex Sans", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
 }
 
 .wf-commandbar {
-  min-height: 52px;
-  padding: 7px 12px;
+  min-height: 48px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--wf-line);
-  background: rgba(250, 251, 252, 0.98);
+  background: #fbfcfd;
 }
 
 .wf-conflict-bar {
@@ -3690,7 +3741,6 @@ onBeforeUnmount(() => {
 .wf-task-link,
 .wf-node__head,
 .wf-node__chips,
-.wf-node__footer,
 .wf-inspector__head,
 .wf-toggle,
 .wf-resolution-preview {
@@ -3777,35 +3827,6 @@ onBeforeUnmount(() => {
 
 .wf-edit-group .wf-icon-button:last-child { border-right: 0; }
 
-.wf-zoom-group {
-  height: 32px;
-  display: inline-flex;
-  align-items: stretch;
-  overflow: hidden;
-  border: 1px solid #d7dde4;
-  border-radius: 5px;
-  background: #fff;
-}
-
-.wf-zoom-group .wf-icon-button {
-  border: 0;
-  border-left: 1px solid #e1e5ea;
-  border-radius: 0;
-}
-
-.wf-zoom-readout {
-  min-width: 48px;
-  padding: 0 8px;
-  border: 0;
-  background: #fff;
-  color: #4f5b67;
-  font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.wf-zoom-readout:hover { background: #f2f4f6; color: #20262e; }
-
 .wf-icon-button {
   width: 32px;
   height: 32px;
@@ -3860,11 +3881,11 @@ onBeforeUnmount(() => {
 
 .wf-workspace {
   position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 156px minmax(420px, 1fr);
-  min-height: calc(100vh - 12.2rem);
-  height: calc(100vh - 12.2rem);
-  transition: grid-template-columns 180ms ease;
+  grid-template-columns: 76px minmax(520px, 1fr);
+  overflow: hidden;
 }
 
 .wf-workspace--loading > :not(.wf-loading-state) {
@@ -3886,48 +3907,42 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.wf-workspace--inspecting { grid-template-columns: 156px minmax(420px, 1fr) 286px; }
+.wf-workspace--inspecting { grid-template-columns: 76px minmax(520px, 1fr); }
 
 .wf-palette,
 .wf-inspector {
   min-width: 0;
   overflow-y: auto;
-  background: #f8fafc;
+  background: #fbfcfd;
 }
 
 .wf-palette {
-  padding: 14px 10px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   border-right: 1px solid var(--wf-line);
 }
 
-.wf-palette__heading {
-  margin: 0 4px 13px;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
+.wf-palette__heading { margin: 2px 0 8px; text-align: center; }
 
 .wf-palette__heading span,
 .wf-inspector__head span {
-  color: #475569;
-  font-size: 10px;
+  color: #778391;
+  font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.wf-palette__heading small,
-.wf-tool small {
-  color: #94a3b8;
-  font-size: 10px;
-}
-
 .wf-tool {
-  width: 100%;
-  min-height: 48px;
-  margin-bottom: 6px;
-  padding: 7px;
-  gap: 8px;
-  text-align: left;
+  width: 58px;
+  min-height: 55px;
+  margin-bottom: 4px;
+  padding: 6px 4px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
@@ -3936,39 +3951,35 @@ onBeforeUnmount(() => {
 
 .wf-tool:hover:not(:disabled) { border-color: #cfd6de; background: #fff; }
 .wf-tool:disabled { opacity: 0.45; cursor: not-allowed; }
-.wf-tool > span:last-child { min-width: 0; display: grid; gap: 2px; }
-.wf-tool strong { font-size: 11px; }
-.wf-tool__icon { width: 27px; height: 27px; display: grid; place-items: center; flex: 0 0 auto; color: #fff; }
+.wf-tool strong { font-size: 10px; line-height: 1.1; white-space: nowrap; }
+.wf-tool__icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 5px; color: #fff; }
 .wf-tool--asset .wf-tool__icon { background: var(--wf-asset); }
 .wf-tool--prompt .wf-tool__icon { background: var(--wf-prompt); }
 .wf-tool--image .wf-tool__icon { background: var(--wf-image); }
 .wf-tool--video .wf-tool__icon { background: var(--wf-video); }
 
-.wf-palette__divider { height: 1px; margin: 16px 4px 12px; background: var(--wf-line); }
-.wf-palette__note { margin: 0 4px; color: #64748b; font-size: 10px; line-height: 1.55; }
-.wf-task-link { margin: 16px 4px 0; gap: 6px; color: #475569; font-size: 11px; text-decoration: none; }
-.wf-task-link svg:last-child { margin-left: auto; }
-.wf-task-link:hover { color: #1d4ed8; }
+.wf-palette__divider { width: 34px; height: 1px; margin: 8px 0; background: var(--wf-line); }
+.wf-task-link { width: 34px; height: 34px; margin-top: auto; justify-content: center; border-radius: 5px; color: #687584; text-decoration: none; }
+.wf-task-link:hover { background: #eef2f6; color: #1d4ed8; }
 
 .wf-stage {
   position: relative;
   min-width: 0;
   overflow: hidden;
   background: var(--wf-stage);
-  box-shadow: inset 0 0 0 1px rgba(84, 96, 110, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(84, 96, 110, 0.04);
 }
 .wf-stage--dragging { box-shadow: inset 0 0 0 2px #0f766e; }
 .wf-flow { width: 100%; height: 100%; }
 
 .wf-node {
   position: relative;
-  width: 248px;
+  width: 236px;
   overflow: visible;
-  border: 1px solid #cbd5e1;
-  border-left: 4px solid var(--node-color, #64748b);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.99);
-  box-shadow: 0 7px 18px -12px rgba(32, 38, 46, 0.48);
+  border: 1px solid #cfd6de;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 12px -9px rgba(32, 38, 46, 0.42);
 }
 
 .wf-node--asset { --node-color: var(--wf-asset); }
@@ -3976,12 +3987,17 @@ onBeforeUnmount(() => {
 .wf-node--image { --node-color: var(--wf-image); }
 .wf-node--video { --node-color: var(--wf-video); }
 .wf-node--result { --node-color: var(--wf-result); }
-.wf-node--selected { border-color: var(--node-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--node-color) 20%, transparent), 0 14px 26px -18px rgba(32, 38, 46, 0.7); }
-.wf-node--status-running { box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2), 0 14px 28px -18px rgba(37, 99, 235, 0.62); }
-.wf-node--status-failed { border-color: #dc2626; }
+.wf-node--selected {
+  border-color: #8fb2ef;
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  box-shadow: 0 10px 22px -16px rgba(37, 99, 235, 0.55);
+}
+.wf-node--status-running { border-color: #91b1e8; }
+.wf-node--status-failed { border-color: #ef9a9a; }
 
 .wf-node__head {
-  min-height: 46px;
+  min-height: 44px;
   padding: 7px 9px 7px 10px;
   gap: 8px;
   cursor: grab;
@@ -3989,25 +4005,45 @@ onBeforeUnmount(() => {
 }
 
 .wf-node__head:active { cursor: grabbing; }
-.wf-node__type-icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--node-color) 12%, white); color: var(--node-color); }
+.wf-node__type-icon { width: 27px; height: 27px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 4px; background: color-mix(in srgb, var(--node-color) 10%, white); color: var(--node-color); }
 .wf-node__head > div { min-width: 0; display: grid; gap: 1px; }
-.wf-node__head strong { max-width: 128px; overflow: hidden; color: #20262e; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.wf-node__head small { color: #84909d; font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace; font-size: 9px; }
-.wf-node__status { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: #687380; font-size: 10px; }
+.wf-node__head strong { max-width: 118px; overflow: hidden; color: #20262e; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.wf-node__head small { color: #84909d; font-size: 10px; }
+.wf-node__quick-run {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #cfd7e0;
+  border-radius: 4px;
+  background: #fff;
+  color: #475569;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.wf-node:hover .wf-node__quick-run,
+.wf-node--selected .wf-node__quick-run,
+.wf-node:focus-within .wf-node__quick-run { opacity: 1; pointer-events: auto; }
+.wf-node__quick-run:hover:not(:disabled) { border-color: #8aa9df; color: #1d4ed8; }
+.wf-node__quick-run:disabled { color: #a8b1bc; background: #f5f7f9; }
+.wf-node__status { margin-left: 2px; display: inline-flex; align-items: center; gap: 4px; color: #687380; font-size: 9px; white-space: nowrap; }
+.wf-node__head > div + .wf-node__status { margin-left: auto; }
 .wf-node__status i { width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; }
+.wf-node--status-idle .wf-node__status { display: none; }
 .wf-node--status-running .wf-node__status i { background: #2563eb; animation: wf-pulse 1.1s infinite; }
 .wf-node--status-succeeded .wf-node__status i { background: #059669; }
 .wf-node--status-failed .wf-node__status i { background: #dc2626; }
 .wf-node--status-canceled .wf-node__status i { background: #d97706; }
 
-.wf-node__body { min-height: 72px; padding: 10px 11px; }
-.wf-node__prompt { max-height: 76px; margin: 0; overflow: hidden; color: #3e4955; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+.wf-node__body { min-height: 70px; padding: 10px 11px; }
+.wf-node__prompt { max-height: 72px; margin: 0; overflow: hidden; color: #3e4955; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
 .wf-node__prompt--empty { color: #94a3b8; }
 .wf-node__model { margin: 0 0 9px; overflow: hidden; color: #303a45; font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-node__chips { gap: 5px; flex-wrap: wrap; }
 .wf-node__chips span { padding: 3px 5px; border: 1px solid #dce3ea; border-radius: 3px; background: #f8fafc; color: #64748b; font-size: 9px; }
-.wf-node__output { width: 100%; aspect-ratio: 16 / 9; margin-top: 9px; display: block; object-fit: cover; background: #e2e8f0; }
-.wf-node__video-ready { margin-top: 9px; display: flex; align-items: center; gap: 6px; color: #047857; font-size: 10px; }
 .wf-node__error { margin: 8px 0 0; max-height: 45px; overflow: hidden; color: #b91c1c; font-size: 9px; line-height: 1.45; }
 
 .wf-node__media { width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; background: #111827; }
@@ -4018,12 +4054,9 @@ onBeforeUnmount(() => {
 .wf-node__file { margin: 7px 0 0; overflow: hidden; color: #334155; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-node__meta { color: #94a3b8; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 8px; }
 
-.wf-node__footer { min-height: 34px; justify-content: flex-end; padding: 5px 9px; border-top: 1px solid #e2e7ec; background: #f8f9fa; }
-.wf-node__footer button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--node-color); font-size: 10px; font-weight: 700; }
-.wf-node__footer button:disabled { color: #94a3b8; }
 .wf-handle {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   z-index: 8;
   border: 2px solid #fff;
   background: var(--port-color, var(--node-color));
@@ -4049,10 +4082,16 @@ onBeforeUnmount(() => {
   line-height: 1;
   pointer-events: none;
   white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
 }
 
-.wf-port-label--target { left: -15px; transform: translate(-100%, -50%); }
-.wf-port-label--source { right: -15px; top: 50%; transform: translate(100%, -50%); }
+.wf-node:hover .wf-port-label,
+.wf-node--selected .wf-port-label,
+.wf-node:focus-within .wf-port-label { opacity: 1; visibility: visible; }
+.wf-port-label--target { left: -9px; transform: translate(-100%, -50%); }
+.wf-port-label--source { right: -9px; top: 50%; transform: translate(100%, -50%); }
 
 .wf-drop-overlay {
   position: absolute;
@@ -4228,17 +4267,38 @@ onBeforeUnmount(() => {
 :deep(.vue-flow__edge.selected .vue-flow__edge-path) { filter: drop-shadow(0 0 2px rgba(37, 99, 235, 0.42)); }
 
 .wf-inspector {
-  padding: 14px 13px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 36;
+  width: 320px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   border-left: 1px solid var(--wf-line);
+  background: #fbfcfd;
+  box-shadow: -12px 0 28px -24px rgba(15, 23, 42, 0.5);
   animation: wf-inspector-in 150ms ease-out;
 }
 
-.wf-inspector__head { justify-content: space-between; margin-bottom: 16px; }
+.wf-inspector__head {
+  min-height: 62px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e1e6eb;
+  background: #fff;
+}
 .wf-inspector__head > div { min-width: 0; display: grid; gap: 3px; }
 .wf-inspector__head strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.wf-field { display: grid; gap: 6px; margin-bottom: 13px; }
+.wf-inspector__tools { display: flex; align-items: center; gap: 5px; }
+.wf-inspector__tools .wf-icon-button { width: 30px; height: 30px; }
+.wf-inspector__body { min-height: 0; overflow-y: auto; padding: 14px; }
+.wf-inspector__actions { padding: 11px 14px; border-top: 1px solid #dde3e9; background: #f6f8fa; }
+.wf-field { display: grid; gap: 6px; margin-bottom: 14px; }
 .wf-field > span,
-.wf-toggle span { color: #475569; font-size: 10px; font-weight: 700; }
+.wf-toggle span { color: #475569; font-size: 11px; font-weight: 700; }
 .wf-field input,
 .wf-field textarea,
 .wf-field select {
@@ -4247,10 +4307,10 @@ onBeforeUnmount(() => {
   border-radius: 5px;
   background: #fff;
   color: #111827;
-  font-size: 11px;
+  font-size: 12px;
 }
 .wf-field input,
-.wf-field select { height: 34px; padding: 0 9px; }
+.wf-field select { height: 36px; padding: 0 9px; }
 .wf-field textarea { min-height: 86px; padding: 8px 9px; resize: vertical; line-height: 1.5; }
 .wf-field input:focus,
 .wf-field textarea:focus,
@@ -4271,17 +4331,15 @@ onBeforeUnmount(() => {
 .wf-asset-details dt { color: #64748b; font-size: 10px; }
 .wf-asset-details dd { margin: 0; overflow: hidden; color: #1f2937; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-inspector__wide-action { width: 100%; justify-content: center; margin-bottom: 14px; }
-.wf-input-summary { margin-top: 8px; padding: 10px; display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; border: 1px solid #d8e0e8; background: #fff; }
-.wf-input-summary span { color: #475569; font-size: 10px; font-weight: 700; }
-.wf-input-summary strong { color: #1d4ed8; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
-.wf-input-summary small { grid-column: 1 / -1; color: #94a3b8; font-size: 9px; }
 .wf-inspector__error { margin: 12px 0 0; padding: 8px; border-left: 3px solid #dc2626; background: #fef2f2; color: #b91c1c; font-size: 10px; line-height: 1.5; }
-.wf-inspector__run { width: 100%; margin-top: 14px; justify-content: center; }
+.wf-inspector__run { width: 100%; margin: 0; justify-content: center; }
 :deep(.vue-flow__connection-path) { stroke: #52606d; stroke-width: 2; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
 :deep(.vue-flow__edge-interaction) { stroke-width: 24; }
 :deep(.wf-minimap) { right: 10px; bottom: 10px; width: 136px; height: 88px; border: 1px solid #cbd2da; border-radius: 4px; background: rgba(250, 251, 252, 0.96); box-shadow: 0 6px 20px rgba(32, 38, 46, 0.08); }
 :deep(.wf-controls) { left: 10px; bottom: 10px; overflow: hidden; border: 1px solid #cbd2da; border-radius: 4px; box-shadow: 0 5px 16px rgba(32, 38, 46, 0.08); }
 :deep(.wf-controls button) { width: 28px; height: 28px; border-bottom-color: #e2e8f0; background: #fff; }
+.wf-workspace--inspecting .wf-run-progress { right: 332px; }
+.wf-workspace--inspecting :deep(.wf-minimap) { right: 332px; }
 
 @keyframes wf-inspector-in {
   from { opacity: 0; transform: translateX(8px); }
@@ -4294,35 +4352,39 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1180px) {
-  .wf-workspace { grid-template-columns: 144px minmax(380px, 1fr); }
-  .wf-workspace--inspecting { grid-template-columns: 144px minmax(380px, 1fr) 272px; }
-  .wf-palette { padding-inline: 9px; }
-  .wf-inspector { padding-inline: 11px; }
+  .wf-workspace,
+  .wf-workspace--inspecting { grid-template-columns: 68px minmax(440px, 1fr); }
+  .wf-palette { padding-inline: 5px; }
+  .wf-tool { width: 56px; }
+  .wf-inspector { width: 300px; }
+  .wf-workspace--inspecting .wf-run-progress { right: 312px; }
+  .wf-workspace--inspecting :deep(.wf-minimap) { right: 312px; }
 }
 
 @media (max-width: 900px) {
-  .wf-shell { min-height: auto; }
+  .wf-shell { height: auto; min-height: auto; overflow: visible; }
   .wf-commandbar { align-items: flex-start; flex-wrap: wrap; }
   .wf-conflict-bar { align-items: flex-start; flex-direction: column; }
   .wf-conflict-bar > div { width: 100%; justify-content: flex-end; }
   .wf-document { width: 100%; }
   .wf-document__name { width: min(60vw, 360px); }
   .wf-commandbar__actions { width: 100%; justify-content: flex-end; }
-  .wf-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: 1fr; grid-template-rows: auto minmax(560px, 68vh) auto; }
+  .wf-workspace,
+  .wf-workspace--inspecting { height: auto; min-height: 0; flex: none; overflow: visible; display: grid; grid-template-columns: 1fr; grid-template-rows: auto minmax(560px, 68vh) auto; }
   .wf-palette { display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 7px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--wf-line); }
   .wf-palette__heading,
   .wf-palette__divider,
-  .wf-palette__note,
   .wf-task-link { display: none; }
-  .wf-tool { margin: 0; }
-  .wf-inspector { min-height: 360px; border-left: 0; border-top: 1px solid var(--wf-line); }
+  .wf-tool { width: 100%; min-height: 46px; margin: 0; flex-direction: row; justify-content: flex-start; text-align: left; }
+  .wf-inspector { position: relative; inset: auto; z-index: auto; width: auto; min-height: 360px; border-left: 0; border-top: 1px solid var(--wf-line); box-shadow: none; }
+  .wf-workspace--inspecting .wf-run-progress { right: 10px; }
+  .wf-workspace--inspecting :deep(.wf-minimap) { right: 10px; }
   .wf-selection-toolbar { max-width: calc(100% - 28px); }
   .wf-run-progress { top: 10px; right: 10px; }
 }
 
 @media (max-width: 560px) {
   .wf-save-state { display: none; }
-  .wf-zoom-group,
   .wf-commandbar__actions > .wf-icon-button,
   .wf-commandbar__actions .btn-secondary { display: none; }
   .wf-commandbar__actions { align-items: center; }
@@ -4333,7 +4395,6 @@ onBeforeUnmount(() => {
   .wf-palette { grid-template-columns: repeat(4, minmax(78px, 1fr)); }
   .wf-tool { justify-content: center; padding-inline: 4px; gap: 5px; }
   .wf-tool strong { font-size: 10px; white-space: nowrap; }
-  .wf-tool small { display: none; }
   .wf-selection-toolbar { bottom: 10px; }
   .wf-selection-toolbar > span { max-width: 124px; overflow: hidden; text-overflow: ellipsis; }
   .wf-command-overlay { padding: 24px 10px 10px; }

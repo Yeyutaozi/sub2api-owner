@@ -38,6 +38,7 @@ type OpenAIGatewayHandler struct {
 	securityAuditCoordinator   *securityaudit.Coordinator
 	grokMediaEligibilityProber grokMediaEligibilityProber
 	seedanceMediaService       *service.SeedanceMediaService
+	creazyCanvasService        creazyCanvasGatewayWorkService
 	opsService                 *service.OpsService
 	concurrencyHelper          *ConcurrencyHelper
 	imageLimiter               *imageConcurrencyLimiter

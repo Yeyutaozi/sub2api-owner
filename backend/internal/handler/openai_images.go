@@ -157,6 +157,18 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 
+	canvasWork := h.beginCreazyCanvasGatewayWork(c, creazyCanvasGatewayWorkInput{
+		UserID:      subject.UserID,
+		APIKeyID:    apiKey.ID,
+		Kind:        service.CreazyCanvasWorkKindImage,
+		PublicModel: clientRequestModel,
+		Prompt:      parsed.Prompt,
+		ParamsJSON:  creazyCanvasImageWorkParams(parsed),
+		GatewayType: service.CreazyCanvasGatewayImageSync,
+		Status:      service.CreazyCanvasWorkStatusRunning,
+	})
+	defer h.failCreazyCanvasGatewayWork(c, canvasWork, "Image generation failed")
+
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	requestCtx := service.WithOpenAIImageGenerationIntent(c.Request.Context())
 
@@ -425,6 +437,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
 		)
+		mediaURL := ""
+		if result != nil {
+			mediaURL = firstCreazyCanvasMediaURL(result.ImageOutputURLs)
+		}
+		h.succeedCreazyCanvasGatewayWork(c, canvasWork, "", mediaURL, creazyCanvasImageMimeType(parsed))
 		return
 	}
 }

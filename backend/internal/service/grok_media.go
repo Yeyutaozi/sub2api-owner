@@ -437,6 +437,10 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	}
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
+	imageOutputURLs := []string(nil)
+	if endpoint == GrokMediaEndpointImagesGenerations || endpoint == GrokMediaEndpointImagesEdits {
+		imageOutputURLs = collectOpenAIImageDownloadURLs(respBody)
+	}
 	return &OpenAIForwardResult{
 		RequestID:            requestIDHeader,
 		ResponseID:           usage.ResponseID,
@@ -450,6 +454,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		ImageSize:            usage.ImageSize,
 		ImageInputSize:       usage.ImageInputSize,
 		ImageOutputSizes:     usage.ImageOutputSizes,
+		ImageOutputURLs:      imageOutputURLs,
 		VideoCount:           usage.VideoCount,
 		VideoResolution:      usage.VideoResolution,
 		VideoDurationSeconds: usage.VideoDurationSeconds,

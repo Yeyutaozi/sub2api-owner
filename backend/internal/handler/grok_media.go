@@ -160,6 +160,21 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		return
 	}
 
+	var canvasImageWork *creazyCanvasGatewayWorkTracker
+	if endpoint == service.GrokMediaEndpointImagesGenerations || endpoint == service.GrokMediaEndpointImagesEdits {
+		canvasImageWork = h.beginCreazyCanvasGatewayWork(c, creazyCanvasGatewayWorkInput{
+			UserID:      subject.UserID,
+			APIKeyID:    apiKey.ID,
+			Kind:        service.CreazyCanvasWorkKindImage,
+			PublicModel: requestModel,
+			Prompt:      requestInfo.Prompt,
+			ParamsJSON:  creazyCanvasGrokMediaParams(endpoint, requestInfo),
+			GatewayType: service.CreazyCanvasGatewayImageSync,
+			Status:      service.CreazyCanvasWorkStatusRunning,
+		})
+		defer h.failCreazyCanvasGatewayWork(c, canvasImageWork, "Image generation failed")
+	}
+
 	sessionSeed := body
 	if len(sessionSeed) == 0 && strings.TrimSpace(requestID) != "" {
 		sessionSeed = []byte(requestID)
@@ -406,6 +421,26 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		if shouldRecordGrokMediaUsage(endpoint, requestModel) {
 			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
+		}
+		if endpoint == service.GrokMediaEndpointImagesGenerations || endpoint == service.GrokMediaEndpointImagesEdits {
+			h.succeedCreazyCanvasGatewayWork(c, canvasImageWork, "", firstCreazyCanvasMediaURL(result.ImageOutputURLs), "")
+		} else if endpoint == service.GrokMediaEndpointVideosGenerations || endpoint == service.GrokMediaEndpointVideosEdits || endpoint == service.GrokMediaEndpointVideosExtensions {
+			if remoteID := strings.TrimSpace(result.ResponseID); remoteID != "" && h.creazyCanvasService != nil {
+				ctx, cancel := creazyCanvasWorkWriteContext(c.Request.Context())
+				_, syncErr := h.creazyCanvasService.SyncAcceptedVideoWork(ctx, service.SyncAcceptedCreazyCanvasVideoInput{
+					UserID:           subject.UserID,
+					APIKey:           apiKey,
+					AssociatedWorkID: creazyCanvasCorrelationWorkID(c.GetHeader(creazyCanvasWorkIDHeader)),
+					PublicModel:      requestModel,
+					Prompt:           requestInfo.Prompt,
+					ParamsJSON:       creazyCanvasGrokMediaParams(endpoint, requestInfo),
+					GatewayRemoteID:  remoteID,
+				})
+				cancel()
+				if syncErr != nil {
+					reqLog.Warn("grok_media.canvas_work_sync_failed", zap.String("request_id", remoteID), zap.Error(syncErr))
+				}
+			}
 		}
 		reqLog.Debug("grok_media.request_completed",
 			zap.Int64("account_id", account.ID),

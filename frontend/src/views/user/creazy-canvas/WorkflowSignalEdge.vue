@@ -24,7 +24,6 @@
         class="wf-signal-edge__label nodrag nopan"
         :style="labelPosition"
       >
-        <i :style="{ background: color }"></i>
         {{ data?.label || '数据' }}
       </div>
     </EdgeLabelRenderer>
@@ -59,8 +58,8 @@ const pathData = computed(() =>
     targetX: props.targetX,
     targetY: props.targetY,
     targetPosition: props.targetPosition,
-    borderRadius: 18,
-    offset: 28,
+    borderRadius: 11,
+    offset: 20,
   }),
 )
 
@@ -71,11 +70,11 @@ const color = computed(() => props.data?.color || '#52606d')
 const active = computed(
   () => props.sourceNode?.data?.status === 'running' || props.targetNode?.data?.status === 'running',
 )
-const showLabel = computed(() => Boolean(props.selected || active.value || viewport.value.zoom >= 0.58))
+const showLabel = computed(() => Boolean(props.selected || active.value || viewport.value.zoom >= 1.15))
 const pathStyle = computed<CSSProperties>(() => ({
   '--edge-color': color.value,
-  stroke: color.value,
-  strokeWidth: props.selected ? 2.8 : 2.1,
+  stroke: props.selected || active.value ? color.value : '#7b8794',
+  strokeWidth: props.selected ? 2.3 : active.value ? 2 : 1.55,
   strokeDasharray: props.data?.dashed ? '7 5' : undefined,
 } as CSSProperties))
 const labelPosition = computed<CSSProperties>(() => ({
@@ -86,14 +85,14 @@ const labelPosition = computed<CSSProperties>(() => ({
 <style scoped>
 .wf-signal-edge__rail {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.92);
-  stroke-width: 6;
+  stroke: rgba(255, 255, 255, 0.68);
+  stroke-width: 4;
   vector-effect: non-scaling-stroke;
 }
 
 .wf-signal-edge__path {
   fill: none;
-  opacity: 0.9;
+  opacity: 0.62;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -115,27 +114,19 @@ const labelPosition = computed<CSSProperties>(() => ({
   z-index: 4;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 20px;
-  padding: 0 7px;
+  height: 18px;
+  padding: 0 6px;
   border: 1px solid #d8dee6;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 2px 8px rgba(37, 45, 55, 0.08);
+  background: rgba(255, 255, 255, 0.94);
   color: #495463;
   font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
   pointer-events: none;
   white-space: nowrap;
-}
-
-.wf-signal-edge__label i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
 }
 
 @keyframes wf-signal-flow {

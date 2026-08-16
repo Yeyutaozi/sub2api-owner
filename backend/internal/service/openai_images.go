@@ -736,7 +736,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, nonStreamURLs, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
 		if err != nil {
 			return nil, err
 		}
@@ -757,6 +757,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageSize:        parsed.SizeTier,
 			ImageInputSize:   parsed.Size,
 			ImageOutputSizes: nonStreamSizes,
+			ImageOutputURLs:  nonStreamURLs,
 		}, nil
 	}
 }
@@ -1141,10 +1142,10 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
-		return OpenAIUsage{}, 0, nil, err
+		return OpenAIUsage{}, 0, nil, nil, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
@@ -1156,7 +1157,37 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 	c.Data(resp.StatusCode, contentType, body)
 
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
-	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
+	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), collectOpenAIImageDownloadURLs(body), nil
+}
+
+func collectOpenAIImageDownloadURLs(body []byte) []string {
+	urls := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	appendURL := func(raw string) {
+		mediaURL := strings.TrimSpace(raw)
+		lower := strings.ToLower(mediaURL)
+		if mediaURL == "" || (!strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "http://")) {
+			return
+		}
+		if _, ok := seen[mediaURL]; ok {
+			return
+		}
+		seen[mediaURL] = struct{}{}
+		urls = append(urls, mediaURL)
+	}
+	if gjson.ValidBytes(body) {
+		for _, arrayPath := range []string{"data", "images", "output", "result.data", "result.images"} {
+			for _, item := range gjson.GetBytes(body, arrayPath).Array() {
+				for _, field := range []string{"url", "image_url", "download_url"} {
+					appendURL(item.Get(field).String())
+				}
+			}
+		}
+	}
+	for _, pointer := range collectOpenAIImagePointers(body) {
+		appendURL(pointer.DownloadURL)
+	}
+	return urls
 }
 
 func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(

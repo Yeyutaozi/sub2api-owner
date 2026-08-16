@@ -330,6 +330,15 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			seedanceError(c, http.StatusBadGateway, "task_binding_failed", "Seedance task was accepted upstream but could not be registered locally")
 			return
 		}
+		if _, syncErr := h.syncAcceptedSeedanceVideoWork(c, apiKey, subject.UserID, requestInfo, result.ResponseID); syncErr != nil {
+			// The upstream task and local binding are already durable. Work-board
+			// synchronization is best effort and must not turn acceptance into a 5xx.
+			reqLog.Warn("seedance.canvas_work_sync_failed",
+				zap.Error(syncErr),
+				zap.String("task_id", result.ResponseID),
+				zap.Int64("api_key_id", apiKey.ID),
+			)
+		}
 		if err := recordSeedanceUsage(c, h, apiKey, subscription, account, result, requestInfo.Model, body); err != nil {
 			reqLog.Error("seedance.record_usage_failed",
 				zap.Error(err),
@@ -963,8 +972,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		defer accountRelease()
 	}
 	clientRange := strings.TrimSpace(c.GetHeader("Range"))
+	streamPlayback := content && strings.TrimSpace(c.Query("canvas_playback")) == "1"
 	var archiveLease *service.SeedanceOutputArchiveLease
-	if content && h.seedanceMediaService != nil {
+	if content && h.seedanceMediaService != nil && !streamPlayback {
 		if lease, won := h.seedanceMediaService.BeginOutputArchive(c.Request.Context(), owner, taskID); won {
 			archiveLease = lease
 			defer lease.Close()

@@ -49,7 +49,11 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
 	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
 	release := make(chan struct{})
-	h := &AsyncImageHandler{tasks: tasks}
+	canvasWorks := &creazyCanvasGatewayWorkServiceStub{}
+	h := &AsyncImageHandler{
+		tasks:  tasks,
+		openAI: &OpenAIGatewayHandler{creazyCanvasService: canvasWorks},
+	}
 	h.execute = func(_ string, c *gin.Context) {
 		<-release
 		c.JSON(http.StatusOK, gin.H{"created": 123, "data": []gin.H{{"url": "https://example.test/image.png"}}})
@@ -64,6 +68,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
+		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7, Concurrency: 1})
 		c.Next()
 	})
 	router.POST("/v1/images/generations/async", h.Submit)
@@ -87,6 +92,10 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	require.Equal(t, service.ImageTaskStatusProcessing, accepted.Status)
 	require.Equal(t, "/v1/images/tasks/"+accepted.TaskID, accepted.PollURL)
 	require.Equal(t, accepted.PollURL, w.Header().Get("Location"))
+	require.Len(t, canvasWorks.createCalls, 1)
+	require.Equal(t, service.CreazyCanvasWorkKindImage, canvasWorks.createCalls[0].Kind)
+	require.Equal(t, service.CreazyCanvasGatewayImageTask, canvasWorks.createCalls[0].GatewayType)
+	require.Equal(t, accepted.TaskID, canvasWorks.createCalls[0].GatewayRemoteID)
 
 	// The detached background request must survive completion of/cancellation
 	// from the short submission request.
@@ -95,6 +104,9 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	require.Eventually(t, func() bool {
 		got, err := tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 7, APIKeyID: 9}, accepted.TaskID)
 		return err == nil && got.Status == service.ImageTaskStatusCompleted
+	}, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return canvasWorks.hasSucceededImageURL("https://example.test/image.png")
 	}, time.Second, 10*time.Millisecond)
 
 	pollReq := httptest.NewRequest(http.MethodGet, accepted.PollURL, nil)

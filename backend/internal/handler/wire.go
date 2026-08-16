@@ -134,6 +134,7 @@ func ProvideOpenAIGatewayHandler(
 	opsService *service.OpsService,
 	grokQuotaService *service.GrokQuotaService,
 	seedanceMediaService *service.SeedanceMediaService,
+	creazyCanvasService *service.CreazyCanvasService,
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
 ) *OpenAIGatewayHandler {
@@ -142,6 +143,7 @@ func ProvideOpenAIGatewayHandler(
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
 	h.seedanceMediaService = seedanceMediaService
+	h.setCreazyCanvasService(creazyCanvasService)
 	return h
 }
 

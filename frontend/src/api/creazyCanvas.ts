@@ -6,7 +6,7 @@
  * 契约：docs/CREAZY_CANVAS_V1_IMPLEMENTATION_CONTRACT_CN.md
  */
 
-import { apiClient, buildGatewayUrl } from './client'
+import { apiClient, buildApiUrl, buildGatewayUrl } from './client'
 import type { VideoBillingUnit } from '@/types'
 
 // ==================== Types ====================
@@ -191,7 +191,7 @@ export interface CreazyDownloadURL {
   work_id: number
   url?: string
   expires_at?: string
-  source: 'object' | 'session' | 'gateway' | string
+  source: 'object' | 'playback' | 'session' | 'gateway' | string
   gateway_hint?: string
 }
 
@@ -250,6 +250,12 @@ export interface VideoJob {
 }
 
 // ==================== Helpers ====================
+
+export const CREAZY_CANVAS_WORK_ID_HEADER = 'X-Creazy-Canvas-Work-ID'
+
+export interface CreazyGatewayRequestOptions {
+  workId?: number
+}
 
 export function extractGatewayErrorMessage(body: any): { message: string; code?: unknown; param?: string } {
   if (!body || typeof body !== 'object') {
@@ -330,11 +336,17 @@ async function parseGatewayError(response: Response): Promise<Error> {
     return error
   }
 }
-function authHeaders(apiKey: string, extra?: HeadersInit): HeadersInit {
-  return {
+function authHeaders(apiKey: string, extra?: HeadersInit, workId?: number): HeadersInit {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
-    ...extra,
   }
+  new Headers(extra).forEach((value, name) => {
+    headers[name] = value
+  })
+  if (Number.isSafeInteger(workId) && Number(workId) > 0) {
+    headers[CREAZY_CANVAS_WORK_ID_HEADER] = String(workId)
+  }
+  return headers
 }
 
 function normalizeListPayload<T>(data: unknown): T[] {
@@ -476,6 +488,17 @@ export async function getWorkDownloadURL(id: number | string): Promise<CreazyDow
   return data
 }
 
+/** Short-lived browser-native video URL with Range support. */
+export async function getWorkPlaybackURL(id: number | string): Promise<CreazyDownloadURL> {
+  const { data } = await apiClient.get<CreazyDownloadURL>(
+    `/creazy-canvas/works/${encodeURIComponent(String(id))}/playback-url`,
+  )
+  if (data.url?.startsWith('/')) {
+    data.url = buildApiUrl(data.url)
+  }
+  return data
+}
+
 /** JWT session content stream — no user API key secret required for succeeded works. */
 export async function getWorkContentBlob(id: number | string): Promise<string> {
   try {
@@ -537,7 +560,7 @@ export async function getWorkContentBlob(id: number | string): Promise<string> {
 export async function generateImage(
   apiKey: string,
   payload: ImageGenerationRequest,
-  options?: { async?: boolean; edit?: boolean; imageFiles?: File[] },
+  options?: CreazyGatewayRequestOptions & { async?: boolean; edit?: boolean; imageFiles?: File[] },
 ): Promise<ImageGenerationResponse> {
   const edit = Boolean(options?.edit)
   const path = edit
@@ -562,10 +585,10 @@ export async function generateImage(
     for (const file of imageFiles) {
       form.append(imageField, file, file.name || 'reference-image')
     }
-    headers = authHeaders(apiKey)
+    headers = authHeaders(apiKey, undefined, options?.workId)
     body = form
   } else {
-    headers = authHeaders(apiKey, { 'Content-Type': 'application/json' })
+    headers = authHeaders(apiKey, { 'Content-Type': 'application/json' }, options?.workId)
     body = JSON.stringify(payload)
   }
   const response = await fetch(buildGatewayUrl(path), {
@@ -607,10 +630,14 @@ export async function uploadVideoAsset(
   return response.json()
 }
 
-export async function generateVideo(apiKey: string, payload: VideoGenerationRequest): Promise<VideoJob> {
+export async function generateVideo(
+  apiKey: string,
+  payload: VideoGenerationRequest,
+  options?: CreazyGatewayRequestOptions,
+): Promise<VideoJob> {
   const response = await fetch(buildGatewayUrl('/v1/videos/generations'), {
     method: 'POST',
-    headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }),
+    headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }, options?.workId),
     body: JSON.stringify(payload),
   })
   if (!response.ok) throw await parseGatewayError(response)
@@ -653,6 +680,7 @@ export const creazyCanvasAPI = {
   getWork,
   deleteWork,
   getWorkDownloadURL,
+  getWorkPlaybackURL,
   getWorkContentBlob,
   generateImage,
   getImageTask,

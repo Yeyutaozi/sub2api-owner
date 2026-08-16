@@ -109,6 +109,37 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 	h.tasks.RegisterCancel(task.ID, cancel)
 
+	if h.openAI != nil {
+		canvasInput := creazyCanvasGatewayWorkInput{
+			UserID:          apiKey.UserID,
+			APIKeyID:        apiKey.ID,
+			Kind:            service.CreazyCanvasWorkKindImage,
+			GatewayType:     service.CreazyCanvasGatewayImageTask,
+			GatewayRemoteID: task.ID,
+			Status:          service.CreazyCanvasWorkStatusRunning,
+		}
+		if platform == service.PlatformGrok {
+			parsed := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body)
+			canvasInput.PublicModel = parsed.Model
+			canvasInput.Prompt = parsed.Prompt
+			canvasInput.ParamsJSON = map[string]any{
+				"n":               parsed.N,
+				"size":            parsed.Size,
+				"reference_count": len(parsed.InputImageURLs) + len(parsed.Uploads),
+			}
+		} else if h.openAI.gatewayService != nil {
+			if parsed, parseErr := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body); parseErr == nil {
+				canvasInput.PublicModel = parsed.Model
+				canvasInput.Prompt = parsed.Prompt
+				canvasInput.ParamsJSON = creazyCanvasImageWorkParams(parsed)
+			}
+		}
+		tracker := h.openAI.beginCreazyCanvasGatewayWork(c, canvasInput)
+		if tracker != nil {
+			taskCtx.Set(creazyCanvasGatewayWorkContextKey, tracker)
+		}
+	}
+
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
 	c.Header("Cache-Control", "no-store")
 	c.Header("Location", pollURL)
@@ -228,6 +259,9 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 		if recovered := recover(); recovered != nil {
 			logger.L().Error("image_task.execution_panicked", zap.String("task_id", taskID), zap.Any("panic", recovered))
 			h.failTask(taskID, http.StatusInternalServerError, imageTaskErrorPayload("api_error", "image generation task panicked"))
+			if h.openAI != nil {
+				h.openAI.failCreazyCanvasGatewayWork(taskCtx, creazyCanvasGatewayWorkFromContext(taskCtx), "Image generation task panicked")
+			}
 		}
 	}()
 
@@ -235,6 +269,9 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 	body := bytes.TrimSpace(recorder.Body.Bytes())
 	if err := taskCtx.Request.Context().Err(); err != nil && len(body) == 0 {
 		h.failTask(taskID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image generation task timed out"))
+		if h.openAI != nil {
+			h.openAI.failCreazyCanvasGatewayWork(taskCtx, creazyCanvasGatewayWorkFromContext(taskCtx), "Image generation task timed out")
+		}
 		return
 	}
 	statusCode := recorder.Code
@@ -244,14 +281,23 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 	if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
 		if len(body) == 0 || !json.Valid(body) {
 			h.failTask(taskID, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
+			if h.openAI != nil {
+				h.openAI.failCreazyCanvasGatewayWork(taskCtx, creazyCanvasGatewayWorkFromContext(taskCtx), "Upstream returned an invalid image response")
+			}
 			return
 		}
 		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
+		if h.openAI != nil {
+			h.openAI.succeedCreazyCanvasGatewayWork(taskCtx, creazyCanvasGatewayWorkFromContext(taskCtx), taskID, creazyCanvasImageURLFromResponse(body), "")
+		}
 		return
 	}
 	h.failTask(taskID, statusCode, extractImageTaskError(body))
+	if h.openAI != nil {
+		h.openAI.failCreazyCanvasGatewayWork(taskCtx, creazyCanvasGatewayWorkFromContext(taskCtx), "Image generation failed")
+	}
 }
 
 func (h *AsyncImageHandler) failTask(taskID string, statusCode int, taskErr json.RawMessage) {

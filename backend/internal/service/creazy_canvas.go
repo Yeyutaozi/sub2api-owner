@@ -14,6 +14,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -159,6 +160,19 @@ type UpdateCreazyCanvasWorkInput struct {
 	PublicModel     *string
 	Prompt          *string
 }
+
+// SyncAcceptedCreazyCanvasVideoInput is populated only from an authenticated
+// gateway request after the upstream task has been durably bound locally.
+// AssociatedWorkID is an untrusted client hint until ownership is verified.
+type SyncAcceptedCreazyCanvasVideoInput struct {
+	UserID           int64
+	APIKey           *APIKey
+	AssociatedWorkID int64
+	PublicModel      string
+	Prompt           string
+	ParamsJSON       map[string]any
+	GatewayRemoteID  string
+}
 type CreazyCanvasKeyInfo struct {
 	ID                   int64  `json:"id"`
 	Name                 string `json:"name"`
@@ -255,7 +269,7 @@ type CreazyCanvasDownloadURL struct {
 	WorkID      int64  `json:"work_id"`
 	URL         string `json:"url,omitempty"`
 	ExpiresAt   string `json:"expires_at,omitempty"`
-	Source      string `json:"source"` // object | session | gateway
+	Source      string `json:"source"` // object | playback | session | gateway
 	GatewayHint string `json:"gateway_hint,omitempty"`
 }
 
@@ -275,6 +289,7 @@ type CreazyCanvasWorkContent struct {
 type CreazyCanvasWorkRepository interface {
 	Create(ctx context.Context, work *CreazyCanvasWork) error
 	GetByIDForUser(ctx context.Context, id, userID int64) (*CreazyCanvasWork, error)
+	CreateOrUpdateAcceptedVideo(ctx context.Context, work *CreazyCanvasWork) error
 	ListByUser(ctx context.Context, userID int64, params pagination.PaginationParams, filters CreazyCanvasWorkListFilters) ([]CreazyCanvasWork, *pagination.PaginationResult, error)
 	SoftDelete(ctx context.Context, id, userID int64) error
 	UpdateContentMeta(ctx context.Context, work *CreazyCanvasWork) error
@@ -311,6 +326,8 @@ type CreazyCanvasService struct {
 	cfg             *config.Config
 	httpClient      *http.Client
 	mediaHTTPClient *http.Client
+	playbackMu      sync.Mutex
+	playbackStreams map[int64]int
 }
 
 func NewCreazyCanvasService(
@@ -564,6 +581,131 @@ func (s *CreazyCanvasService) CreateWork(ctx context.Context, input CreateCreazy
 		return nil, err
 	}
 	s.archiveSucceededImageBestEffort(ctx, work)
+	applyCreazyCanvasWorkView(work)
+	return work, nil
+}
+
+// SyncAcceptedVideoWork attaches an accepted gateway video task to an existing
+// canvas work when the client hint belongs to the authenticated user and key.
+// Otherwise it creates (or reuses by remote id) a regular user work so direct
+// /v1/videos callers are visible in the same task board.
+func (s *CreazyCanvasService) SyncAcceptedVideoWork(ctx context.Context, input SyncAcceptedCreazyCanvasVideoInput) (*CreazyCanvasWork, error) {
+	if s == nil || s.workRepo == nil {
+		return nil, errors.New("creazy canvas work repository is unavailable")
+	}
+	remoteID := strings.TrimSpace(input.GatewayRemoteID)
+	if remoteID == "" {
+		return nil, errors.New("accepted video gateway remote id is required")
+	}
+	if input.UserID <= 0 || input.APIKey == nil || input.APIKey.ID <= 0 || input.APIKey.UserID != input.UserID {
+		return nil, errors.New("accepted video work owner is invalid")
+	}
+	input.ParamsJSON = cloneCreazyCanvasWorkParams(input.ParamsJSON)
+	input.ParamsJSON["source"] = "api"
+
+	if input.AssociatedWorkID > 0 {
+		associated, err := s.workRepo.GetByIDForUser(ctx, input.AssociatedWorkID, input.UserID)
+		if err == nil && creazyCanvasAcceptedVideoAssociationMatches(associated, input.APIKey.ID, remoteID) {
+			input.ParamsJSON = mergeCreazyCanvasWorkParams(associated.ParamsJSON, input.ParamsJSON)
+			input.ParamsJSON["source"] = "canvas"
+			return s.updateAcceptedVideoWork(ctx, associated, input)
+		}
+		if err != nil && !errors.Is(err, ErrCreazyCanvasWorkNotFound) {
+			return nil, err
+		}
+	}
+
+	now := time.Now()
+	var groupID *int64
+	if input.APIKey.GroupID != nil {
+		id := *input.APIKey.GroupID
+		groupID = &id
+	}
+	params := input.ParamsJSON
+	if params == nil {
+		params = map[string]any{}
+	}
+	work := &CreazyCanvasWork{
+		UserID:          input.UserID,
+		APIKeyID:        input.APIKey.ID,
+		GroupID:         groupID,
+		Kind:            CreazyCanvasWorkKindVideo,
+		PublicModel:     strings.TrimSpace(input.PublicModel),
+		Status:          CreazyCanvasWorkStatusRunning,
+		Prompt:          strings.TrimSpace(input.Prompt),
+		ParamsJSON:      params,
+		GatewayType:     CreazyCanvasGatewayVideoJob,
+		GatewayRemoteID: remoteID,
+		ExpiresAt:       now.Add(creazyCanvasWorkTTL),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.workRepo.CreateOrUpdateAcceptedVideo(ctx, work); err != nil {
+		return nil, err
+	}
+	applyCreazyCanvasWorkView(work)
+	return work, nil
+}
+
+func creazyCanvasAcceptedVideoAssociationMatches(work *CreazyCanvasWork, apiKeyID int64, remoteID string) bool {
+	if work == nil || work.APIKeyID != apiKeyID || work.Kind != CreazyCanvasWorkKindVideo {
+		return false
+	}
+	existingRemoteID := strings.TrimSpace(work.GatewayRemoteID)
+	if existingRemoteID != "" {
+		return existingRemoteID == strings.TrimSpace(remoteID)
+	}
+	switch strings.ToLower(strings.TrimSpace(work.Status)) {
+	case CreazyCanvasWorkStatusCreated, CreazyCanvasWorkStatusQueued, CreazyCanvasWorkStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneCreazyCanvasWorkParams(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src)+1)
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func mergeCreazyCanvasWorkParams(base, overlay map[string]any) map[string]any {
+	merged := cloneCreazyCanvasWorkParams(base)
+	for key, value := range overlay {
+		merged[key] = value
+	}
+	return merged
+}
+
+func (s *CreazyCanvasService) updateAcceptedVideoWork(ctx context.Context, work *CreazyCanvasWork, input SyncAcceptedCreazyCanvasVideoInput) (*CreazyCanvasWork, error) {
+	if work == nil {
+		return nil, ErrCreazyCanvasWorkNotFound
+	}
+	// A canceled association remains authoritative: do not create a replacement
+	// work that would make an administrator-terminated canvas task look active.
+	if strings.EqualFold(strings.TrimSpace(work.Status), CreazyCanvasWorkStatusCanceled) {
+		applyCreazyCanvasWorkView(work)
+		return work, nil
+	}
+	if !isCreazyCanvasWorkTerminalStatus(work.Status) {
+		work.Status = CreazyCanvasWorkStatusRunning
+		work.ErrorMessage = ""
+	}
+	work.PublicModel = strings.TrimSpace(input.PublicModel)
+	work.Prompt = strings.TrimSpace(input.Prompt)
+	if input.ParamsJSON != nil {
+		work.ParamsJSON = input.ParamsJSON
+	}
+	if work.ParamsJSON == nil {
+		work.ParamsJSON = map[string]any{}
+	}
+	work.GatewayType = CreazyCanvasGatewayVideoJob
+	work.GatewayRemoteID = strings.TrimSpace(input.GatewayRemoteID)
+	if err := s.workRepo.UpdateContentMeta(ctx, work); err != nil {
+		return nil, err
+	}
 	applyCreazyCanvasWorkView(work)
 	return work, nil
 }
@@ -883,6 +1025,10 @@ func (s *CreazyCanvasService) GetDownloadURL(ctx context.Context, userID, workID
 // and platform gateway (loopback). Generation still requires client-held secret;
 // replaying already-created works does not.
 func (s *CreazyCanvasService) OpenWorkContent(ctx context.Context, userID, workID int64, rangeHeader string) (*CreazyCanvasWorkContent, error) {
+	return s.openWorkContent(ctx, userID, workID, rangeHeader, false)
+}
+
+func (s *CreazyCanvasService) openWorkContent(ctx context.Context, userID, workID int64, rangeHeader string, playback bool) (*CreazyCanvasWorkContent, error) {
 	work, err := s.GetWork(ctx, userID, workID)
 	if err != nil {
 		return nil, err
@@ -917,20 +1063,33 @@ func (s *CreazyCanvasService) OpenWorkContent(ctx context.Context, userID, workI
 		}, nil
 	}
 
-	// 2) Public absolute media URL stored on the work
-	if url := creazyCanvasPublicMediaURL(work); url != "" {
-		return &CreazyCanvasWorkContent{
-			StatusCode:  http.StatusFound,
-			RedirectURL: url,
-			Filename:    creazyCanvasContentFilename(work),
-		}, nil
+	// 2) Public absolute media URL stored on the work. Playback tokens prefer
+	// the gateway below when both are present, because a stored upstream/COS
+	// URL may be private or short-lived even though the task is still replayable.
+	if !playback {
+		if url := creazyCanvasPublicMediaURL(work); url != "" {
+			return &CreazyCanvasWorkContent{
+				StatusCode:  http.StatusFound,
+				RedirectURL: url,
+				Filename:    creazyCanvasContentFilename(work),
+			}, nil
+		}
 	}
 
 	// 3) Gateway content via stored API key (loopback to this server)
 	if !creazyCanvasWorkHasGatewayContent(work) {
+		if playback {
+			if url := creazyCanvasPublicMediaURL(work); url != "" {
+				return &CreazyCanvasWorkContent{
+					StatusCode:  http.StatusFound,
+					RedirectURL: url,
+					Filename:    creazyCanvasContentFilename(work),
+				}, nil
+			}
+		}
 		return nil, infraerrors.BadRequest("CREAZY_CANVAS_CONTENT_UNAVAILABLE", "作品没有可预览的内容")
 	}
-	apiKey, err := s.loadCanvasAPIKey(ctx, userID, work.APIKeyID)
+	apiKey, err := s.loadCanvasAPIKeyForContent(ctx, userID, work)
 	if err != nil {
 		return nil, err
 	}
@@ -941,12 +1100,22 @@ func (s *CreazyCanvasService) OpenWorkContent(ctx context.Context, userID, workI
 	if gatewayPath == "" {
 		return nil, infraerrors.BadRequest("CREAZY_CANVAS_CONTENT_UNAVAILABLE", "无法解析网关内容路径")
 	}
-	return s.openGatewayContent(ctx, apiKey.Key, gatewayPath, rangeHeader, work)
+	return s.openGatewayContent(ctx, apiKey.Key, gatewayPath, rangeHeader, work, playback)
 }
 
-func (s *CreazyCanvasService) openGatewayContent(ctx context.Context, apiKeySecret, gatewayPath, rangeHeader string, work *CreazyCanvasWork) (*CreazyCanvasWorkContent, error) {
+func (s *CreazyCanvasService) openGatewayContent(ctx context.Context, apiKeySecret, gatewayPath, rangeHeader string, work *CreazyCanvasWork, playback bool) (*CreazyCanvasWorkContent, error) {
 	baseURL := s.gatewayLoopbackBaseURL()
 	target := strings.TrimRight(baseURL, "/") + gatewayPath
+	if playback {
+		parsed, err := url.Parse(target)
+		if err != nil {
+			return nil, infraerrors.InternalServer("CREAZY_CANVAS_CONTENT_REQUEST_FAILED", "Failed to build playback request")
+		}
+		query := parsed.Query()
+		query.Set("canvas_playback", "1")
+		parsed.RawQuery = query.Encode()
+		target = parsed.String()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, infraerrors.InternalServer("CREAZY_CANVAS_CONTENT_REQUEST_FAILED", "构建预览请求失败")
@@ -973,7 +1142,7 @@ func (s *CreazyCanvasService) openGatewayContent(ctx context.Context, apiKeySecr
 		if json.Unmarshal(raw, &payload) == nil {
 			if nested := creazyCanvasExtractMediaURL(payload); nested != "" {
 				if strings.HasPrefix(nested, "/") {
-					return s.openGatewayContent(ctx, apiKeySecret, nested, rangeHeader, work)
+					return s.openGatewayContent(ctx, apiKeySecret, nested, rangeHeader, work, playback)
 				}
 				if strings.HasPrefix(nested, "http://") || strings.HasPrefix(nested, "https://") {
 					return &CreazyCanvasWorkContent{
@@ -997,7 +1166,7 @@ func (s *CreazyCanvasService) openGatewayContent(ctx context.Context, apiKeySecr
 			return nil, infraerrors.New(http.StatusBadGateway, "CREAZY_CANVAS_CONTENT_INVALID", "网关重定向缺少 Location")
 		}
 		if strings.HasPrefix(loc, "/") {
-			return s.openGatewayContent(ctx, apiKeySecret, loc, rangeHeader, work)
+			return s.openGatewayContent(ctx, apiKeySecret, loc, rangeHeader, work, playback)
 		}
 		return &CreazyCanvasWorkContent{
 			StatusCode:  http.StatusFound,
@@ -1411,6 +1580,24 @@ func (s *CreazyCanvasService) SaveWorkContent(ctx context.Context, userID, workI
 }
 
 func (s *CreazyCanvasService) loadCanvasAPIKey(ctx context.Context, userID, apiKeyID int64) (*APIKey, error) {
+	return s.loadCanvasAPIKeyWithPolicy(ctx, userID, apiKeyID, true)
+}
+
+func (s *CreazyCanvasService) loadCanvasAPIKeyForContent(ctx context.Context, userID int64, work *CreazyCanvasWork) (*APIKey, error) {
+	if work == nil {
+		return nil, infraerrors.BadRequest("CREAZY_CANVAS_CONTENT_UNAVAILABLE", "无法解析作品内容")
+	}
+	// API-created works are already authenticated and owned by this user. They
+	// are shown in the task board, but their group's canvas feature flag should
+	// not block replaying an accepted API task.
+	requireCanvas := true
+	if source, ok := work.ParamsJSON["source"].(string); ok && strings.EqualFold(strings.TrimSpace(source), "api") {
+		requireCanvas = false
+	}
+	return s.loadCanvasAPIKeyWithPolicy(ctx, userID, work.APIKeyID, requireCanvas)
+}
+
+func (s *CreazyCanvasService) loadCanvasAPIKeyWithPolicy(ctx context.Context, userID, apiKeyID int64, requireCanvas bool) (*APIKey, error) {
 	if apiKeyID <= 0 {
 		return nil, infraerrors.BadRequest("CREAZY_CANVAS_API_KEY_REQUIRED", "请选择 API Key")
 	}
@@ -1427,7 +1614,7 @@ func (s *CreazyCanvasService) loadCanvasAPIKey(ctx context.Context, userID, apiK
 	if err := s.apiKeyService.CheckAPIKeyQuotaAndExpiry(apiKey); err != nil {
 		return nil, err
 	}
-	if apiKey.Group == nil || !apiKey.Group.AllowCreazyCanvas {
+	if apiKey.Group == nil || (requireCanvas && !apiKey.Group.AllowCreazyCanvas) {
 		return nil, ErrCreazyCanvasKeyNotAllowed
 	}
 	return apiKey, nil

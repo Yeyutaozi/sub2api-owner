@@ -87,6 +87,79 @@ func (r *creazyCanvasWorkRepository) GetByIDForUser(ctx context.Context, id, use
 	return work, rows.Err()
 }
 
+func (r *creazyCanvasWorkRepository) CreateOrUpdateAcceptedVideo(ctx context.Context, work *service.CreazyCanvasWork) error {
+	if work == nil {
+		return fmt.Errorf("work is nil")
+	}
+	params, err := marshalAgentJSON(work.ParamsJSON)
+	if err != nil {
+		return err
+	}
+	if work.ExpiresAt.IsZero() {
+		work.ExpiresAt = time.Now().Add(3 * 24 * time.Hour)
+	}
+	row := r.db.QueryRowContext(ctx, `
+		INSERT INTO creazy_canvas_works (
+			user_id, api_key_id, group_id, kind, public_model, status, prompt, params_json,
+			gateway_type, gateway_remote_id, object_key, storage_provider, bucket, object_url,
+			preview_url, mime_type, size_bytes, error_message, expires_at
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14,
+			$15, $16, $17, $18, $19
+		)
+		ON CONFLICT (user_id, api_key_id, gateway_type, gateway_remote_id)
+			WHERE deleted_at IS NULL AND kind = 'video' AND gateway_remote_id <> ''
+		DO UPDATE SET
+			group_id = COALESCE(creazy_canvas_works.group_id, EXCLUDED.group_id),
+			public_model = EXCLUDED.public_model,
+			status = CASE
+				WHEN creazy_canvas_works.status IN ('created', 'queued', 'running') THEN EXCLUDED.status
+				ELSE creazy_canvas_works.status
+			END,
+			prompt = EXCLUDED.prompt,
+			params_json = EXCLUDED.params_json,
+			error_message = CASE
+				WHEN creazy_canvas_works.status IN ('created', 'queued', 'running') THEN EXCLUDED.error_message
+				ELSE creazy_canvas_works.error_message
+			END,
+			expires_at = GREATEST(creazy_canvas_works.expires_at, EXCLUDED.expires_at),
+			updated_at = NOW()
+		RETURNING id, user_id, api_key_id, group_id, kind, public_model, status, prompt, params_json,
+		          COALESCE(gateway_type, ''), COALESCE(gateway_remote_id, ''),
+		          COALESCE(object_key, ''), COALESCE(storage_provider, ''), COALESCE(bucket, ''),
+		          COALESCE(object_url, ''), COALESCE(preview_url, ''), COALESCE(mime_type, ''),
+		          size_bytes, COALESCE(error_message, ''), expires_at, created_at, updated_at, deleted_at
+	`,
+		work.UserID,
+		work.APIKeyID,
+		work.GroupID,
+		work.Kind,
+		work.PublicModel,
+		work.Status,
+		work.Prompt,
+		params,
+		work.GatewayType,
+		work.GatewayRemoteID,
+		work.ObjectKey,
+		work.StorageProvider,
+		work.Bucket,
+		work.ObjectURL,
+		work.PreviewURL,
+		work.MimeType,
+		work.SizeBytes,
+		work.ErrorMessage,
+		work.ExpiresAt,
+	)
+	saved, err := scanCreazyCanvasWork(row)
+	if err != nil {
+		return err
+	}
+	*work = *saved
+	return nil
+}
+
 func (r *creazyCanvasWorkRepository) ListByUser(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.CreazyCanvasWorkListFilters) ([]service.CreazyCanvasWork, *pagination.PaginationResult, error) {
 	where, args := buildCreazyCanvasWorkWhere(userID, filters)
 	var total int64

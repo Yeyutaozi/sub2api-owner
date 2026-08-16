@@ -1,7 +1,7 @@
 <template>
   <AppLayout :workspace="activeTab === 'workflow'">
     <div class="cc-shell" :class="{ 'cc-shell--workspace': activeTab === 'workflow' }">
-      <header class="cc-topbar">
+      <header v-if="activeTab !== 'workflow'" class="cc-topbar">
         <div class="cc-topbar__main">
           <div class="cc-topbar__brand">
             <div class="cc-mark" aria-hidden="true">
@@ -53,7 +53,7 @@
         </div>
       </header>
 
-      <div class="cc-tabs" role="tablist">
+      <div v-if="activeTab !== 'workflow'" class="cc-tabs" role="tablist">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -67,6 +67,60 @@
           {{ tab.label }}
         </button>
       </div>
+
+      <header v-else class="cc-workspace-nav">
+        <div class="cc-workspace-nav__brand">
+          <span class="cc-workspace-nav__mark" aria-hidden="true">
+            <Icon name="workflow" size="sm" />
+          </span>
+          <strong>Creazy Flow</strong>
+          <span>WORKSPACE</span>
+        </div>
+
+        <nav class="cc-workspace-tabs" role="tablist" aria-label="画布视图">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="cc-workspace-tab"
+            :class="{ 'cc-workspace-tab--active': activeTab === tab.id }"
+            :aria-selected="activeTab === tab.id"
+            @click="switchTab(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+
+        <div class="cc-workspace-key">
+          <span
+            v-if="selectedKeyId"
+            class="cc-workspace-key__status"
+            :class="keyReadyChipClass"
+            :title="keyReadyLabel"
+          >
+            <i class="cc-pill__dot" :class="keyReadyDotClass"></i>
+          </span>
+          <label class="sr-only" for="cc-workspace-key-select">{{ t('creazyCanvas.key.label') }}</label>
+          <select
+            id="cc-workspace-key-select"
+            v-model.number="selectedKeyId"
+            class="cc-workspace-key__select"
+            :disabled="loadingKeys"
+            @change="onKeyChange"
+          >
+            <option :value="0">
+              {{ loadingKeys ? t('creazyCanvas.key.loading') : t('creazyCanvas.key.placeholder') }}
+            </option>
+            <option v-for="item in keys" :key="item.id" :value="item.id">
+              {{ keyLabel(item) }}
+            </option>
+          </select>
+          <span v-if="userBalance != null" class="cc-workspace-key__balance" :title="t('creazyCanvas.key.balanceHint')">
+            <span>$</span>{{ formatMoney(userBalance) }}
+          </span>
+        </div>
+      </header>
 
       <CreazyWorkflowCanvas
         v-if="activeTab === 'workflow'"
@@ -1331,21 +1385,10 @@
                       @click="openWorkPreview(work)"
                     >
                       <img
-                        v-if="isImageWork(work) || workCoverIsImage(work)"
                         :src="workCoverUrl(work)"
                         alt=""
                         class="cc-work-cover__media"
                         @load="onCoverMediaReady(work, $event)"
-                        @error="onCoverMediaError(work)"
-                      />
-                      <video
-                        v-else
-                        :src="workCoverVideoSrc(work)"
-                        muted
-                        playsinline
-                        preload="metadata"
-                        class="cc-work-cover__media"
-                        @loadeddata="onCoverVideoLoaded($event, work)"
                         @error="onCoverMediaError(work)"
                       />
                       <span class="cc-work-cover__veil">
@@ -1554,10 +1597,11 @@
           <video
             v-else
             :src="mediaPreview.url"
+            :poster="mediaPreview.poster || undefined"
             controls
             autoplay
             playsinline
-            preload="auto"
+            preload="metadata"
             :muted="false"
             class="cc-media-preview__asset"
             :class="{ 'is-ready': mediaPreviewLoaded }"
@@ -1594,6 +1638,7 @@ import {
   getVideoContentURL,
   getVideoJob,
   getWorkDownloadURL,
+  getWorkPlaybackURL,
   getWorkContentBlob,
   listKeys,
   listWorks,
@@ -1947,11 +1992,14 @@ const videoPersistUrl = ref('')
 const imageSaveMessage = ref('')
 const videoSaveMessage = ref('')
 /** Fullscreen image/video preview */
-const mediaPreview = ref<{ type: 'image' | 'video'; url: string } | null>(null)
+const mediaPreview = ref<{ type: 'image' | 'video'; url: string; poster?: string } | null>(null)
 const mediaPreviewLoaded = ref(false)
 const mediaPreviewError = ref('')
 /** Cached playable URLs for works list (may be blob:) */
 const workPreviewUrls = reactive<Record<string, string>>({})
+/** Poster-only overrides are never passed to the video player. */
+const workCoverOverrides = reactive<Record<string, string>>({})
+const workCoverFailed = reactive<Record<string, boolean>>({})
 const workCoverReady = reactive<Record<string, boolean>>({})
 const workPreviewLoading = reactive<Record<string, boolean>>({})
 const workPreviewBlobUrls = new Set<string>()
@@ -3670,6 +3718,7 @@ function workStaticMediaUrl(work: CreazyWork): string {
 }
 
 function workPosterUrl(work: CreazyWork): string {
+	if (workCoverFailed[String(work.id)]) return ''
   const params = (work.params || {}) as Record<string, unknown>
   const poster = sanitizeMediaUrl(
     typeof params.poster_url === 'string'
@@ -3686,33 +3735,13 @@ function workPreviewUrl(work: CreazyWork): string {
   return workPreviewUrls[String(work.id)] || ''
 }
 
-function workCoverVideoSrc(work: CreazyWork): string {
-  const url = workCoverUrl(work)
-  if (!url) return ''
-  // Help browsers paint a poster frame for remote/blob videos in list cards.
-  if (url.startsWith('blob:') || url.startsWith('data:')) return url
-  if (url.includes('#t=')) return url
-  return url + '#t=0.1'
-}
-
-function onCoverVideoLoaded(ev: Event, work?: CreazyWork) {
-  const el = ev.target as HTMLVideoElement | null
-  if (!el) return
-  try {
-    if (el.readyState >= 1 && el.currentTime < 0.05) {
-      el.currentTime = 0.1
-    }
-  } catch {
-    // ignore seek failures (some blobs disallow seek until more data)
-  }
-  if (work) onCoverMediaReady(work, ev)
-}
-
 function onCoverMediaReady(work: CreazyWork, _ev?: Event) {
+  workCoverFailed[String(work.id)] = false
   workCoverReady[String(work.id)] = true
 }
 
 function onCoverMediaError(work: CreazyWork) {
+  workCoverFailed[String(work.id)] = true
   workCoverReady[String(work.id)] = false
 }
 
@@ -3730,8 +3759,13 @@ function isWorkCoverLoading(work: CreazyWork): boolean {
   return false
 }
 
-/** Cover prefers cached playable media, then public poster/static URL. */
+/** Covers use lightweight posters; video playback URLs stay out of the grid. */
 function workCoverUrl(work: CreazyWork): string {
+	const id = String(work.id)
+	if (workCoverFailed[id]) return ''
+	if (!isImageWork(work)) {
+		return workCoverOverrides[id] || workPosterUrl(work)
+	}
   return (
     workPreviewUrl(work) ||
     workPosterUrl(work) ||
@@ -3740,15 +3774,6 @@ function workCoverUrl(work: CreazyWork): string {
       return staticUrl && !needsAuthForMediaPlayback(staticUrl) ? staticUrl : ''
     })()
   )
-}
-
-function workCoverIsImage(work: CreazyWork): boolean {
-  if (isImageWork(work)) return true
-  const cover = workCoverUrl(work)
-  if (!cover) return false
-  if (isBlobUrl(cover)) return false
-  if (workPosterUrl(work) && cover === workPosterUrl(work)) return true
-  return /\.(png|jpe?g|webp|gif|bmp)(\?|#|$)/i.test(cover)
 }
 
 function workNeedsSecret(work: CreazyWork): boolean {
@@ -3817,11 +3842,11 @@ function setVideoResultPlayback(playable: string, persist?: string) {
   }
 }
 
-function openMediaPreview(item: { type: 'image' | 'video'; url: string }) {
+function openMediaPreview(item: { type: 'image' | 'video'; url: string; poster?: string }) {
   if (!item?.url) return
   mediaPreviewLoaded.value = false
   mediaPreviewError.value = ''
-  mediaPreview.value = { type: item.type, url: item.url }
+  mediaPreview.value = { type: item.type, url: item.url, poster: item.poster }
 }
 
 function closeMediaPreview() {
@@ -3840,41 +3865,29 @@ function onMediaPreviewFailed() {
   mediaPreviewError.value = t('creazyCanvas.works.previewFailed')
 }
 
-async function resolvePlayableVideoUrl(
-  apiKey: string,
-  jobId: string,
-  extracted: string,
-): Promise<{ playable: string; persist: string }> {
-  const fallbackPersist = extracted || (jobId ? '/v1/videos/jobs/' + jobId + '/content' : '')
-  if (jobId && (!extracted || needsAuthForMediaPlayback(extracted))) {
-    try {
-      const resolved = await getVideoContentURL(apiKey, jobId)
-      if (resolved) {
-        return {
-          playable: resolved,
-          persist:
-            extracted && !isBlobUrl(extracted) && !needsAuthForMediaPlayback(extracted)
-              ? extracted
-              : fallbackPersist,
-        }
-      }
-    } catch {
-      // fall through
-    }
-  }
-  if (extracted) {
-    return { playable: extracted, persist: isBlobUrl(extracted) ? fallbackPersist : extracted }
-  }
-  return { playable: '', persist: fallbackPersist }
-}
-
 async function performLoadWorkPreview(work: CreazyWork): Promise<boolean> {
   const id = String(work.id)
   if (workPreviewUrls[id]) return true
   workPreviewLoading[id] = true
-  workCoverReady[id] = false
   let lastError: any = null
   try {
+	if (!isImageWork(work)) {
+		try {
+			const playback = await getWorkPlaybackURL(work.id)
+			const playbackUrl = sanitizeMediaUrl(playback.url || '')
+			if (playbackUrl) {
+				workPreviewUrls[id] = playbackUrl
+				return true
+			}
+		} catch (error) {
+			lastError = error
+		}
+		if (lastError) {
+			(work as any).__previewError = mapContentPreviewError(lastError)
+		}
+		return false
+	}
+
     let url = workStaticMediaUrl(work)
     if (url && !needsAuthForMediaPlayback(url)) {
       workPreviewUrls[id] = url
@@ -3896,7 +3909,7 @@ async function performLoadWorkPreview(work: CreazyWork): Promise<boolean> {
         workPreviewUrls[id] = res.url
         return true
       }
-      // Session proxy path from download-url metadata (JWT content stream).
+      // Images are small enough to use the authenticated content fallback.
       if (res.source === 'session' || (res.url && res.url.includes('/creazy-canvas/works/') && res.url.includes('/content'))) {
         try {
           const blobUrl = await getWorkContentBlob(work.id)
@@ -3915,7 +3928,7 @@ async function performLoadWorkPreview(work: CreazyWork): Promise<boolean> {
       // ignore download-url fallback, try content stream below
     }
 
-    // Direct JWT content stream (preferred for succeeded gateway works).
+    // Direct JWT content stream for image works.
     if (canPreviewWork(work) && (work.gateway_remote_id || needsAuthForMediaPlayback(url))) {
       try {
         const blobUrl = await getWorkContentBlob(work.id)
@@ -3930,23 +3943,6 @@ async function performLoadWorkPreview(work: CreazyWork): Promise<boolean> {
       }
     }
 
-    // Legacy fallback: client-held API key secret (still useful if session proxy unavailable).
-    if ((work.kind || '').toLowerCase() === 'video' && work.gateway_remote_id) {
-      const apiKey = resolveWorkApiKeySecret(work)
-      if (apiKey) {
-        try {
-          const resolved = await getVideoContentURL(apiKey, work.gateway_remote_id)
-          if (resolved) {
-            if (isBlobUrl(resolved)) workPreviewBlobUrls.add(resolved)
-            workPreviewUrls[id] = resolved
-            return true
-          }
-        } catch (error) {
-          lastError = error
-          console.warn('[creazy-canvas] video preview content failed', error)
-        }
-      }
-    }
     if (url && isImageWork(work) && !needsAuthForMediaPlayback(url)) {
       workPreviewUrls[id] = url
       return true
@@ -3978,14 +3974,10 @@ async function loadWorkPreview(work: CreazyWork): Promise<boolean> {
 }
 
 async function openWorkPreview(work: CreazyWork) {
-  // Align selected key with work for generation reuse / optional secret fallback.
-  if (work.api_key_id && selectedKeyId.value !== work.api_key_id) {
-    selectedKeyId.value = work.api_key_id
-    await loadCatalog()
-  }
   (work as any).__previewError = ''
-  const ok = await loadWorkPreview(work)
-  const url = workPreviewUrl(work) || workCoverUrl(work)
+	await loadWorkPreview(work)
+	const image = isImageWork(work)
+	const url = workPreviewUrl(work) || (image ? workCoverUrl(work) : '')
   if (!url) {
     const detail =
       String((work as any).__previewError || '').trim() ||
@@ -3994,25 +3986,14 @@ async function openWorkPreview(work: CreazyWork) {
     appStore.showError(detail)
     return
   }
-  openMediaPreview({ type: isImageWork(work) ? 'image' : 'video', url })
-  void ok
+	openMediaPreview({ type: image ? 'image' : 'video', url, poster: image ? undefined : workPosterUrl(work) })
 }
 
 async function hydrateWorkPreviews(list: CreazyWork[]) {
-  const previewable = list.filter((w) => canPreviewWork(w))
-  // Prefer lightweight covers: images / public posters first, then a few video blobs.
-  const light = previewable.filter((w) => {
-    if (isImageWork(w)) return true
-    if (workPosterUrl(w)) return true
-    const staticUrl = workStaticMediaUrl(w)
-    return Boolean(staticUrl && !needsAuthForMediaPlayback(staticUrl))
-  }).slice(0, 16)
-  const heavyVideo = previewable
-    .filter((w) => !isImageWork(w) && !light.includes(w))
-    .slice(0, 8)
-  const targets = [...light, ...heavyVideo]
-  // Sequential-ish batches to reduce memory spikes on large MP4s.
-  const batchSize = 3
+	// Never prefetch video bodies for grid covers. Posters load as regular images;
+	// only small image works need authenticated hydration.
+	const targets = list.filter((work) => canPreviewWork(work) && isImageWork(work)).slice(0, 16)
+	const batchSize = 4
   for (let i = 0; i < targets.length; i += batchSize) {
     if (cancelled) break
     await Promise.all(targets.slice(i, i + batchSize).map((w) => loadWorkPreview(w)))
@@ -4634,8 +4615,6 @@ async function generateImage() {
   try {
     await ensureKeySecret(snapshot.keyId)
     const apiKey = resolveApiKeySecret(snapshot.keyId)
-    gatewayAttempted = true
-
     const running = await persistWork({
       kind: 'image',
       api_key_id: snapshot.keyId,
@@ -4645,11 +4624,10 @@ async function generateImage() {
       params: buildImageRunWorkParams(snapshot),
       gateway_type: snapshot.preferAsync ? 'image_task' : 'image_sync',
     })
-    if (running?.id) {
-      runningWorkId = running.id
-      markWorkFlash(running.id)
-      focusWorkId.value = running.id
-    }
+    if (!running?.id) throw new Error(t('creazyCanvas.errors.saveFailed'))
+    runningWorkId = running.id
+    markWorkFlash(running.id)
+    focusWorkId.value = running.id
     resetWorksPage()
     void loadWorks({ quiet: true })
 
@@ -4657,6 +4635,7 @@ async function generateImage() {
     imageSaveMessage.value = t('creazyCanvas.tasks.submitted')
     activeImageJobs.value += 1
     generatingImage.value = activeImageJobs.value > 0
+    gatewayAttempted = true
 
     void runImageLifecycle({
       apiKey,
@@ -4719,6 +4698,7 @@ async function runImageLifecycle(opts: {
         async: usedAsync,
         edit: useEdit,
         imageFiles: snapshot.refFiles,
+        workId: runningWorkId || undefined,
       })
     } catch (asyncErr: any) {
       const status = Number(asyncErr?.status || 0)
@@ -4733,6 +4713,7 @@ async function runImageLifecycle(opts: {
         async: false,
         edit: useEdit,
         imageFiles: snapshot.refFiles,
+        workId: runningWorkId || undefined,
       })
     }
 
@@ -4941,14 +4922,6 @@ async function generateVideo() {
   try {
     await ensureKeySecret(snapshot.keyId)
     const apiKey = resolveApiKeySecret(snapshot.keyId)
-    gatewayAttempted = true
-
-    const job = await gatewayGenerateVideo(apiKey, snapshot.payload)
-    const jobId = String(job.id || job.job_id || '')
-    if (selectedKeyId.value === snapshot.keyId) {
-      videoJobId.value = jobId
-      videoStatus.value = job.status || 'submitted'
-    }
 
     const baseParams = buildVideoWorkParams({
       resolution: snapshot.resolution,
@@ -4962,39 +4935,38 @@ async function generateVideo() {
       refAudios: (snapshot as any).refAudioUrls || [],
     })
 
+    const running = await persistWork({
+      kind: 'video',
+      api_key_id: snapshot.keyId,
+      status: 'running',
+      public_model: snapshot.model,
+      prompt: snapshot.prompt,
+      params: baseParams,
+      gateway_type: 'video_job',
+    })
+    if (!running?.id) throw new Error(t('creazyCanvas.errors.saveFailed'))
+    runningWorkId = running.id
+    markWorkFlash(running.id)
+    focusWorkId.value = running.id
+    if (selectedKeyId.value === snapshot.keyId) {
+      activeVideoWorkId.value = running.id
+    }
+
+    gatewayAttempted = true
+    const job = await gatewayGenerateVideo(apiKey, snapshot.payload, { workId: runningWorkId })
+    const jobId = String(job.id || job.job_id || '')
+    if (selectedKeyId.value === snapshot.keyId) {
+      videoJobId.value = jobId
+      videoStatus.value = job.status || 'submitted'
+    }
     if (jobId) {
-      const running = await persistWork({
-        kind: 'video',
-        api_key_id: snapshot.keyId,
+      await updateWorkRecord(runningWorkId, {
         status: 'running',
-        public_model: snapshot.model,
-        prompt: snapshot.prompt,
-        params: baseParams,
         gateway_type: 'video_job',
         gateway_remote_id: jobId,
       })
-      if (running?.id) {
-        runningWorkId = running.id
-        markWorkFlash(running.id)
-        focusWorkId.value = running.id
-        if (selectedKeyId.value === snapshot.keyId) {
-          activeVideoWorkId.value = running.id
-        }
-      }
-    } else {
-      const running = await persistWork({
-        kind: 'video',
-        api_key_id: snapshot.keyId,
-        status: 'running',
-        public_model: snapshot.model,
-        prompt: snapshot.prompt,
-        params: baseParams,
-        gateway_type: 'video_job',
-      })
-      if (running?.id) {
-        runningWorkId = running.id
-        markWorkFlash(running.id)
-        focusWorkId.value = running.id
+      if (selectedKeyId.value === snapshot.keyId) {
+        activeVideoWorkId.value = runningWorkId
       }
     }
 
@@ -5109,16 +5081,18 @@ async function resumeOrphanedVideoWorks() {
           })
           // Flip board status immediately; preview download can take long for H3.
           void loadWorks({ quiet: true })
-          // best-effort preview (non-blocking)
+          // Resolve only a short-lived native playback URL. Do not download the
+          // completed MP4 just to warm a task-board preview.
           void (async () => {
+            let playable = ''
             try {
-              const resolved = await resolvePlayableVideoUrl(apiKey, jobId, extracted)
-              if (resolved.playable) {
-                if (isBlobUrl(resolved.playable)) workPreviewBlobUrls.add(resolved.playable)
-                workPreviewUrls[String(workId)] = resolved.playable
-              }
+              const playback = await getWorkPlaybackURL(workId)
+              playable = sanitizeMediaUrl(playback.url || '')
             } catch {
-              /* ignore */
+              playable = extracted && !needsAuthForMediaPlayback(extracted) ? extracted : ''
+            }
+            if (playable) {
+              workPreviewUrls[String(workId)] = playable
             }
           })()
           return
@@ -5252,21 +5226,22 @@ async function runVideoLifecycle(opts: {
         videoSaveMessage.value = t('creazyCanvas.result.autoSaved')
       }
       // Prefer poster immediately so task board leaves "running" without waiting for MP4 blob.
-      if (saved?.id && posterUrl && !needsAuthForMediaPlayback(posterUrl) && !workPreviewUrls[String(saved.id)]) {
-        workPreviewUrls[String(saved.id)] = posterUrl
+      if (saved?.id && posterUrl && !needsAuthForMediaPlayback(posterUrl) && !workCoverOverrides[String(saved.id)]) {
+        workCoverOverrides[String(saved.id)] = posterUrl
       }
       void loadWorks({ quiet: true })
 
-      // Resolve playable preview after status flip (best-effort, non-blocking).
-      // H3 1440p content download can take a long time; do not keep work "active" for it.
+      // Resolve only a native playback URL after status flip. The browser will
+      // request byte ranges when the user opens the preview.
       const savedId = saved?.id
       void (async () => {
         let playable = ''
         let persist = storedUrl
         try {
-          const resolved = await resolvePlayableVideoUrl(apiKey, jobId, extracted)
-          playable = resolved.playable
-          persist = resolved.persist || storedUrl
+          if (savedId) {
+            const playback = await getWorkPlaybackURL(savedId)
+            playable = sanitizeMediaUrl(playback.url || '')
+          }
         } catch {
           playable = extracted && !needsAuthForMediaPlayback(extracted) ? extracted : ''
         }
@@ -5280,7 +5255,7 @@ async function runVideoLifecycle(opts: {
             if (isBlobUrl(playableUrl)) workPreviewBlobUrls.add(playableUrl)
             workPreviewUrls[String(savedId)] = playableUrl
           } else if (posterUrl && !needsAuthForMediaPlayback(posterUrl)) {
-            workPreviewUrls[String(savedId)] = posterUrl
+            workCoverOverrides[String(savedId)] = posterUrl
           }
         }
       })()
@@ -6264,10 +6239,184 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: none;
   padding: 0;
+  color-scheme: light;
 }
 .cc-shell--workspace::before {
   display: none;
 }
+
+.cc-workspace-nav {
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: auto minmax(320px, 1fr) minmax(260px, 360px);
+  align-items: stretch;
+  border-bottom: 1px solid #d9dee5;
+  background: #fbfcfd;
+  color: #26313d;
+}
+
+.cc-workspace-nav__brand {
+  min-width: 178px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-right: 1px solid #e3e7ec;
+  white-space: nowrap;
+}
+
+.cc-workspace-nav__mark {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #cbd3dc;
+  border-radius: 5px;
+  background: #17212d;
+  color: #8ee8f2;
+}
+
+.cc-workspace-nav__brand strong {
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.cc-workspace-nav__brand > span:last-child {
+  color: #85919e;
+  font-family: var(--cc-mono);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.cc-workspace-tabs {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.cc-workspace-tabs::-webkit-scrollbar { display: none; }
+
+.cc-workspace-tab {
+  position: relative;
+  min-width: 74px;
+  padding: 0 13px;
+  border: 0;
+  background: transparent;
+  color: #687584;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.cc-workspace-tab::after {
+  content: "";
+  position: absolute;
+  right: 13px;
+  bottom: 0;
+  left: 13px;
+  height: 2px;
+  background: transparent;
+}
+
+.cc-workspace-tab:hover { color: #202b37; background: #f3f5f7; }
+.cc-workspace-tab--active { color: #174fc4; }
+.cc-workspace-tab--active::after { background: #2563eb; }
+
+.cc-workspace-key {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-left: 1px solid #e3e7ec;
+  background: #f7f9fb;
+}
+
+.cc-workspace-key__status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.cc-workspace-key__status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.cc-workspace-key__status.is-ready i,
+.cc-workspace-key__status i.is-ready { background: #059669; }
+.cc-workspace-key__status.is-warn i,
+.cc-workspace-key__status i.is-warn { background: #d97706; }
+.cc-workspace-key__status.is-bad i,
+.cc-workspace-key__status i.is-bad { background: #dc2626; }
+
+.cc-workspace-key__select {
+  min-width: 0;
+  height: 34px;
+  flex: 1 1 auto;
+  padding: 0 30px 0 9px;
+  border: 1px solid #cfd7e0;
+  border-radius: 5px;
+  outline: none;
+  background: #fff;
+  color: #2f3b48;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cc-workspace-key__select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.cc-workspace-key__balance {
+  flex: 0 0 auto;
+  color: #334155;
+  font-family: var(--cc-mono);
+  font-size: 11px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cc-workspace-key__balance span { margin-right: 1px; color: #b7791f; }
+
+:global(.dark) .cc-workspace-nav {
+  border-bottom-color: #d9dee5;
+  background: #fbfcfd;
+  color: #26313d;
+}
+
+:global(.dark) .cc-workspace-nav__brand { border-right-color: #e3e7ec; }
+:global(.dark) .cc-workspace-tab { color: #687584; }
+:global(.dark) .cc-workspace-tab:hover { color: #202b37; background: #f3f5f7; }
+:global(.dark) .cc-workspace-tab--active { color: #174fc4; }
+:global(.dark) .cc-workspace-key { border-left-color: #e3e7ec; background: #f7f9fb; }
+:global(.dark) .cc-workspace-key__select { border-color: #cfd7e0; background: #fff; color: #2f3b48; }
+:global(.dark) .cc-workspace-key__balance { color: #334155; }
+
+@media (max-width: 1080px) {
+  .cc-workspace-nav { grid-template-columns: auto minmax(250px, 1fr) minmax(230px, 300px); }
+  .cc-workspace-nav__brand { min-width: 0; }
+  .cc-workspace-nav__brand > span:last-child { display: none; }
+}
+
+@media (max-width: 760px) {
+  .cc-workspace-nav { grid-template-columns: 1fr auto; grid-template-rows: 46px 44px; }
+  .cc-workspace-nav__brand { display: none; }
+  .cc-workspace-tabs { grid-column: 1; grid-row: 1; padding-inline: 4px; }
+  .cc-workspace-key { grid-column: 1 / -1; grid-row: 2; border-top: 1px solid #e3e7ec; border-left: 0; }
+  :global(.dark) .cc-workspace-key { border-top-color: #e3e7ec; border-left: 0; }
+  .cc-workspace-key__balance { margin-left: auto; }
+}
+
 .cc-shell::before {
   content: "";
   position: fixed;

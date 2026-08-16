@@ -394,6 +394,27 @@ func (h *CreazyCanvasHandler) GetDownloadURL(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// GetPlaybackURL returns a short-lived URL that native media elements can use
+// without sending the application's bearer token in a request header.
+func (h *CreazyCanvasHandler) GetPlaybackURL(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	workID, ok := parseIDParam(c, "id", "Invalid work ID")
+	if !ok {
+		return
+	}
+	result, err := h.svc.GetPlaybackURL(c.Request.Context(), subject.UserID, workID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	response.Success(c, result)
+}
+
 // GetWorkContent streams work media for the owning user via JWT session.
 // Successful works no longer require the user to re-paste API key secret for preview.
 func (h *CreazyCanvasHandler) GetWorkContent(c *gin.Context) {
@@ -415,6 +436,31 @@ func (h *CreazyCanvasHandler) GetWorkContent(c *gin.Context) {
 		response.ErrorFrom(c, fmt.Errorf("empty content"))
 		return
 	}
+	writeCreazyCanvasWorkContent(c, content)
+}
+
+// StreamWorkPlayback serves a signed, Range-aware work stream for <video>.
+// The token is scoped to the work and user and does not grant API access.
+func (h *CreazyCanvasHandler) StreamWorkPlayback(c *gin.Context) {
+	workID, ok := parseIDParam(c, "id", "Invalid work ID")
+	if !ok {
+		return
+	}
+	content, err := h.svc.OpenPlayback(c.Request.Context(), workID, strings.TrimSpace(c.Query("token")), c.GetHeader("Range"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if content == nil {
+		response.ErrorFrom(c, fmt.Errorf("empty content"))
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	writeCreazyCanvasWorkContent(c, content)
+}
+
+func writeCreazyCanvasWorkContent(c *gin.Context, content *service.CreazyCanvasWorkContent) {
 	if content.RedirectURL != "" {
 		if strings.HasPrefix(content.RedirectURL, "data:") {
 			// data: URLs cannot be HTTP-redirected; return JSON for the client.
@@ -449,7 +495,7 @@ func (h *CreazyCanvasHandler) GetWorkContent(c *gin.Context) {
 		}
 	}
 	c.Status(status)
-	if content.Body != nil {
+	if c.Request.Method != http.MethodHead && content.Body != nil {
 		_, _ = io.Copy(c.Writer, content.Body)
 	}
 }

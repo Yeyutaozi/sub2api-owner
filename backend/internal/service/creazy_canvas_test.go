@@ -143,6 +143,26 @@ func (r *creazyCanvasWorkRepoStub) GetByIDForUser(_ context.Context, id, userID 
 	return &cloned, nil
 }
 
+func (r *creazyCanvasWorkRepoStub) CreateOrUpdateAcceptedVideo(ctx context.Context, work *CreazyCanvasWork) error {
+	for _, existing := range r.works {
+		if existing.UserID != work.UserID || existing.APIKeyID != work.APIKeyID || existing.Kind != CreazyCanvasWorkKindVideo ||
+			existing.GatewayType != CreazyCanvasGatewayVideoJob || existing.GatewayRemoteID != work.GatewayRemoteID || existing.DeletedAt != nil {
+			continue
+		}
+		if !isCreazyCanvasWorkTerminalStatus(existing.Status) {
+			existing.Status = work.Status
+			existing.ErrorMessage = work.ErrorMessage
+		}
+		existing.PublicModel = work.PublicModel
+		existing.Prompt = work.Prompt
+		existing.ParamsJSON = work.ParamsJSON
+		existing.UpdatedAt = time.Now().UTC()
+		*work = *existing
+		return nil
+	}
+	return r.Create(ctx, work)
+}
+
 func (r *creazyCanvasWorkRepoStub) ListByUser(_ context.Context, userID int64, params pagination.PaginationParams, filters CreazyCanvasWorkListFilters) ([]CreazyCanvasWork, *pagination.PaginationResult, error) {
 	out := make([]CreazyCanvasWork, 0)
 	for _, work := range r.works {

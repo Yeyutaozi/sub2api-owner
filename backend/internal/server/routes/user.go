@@ -18,8 +18,10 @@ func RegisterUserRoutes(
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
 	// Native media elements cannot attach the UI's bearer token. This route is
-	// authorized by the short-lived, artifact-bound token issued by preview-url.
+	// authorized by a short-lived, work-bound token issued by playback-url.
 	v1.GET("/agent-artifacts/:id/content", h.AgentRun.StreamArtifactPreview)
+	v1.GET("/creazy-canvas/works/:id/playback", h.CreazyCanvas.StreamWorkPlayback)
+	v1.HEAD("/creazy-canvas/works/:id/playback", h.CreazyCanvas.StreamWorkPlayback)
 
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
@@ -132,6 +134,7 @@ func RegisterUserRoutes(
 			creazyCanvas.GET("/works/:id", h.CreazyCanvas.GetWork)
 			creazyCanvas.DELETE("/works/:id", h.CreazyCanvas.DeleteWork)
 			creazyCanvas.GET("/works/:id/download-url", h.CreazyCanvas.GetDownloadURL)
+			creazyCanvas.GET("/works/:id/playback-url", h.CreazyCanvas.GetPlaybackURL)
 			creazyCanvas.GET("/works/:id/content", h.CreazyCanvas.GetWorkContent)
 		}
 

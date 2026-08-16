@@ -260,6 +260,7 @@ type OpenAIForwardResult struct {
 	ImageInputSize        string
 	ImageOutputSize       string
 	ImageOutputSizes      []string
+	ImageOutputURLs       []string
 	ImageSizeSource       string
 	ImageSizeBreakdown    map[string]int
 	VideoCount            int
