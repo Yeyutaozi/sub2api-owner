@@ -115,6 +115,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 			return isXimeiVideoDurationSupported(SeedanceXimeiSD25Model, duration)
 		},
 	},
+	SeedanceGlobalAIOPCC1Model: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1"),
+		PromptLimit:         5000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 30 },
+	},
 	SeedanceWeijinFaceRef480pModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P),
@@ -210,6 +218,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			SeedanceMX933FastModel,
 			SeedanceXimeiSD20Model,
 			SeedanceXimeiSD25Model,
+			SeedanceGlobalAIOPCC1Model,
 			SeedanceWeijinFaceRef480pModel,
 			SeedanceWeijinFaceRef720pModel,
 			SeedanceWeijin900Model,

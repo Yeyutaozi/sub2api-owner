@@ -96,6 +96,12 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 			}
 		}
 	}
+	if provider == VideoProviderGlobalAIOPC {
+		mapping := stringMappingFromRaw(credentials["model_mapping"])
+		if strings.TrimSpace(mapping[SeedanceGlobalAIOPCC1Model]) != seedanceGlobalAIOPCUpstreamModel {
+			return infraerrors.BadRequest("VIDEO_PROVIDER_MODEL_MISMATCH", fmt.Sprintf("model %s must use the canonical GlobalAiOpc mapping", SeedanceGlobalAIOPCC1Model))
+		}
+	}
 	// Admin-only Weijin -> Pixelle multi-modal mapping credentials.
 	// Legacy lingdong_* keys remain accepted as aliases of pixelle_*.
 	if provider == VideoProviderWeijin {
@@ -1584,6 +1590,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if provider == VideoProviderWeijin {
 		return s.forwardWeijinSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
+	if provider == VideoProviderGlobalAIOPC {
+		return s.forwardGlobalAIOPCSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
@@ -1879,7 +1888,7 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	if status, ok := job["status"].(string); ok {
 		job["status"] = MapSeedancePublicTaskStatus(status)
 	}
-	if (provider == VideoProviderXimei || provider == VideoProviderWeijin) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
 		job["error"] = map[string]any{"message": "Video generation failed"}
 	}
 	synthesizeHuiquResult := func() {
@@ -2150,7 +2159,7 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 		response["content"] = map[string]any{"video_url": strings.TrimSpace(contentURL)}
 	}
 	if internalStatus == SeedanceTaskStatusFailed {
-		if provider == VideoProviderXimei || provider == VideoProviderWeijin {
+		if provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC {
 			response["error"] = map[string]any{"message": "Video generation failed"}
 			return response, nil
 		}

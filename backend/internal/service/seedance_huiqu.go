@@ -215,6 +215,11 @@ func normalizeVideoProvider(platform, provider string) (string, error) {
 			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
 		}
 		return provider, nil
+	case VideoProviderGlobalAIOPC:
+		if platform != PlatformSeedance {
+			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
+		}
+		return provider, nil
 	default:
 		return "", fmt.Errorf("unsupported video provider: %s", provider)
 	}
@@ -256,11 +261,13 @@ func videoProviderSupportsModelForPlatform(platform, provider, model string) boo
 		return (platform == PlatformSeedance || platform == "") && isXimeiVideoModel(model)
 	case VideoProviderWeijin:
 		return (platform == PlatformSeedance || platform == "") && isWeijinVideoModel(model)
+	case VideoProviderGlobalAIOPC:
+		return (platform == PlatformSeedance || platform == "") && isGlobalAIOPCVideoModel(model)
 	default: // fflink and future non-opaque providers
 		if platform == PlatformMiniMax {
 			return false
 		}
-		return !isHuiquVideoModel(model) && !isXimeiVideoModel(model) && !isWeijinVideoModel(model)
+		return !isHuiquVideoModel(model) && !isXimeiVideoModel(model) && !isWeijinVideoModel(model) && !isGlobalAIOPCVideoModel(model)
 	}
 }
 
@@ -351,7 +358,7 @@ func (i *SeedanceRequestInfo) HuiquUpstreamBody(upstreamModel string) ([]byte, e
 			"resolution":   huiquMiniMaxH3UpstreamResolution(),
 			"size":         huiquMiniMaxH3SizeFor(i.AspectRatio),
 			// H3 always emits native audio; omit false to avoid upstream unsupported_parameter.
-			"audio":        true,
+			"audio": true,
 		}
 		return json.Marshal(body)
 	}

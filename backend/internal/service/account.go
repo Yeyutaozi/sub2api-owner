@@ -1479,6 +1479,9 @@ func (a *Account) GetSeedanceBaseURL() string {
 	if a.IsWeijinVideo() {
 		return DefaultWeijinVideoBaseURL
 	}
+	if a.IsGlobalAIOPCVideo() {
+		return DefaultGlobalAIOPCVideoBaseURL
+	}
 	return DefaultSeedanceBaseURL
 }
 
