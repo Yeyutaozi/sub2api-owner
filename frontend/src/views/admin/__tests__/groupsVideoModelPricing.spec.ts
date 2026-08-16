@@ -36,6 +36,7 @@ describe("video model pricing form conversion", () => {
       createVideoModelPriceRow("sd2-mx933-fast"),
       createVideoModelPriceRow("sd-2.0-mx933"),
       createVideoModelPriceRow("sd-2.0-900-720p"),
+      createVideoModelPriceRow("seedance-2.5-c1-03"),
       createVideoModelPriceRow("sd-2.5-mx"),
       createVideoModelPriceRow("seedance2.0-one-face-reference-480p"),
       createVideoModelPriceRow("seedance2.0-one-face-reference-720p"),
@@ -77,6 +78,9 @@ describe("video model pricing form conversion", () => {
       "720p",
     ]);
     expect(supportedResolutionsForVideoModel("seedance", "sd-2.0-900-720p")).toEqual([
+      "720p",
+    ]);
+    expect(supportedResolutionsForVideoModel("seedance", "seedance-2.5-c1-03")).toEqual([
       "720p",
     ]);
     expect(supportedResolutionsForVideoModel("seedance", "seedance2.0-one-face-reference-480p")).toEqual([

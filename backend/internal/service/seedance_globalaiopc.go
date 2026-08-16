@@ -19,11 +19,13 @@ import (
 )
 
 const (
-	VideoProviderGlobalAIOPC         = "globalaiopc"
-	DefaultGlobalAIOPCVideoBaseURL   = "https://zcbservice.aizfw.cn/kyyReactApiServer"
-	SeedanceGlobalAIOPCC1Model       = "seedance-2.5-c1-03"
-	seedanceGlobalAIOPCUpstreamModel = "seedance-2.5-c1"
-	globalAIOPCVideoTaskPath         = "/v2/model-center/tasks"
+	VideoProviderGlobalAIOPC          = "globalaiopc"
+	DefaultGlobalAIOPCVideoBaseURL    = "https://zcbservice.aizfw.cn/kyyReactApiServer"
+	SeedanceGlobalAIOPCC1Model        = "seedance-2.5-c1-03"
+	seedanceGlobalAIOPCUpstreamModel  = "seedance-2.5-c1"
+	globalAIOPCDefaultDurationSeconds = 5
+	globalAIOPCMaxDurationSeconds     = 30
+	globalAIOPCVideoTaskPath          = "/v2/model-center/tasks"
 )
 
 type globalAIOPCVideoCreateRequest struct {

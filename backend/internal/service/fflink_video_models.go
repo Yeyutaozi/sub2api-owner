@@ -116,12 +116,12 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		},
 	},
 	SeedanceGlobalAIOPCC1Model: {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
-		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: globalAIOPCDefaultDurationSeconds,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1"),
 		PromptLimit:         5000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
-		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 30 },
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= globalAIOPCMaxDurationSeconds },
 	},
 	SeedanceWeijinFaceRef480pModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 5,

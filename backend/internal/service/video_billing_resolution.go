@@ -61,6 +61,15 @@ func NormalizeVideoBillingDurationSecondsForModelOrDefault(model string, duratio
 		}
 		return durationSeconds
 	}
+	if model == SeedanceGlobalAIOPCC1Model {
+		if durationSeconds <= 0 {
+			return globalAIOPCDefaultDurationSeconds
+		}
+		if durationSeconds > globalAIOPCMaxDurationSeconds {
+			return globalAIOPCMaxDurationSeconds
+		}
+		return durationSeconds
+	}
 	if strings.HasPrefix(model, "ltx-2.3-fast") {
 		if durationSeconds <= 0 {
 			return 6
