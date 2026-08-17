@@ -1584,6 +1584,14 @@
           <div v-else-if="mediaPreviewError" class="cc-media-preview__status is-error" role="alert">
             <Icon name="exclamationCircle" size="lg" />
             <span>{{ mediaPreviewError }}</span>
+            <button
+              v-if="mediaPreview.type === 'video' && mediaPreview.workId"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="retryMediaPreview"
+            >
+              {{ t('creazyCanvas.tasks.retry') }}
+            </button>
           </div>
           <img
             v-if="mediaPreview.type === 'image'"
@@ -1992,9 +2000,16 @@ const videoPersistUrl = ref('')
 const imageSaveMessage = ref('')
 const videoSaveMessage = ref('')
 /** Fullscreen image/video preview */
-const mediaPreview = ref<{ type: 'image' | 'video'; url: string; poster?: string } | null>(null)
+const mediaPreview = ref<{
+  type: 'image' | 'video'
+  url: string
+  poster?: string
+  workId?: number
+  retryCount?: number
+} | null>(null)
 const mediaPreviewLoaded = ref(false)
 const mediaPreviewError = ref('')
+const mediaPreviewRecovering = ref(false)
 /** Cached playable URLs for works list (may be blob:) */
 const workPreviewUrls = reactive<Record<string, string>>({})
 /** Poster-only overrides are never passed to the video player. */
@@ -3842,7 +3857,13 @@ function setVideoResultPlayback(playable: string, persist?: string) {
   }
 }
 
-function openMediaPreview(item: { type: 'image' | 'video'; url: string; poster?: string }) {
+function openMediaPreview(item: {
+  type: 'image' | 'video'
+  url: string
+  poster?: string
+  workId?: number
+  retryCount?: number
+}) {
   if (!item?.url) return
   mediaPreviewLoaded.value = false
   mediaPreviewError.value = ''
@@ -3853,6 +3874,7 @@ function closeMediaPreview() {
   mediaPreview.value = null
   mediaPreviewLoaded.value = false
   mediaPreviewError.value = ''
+  mediaPreviewRecovering.value = false
 }
 
 function onMediaPreviewLoaded() {
@@ -3860,8 +3882,54 @@ function onMediaPreviewLoaded() {
   mediaPreviewError.value = ''
 }
 
-function onMediaPreviewFailed() {
+async function refreshMediaPreviewPlayback(workId: number, retryCount: number): Promise<boolean> {
+  if (mediaPreviewRecovering.value) return false
+  mediaPreviewRecovering.value = true
+  const id = String(workId)
+  try {
+    delete workPreviewUrls[id]
+    await new Promise((resolve) => setTimeout(resolve, Math.min(1000, 250 * retryCount)))
+    const playback = await getWorkPlaybackURL(workId)
+    const playbackUrl = sanitizeMediaUrl(playback.url || '')
+    if (!playbackUrl || mediaPreview.value?.workId !== workId) return false
+    workPreviewUrls[id] = playbackUrl
+    mediaPreviewLoaded.value = false
+    mediaPreviewError.value = ''
+    mediaPreview.value = {
+      ...mediaPreview.value,
+      url: playbackUrl,
+      retryCount,
+    }
+    return true
+  } catch (error) {
+    console.warn('[creazy-canvas] refresh video preview failed', error)
+    return false
+  } finally {
+    mediaPreviewRecovering.value = false
+  }
+}
+
+async function retryMediaPreview() {
+  const workId = Number(mediaPreview.value?.workId || 0)
+  if (!workId) return
   mediaPreviewLoaded.value = false
+  mediaPreviewError.value = ''
+  const refreshed = await refreshMediaPreviewPlayback(workId, 1)
+  if (!refreshed && mediaPreview.value?.workId === workId) {
+    mediaPreviewError.value = t('creazyCanvas.works.previewFailed')
+  }
+}
+
+async function onMediaPreviewFailed() {
+  mediaPreviewLoaded.value = false
+  const preview = mediaPreview.value
+  const workId = Number(preview?.workId || 0)
+  const retryCount = Number(preview?.retryCount || 0)
+  if (preview?.type === 'video' && workId && retryCount < 2) {
+    mediaPreviewError.value = ''
+    const refreshed = await refreshMediaPreviewPlayback(workId, retryCount + 1)
+    if (refreshed) return
+  }
   mediaPreviewError.value = t('creazyCanvas.works.previewFailed')
 }
 
@@ -3986,7 +4054,13 @@ async function openWorkPreview(work: CreazyWork) {
     appStore.showError(detail)
     return
   }
-	openMediaPreview({ type: image ? 'image' : 'video', url, poster: image ? undefined : workPosterUrl(work) })
+	openMediaPreview({
+    type: image ? 'image' : 'video',
+    url,
+    poster: image ? undefined : workPosterUrl(work),
+    workId: image ? undefined : work.id,
+    retryCount: 0,
+  })
 }
 
 async function hydrateWorkPreviews(list: CreazyWork[]) {

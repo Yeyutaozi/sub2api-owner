@@ -49,6 +49,26 @@ describe('Creazy Canvas work correlation', () => {
     expect(completedVideo).not.toContain('getVideoContentURL(')
   })
 
+  it('refreshes an expired playback URL before showing a preview error', () => {
+    const refresh = functionSource(
+      canvasSource,
+      'async function refreshMediaPreviewPlayback(',
+      'async function retryMediaPreview()',
+    )
+    const failure = functionSource(
+      canvasSource,
+      'async function onMediaPreviewFailed()',
+      'async function performLoadWorkPreview(',
+    )
+
+    expect(refresh).toContain('delete workPreviewUrls[id]')
+    expect(refresh).toContain('getWorkPlaybackURL(workId)')
+    expect(refresh).toContain('mediaPreviewRecovering.value')
+    expect(failure).toContain('retryCount < 2')
+    expect(failure).toContain('refreshMediaPreviewPlayback(workId, retryCount + 1)')
+    expect(canvasSource).toContain('@click="retryMediaPreview"')
+  })
+
   it('persists the regular video work before submitting the gateway request', () => {
     const source = functionSource(
       canvasSource,
