@@ -56,6 +56,31 @@ func TestCreazyCanvasPlaybackStreamsRangeWithoutArchiveWait(t *testing.T) {
 	require.Empty(t, svc.playbackStreams)
 }
 
+func TestCreazyCanvasPlaybackArchivesSucceededVideoBeforeServing(t *testing.T) {
+	payload := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/videos/jobs/job-41/content", r.URL.Path)
+		require.Empty(t, r.URL.Query().Get("canvas_playback"))
+		require.Empty(t, r.Header.Get("Range"))
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	defer upstream.Close()
+
+	store := &creazyCanvasArchiveStore{}
+	svc := newCreazyCanvasPlaybackTestService(t, upstream.URL)
+	svc.artifactStore = store
+	content, err := svc.openWorkContent(context.Background(), 7, 41, "bytes=0-3", true)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusFound, content.StatusCode)
+	require.Equal(t, "https://signed.example.com/result.png", content.RedirectURL)
+	require.Equal(t, 1, store.putCalls)
+	require.Equal(t, "video/mp4", store.putContentType)
+	require.Equal(t, payload, store.putBody)
+	require.Equal(t, "tenant/creazy-canvas/7/video/1/result.mp4", svc.workRepo.(*creazyCanvasWorkRepoStub).works[41].ObjectKey)
+}
+
 func TestCreazyCanvasPlaybackRejectsTamperingExpiryAndInvalidRange(t *testing.T) {
 	svc := newCreazyCanvasPlaybackTestService(t, "http://127.0.0.1:1")
 	valid, err := svc.signCreazyCanvasPlaybackToken(41, 7, time.Now().Add(time.Minute))

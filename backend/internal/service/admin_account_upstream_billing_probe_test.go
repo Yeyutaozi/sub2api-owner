@@ -319,8 +319,9 @@ func TestUpdateAccountExplicitProbeDisableUsesDedicatedExtraUpdate(t *testing.T)
 	})
 
 	require.NoError(t, err)
-	require.Len(t, repo.updates[accountID], 1)
+	require.Len(t, repo.updates[accountID], 2)
 	require.Equal(t, false, repo.updates[accountID][0][UpstreamBillingProbeEnabledExtraKey])
+	require.Contains(t, repo.updates[accountID][1], AccountExtraSafeRateStatus)
 }
 
 func TestUpdateAccountExplicitUnchangedProbeEnabledStillUsesDedicatedExtraUpdate(t *testing.T) {
@@ -340,8 +341,9 @@ func TestUpdateAccountExplicitUnchangedProbeEnabledStillUsesDedicatedExtraUpdate
 	})
 
 	require.NoError(t, err)
-	require.Len(t, repo.updates[accountID], 1)
+	require.Len(t, repo.updates[accountID], 2)
 	require.Equal(t, true, repo.updates[accountID][0][UpstreamBillingProbeEnabledExtraKey])
+	require.Contains(t, repo.updates[accountID][1], AccountExtraSafeRateStatus)
 }
 
 func TestUpdateAccountRejectsInvalidProbeEnabled(t *testing.T) {

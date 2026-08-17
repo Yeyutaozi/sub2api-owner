@@ -27,6 +27,7 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		SeedanceMX933FastModel,
 		SeedanceXimeiSD20Model,
 		SeedanceXimeiSD25Model,
+		SeedanceGlobalAIOPCC1Model,
 		SeedanceWeijinFaceRef480pModel,
 		SeedanceWeijinFaceRef720pModel,
 		SeedanceWeijin900Model,

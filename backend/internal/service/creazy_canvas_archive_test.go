@@ -52,11 +52,17 @@ func (s *creazyCanvasArchiveStore) Put(_ context.Context, input AgentArtifactSto
 	if s.putErr != nil {
 		return nil, s.putErr
 	}
+	objectKey := "tenant/creazy-canvas/7/image/1/result.png"
+	objectURL := "https://canvas-bucket.example.com/tenant/creazy-canvas/7/image/1/result.png"
+	if input.ContentType == "video/mp4" {
+		objectKey = "tenant/creazy-canvas/7/video/1/result.mp4"
+		objectURL = "https://canvas-bucket.example.com/tenant/creazy-canvas/7/video/1/result.mp4"
+	}
 	return &AgentArtifactStorePutResult{
 		Provider:  "cos",
 		Bucket:    "canvas-bucket",
-		ObjectKey: "tenant/creazy-canvas/7/image/1/result.png",
-		ObjectURL: "https://canvas-bucket.example.com/tenant/creazy-canvas/7/image/1/result.png",
+		ObjectKey: objectKey,
+		ObjectURL: objectURL,
 		SizeBytes: int64(len(payload)),
 	}, nil
 }
