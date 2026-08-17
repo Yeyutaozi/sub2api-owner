@@ -183,6 +183,36 @@ func TestMX933TotalMediaLimit(t *testing.T) {
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(tooMany), "at most 12 total reference media files")
 }
 
+func TestPublicSeedance20ModelsAllowFull933ReferenceSet(t *testing.T) {
+	for _, model := range []string{"seedance-2.0", "seedance-2.0-fast"} {
+		info := mx933RequestInfo(model)
+		info.References = make([]SeedanceReferenceImage, 9)
+		info.VideoReferences = make([]SeedanceReferenceVideo, 3)
+		info.AudioReferences = make([]SeedanceReferenceAudio, 3)
+		info.GenerateAudio = true
+		info.AspectRatio = "16:9"
+		info.StartFrameURL = ""
+		info.EndFrameURL = ""
+		require.NoError(t, validateFFLinkVideoRequestInfo(info), model)
+
+		tooManyImages := *info
+		tooManyImages.References = append(tooManyImages.References, SeedanceReferenceImage{})
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyImages), "at most 9 reference images")
+
+		tooManyVideos := *info
+		tooManyVideos.VideoReferences = append(tooManyVideos.VideoReferences, SeedanceReferenceVideo{})
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyVideos), "at most 3 reference videos")
+
+		tooManyAudio := *info
+		tooManyAudio.AudioReferences = append(tooManyAudio.AudioReferences, SeedanceReferenceAudio{})
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyAudio), "at most 3 reference audio files")
+
+		tooManyTotal := *info
+		tooManyTotal.References = append(tooManyTotal.References, SeedanceReferenceImage{})
+		require.ErrorContains(t, validateFFLinkVideoRequestInfo(&tooManyTotal), "at most 9 reference images")
+	}
+}
+
 func TestAudioReferenceCanStandAlone(t *testing.T) {
 	mx933 := mx933RequestInfo(SeedanceMX933Model)
 	mx933.References = nil
