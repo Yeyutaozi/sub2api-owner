@@ -31,6 +31,7 @@ describe('useModelWhitelist', () => {
       'seedance-2.0',
       'seedance-2.0-fast',
       'seedance-2.0-mini',
+      'seedance-2.5',
       'sd2-mx933',
       'sd2-mx933-fast',
       'sd-2.0-mx933',
@@ -59,7 +60,8 @@ describe('useModelWhitelist', () => {
     expect(getSeedanceModelsByVideoProvider('fflink')).toEqual([
       'seedance-2.0',
       'seedance-2.0-fast',
-      'seedance-2.0-mini'
+      'seedance-2.0-mini',
+      'seedance-2.5'
     ])
     expect(getSeedanceModelsByVideoProvider('huiqu')).toEqual([
       'sd2-mx933',

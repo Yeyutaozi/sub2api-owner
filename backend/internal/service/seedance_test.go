@@ -23,6 +23,7 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		"seedance-2.0",
 		"seedance-2.0-fast",
 		"seedance-2.0-mini",
+		"seedance-2.5",
 		SeedanceMX933Model,
 		SeedanceMX933FastModel,
 		SeedanceXimeiSD20Model,
