@@ -35,6 +35,28 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 	require.Equal(t, []string{SeedanceMiniMaxH3Model}, defaultModelsListCandidateIDs(PlatformMiniMax))
 }
 
+func TestExtractSeedanceUpstreamTaskID(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "string job id", body: `{"job_id":"vidjob_123"}`, want: "vidjob_123"},
+		{name: "numeric job id", body: `{"job_id":1}`, want: "1"},
+		{name: "max int64 preserves precision", body: `{"job_id":9223372036854775807}`, want: "9223372036854775807"},
+		{name: "fallback task id", body: `{"task_id":"task-456"}`, want: "task-456"},
+		{name: "zero rejected", body: `{"job_id":0}`},
+		{name: "negative rejected", body: `{"job_id":-1}`},
+		{name: "decimal rejected", body: `{"job_id":1.5}`},
+		{name: "malformed rejected", body: `{"job_id":`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, extractSeedanceUpstreamTaskID([]byte(tt.body)))
+		})
+	}
+}
+
 func TestSeedanceIndexedJobFallbackHidesLegacyMX933Model(t *testing.T) {
 	job := seedanceIndexedJobFallback(SeedanceTaskBinding{
 		JobID: "hqv1_legacy_task",

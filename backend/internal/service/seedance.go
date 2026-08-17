@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1792,15 +1793,37 @@ func (s *OpenAIGatewayService) forwardSeedance(
 
 func extractSeedanceUpstreamTaskID(body []byte) string {
 	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
 		return ""
 	}
 	for _, key := range []string{"job_id", "id", "task_id"} {
-		if value, ok := payload[key].(string); ok && seedanceTaskIDPattern.MatchString(strings.TrimSpace(value)) {
-			return strings.TrimSpace(value)
+		if taskID := normalizeSeedanceTaskID(payload[key]); taskID != "" {
+			return taskID
 		}
 	}
 	return ""
+}
+
+func normalizeSeedanceTaskID(value any) string {
+	var taskID string
+	switch typed := value.(type) {
+	case string:
+		taskID = strings.TrimSpace(typed)
+	case json.Number:
+		numericID, err := strconv.ParseInt(typed.String(), 10, 64)
+		if err != nil || numericID <= 0 {
+			return ""
+		}
+		taskID = strconv.FormatInt(numericID, 10)
+	default:
+		return ""
+	}
+	if !seedanceTaskIDPattern.MatchString(taskID) {
+		return ""
+	}
+	return taskID
 }
 
 func FilterSeedanceJobsList(body []byte, allowTask func(string) bool) ([]byte, error) {
