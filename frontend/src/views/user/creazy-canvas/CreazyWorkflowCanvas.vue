@@ -97,11 +97,18 @@
       </div>
       <aside class="wf-palette" aria-label="节点工具">
         <div class="wf-palette__heading">
-          <span>添加</span>
+          <span>{{ paletteTab === 'nodes' ? '节点库' : paletteTab === 'assets' ? '资产库' : '工作流模板' }}</span>
+          <small>{{ paletteTab === 'nodes' ? '拖入画布或点击添加' : paletteTab === 'assets' ? '搜索并复用当前画布资产' : '一键插入常用生成链路' }}</small>
         </div>
+        <div class="wf-palette-tabs" role="tablist" aria-label="资源面板">
+          <button type="button" :class="{ active: paletteTab === 'nodes' }" @click="paletteTab = 'nodes'">节点</button>
+          <button type="button" :class="{ active: paletteTab === 'assets' }" @click="paletteTab = 'assets'">资产</button>
+          <button type="button" :class="{ active: paletteTab === 'templates' }" @click="paletteTab = 'templates'">模板</button>
+        </div>
+        <template v-if="paletteTab === 'nodes'">
         <button type="button" class="wf-tool wf-tool--asset" title="上传资产" :disabled="!apiReady" @click="openAssetPicker">
           <span class="wf-tool__icon"><Icon name="upload" size="sm" /></span>
-          <strong>资产</strong>
+          <span><strong>资产</strong><small>图片、视频、音频</small></span>
         </button>
         <button
           type="button"
@@ -113,7 +120,7 @@
           @click="addNode('prompt')"
         >
           <span class="wf-tool__icon"><Icon name="document" size="sm" /></span>
-          <strong>提示词</strong>
+          <span><strong>提示词</strong><small>描述画面与镜头</small></span>
         </button>
         <button
           type="button"
@@ -126,7 +133,7 @@
           @click="addNode('image')"
         >
           <span class="wf-tool__icon"><Icon name="sparkles" size="sm" /></span>
-          <strong>生图</strong>
+          <span><strong>图片生成</strong><small>文字或参考图生图</small></span>
         </button>
         <button
           type="button"
@@ -139,8 +146,39 @@
           @click="addNode('video')"
         >
           <span class="wf-tool__icon"><Icon name="play" size="sm" /></span>
-          <strong>视频</strong>
+          <span><strong>视频生成</strong><small>图片、视频或文字驱动</small></span>
         </button>
+        </template>
+        <template v-else-if="paletteTab === 'assets'">
+          <label class="wf-asset-search">
+            <Icon name="search" size="xs" />
+            <input v-model="assetSearch" placeholder="搜索资产" />
+          </label>
+          <button type="button" class="wf-upload-card" :disabled="!apiReady" @click="openAssetPicker">
+            <Icon name="upload" size="sm" /><span><strong>上传新资产</strong><small>图片、视频或音频</small></span>
+          </button>
+          <div v-if="filteredAssetNodes.length" class="wf-asset-list">
+            <button v-for="asset in filteredAssetNodes" :key="asset.id" type="button" @click="focusLibraryAsset(asset.id)">
+              <span class="wf-asset-list__preview">
+                <img v-if="asset.data.mediaKind === 'image' && mediaPreviewUrl(asset.data)" :src="mediaPreviewUrl(asset.data)" alt="" />
+                <Icon v-else :name="asset.data.mediaKind === 'audio' ? 'sync' : 'play'" size="sm" />
+              </span>
+              <span><strong>{{ asset.data.name || asset.data.title }}</strong><small>{{ mediaKindLabel(asset.data.mediaKind) }} · {{ statusLabel(asset.data.status) }}</small></span>
+            </button>
+          </div>
+          <p v-else class="wf-palette-empty">当前画布还没有可复用资产</p>
+        </template>
+        <template v-else>
+          <button type="button" class="wf-template-card" @click="insertWorkflowTemplate('text-image')">
+            <span><Icon name="sparkles" size="sm" /></span><strong>文生图</strong><small>提示词 → 图片生成</small>
+          </button>
+          <button type="button" class="wf-template-card" @click="insertWorkflowTemplate('image-video')">
+            <span><Icon name="play" size="sm" /></span><strong>图生视频</strong><small>资产 + 提示词 → 视频</small>
+          </button>
+          <button type="button" class="wf-template-card" @click="insertWorkflowTemplate('storyboard')">
+            <span><Icon name="workflow" size="sm" /></span><strong>分镜生成链</strong><small>提示词 → 生图 → 生视频</small>
+          </button>
+        </template>
         <div class="wf-palette__divider"></div>
         <a class="wf-task-link" href="/creazy-canvas/works" title="查看全部任务" aria-label="查看全部任务">
           <Icon name="inbox" size="sm" />
@@ -281,7 +319,17 @@
                     </span>
                   </div>
                   <p class="wf-node__file">{{ slotProps.data.name || '生成结果' }}</p>
-                  <small v-if="slotProps.data.workId" class="wf-node__meta">任务 #{{ slotProps.data.workId }}</small>
+                  <div class="wf-node__media-meta">
+                    <small v-if="slotProps.data.workId" class="wf-node__meta">任务 #{{ slotProps.data.workId }}</small>
+                    <span v-if="slotProps.data.kind === 'result' && slotProps.data.runCount" class="wf-node__version">V{{ slotProps.data.runCount }}</span>
+                  </div>
+                  <button
+                    v-if="slotProps.data.kind === 'result' && slotProps.data.sourceNodeId"
+                    type="button"
+                    class="wf-node__source-link nodrag"
+                    @pointerdown.stop
+                    @click.stop="focusLibraryAsset(slotProps.data.sourceNodeId)"
+                  ><Icon name="workflow" size="xs" />定位生成节点</button>
                 </template>
 
                 <template v-else-if="slotProps.data.kind === 'prompt'">
@@ -291,25 +339,92 @@
                 </template>
 
                 <template v-else-if="slotProps.data.kind === 'image'">
+                  <div class="wf-node__prompt-box" :class="{ 'wf-node__prompt-box--empty': !resolvedPromptForNode(slotProps.id) }">
+                    <span>提示词</span>
+                    <template v-if="hasIncomingPrompt(slotProps.id)">
+                      <p>{{ resolvedPromptForNode(slotProps.id) }}</p>
+                      <button type="button" class="nodrag" @pointerdown.stop @click.stop="focusIncomingPrompt(slotProps.id)">编辑上游提示词</button>
+                    </template>
+                    <template v-else>
+                      <textarea
+                        class="nodrag"
+                        rows="3"
+                        :value="slotProps.data.prompt"
+                        placeholder="直接输入提示词，或创建独立提示词节点"
+                        @pointerdown.stop
+                        @input="patchNode(slotProps.id, { prompt: inputValue($event) })"
+                      ></textarea>
+                    </template>
+                    <button
+                      v-if="!hasIncomingPrompt(slotProps.id)"
+                      type="button"
+                      class="nodrag"
+                      @pointerdown.stop
+                      @click.stop="addPromptForNode(slotProps.id)"
+                    ><Icon name="plus" size="xs" />{{ slotProps.data.prompt ? '拆分为提示词节点' : '添加提示词节点' }}</button>
+                  </div>
                   <p class="wf-node__model">{{ slotProps.data.model || '选择图片模型' }}</p>
                   <div class="wf-node__chips">
                     <span>{{ slotProps.data.qualityTier || '1K' }}</span>
                     <span>{{ slotProps.data.aspectRatio || '1:1' }}</span>
-                    <span v-if="incomingCount(slotProps.id)">{{ incomingCount(slotProps.id) }} 个输入</span>
+                    <span>{{ incomingMediaCount(slotProps.id) }} 个素材</span>
+                    <span v-for="label in nodeCapabilityLabels(slotProps.data)" :key="label" class="wf-node__capability">{{ label }}</span>
                   </div>
                 </template>
 
                 <template v-else-if="slotProps.data.kind === 'video'">
+                  <div class="wf-node__prompt-box" :class="{ 'wf-node__prompt-box--empty': !resolvedPromptForNode(slotProps.id) }">
+                    <span>提示词</span>
+                    <template v-if="hasIncomingPrompt(slotProps.id)">
+                      <p>{{ resolvedPromptForNode(slotProps.id) }}</p>
+                      <button type="button" class="nodrag" @pointerdown.stop @click.stop="focusIncomingPrompt(slotProps.id)">编辑上游提示词</button>
+                    </template>
+                    <template v-else>
+                      <textarea
+                        class="nodrag"
+                        rows="3"
+                        :value="slotProps.data.prompt"
+                        placeholder="直接输入提示词，或创建独立提示词节点"
+                        @pointerdown.stop
+                        @input="patchNode(slotProps.id, { prompt: inputValue($event) })"
+                      ></textarea>
+                    </template>
+                    <button
+                      v-if="!hasIncomingPrompt(slotProps.id)"
+                      type="button"
+                      class="nodrag"
+                      @pointerdown.stop
+                      @click.stop="addPromptForNode(slotProps.id)"
+                    ><Icon name="plus" size="xs" />{{ slotProps.data.prompt ? '拆分为提示词节点' : '添加提示词节点' }}</button>
+                  </div>
                   <p class="wf-node__model">{{ slotProps.data.model || '选择视频模型' }}</p>
                   <div class="wf-node__chips">
                     <span>{{ slotProps.data.resolution || '720p' }}</span>
                     <span>{{ slotProps.data.duration || 5 }}s</span>
                     <span>{{ slotProps.data.aspectRatio || '16:9' }}</span>
+                    <span>{{ incomingMediaCount(slotProps.id) }} 个素材</span>
+                    <span v-for="label in nodeCapabilityLabels(slotProps.data)" :key="label" class="wf-node__capability">{{ label }}</span>
                   </div>
                 </template>
 
                 <p v-if="slotProps.data.error" class="wf-node__error">{{ slotProps.data.error }}</p>
               </div>
+
+              <footer v-if="slotProps.data.kind === 'image' || slotProps.data.kind === 'video'" class="wf-node__footer">
+                <span><i></i>{{ incomingCount(slotProps.id) }} 路输入</span>
+                <span class="wf-node__runtime">
+                  <b>{{ estimatedNodeCostById(slotProps.id) == null ? '价格待定' : '$' + formatCost(estimatedNodeCostById(slotProps.id) || 0) }}</b>
+                  <b v-if="slotProps.data.lastRunDurationMs">{{ formatRunDuration(slotProps.data.lastRunDurationMs) }}</b>
+                  <b v-if="slotProps.data.runCount">V{{ slotProps.data.runCount }}</b>
+                </span>
+                <button
+                  type="button"
+                  class="nodrag"
+                  :disabled="slotProps.data.status === 'running' || activeNodeRuns.has(slotProps.id) || workflowRun.active || !apiReady"
+                  @pointerdown.stop
+                  @click.stop="runNode(slotProps.id)"
+                ><Icon :name="slotProps.data.status === 'running' ? 'refresh' : 'play'" size="xs" :class="{ 'animate-spin': slotProps.data.status === 'running' }" />{{ slotProps.data.status === 'running' ? '生成中' : '运行节点' }}</button>
+              </footer>
 
               <Handle
                 id="output"
@@ -726,9 +841,12 @@ interface WorkflowNodeData {
   mimeType?: string
   durationSeconds?: number
   workId?: number
+  sourceNodeId?: string
   gatewayRemoteId?: string
   upstreamReady?: boolean
   error?: string
+  lastRunDurationMs?: number
+  runCount?: number
 }
 
 type WorkflowNode = Node<WorkflowNodeData, Record<string, never>, 'workflow'> & {
@@ -738,6 +856,8 @@ type WorkflowNode = Node<WorkflowNodeData, Record<string, never>, 'workflow'> & 
 type WorkflowEdge = Edge & { selected?: boolean }
 
 type RunScope = 'node' | 'downstream' | 'workflow'
+type PaletteTab = 'nodes' | 'assets' | 'templates'
+type WorkflowTemplateKind = 'text-image' | 'image-video' | 'storyboard'
 type CommandIcon = 'document' | 'sparkles' | 'play' | 'upload' | 'layout' | 'grid' | 'workflow' | 'clipboard'
 
 interface CommandPaletteItem {
@@ -829,6 +949,8 @@ const saveState = ref<'loading' | 'saved' | 'dirty' | 'saving' | 'local' | 'conf
 const saveError = ref('')
 const draggingFile = ref(false)
 const draggingNodeKind = ref<PaletteNodeKind | ''>('')
+const paletteTab = ref<PaletteTab>('nodes')
+const assetSearch = ref('')
 const connectionNotice = ref('')
 const assetInput = ref<HTMLInputElement | null>(null)
 const shellEl = ref<HTMLElement | null>(null)
@@ -888,6 +1010,14 @@ const selectedNodes = computed(() => nodes.value.filter((node) => Boolean(node.s
 const selectedEdges = computed(() => edges.value.filter((edge) => Boolean(edge.selected)))
 const selectedNode = computed(() => selectedNodes.value.length === 1 ? selectedNodes.value[0] : null)
 const generationNodes = computed(() => nodes.value.filter((node) => node.data.kind === 'image' || node.data.kind === 'video'))
+const filteredAssetNodes = computed(() => {
+  const query = assetSearch.value.trim().toLowerCase()
+  return nodes.value.filter((node) => {
+    if (node.data.kind !== 'asset' && node.data.kind !== 'result') return false
+    if (!query) return true
+    return [node.data.name, node.data.title, node.data.mediaKind].some((value) => String(value || '').toLowerCase().includes(query))
+  })
+})
 const graphEditingLocked = computed(() => workflowRun.value.active || activeNodeRunCount.value > 0)
 const canRunSelected = computed(() => {
   const data = selectedNode.value?.data
@@ -1119,9 +1249,9 @@ function starterNodes(): WorkflowNode[] {
   const imageId = uid('image')
   const videoId = uid('video')
   return [
-    createNode('prompt', { x: 80, y: 180 }, promptId),
-    createNode('image', { x: 400, y: 150 }, imageId),
-    createNode('video', { x: 720, y: 150 }, videoId),
+    createNode('prompt', { x: 80, y: 190 }, promptId),
+    createNode('image', { x: 500, y: 120 }, imageId),
+    createNode('video', { x: 940, y: 120 }, videoId),
   ]
 }
 
@@ -1133,7 +1263,7 @@ function starterGraph(): { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewpor
       makeEdge(initialNodes[0].id, initialNodes[1].id, initialNodes),
       makeEdge(initialNodes[1].id, initialNodes[2].id, initialNodes),
     ],
-    viewport: { x: 0, y: 0, zoom: 0.9 },
+    viewport: { x: 0, y: 0, zoom: 0.82 },
   }
 }
 
@@ -1177,7 +1307,7 @@ function createNode(kind: WorkflowKind, position: XYPosition, id = uid(kind)): W
 
 function nextPosition(): XYPosition {
   const count = nodes.value.length
-  return { x: 120 + (count % 3) * 320, y: 120 + Math.floor(count / 3) * 240 }
+  return { x: 120 + (count % 3) * 420, y: 120 + Math.floor(count / 3) * 310 }
 }
 
 function addNode(kind: PaletteNodeKind, position = nextPosition()) {
@@ -1200,6 +1330,97 @@ function addNode(kind: PaletteNodeKind, position = nextPosition()) {
   }).catch(() => undefined)
 }
 
+function addPromptForNode(targetId: string) {
+  if (!ensureGraphEditable()) return
+  const target = nodes.value.find((node) => node.id === targetId)
+  if (!target || (target.data.kind !== 'image' && target.data.kind !== 'video')) return
+  const promptNode = createNode('prompt', {
+    x: target.position.x - 380,
+    y: target.position.y + 20,
+  })
+  const inlinePrompt = String(target.data.prompt || '')
+  promptNode.data.prompt = inlinePrompt
+  promptNode.selected = true
+  const edge = makeEdge(promptNode.id, target.id, [...nodes.value, promptNode])
+  void executeEditorCommand(historyCommand(
+    '添加并连接提示词',
+    () => {
+      if (!nodes.value.some((node) => node.id === promptNode.id)) nodes.value = [...nodes.value, cloneValue(promptNode)]
+      if (!edges.value.some((item) => item.id === edge.id)) edges.value = [...edges.value, cloneValue(edge)]
+      if (inlinePrompt) patchNode(target.id, { prompt: '' })
+      selectOnlyNode(promptNode.id)
+    },
+    () => {
+      edges.value = edges.value.filter((item) => item.id !== edge.id)
+      nodes.value = nodes.value.filter((node) => node.id !== promptNode.id)
+      if (inlinePrompt) patchNode(target.id, { prompt: inlinePrompt })
+      selectedNodeId.value = ''
+    },
+  )).then(() => {
+    void nextTick().then(() => fitView({ nodes: [promptNode.id, target.id], padding: 0.42, duration: 320 })).catch(() => undefined)
+  }).catch(() => undefined)
+}
+
+function focusLibraryAsset(nodeId: string) {
+  selectOnlyNode(nodeId)
+  void nextTick().then(() => fitView({ nodes: [nodeId], padding: 0.75, duration: 280, minZoom: 0.65, maxZoom: 1.1 })).catch(() => undefined)
+}
+
+function insertWorkflowTemplate(kind: WorkflowTemplateKind) {
+  if (!ensureGraphEditable()) return
+  const anchor = lastCanvasPointer.value || nextPosition()
+  const created: WorkflowNode[] = []
+  const links: WorkflowEdge[] = []
+  const prompt = createNode('prompt', { x: anchor.x, y: anchor.y + 60 })
+  prompt.data.title = kind === 'storyboard' ? '分镜提示词' : '提示词'
+  created.push(prompt)
+
+  if (kind === 'text-image') {
+    const image = createNode('image', { x: anchor.x + 420, y: anchor.y })
+    created.push(image)
+    links.push(makeEdge(prompt.id, image.id, created))
+  } else if (kind === 'image-video') {
+    const image = createNode('image', { x: anchor.x + 420, y: anchor.y })
+    const video = createNode('video', { x: anchor.x + 860, y: anchor.y })
+    created.push(image, video)
+    links.push(makeEdge(prompt.id, image.id, created), makeEdge(prompt.id, video.id, created), makeEdge(image.id, video.id, created))
+  } else {
+    const imageA = createNode('image', { x: anchor.x + 420, y: anchor.y - 170 })
+    const imageB = createNode('image', { x: anchor.x + 420, y: anchor.y + 210 })
+    imageA.data.title = '关键帧 A'
+    imageB.data.title = '关键帧 B'
+    const video = createNode('video', { x: anchor.x + 860, y: anchor.y })
+    created.push(imageA, imageB, video)
+    links.push(
+      makeEdge(prompt.id, imageA.id, created),
+      makeEdge(prompt.id, imageB.id, created),
+      makeEdge(prompt.id, video.id, created),
+      makeEdge(imageA.id, video.id, created),
+      makeEdge(imageB.id, video.id, created),
+    )
+  }
+
+  const nodeIds = created.map((node) => node.id)
+  void executeEditorCommand(historyCommand(
+    '插入工作流模板',
+    () => {
+      const existing = new Set(nodes.value.map((node) => node.id))
+      nodes.value = [...nodes.value, ...created.filter((node) => !existing.has(node.id)).map((node) => cloneValue(node))]
+      const existingEdges = new Set(edges.value.map((edge) => edge.id))
+      edges.value = [...edges.value, ...links.filter((edge) => !existingEdges.has(edge.id)).map((edge) => cloneValue(edge))]
+      selectOnlyNodes(nodeIds)
+    },
+    () => {
+      nodes.value = nodes.value.filter((node) => !nodeIds.includes(node.id))
+      edges.value = edges.value.filter((edge) => !nodeIds.includes(edge.source) && !nodeIds.includes(edge.target))
+      selectedNodeId.value = ''
+    },
+  )).then(() => {
+    paletteTab.value = 'nodes'
+    void nextTick().then(() => fitView({ nodes: nodeIds, padding: 0.25, duration: 360, minZoom: 0.45, maxZoom: 0.95 })).catch(() => undefined)
+  }).catch(() => undefined)
+}
+
 function signalKindForNode(data?: WorkflowNodeData): SignalKind {
   if (!data) return 'data'
   if (data.kind === 'prompt') return 'prompt'
@@ -1217,21 +1438,64 @@ function outputPort(data: WorkflowNodeData): WorkflowPort {
 
 function inputPorts(data: WorkflowNodeData): WorkflowPort[] {
   if (data.kind === 'image') {
-    return [
-      { id: 'prompt', label: '提示词', signal: 'prompt', color: SIGNAL_META.prompt.color, position: '43%' },
-      { id: 'reference-image', label: '参考图', signal: 'image', color: SIGNAL_META.image.color, position: '72%' },
+    const model = imageModels.value.find((item) => item.id === data.model)
+    const ports: WorkflowPort[] = [
+      { id: 'prompt', label: '提示词', signal: 'prompt', color: SIGNAL_META.prompt.color, position: '34%' },
     ]
+    if (model?.supports_reference !== false || model?.require_reference || Number(model?.max_reference_images || 0) > 0) {
+      ports.push({
+        id: 'reference-image',
+        label: model?.require_reference ? '必需参考图' : Number(model?.max_reference_images || 0) > 0 ? `参考图 ×${model?.max_reference_images}` : '参考图',
+        signal: 'image', color: SIGNAL_META.image.color, position: '68%',
+      })
+    }
+    return ports
   }
   if (data.kind === 'video') {
-    return [
-      { id: 'prompt', label: '提示词', signal: 'prompt', color: SIGNAL_META.prompt.color, position: '37%' },
-      { id: 'visual', label: '视觉参考', signal: 'image', color: SIGNAL_META.image.color, position: '59%' },
-      { id: 'audio', label: '音频', signal: 'audio', color: SIGNAL_META.audio.color, position: '81%' },
+    const model = videoModels.value.find((item) => item.id === data.model)
+    const visualLabel = model?.require_start_frame
+      ? '必需首帧'
+      : model?.allow_start_frame && model?.allow_end_frame
+        ? '首帧 / 尾帧'
+        : Number(model?.max_image_references || 0) > 0
+          ? `参考图 ×${model?.max_image_references}`
+          : '视觉素材'
+    const ports: WorkflowPort[] = [
+      { id: 'prompt', label: '提示词', signal: 'prompt', color: SIGNAL_META.prompt.color, position: '28%' },
+      { id: 'visual', label: visualLabel, signal: 'image', color: SIGNAL_META.image.color, position: '58%' },
     ]
+    if (Number(model?.max_audio_references || 0) > 0) {
+      ports.push({ id: 'audio', label: `音频 ×${model?.max_audio_references}`, signal: 'audio', color: SIGNAL_META.audio.color, position: '80%' })
+    }
+    return ports
   }
   if (data.kind === 'result') {
     const signal = signalKindForNode(data)
     return [{ id: 'result', label: '结果', signal, color: SIGNAL_META[signal].color, position: '50%' }]
+  }
+  return []
+}
+
+function nodeCapabilityLabels(data: WorkflowNodeData): string[] {
+  if (data.kind === 'image') {
+    const model = imageModels.value.find((item) => item.id === data.model)
+    if (!model) return []
+    const labels: string[] = []
+    if (model.require_reference) labels.push('需参考图')
+    else if (model.supports_reference !== false) labels.push('支持参考图')
+    if (Number(model.max_n || 1) > 1) labels.push(`最多 ${model.max_n} 张`)
+    return labels
+  }
+  if (data.kind === 'video') {
+    const model = videoModels.value.find((item) => item.id === data.model)
+    if (!model) return []
+    const labels: string[] = []
+    if (model.require_start_frame) labels.push('需首帧')
+    else if (model.allow_start_frame) labels.push('支持首帧')
+    if (model.allow_end_frame) labels.push('支持尾帧')
+    if (Number(model.max_video_references || 0) > 0) labels.push('视频参考')
+    if (model.allow_generated_audio || model.force_generated_audio) labels.push('原生音频')
+    return labels.slice(0, 3)
   }
   return []
 }
@@ -1651,6 +1915,28 @@ function resolvedPrompt(node: WorkflowNode): string {
   return [...upstream, own].filter(Boolean).join('\n')
 }
 
+function resolvedPromptForNode(nodeId: string): string {
+  const node = nodes.value.find((item) => item.id === nodeId)
+  return node ? resolvedPrompt(node) : ''
+}
+
+function incomingPromptNode(nodeId: string): WorkflowNode | undefined {
+  return incomingNodes(nodeId).find((node) => node.data.kind === 'prompt')
+}
+
+function hasIncomingPrompt(nodeId: string): boolean {
+  return Boolean(incomingPromptNode(nodeId))
+}
+
+function focusIncomingPrompt(nodeId: string) {
+  const prompt = incomingPromptNode(nodeId)
+  if (prompt) focusLibraryAsset(prompt.id)
+}
+
+function incomingMediaCount(nodeId: string): number {
+  return incomingNodes(nodeId).filter((node) => Boolean(resolvedMediaKind(node.data))).length
+}
+
 function resolvedMediaKind(data: WorkflowNodeData): MediaKind | '' {
   if (data.kind === 'asset' || data.kind === 'result') return data.mediaKind || ''
   if (data.kind === 'image' && data.outputUrl) return 'image'
@@ -1992,6 +2278,7 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
     patchNode(node.id, { status: 'failed', error: '该模型需要连接至少一张参考图' })
     return false
   }
+  const runStartedAt = Date.now()
   const size = node.data.size || resolveImageSize(model, node.data.qualityTier || '1K', node.data.aspectRatio || '1:1')
   patchNode(node.id, { status: 'running', error: '', model: model.id, size })
 
@@ -2102,7 +2389,11 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
     if (disposed) return true
     const liveNode = nodes.value.find((item) => item.id === node.id)
     if (!liveNode || liveNode.data.workId !== workId) return true
-    patchNode(liveNode.id, { status: 'succeeded', outputUrl, workId, gatewayRemoteId: remoteId, error: '' })
+    patchNode(liveNode.id, {
+      status: 'succeeded', outputUrl, workId, gatewayRemoteId: remoteId, error: '',
+      lastRunDurationMs: Date.now() - runStartedAt,
+      runCount: Number(liveNode.data.runCount || 0) + 1,
+    })
     addResultNode(liveNode, { mediaKind: 'image', mediaUrl: outputUrl, previewUrl: outputUrl, workId, name: `${liveNode.data.title} 结果` })
     await saveDocument(false)
     return true
@@ -2113,7 +2404,7 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
       return false
     }
     const message = errorMessage(error)
-    patchNode(node.id, { status: 'failed', error: message, workId: workId || undefined, gatewayRemoteId: remoteId || undefined })
+    patchNode(node.id, { status: 'failed', error: message, workId: workId || undefined, gatewayRemoteId: remoteId || undefined, lastRunDurationMs: Date.now() - runStartedAt })
     if (workId) {
       await updateWork(workId, { status: 'failed', gateway_type: gatewayType, gateway_remote_id: remoteId, error_message: message }).catch(() => undefined)
     }
@@ -2134,6 +2425,7 @@ async function runVideoNode(node: WorkflowNode): Promise<boolean> {
     patchNode(node.id, { status: 'failed', error: '当前 API Key 没有可用视频模型' })
     return false
   }
+  const runStartedAt = Date.now()
   patchNode(node.id, { status: 'running', error: '', model: model.id })
   let media: Array<{ node: WorkflowNode; kind: MediaKind; url: string }>
   try {
@@ -2271,7 +2563,11 @@ async function runVideoNode(node: WorkflowNode): Promise<boolean> {
     }
     const liveNode = nodes.value.find((item) => item.id === node.id)
     if (!liveNode || liveNode.data.workId !== workId) return true
-    patchNode(liveNode.id, { status: 'succeeded', outputUrl: persistentUrl, playableUrl, workId, gatewayRemoteId: remoteId, error: '' })
+    patchNode(liveNode.id, {
+      status: 'succeeded', outputUrl: persistentUrl, playableUrl, workId, gatewayRemoteId: remoteId, error: '',
+      lastRunDurationMs: Date.now() - runStartedAt,
+      runCount: Number(liveNode.data.runCount || 0) + 1,
+    })
     addResultNode(liveNode, {
       mediaKind: 'video',
       mediaUrl: persistentUrl,
@@ -2289,7 +2585,7 @@ async function runVideoNode(node: WorkflowNode): Promise<boolean> {
       return false
     }
     const message = errorMessage(error)
-    patchNode(node.id, { status: 'failed', error: message, workId: workId || undefined, gatewayRemoteId: remoteId || undefined })
+    patchNode(node.id, { status: 'failed', error: message, workId: workId || undefined, gatewayRemoteId: remoteId || undefined, lastRunDurationMs: Date.now() - runStartedAt })
     if (workId) {
       await updateWork(workId, { status: 'failed', gateway_type: 'video_job', gateway_remote_id: remoteId, error_message: message }).catch(() => undefined)
     }
@@ -2315,6 +2611,8 @@ function addResultNode(
       mediaUrl: result.mediaUrl,
       previewUrl: result.previewUrl,
       playableUrl: result.playableUrl,
+      sourceNodeId: source.id,
+      runCount: result.runCount || source.data.runCount,
       error: '',
     })
     if (existing.id !== source.id && !edges.value.some((edge) => edge.source === source.id && edge.target === existing.id)) {
@@ -2324,7 +2622,7 @@ function addResultNode(
     if (select) selectOnlyNode(existing.id)
     return
   }
-  const node = createNode('result', { x: source.position.x + 320, y: source.position.y + 188 })
+  const node = createNode('result', { x: source.position.x + 440, y: source.position.y + 188 })
   node.data = {
     kind: 'result',
     title: result.name || '生成结果',
@@ -2335,6 +2633,8 @@ function addResultNode(
     previewUrl: result.previewUrl,
     playableUrl: result.playableUrl,
     workId: result.workId,
+    sourceNodeId: source.id,
+    runCount: result.runCount || source.data.runCount,
   }
   nodes.value.push(node)
   edges.value.push(makeEdge(source.id, node.id))
@@ -2947,7 +3247,7 @@ function autoLayout() {
     const element = wrapper?.querySelector<HTMLElement>('.wf-node')
     const fallbackHeight = node.data.kind === 'asset' || node.data.kind === 'result' ? 214 : 116
     graph.setNode(node.id, {
-      width: element?.offsetWidth || 236,
+      width: element?.offsetWidth || 320,
       height: element?.offsetHeight || fallbackHeight,
     })
   }
@@ -2993,6 +3293,17 @@ function estimatedNodeCost(node: WorkflowNode): number | null {
       : unit * Math.max(1, Number(node.data.duration || 1))
   }
   return 0
+}
+
+function estimatedNodeCostById(nodeId: string): number | null {
+  const node = nodes.value.find((item) => item.id === nodeId)
+  return node ? estimatedNodeCost(node) : null
+}
+
+function formatRunDuration(value: number): string {
+  if (value < 1000) return `${Math.max(1, Math.round(value))}ms`
+  const seconds = value / 1000
+  return seconds < 60 ? `${seconds.toFixed(seconds < 10 ? 1 : 0)}s` : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
 }
 
 function formatCost(value: number): string {
@@ -3884,7 +4195,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 76px minmax(520px, 1fr);
+  grid-template-columns: 188px minmax(520px, 1fr);
   overflow: hidden;
 }
 
@@ -3907,7 +4218,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.wf-workspace--inspecting { grid-template-columns: 76px minmax(520px, 1fr); }
+.wf-workspace--inspecting { grid-template-columns: 188px minmax(520px, 1fr); }
 
 .wf-palette,
 .wf-inspector {
@@ -3917,14 +4228,18 @@ onBeforeUnmount(() => {
 }
 
 .wf-palette {
-  padding: 10px 8px;
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   border-right: 1px solid var(--wf-line);
 }
 
-.wf-palette__heading { margin: 2px 0 8px; text-align: center; }
+.wf-palette__heading { display: grid; gap: 3px; margin: 2px 6px 12px; text-align: left; }
+.wf-palette__heading small { color: #94a3b8; font-size: 9px; line-height: 1.35; }
+.wf-palette-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 10px; padding: 3px; border: 1px solid #dce3ea; border-radius: 5px; background: #f1f4f7; }
+.wf-palette-tabs button { min-height: 27px; border: 0; border-radius: 3px; background: transparent; color: #718096; font-size: 9px; font-weight: 700; }
+.wf-palette-tabs button.active { background: #fff; color: #1f2937; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
 
 .wf-palette__heading span,
 .wf-inspector__head span {
@@ -3935,31 +4250,60 @@ onBeforeUnmount(() => {
 }
 
 .wf-tool {
-  width: 58px;
-  min-height: 55px;
-  margin-bottom: 4px;
-  padding: 6px 4px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  text-align: center;
+  width: 100%;
+  min-height: 58px;
+  margin-bottom: 6px;
+  padding: 8px;
+  justify-content: flex-start;
+  gap: 9px;
+  text-align: left;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: #1f2937;
 }
 
-.wf-tool:hover:not(:disabled) { border-color: #cfd6de; background: #fff; }
+.wf-tool:hover:not(:disabled) { border-color: #c7d2df; background: #fff; box-shadow: 0 5px 14px -11px rgba(15, 23, 42, 0.55); transform: translateY(-1px); }
 .wf-tool:disabled { opacity: 0.45; cursor: not-allowed; }
-.wf-tool strong { font-size: 10px; line-height: 1.1; white-space: nowrap; }
-.wf-tool__icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 5px; color: #fff; }
+.wf-tool > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.wf-tool strong { color: #1f2937; font-size: 11px; line-height: 1.1; white-space: nowrap; }
+.wf-tool small { overflow: hidden; color: #84909d; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.wf-tool__icon { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 5px; color: #fff; }
 .wf-tool--asset .wf-tool__icon { background: var(--wf-asset); }
 .wf-tool--prompt .wf-tool__icon { background: var(--wf-prompt); }
 .wf-tool--image .wf-tool__icon { background: var(--wf-image); }
 .wf-tool--video .wf-tool__icon { background: var(--wf-video); }
+.wf-asset-search { min-height: 34px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 0 8px; border: 1px solid #d5dde6; border-radius: 4px; background: #fff; color: #84909d; }
+.wf-asset-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #1f2937; font-size: 10px; }
+.wf-upload-card,
+.wf-template-card { width: 100%; min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; margin-bottom: 7px; padding: 8px; border: 1px dashed #b8c5d3; border-radius: 5px; background: #fff; color: #475569; text-align: left; }
+.wf-upload-card > span,
+.wf-template-card { align-content: center; }
+.wf-upload-card > span { min-width: 0; display: grid; gap: 2px; }
+.wf-upload-card strong,
+.wf-template-card strong { color: #273444; font-size: 10px; }
+.wf-upload-card small,
+.wf-template-card small { color: #84909d; font-size: 9px; }
+.wf-upload-card:hover:not(:disabled),
+.wf-template-card:hover { border-color: #7d91a8; background: #f8fafc; }
+.wf-template-card { grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto; border-style: solid; }
+.wf-template-card > span { grid-row: 1 / 3; width: 30px; height: 30px; display: grid; place-items: center; background: #edf3fa; color: #2563eb; }
+.wf-template-card strong,
+.wf-template-card small { grid-column: 2; }
+.wf-asset-list { min-height: 0; display: grid; align-content: start; gap: 5px; overflow-y: auto; }
+.wf-asset-list > button { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; text-align: left; }
+.wf-asset-list > button:hover { border-color: #d3dce6; background: #fff; }
+.wf-asset-list__preview { width: 42px; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; background: #e8edf3; color: #64748b; }
+.wf-asset-list__preview img { width: 100%; height: 100%; object-fit: cover; }
+.wf-asset-list > button > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.wf-asset-list strong,
+.wf-asset-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-asset-list strong { color: #334155; font-size: 9px; }
+.wf-asset-list small { color: #84909d; font-size: 8px; }
+.wf-palette-empty { margin: 20px 8px; color: #94a3b8; font-size: 9px; line-height: 1.5; text-align: center; }
 
-.wf-palette__divider { width: 34px; height: 1px; margin: 8px 0; background: var(--wf-line); }
-.wf-task-link { width: 34px; height: 34px; margin-top: auto; justify-content: center; border-radius: 5px; color: #687584; text-decoration: none; }
+.wf-palette__divider { width: 100%; height: 1px; margin: 8px 0; background: var(--wf-line); }
+.wf-task-link { width: 100%; height: 38px; margin-top: auto; justify-content: center; border-radius: 5px; color: #687584; text-decoration: none; }
 .wf-task-link:hover { background: #eef2f6; color: #1d4ed8; }
 
 .wf-stage {
@@ -3974,13 +4318,16 @@ onBeforeUnmount(() => {
 
 .wf-node {
   position: relative;
-  width: 236px;
+  width: 320px;
   overflow: visible;
   border: 1px solid #cfd6de;
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 4px 12px -9px rgba(32, 38, 46, 0.42);
 }
+.wf-node--prompt { width: 300px; }
+.wf-node--asset,
+.wf-node--result { width: 360px; }
 
 .wf-node--asset { --node-color: var(--wf-asset); }
 .wf-node--prompt { --node-color: var(--wf-prompt); }
@@ -4007,7 +4354,7 @@ onBeforeUnmount(() => {
 .wf-node__head:active { cursor: grabbing; }
 .wf-node__type-icon { width: 27px; height: 27px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 4px; background: color-mix(in srgb, var(--node-color) 10%, white); color: var(--node-color); }
 .wf-node__head > div { min-width: 0; display: grid; gap: 1px; }
-.wf-node__head strong { max-width: 118px; overflow: hidden; color: #20262e; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.wf-node__head strong { max-width: 178px; overflow: hidden; color: #20262e; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-node__head small { color: #84909d; font-size: 10px; }
 .wf-node__quick-run {
   width: 26px;
@@ -4038,13 +4385,33 @@ onBeforeUnmount(() => {
 .wf-node--status-failed .wf-node__status i { background: #dc2626; }
 .wf-node--status-canceled .wf-node__status i { background: #d97706; }
 
-.wf-node__body { min-height: 70px; padding: 10px 11px; }
+.wf-node__body { min-height: 82px; padding: 12px; }
+.wf-node--image .wf-node__body,
+.wf-node--video .wf-node__body { min-height: 176px; }
 .wf-node__prompt { max-height: 72px; margin: 0; overflow: hidden; color: #3e4955; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
 .wf-node__prompt--empty { color: #94a3b8; }
-.wf-node__model { margin: 0 0 9px; overflow: hidden; color: #303a45; font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.wf-node__prompt-box { position: relative; min-height: 82px; margin-bottom: 12px; padding: 9px 10px; border: 1px solid #dce3ea; border-left: 3px solid var(--wf-prompt); border-radius: 4px; background: #fbfcfd; }
+.wf-node__prompt-box > span { display: block; margin-bottom: 5px; color: #7c8795; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.wf-node__prompt-box p { max-height: 52px; margin: 0; overflow: hidden; color: #334155; font-size: 11px; line-height: 1.45; white-space: pre-wrap; }
+.wf-node__prompt-box textarea { width: 100%; min-height: 54px; padding: 0; resize: none; border: 0; outline: 0; background: transparent; color: #334155; font: inherit; font-size: 11px; line-height: 1.45; }
+.wf-node__prompt-box--empty { display: grid; align-content: center; justify-items: start; border-style: dashed; background: #fffdf8; }
+.wf-node__prompt-box--empty > span { display: none; }
+.wf-node__prompt-box--empty p { margin-bottom: 7px; color: #9a6a26; }
+.wf-node__prompt-box button { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid #d6b46f; border-radius: 4px; background: #fff; color: #8a5a12; font-size: 10px; font-weight: 700; }
+.wf-node__prompt-box button:hover { border-color: #a16207; background: #fffbeb; }
+.wf-node__model { margin: 0 0 10px; overflow: hidden; color: #303a45; font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-node__chips { gap: 5px; flex-wrap: wrap; }
 .wf-node__chips span { padding: 3px 5px; border: 1px solid #dce3ea; border-radius: 3px; background: #f8fafc; color: #64748b; font-size: 9px; }
+.wf-node__chips .wf-node__capability { border-color: color-mix(in srgb, var(--node-color) 25%, #dce3ea); background: color-mix(in srgb, var(--node-color) 6%, white); color: color-mix(in srgb, var(--node-color) 72%, #475569); }
 .wf-node__error { margin: 8px 0 0; max-height: 45px; overflow: hidden; color: #b91c1c; font-size: 9px; line-height: 1.45; }
+.wf-node__footer { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+.wf-node__footer > span { display: inline-flex; align-items: center; gap: 6px; color: #718096; font-size: 9px; }
+.wf-node__footer > span i { width: 6px; height: 6px; border-radius: 50%; background: var(--node-color); }
+.wf-node__footer .wf-node__runtime { min-width: 0; flex: 1; justify-content: flex-end; gap: 7px; }
+.wf-node__runtime b { color: #64748b; font-family: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace; font-size: 8px; font-weight: 600; }
+.wf-node__footer button { min-height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--node-color) 55%, #cbd5e1); border-radius: 4px; background: #fff; color: color-mix(in srgb, var(--node-color) 82%, #1f2937); font-size: 10px; font-weight: 700; }
+.wf-node__footer button:hover:not(:disabled) { background: color-mix(in srgb, var(--node-color) 7%, white); border-color: var(--node-color); }
+.wf-node__footer button:disabled { opacity: 0.48; cursor: not-allowed; }
 
 .wf-node__media { width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; background: #111827; }
 .wf-node__media img,
@@ -4053,6 +4420,10 @@ onBeforeUnmount(() => {
 .wf-node__media-placeholder { display: grid; justify-items: center; gap: 5px; color: #94a3b8; font-size: 9px; }
 .wf-node__file { margin: 7px 0 0; overflow: hidden; color: #334155; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wf-node__meta { color: #94a3b8; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 8px; }
+.wf-node__media-meta { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wf-node__version { padding: 2px 5px; border: 1px solid #bbf7d0; border-radius: 3px; background: #f0fdf4; color: #047857; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 8px; font-weight: 700; }
+.wf-node__source-link { min-height: 25px; display: inline-flex; align-items: center; gap: 5px; margin-top: 5px; padding: 0; border: 0; background: transparent; color: #52667a; font-size: 9px; font-weight: 700; }
+.wf-node__source-link:hover { color: #1d4ed8; }
 
 .wf-handle {
   width: 10px;
@@ -4353,9 +4724,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1180px) {
   .wf-workspace,
-  .wf-workspace--inspecting { grid-template-columns: 68px minmax(440px, 1fr); }
+  .wf-workspace--inspecting { grid-template-columns: 150px minmax(440px, 1fr); }
   .wf-palette { padding-inline: 5px; }
-  .wf-tool { width: 56px; }
+  .wf-tool { padding-inline: 7px; }
+  .wf-tool small { display: none; }
   .wf-inspector { width: 300px; }
   .wf-workspace--inspecting .wf-run-progress { right: 312px; }
   .wf-workspace--inspecting :deep(.wf-minimap) { right: 312px; }
@@ -4371,11 +4743,18 @@ onBeforeUnmount(() => {
   .wf-commandbar__actions { width: 100%; justify-content: flex-end; }
   .wf-workspace,
   .wf-workspace--inspecting { height: auto; min-height: 0; flex: none; overflow: visible; display: grid; grid-template-columns: 1fr; grid-template-rows: auto minmax(560px, 68vh) auto; }
-  .wf-palette { display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 7px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--wf-line); }
+  .wf-palette { display: flex; flex-flow: row wrap; align-items: stretch; gap: 7px; overflow: visible; border-right: 0; border-bottom: 1px solid var(--wf-line); }
   .wf-palette__heading,
   .wf-palette__divider,
   .wf-task-link { display: none; }
-  .wf-tool { width: 100%; min-height: 46px; margin: 0; flex-direction: row; justify-content: flex-start; text-align: left; }
+  .wf-palette-tabs { flex: 1 0 100%; margin-bottom: 0; }
+  .wf-tool { width: auto; min-height: 46px; margin: 0; flex: 1 1 132px; flex-direction: row; justify-content: flex-start; text-align: left; }
+  .wf-asset-search,
+  .wf-upload-card,
+  .wf-asset-list,
+  .wf-palette-empty { flex: 1 0 100%; }
+  .wf-asset-list { max-height: 156px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wf-template-card { width: auto; margin-bottom: 0; flex: 1 1 180px; }
   .wf-inspector { position: relative; inset: auto; z-index: auto; width: auto; min-height: 360px; border-left: 0; border-top: 1px solid var(--wf-line); box-shadow: none; }
   .wf-workspace--inspecting .wf-run-progress { right: 10px; }
   .wf-workspace--inspecting :deep(.wf-minimap) { right: 10px; }
@@ -4392,9 +4771,11 @@ onBeforeUnmount(() => {
   .wf-edit-group .wf-icon-button:last-child { display: none; }
   .wf-run-group { min-width: 0; flex: 1; }
   .wf-run-button { min-width: 0; flex: 1; width: auto; }
-  .wf-palette { grid-template-columns: repeat(4, minmax(78px, 1fr)); }
-  .wf-tool { justify-content: center; padding-inline: 4px; gap: 5px; }
+  .wf-palette { gap: 5px; }
+  .wf-tool { min-width: 104px; justify-content: flex-start; padding-inline: 7px; gap: 5px; }
   .wf-tool strong { font-size: 10px; white-space: nowrap; }
+  .wf-asset-list { grid-template-columns: 1fr; }
+  .wf-template-card { flex-basis: 100%; }
   .wf-selection-toolbar { bottom: 10px; }
   .wf-selection-toolbar > span { max-width: 124px; overflow: hidden; text-overflow: ellipsis; }
   .wf-command-overlay { padding: 24px 10px 10px; }
