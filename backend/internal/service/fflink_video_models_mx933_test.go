@@ -133,6 +133,17 @@ func TestSeedanceModelsOnlyAcceptFixedDurationTiers(t *testing.T) {
 	}
 }
 
+func TestPublicSeedance933ProfilesAllowFullMixedReferenceCapacity(t *testing.T) {
+	for _, model := range []string{"seedance-2.0", "seedance-2.0-fast"} {
+		profile, ok := ffLinkVideoModelProfileFor(model)
+		require.True(t, ok, model)
+		require.Equal(t, 9, profile.MaxImageReferences, model)
+		require.Equal(t, 3, profile.MaxVideoReferences, model)
+		require.Equal(t, 3, profile.MaxAudioReferences, model)
+		require.Equal(t, 15, profile.MaxTotalMedia, model)
+	}
+}
+
 func TestHuiquUpstreamModelForFixedDurationTiers(t *testing.T) {
 	for _, test := range []struct {
 		model    string
