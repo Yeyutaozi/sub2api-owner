@@ -2704,6 +2704,14 @@ function isSuccessfulVideoStatus(status?: string): boolean {
   return ['succeeded', 'completed', 'success', 'finished', 'done', 'complete'].includes(String(status || '').toLowerCase())
 }
 
+function isCanceledWorkStatus(status?: string): boolean {
+  return ['canceled', 'cancelled'].includes(String(status || '').toLowerCase())
+}
+
+function isFailedWorkStatus(status?: string): boolean {
+  return ['failed', 'error', 'expired'].includes(String(status || '').toLowerCase())
+}
+
 function remoteFailureMessage(payload: any, fallback: string): string {
   if (typeof payload?.error === 'string') return payload.error
   return String(payload?.error?.message || payload?.message || fallback)
@@ -2805,7 +2813,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
       if (!isTerminalImageStatus(task.status)) return
       const liveNode = nodes.value.find((item) => item.id === node.id)
       if (disposed || !liveNode || liveNode.data.workId !== work.id) return
-      if (['cancelled', 'canceled'].includes(String(task.status || '').toLowerCase())) {
+      if (isCanceledWorkStatus(task.status)) {
         patchNode(liveNode.id, { status: 'canceled', error: '任务已终止' })
         await updateWork(work.id, { status: 'canceled', error_message: '任务已终止' })
         return
@@ -2829,7 +2837,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
       if (!isTerminalVideoStatus(job.status)) return
       const liveNode = nodes.value.find((item) => item.id === node.id)
       if (disposed || !liveNode || liveNode.data.workId !== work.id) return
-      if (['cancelled', 'canceled'].includes(String(job.status || '').toLowerCase())) {
+      if (isCanceledWorkStatus(job.status)) {
         patchNode(liveNode.id, { status: 'canceled', error: '任务已终止' })
         await updateWork(work.id, { status: 'canceled', error_message: '任务已终止' })
         return
@@ -3914,9 +3922,9 @@ async function refreshNodeWorkStatuses() {
         const liveNode = nodes.value.find((item) => item.id === node.id)
         if (disposed || !liveNode || liveNode.data.workId !== trackedWorkId || work.id !== trackedWorkId) continue
         const status = String(work.status || '').toLowerCase()
-        if (status === 'canceled') {
+        if (isCanceledWorkStatus(status)) {
           patchNode(liveNode.id, { status: 'canceled', error: work.error_message || '任务已终止' })
-        } else if (status === 'failed') {
+        } else if (isFailedWorkStatus(status)) {
           patchNode(liveNode.id, { status: 'failed', error: work.error_message || '生成失败' })
         } else if (status === 'succeeded') {
           const restored = await restoreSucceededWork(liveNode, work)

@@ -131,4 +131,12 @@ describe('Creazy Canvas work correlation', () => {
     ).toHaveLength(2)
     expect(workflowVideo).toContain('generateVideo(props.apiKeySecret, payload as any, { workId })')
   })
+
+  it('normalizes all remote terminal failure variants so failed nodes stop spinning', () => {
+    expect(workflowSource).toContain('function isFailedWorkStatus(status?: string)')
+    expect(workflowSource).toContain("['failed', 'error', 'expired']")
+    expect(workflowSource).toContain('function isCanceledWorkStatus(status?: string)')
+    expect(workflowSource).toContain("['canceled', 'cancelled']")
+    expect(workflowSource).toContain('} else if (isFailedWorkStatus(status)) {')
+  })
 })
