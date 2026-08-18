@@ -90,6 +90,21 @@ func TestSeedanceStatusResponsesHideLegacyMX933Model(t *testing.T) {
 	require.Equal(t, SeedanceMX933Model, official["model"])
 }
 
+func TestSeedanceStatusResponseAlwaysSerializesPublicJobIDAsString(t *testing.T) {
+	normalized, err := NormalizeSeedanceJobForRoute(
+		[]byte(`{"job_id":195,"status":"completed"}`),
+		"195",
+		"fflink",
+		"seedance-2.0",
+	)
+	require.NoError(t, err)
+
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(normalized, &job))
+	require.Equal(t, "195", job["job_id"])
+	require.Contains(t, string(normalized), `"job_id":"195"`)
+}
+
 type seedanceHTTPUpstreamStub struct {
 	request    *http.Request
 	body       string

@@ -1898,10 +1898,12 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	isOpaqueTask := IsOpaqueSeedanceVideoProvider(provider)
 	statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 	contentPath := statusPath + "/content"
+	// Public job IDs are opaque strings even when a transparent upstream emits
+	// its internal identifier as a JSON number.
+	job["job_id"] = taskID
 	if isOpaqueTask {
 		sanitizeOpaqueSeedanceResponse(job, statusPath, contentPath, provider)
 		job["id"] = taskID
-		job["job_id"] = taskID
 		job["task_id"] = taskID
 	}
 	job["status_url"] = statusPath
