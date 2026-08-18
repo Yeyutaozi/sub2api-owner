@@ -1,13 +1,13 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "TKCreazy 视频生成 API（Seedance / MX933 / SD 2.5 / Seedance特惠 / HappyHorse / LTX）",
-    "version": "2026-08-12.2",
+    "title": "TKCreazy 视频生成 API（Seedance / HappyHorse / LTX / MiniMax / Grok Imagine）",
+    "version": "2026-08-18.2",
     "license": {
       "name": "LGPL-3.0-only",
       "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
     },
-    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，只需使用公开模型名和本文档定义的统一字段。\n\n固定流程：1）有参考素材时先 POST /videos/uploads；2）把每次上传响应中的完整 media_url 填入 POST /videos/generations；3）保存公开 job_id；4）每 3-5 秒查询任务；5）status=completed 后请求 content 接口下载 MP4。服务端后台结算器会持续处理未结算任务和幂等退款，退款不依赖客户持续轮询。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传响应中的 media_url 是临时签名地址，上传后应立即创建任务，不要长期缓存复用。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 都是以 /v1 开头的站点相对路径；完整地址固定为 https://tkcreazy.top + 返回值，不能再拼接 /v1。\n\nSeedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.0-mini、sd-2.0-mx933、sd-2.5-mx。公开支持矩阵：sd-2.0-mx933 支持 480p 和 720p；sd-2.5-mx 仅支持 720p，duration 支持 5、10、15 或 30 秒，省略时为 5 秒。sd-2.5-mx 支持最多 30 图 / 10 视频 / 10 音频（合计 50）参考素材。创建和查询始终显示客户提交的公开 model。\n\nseedance特惠 Key 可调用 seedance2.0-one-face-reference-480p、seedance2.0-one-face-reference-720p。其中 seedance2.0-one-face-reference-480p 固定 480p、seedance2.0-one-face-reference-720p 固定 720p；duration 支持 4-15 秒，按秒计费。支持纯文生、纯图参考，以及图+视频+音频多模态参考：参考图（含首帧/尾帧）最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部参考素材（图+视频+音频）合计不超过 12 个；推荐组合如 6 图 + 3 视频 + 3 音频，或 9 图 + 2 视频 + 1 音频。使用 audio_reference 时必须至少 1 张参考图，并在请求顶层显式填写 audio=true；视频/音频对象建议填写真实 duration_seconds。特惠分组与普通 Seedance 分组隔离，请使用对应 API Key，不要混用。\n\nMiniMax Key 可调用 minimax-h3（1440p，时长 5-15 秒，按秒计费；支持首帧/尾帧/参考图/参考音频；原生生成音频）。Grok Imagine Key 可调用 grok-imagine-1.5（720p，时长 3-15 秒，必须提供首帧）。\n\n时长规则：sd-2.5-mx 的 duration 只允许 5、10、15 或 30，省略时为 5；seedance特惠（seedance2.0-one-face-reference-480p / 720p）的 duration 允许 4-15 的任意整数秒，省略时为 5；除此以外，其他 Seedance 新请求的 duration 只允许 5、10 或 15，省略时为 5。minimax-h3 的 duration 允许 5-15 的任意整数秒；grok-imagine-1.5 的 duration 允许 3-15 的任意整数秒。Seedance 分组可由平台管理员显式配置为按次计费：价格由公开 model + resolution 决定，每个输出视频计费一次，duration 不作为价格乘数。旧分组在管理员切换前保留原按秒计费，平台不会强制迁移，避免把历史每秒价格误解释为每次价格；客户请求中不传计费单位。\n\nsd-2.0-mx933 和 sd-2.5-mx 的参考视频与参考音频必须先上传，并在对应 guidance 媒体对象中同时填写完整 media_url 与真实 duration_seconds。sd-2.0-mx933 最多 9 图、3 视频、3 音频、总计 15 个素材，音频与视频分别累计最多 15 秒；sd-2.5-mx 最多 30 图、10 视频、10 音频、总计 50 个素材。使用 audio_reference 时必须搭配普通参考图或参考视频，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用已上传素材编号；未手写时平台会按「参考图→首帧→尾帧」顺序自动注入角色说明，手写编号时平台不再二次定义角色映射。\n\n示例标题中的“已验证”仅用于标记此前已通过 https://tkcreazy.top/v1 取得相应结果的既有示例；本次新增模型示例不使用该标记。"
+    "description": "这是一份可直接导入 Apifox 的最终完整规范。客户只调用 TKCreazy 公网地址，只需使用公开模型名和本文档定义的统一字段。\n\n固定流程：1）有参考素材时先 POST /videos/uploads；2）把每次上传响应中的完整 media_url 填入 POST /videos/generations；3）保存公开 job_id；4）每 3-5 秒查询任务；5）status=completed 后请求 content 接口下载 MP4。服务端后台结算器会持续处理未结算任务和幂等退款，退款不依赖客户持续轮询。\n\n鉴权：所有接口都使用 Authorization: Bearer <TKCREAZY_API_KEY>。上传响应中的 media_url 是临时签名地址，上传后应立即创建任务，不要长期缓存复用。\n\nURL 规则：创建响应的 status_url 是绝对 URL。任务查询和列表中的 status_url、mp4_url、url、local_url、download_url 都是以 /v1 开头的站点相对路径；完整地址固定为 https://tkcreazy.top + 返回值，不能再拼接 /v1。\n\nSeedance Key 可调用 seedance-2.0、seedance-2.0-fast、seedance-2.5、seedance-2.5-c1-03、sd-2.0-900-720p。公开支持矩阵：seedance-2.0 和 seedance-2.0-fast 均支持 480p、720p；两者均支持最多 9 图、3 视频、3 音频，全部素材合计最多 15 个；seedance-2.5 支持 480p、720p，duration 支持 4、5、6、8、10、12、15、20、25、30 秒，其中 20/25/30 秒仅支持 480p；支持最多 30 图 / 10 视频 / 10 音频（合计 50）参考素材。创建和查询始终显示客户提交的公开 model。\n\nseedance特惠 Key 可调用 seedance2.0-one-face-reference-480p、seedance2.0-one-face-reference-720p。其中 seedance2.0-one-face-reference-480p 固定 480p、seedance2.0-one-face-reference-720p 固定 720p；duration 支持 4-15 秒，按秒计费。支持纯文生、纯图参考，以及图+视频+音频多模态参考：参考图（含首帧/尾帧）最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部参考素材（图+视频+音频）合计不超过 12 个；推荐组合如 6 图 + 3 视频 + 3 音频，或 9 图 + 2 视频 + 1 音频。使用 audio_reference 时必须至少 1 张参考图，并在请求顶层显式填写 audio=true；视频/音频对象建议填写真实 duration_seconds。特惠分组与普通 Seedance 分组隔离，请使用对应 API Key，不要混用。\n\nMiniMax Key 可调用 minimax-h3（1440p，时长 5-15 秒，按秒计费；支持首帧/尾帧/参考图/参考音频；原生生成音频）。Grok Imagine Key 可调用 grok-imagine-1.5（720p，时长 3-15 秒，必须提供首帧）。\n\n时长规则：seedance-2.5 的 duration 允许 4、5、6、8、10、12、15、20、25、30，20/25/30 秒仅支持 480p，省略时为 4；seedance特惠（seedance2.0-one-face-reference-480p / 720p）的 duration 允许 4-15 的任意整数秒，省略时为 5；除此以外，其他 Seedance 新请求的 duration 只允许 5、10 或 15，省略时为 5。minimax-h3 的 duration 允许 5-15 的任意整数秒；grok-imagine-1.5 的 duration 允许 3-15 的任意整数秒。Seedance 分组可由平台管理员显式配置为按次计费：价格由公开 model + resolution 决定，每个输出视频计费一次，duration 不作为价格乘数。旧分组在管理员切换前保留原按秒计费，平台不会强制迁移，避免把历史每秒价格误解释为每次价格；客户请求中不传计费单位。\n\nseedance-2.5 的参考视频与参考音频必须先上传，并在对应 guidance 媒体对象中同时填写完整 media_url 与真实 duration_seconds；最多 30 图、10 视频、10 音频、总计 50 个素材。使用 audio_reference 时必须搭配普通参考图或参考视频，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用已上传素材编号；未手写时平台会按「参考图→首帧→尾帧」顺序自动注入角色说明，手写编号时平台不再二次定义角色映射。\n\n示例标题中的“已验证”仅用于标记此前已通过 https://tkcreazy.top/v1 取得相应结果的既有示例；本次新增模型示例不使用该标记。"
   },
   "servers": [
     {
@@ -367,7 +367,7 @@
           "视频生成"
         ],
         "summary": "创建异步视频生成任务",
-        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型使用同一个入口，只通过请求体中的 `model` 区分。\n\n### 示例说明\n\n下方只有一套**全参数结构示例**，用于集中展示统一接口支持的字段。它使用 `seedance-2.5-c1-03`，替换素材 URL 后可直接请求；其他模型不一定支持示例中的全部字段或组合。请先查看下表，再删除目标模型不支持的字段并调整取值。\n\n模型所属分组、价格和当前可用状态会动态变化，请前往主站**模型广场**查看；本文档不重复维护分组归属。\n\n### 模型能力与参数限制\n\n| model | resolution | duration | aspect_ratio | 图片/首尾帧 | 参考视频 | 参考音频 | 其他限制 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| `seedance-2.5-c1-03` | 固定 720p | 4–30 秒整数 | 16:9、9:16、1:1 | 参考图最多 30；首帧、尾帧各 1 | 最多 10；单个 3–10 秒、24–60 FPS，累计 ≤30 秒 | 最多 10 | 音频参考必须同时提供普通参考图；支持首帧、首尾帧和多模态参考 |\n| `sd-2.0-900-720p` | 固定 720p | 5–15 秒整数 | 固定 16:9 | 仅普通参考图，最多 9 | 不支持 | 不支持 | 不支持首帧、尾帧和生成音频，`audio` 必须为 false 或省略 |\n| `seedance-2.0` | 480p、720p；1080p | 480p/720p：5、10、15；1080p：5、10 | 16:9、9:16、1:1、4:3、3:4、21:9、9:21 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `seedance-2.0-fast` | 480p、720p | 5、10、15 | 同上 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `seedance-2.0-mini` | 480p、720p | 5、10、15 | 16:9、1:1、9:16 | 最多 4，支持首尾帧 | 最多 3 | 最多 1 | 全部素材合计最多 8 |\n| `sd-2.0-mx933` | 480p、720p | 5、10、15 | 16:9、9:16、1:1、4:3、3:4、3:2、2:3 | 含首尾帧最多 9 | 最多 3，累计 ≤15 秒 | 最多 3，累计 ≤15 秒 | 全部素材合计最多 15 |\n| `sd-2.5-mx` | 固定 720p | 5、10、15、30 | 16:9、9:16、1:1、4:3、3:4、21:9 | 含首尾帧最多 30 | 最多 10，累计 ≤30 秒 | 最多 10，累计 ≤30 秒 | 全部素材合计最多 50 |\n| `seedance2.0-one-face-reference-480p` | 固定 480p | 4–15 秒整数 | 21:9、16:9、4:3、1:1、3:4、9:16 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 全部素材合计最多 15；音频参考至少搭配 1 张普通参考图 |\n| `seedance2.0-one-face-reference-720p` | 固定 720p | 4–15 秒整数 | 同上 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 同上 |\n| `minimax-h3` | 固定 1440p | 5–15 秒整数 | 16:9、9:16 | 最多 5，支持首尾帧 | 不支持 | 最多 3 | 全部素材合计最多 8，原生生成音频 |\n| `grok-imagine-1.5` | 固定 720p | 3–15 秒整数 | 16:9、9:16 | 必须提供首帧 | 不支持 | 不支持 | 不支持普通参考图和尾帧 |\n| `happy-horse-1.1` | 720p、1080p | 3–15 秒整数 | 16:9、4:3、1:1、3:4、9:16 | 最多 9，支持首帧 | 不支持 | 不支持参考音频 | 支持生成音频，不支持尾帧 |\n| `ltx-2.3-pro` | 1080p、1440p、2160p | 6、8、10 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n| `ltx-2.3-fast` | 1080p、1440p、2160p | 6–20 秒偶数 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n\n### 参考素材规则\n\n1. 先调用 `POST /videos/uploads`，每次上传一个文件，再把响应中的完整 `media_url` 填入生成请求；不要填写 `upload_id`，不要删除签名参数。\n2. `duration` 是目标视频时长；视频和音频对象中的 `duration_seconds` 是参考文件真实时长，可为小数。\n3. 填写 `end_frame_url` 时必须同时填写 `start_frame_url`；`image_url` 是首帧兼容字段，不能与 `start_frame_url` 同时填写。\n4. 使用 `guidances.audio_reference` 时，顶层必须显式填写 `audio: true`，并满足对应模型的图片/视频搭配条件。\n5. `prompt` 可用 `@ImageN`、`@VideoN`、`@AudioN` 引用素材；数组顺序就是编号顺序。\n\n### 上传字段与生成字段\n\n| 素材 | 上传字段 | 生成字段 |\n| --- | --- | --- |\n| 参考图 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 参考视频 | `video` | `guidances.video_reference_base[].video.url`、`duration_seconds` |\n| 参考音频 | `audio` | `guidances.audio_reference[].audio.url`、`duration_seconds` |\n\n### 任务生命周期\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3–5 秒查询 `GET /videos/jobs/{job_id}`。只有 `status=completed` 才代表成功；随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。",
+        "description": "### 真实调用地址\n\n`POST https://tkcreazy.top/v1/videos/generations`。所有视频模型使用同一个入口，只通过请求体中的 `model` 区分。\n\n### 示例说明\n\n下方只有一套**全参数结构示例**，用于集中展示统一接口支持的字段。它使用 `seedance-2.5-c1-03`，替换素材 URL 后可直接请求；其他模型不一定支持示例中的全部字段或组合。请先查看下表，再删除目标模型不支持的字段并调整取值。\n\n模型所属分组、价格和当前可用状态会动态变化，请前往主站**模型广场**查看；本文档不重复维护分组归属。\n\n### 模型能力与参数限制\n\n| model | resolution | duration | aspect_ratio | 图片/首尾帧 | 参考视频 | 参考音频 | 其他限制 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| `seedance-2.5` | 480p、720p；20/25/30 秒仅支持 480p | 4、5、6、8、10、12、15、20、25、30 | 16:9、9:16、1:1、4:3、3:4、21:9 | 含首尾帧最多 30 | 最多 10，累计 ≤30 秒 | 最多 10，累计 ≤30 秒 | 全部素材合计最多 50 |\n| `seedance-2.5-c1-03` | 固定 720p | 4–30 秒整数 | 16:9、9:16、1:1 | 参考图最多 30；首帧、尾帧各 1 | 最多 10；单个 3–10 秒、24–60 FPS，累计 ≤30 秒 | 最多 10 | 音频参考必须同时提供普通参考图；支持首帧、首尾帧和多模态参考 |\n| `sd-2.0-900-720p` | 固定 720p | 5–15 秒整数 | 固定 16:9 | 仅普通参考图，最多 9 | 不支持 | 不支持 | 不支持首帧、尾帧和生成音频，`audio` 必须为 false 或省略 |\n| `seedance-2.0` | 480p、720p | 5、10、15 | 16:9、9:16、1:1、4:3、3:4、21:9、9:21 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 全部素材合计最多 15 |\n| `seedance-2.0-fast` | 480p、720p | 5、10、15 | 同上 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 全部素材合计最多 15 |\n| `seedance2.0-one-face-reference-480p` | 固定 480p | 4–15 秒整数 | 21:9、16:9、4:3、1:1、3:4、9:16 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 全部素材合计最多 15；音频参考至少搭配 1 张普通参考图 |\n| `seedance2.0-one-face-reference-720p` | 固定 720p | 4–15 秒整数 | 同上 | 含首尾帧最多 9 | 最多 3 | 最多 3 | 同上 |\n| `minimax-h3` | 固定 1440p | 5–15 秒整数 | 16:9、9:16 | 最多 5，支持首尾帧 | 不支持 | 最多 3 | 全部素材合计最多 8，原生生成音频 |\n| `grok-imagine-1.5` | 固定 720p | 3–15 秒整数 | 16:9、9:16 | 必须提供首帧 | 不支持 | 不支持 | 不支持普通参考图和尾帧 |\n| `happy-horse-1.1` | 720p、1080p | 3–15 秒整数 | 16:9、4:3、1:1、3:4、9:16 | 最多 9，支持首帧 | 不支持 | 不支持参考音频 | 支持生成音频，不支持尾帧 |\n| `ltx-2.3-pro` | 1080p、1440p、2160p | 6、8、10 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n| `ltx-2.3-fast` | 1080p、1440p、2160p | 6–20 秒偶数 | 固定 16:9 | 支持首尾帧 | 不支持 | 不支持参考音频 | 支持生成音频 |\n\n### 参考素材规则\n\n1. 先调用 `POST /videos/uploads`，每次上传一个文件，再把响应中的完整 `media_url` 填入生成请求；不要填写 `upload_id`，不要删除签名参数。\n2. `duration` 是目标视频时长；视频和音频对象中的 `duration_seconds` 是参考文件真实时长，可为小数。\n3. 填写 `end_frame_url` 时必须同时填写 `start_frame_url`；`image_url` 是首帧兼容字段，不能与 `start_frame_url` 同时填写。\n4. 使用 `guidances.audio_reference` 时，顶层必须显式填写 `audio: true`，并满足对应模型的图片/视频搭配条件。\n5. `prompt` 可用 `@ImageN`、`@VideoN`、`@AudioN` 引用素材；数组顺序就是编号顺序。\n\n### 上传字段与生成字段\n\n| 素材 | 上传字段 | 生成字段 |\n| --- | --- | --- |\n| 参考图 | `image` | `guidances.image_reference[].image.url` |\n| 首帧 | `image` | `image_url` 或 `start_frame_url` |\n| 尾帧 | `image` | `end_frame_url` |\n| 参考视频 | `video` | `guidances.video_reference_base[].video.url`、`duration_seconds` |\n| 参考音频 | `audio` | `guidances.audio_reference[].audio.url`、`duration_seconds` |\n\n### 任务生命周期\n\n创建成功固定返回 HTTP 202。保存公开 `job_id`，每 3–5 秒查询 `GET /videos/jobs/{job_id}`。只有 `status=completed` 才代表成功；随后调用 `GET /videos/jobs/{job_id}/content` 下载 MP4。`status=failed` 是终态失败。",
         "operationId": "createVideoGenerationJob",
         "security": [
           {
@@ -380,7 +380,7 @@
           }
         ],
         "requestBody": {
-          "description": "必须选择与 model 对应的请求 Schema。sd-2.5-mx 固定使用 720p，duration 只允许整数 5、10、15、30，省略时为 5；除此模型外，其他 Seedance 新请求的 duration 只允许整数 5、10、15，省略时为 5。新 sd-2.0-mx933 的图片合计最多 9 张、视频最多 3 个、音频最多 3 个、全部素材最多 15 个，参考视频累计最多 15 秒且参考音频累计最多 15 秒。新 sd-2.5-mx 的图片合计最多 30 张、视频最多 10 个、音频最多 10 个、全部素材最多 50 个。两个新模型的每个视频和音频 guidance 对象都必须填写正数 duration_seconds；该值是参考文件真实时长，不是目标 duration。使用 audio_reference 时必须搭配普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。新模型不支持 prompt_enhance。客户只能传公开 model 和本文档定义的统一字段。",
+          "description": "必须选择与 model 对应的请求 Schema。seedance-2.5 支持 480p、720p，duration 允许 4、5、6、8、10、12、15、20、25、30，20/25/30 秒仅支持 480p，省略时为 4；除此模型外，其他 Seedance 新请求的 duration 只允许整数 5、10、15，省略时为 5。seedance-2.5 的图片合计最多 30 张、视频最多 10 个、音频最多 10 个、全部素材最多 50 个。每个视频和音频 guidance 对象都必须填写正数 duration_seconds；该值是参考文件真实时长，不是目标 duration。使用 audio_reference 时必须搭配普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。新模型不支持 prompt_enhance。客户只能传公开 model 和本文档定义的统一字段。",
           "required": true,
           "content": {
             "application/json": {
@@ -391,15 +391,6 @@
                   },
                   {
                     "$ref": "#/components/schemas/SeedanceFastRequest"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SeedanceMiniRequest"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SeedanceSD20MX933Request"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SeedanceSD25MXRequest"
                   },
                   {
                     "$ref": "#/components/schemas/HappyHorseRequest"
@@ -427,6 +418,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/Seedance900Request"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Seedance25Request"
                   }
                 ],
                 "discriminator": {
@@ -434,9 +428,6 @@
                   "mapping": {
                     "seedance-2.0": "#/components/schemas/Seedance20Request",
                     "seedance-2.0-fast": "#/components/schemas/SeedanceFastRequest",
-                    "seedance-2.0-mini": "#/components/schemas/SeedanceMiniRequest",
-                    "sd-2.0-mx933": "#/components/schemas/SeedanceSD20MX933Request",
-                    "sd-2.5-mx": "#/components/schemas/SeedanceSD25MXRequest",
                     "happy-horse-1.1": "#/components/schemas/HappyHorseRequest",
                     "ltx-2.3-pro": "#/components/schemas/LTXProRequest",
                     "ltx-2.3-fast": "#/components/schemas/LTXFastRequest",
@@ -445,7 +436,8 @@
                     "seedance2.0-one-face-reference-480p": "#/components/schemas/SeedanceOneFaceReference480pRequest",
                     "seedance2.0-one-face-reference-720p": "#/components/schemas/SeedanceOneFaceReference720pRequest",
                     "seedance-2.5-c1-03": "#/components/schemas/Seedance25C103Request",
-                    "sd-2.0-900-720p": "#/components/schemas/Seedance900Request"
+                    "sd-2.0-900-720p": "#/components/schemas/Seedance900Request",
+                    "seedance-2.5": "#/components/schemas/Seedance25Request"
                   }
                 }
               },
@@ -1158,7 +1150,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
+        "description": "Seedance 933 能力请求。仅对外支持 480p、720p；duration 支持 5、10、15 秒。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。首帧、尾帧与普通参考图合计最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部素材合计最多 15 个。audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
         "allOf": [
           {
             "not": {
@@ -1198,8 +1190,7 @@
             "type": "string",
             "enum": [
               "480p",
-              "720p",
-              "1080p"
+              "720p"
             ],
             "default": "720p"
           },
@@ -1211,7 +1202,7 @@
               15
             ],
             "default": 5,
-            "description": "只能填写 5、10 或 15；省略时为 5 秒。resolution=1080p 时只允许 5 或 10 秒。"
+            "description": "只能填写 5、10 或 15；省略时为 5 秒。"
           },
           "aspect_ratio": {
             "type": "string",
@@ -1270,8 +1261,8 @@
               "image_reference": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 4,
-                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "maxItems": 9,
+                "description": "参考图片，含首帧和尾帧合计最多 9 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -1312,7 +1303,7 @@
                     "order": {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 3
+                      "maximum": 8
                     }
                   }
                 }
@@ -1361,8 +1352,8 @@
               "audio_reference": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 1,
-                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true，否则请求会返回 400 参数错误。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。",
+                "maxItems": 3,
+                "description": "参考音频，最多 3 个。必须同时提供至少一个 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -1394,7 +1385,7 @@
                     "order": {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 0
+                      "maximum": 2
                     }
                   }
                 }
@@ -1411,7 +1402,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
+        "description": "Seedance 933 能力请求。仅对外支持 480p、720p；duration 支持 5、10、15 秒。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。首帧、尾帧与普通参考图合计最多 9 张，参考视频最多 3 个，参考音频最多 3 个，全部素材合计最多 15 个。audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
         "properties": {
           "model": {
             "type": "string",
@@ -1500,8 +1491,8 @@
               "image_reference": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 4,
-                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
+                "maxItems": 9,
+                "description": "参考图片，含首帧和尾帧合计最多 9 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -1542,7 +1533,7 @@
                     "order": {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 3
+                      "maximum": 8
                     }
                   }
                 }
@@ -1591,8 +1582,8 @@
               "audio_reference": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 1,
-                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true，否则请求会返回 400 参数错误。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。",
+                "maxItems": 3,
+                "description": "参考音频，最多 3 个。必须同时提供至少一个 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
                 "items": {
                   "type": "object",
                   "required": [
@@ -1601,190 +1592,6 @@
                   "additionalProperties": false,
                   "properties": {
                     "audio": {
-                      "type": "object",
-                      "required": [
-                        "url"
-                      ],
-                      "additionalProperties": false,
-                      "properties": {
-                        "url": {
-                          "type": "string",
-                          "format": "uri",
-                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
-                        },
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "UPLOADED"
-                          ],
-                          "default": "UPLOADED"
-                        }
-                      }
-                    },
-                    "order": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 0
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "SeedanceMiniRequest": {
-        "title": "seedance-2.0-mini 请求",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "description": "Seedance 请求。可做纯文本、首帧、首尾帧、多图、参考视频及图片/视频加参考音频。image_reference 不能与首尾帧字段组合；audio_reference 必须搭配 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
-        "properties": {
-          "model": {
-            "type": "string",
-            "enum": [
-              "seedance-2.0-mini"
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000,
-            "description": "可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时，必须明确写出要保留的音色、语言内容、节奏、旋律或声音事件。"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              5,
-              10,
-              15
-            ],
-            "default": 5,
-            "description": "只能填写 5、10 或 15；省略时为 5 秒。"
-          },
-          "aspect_ratio": {
-            "type": "string",
-            "enum": [
-              "16:9",
-              "1:1",
-              "9:16"
-            ],
-            "default": "16:9"
-          },
-          "audio": {
-            "type": "boolean",
-            "default": false,
-            "description": "是否让模型生成同步音轨。省略时为 false；填写 guidances.audio_reference 时必须显式填写 true，否则请求会返回 400 参数错误。"
-          },
-          "prompt_enhance": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "AUTO",
-                  "ON",
-                  "OFF"
-                ]
-              }
-            ],
-            "description": "可选。布尔值 true/false 等价于 ON/OFF；Seedance 也接受 AUTO/ON/OFF。省略时由模型上游默认策略处理。"
-          },
-          "image_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 这是首帧快捷字段，不能与其他帧字段或 image_reference 同时使用。"
-          },
-          "start_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选首帧；不能与 image_url 或 image_reference 同时使用。"
-          },
-          "end_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。 可选尾帧；填写时必须同时填写 start_frame_url，且不能填写 image_url 或 guidances.image_reference。"
-          },
-          "guidances": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "image_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 4,
-                "description": "参考图片，最多 4 张。不能与 image_url、start_frame_url 或 end_frame_url 同时使用。",
-                "items": {
-                  "type": "object",
-                  "required": [
-                    "image"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "image": {
-                      "type": "object",
-                      "required": [
-                        "url"
-                      ],
-                      "additionalProperties": false,
-                      "properties": {
-                        "url": {
-                          "type": "string",
-                          "format": "uri",
-                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
-                        },
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "UPLOADED"
-                          ],
-                          "default": "UPLOADED"
-                        }
-                      }
-                    },
-                    "strength": {
-                      "type": "string",
-                      "enum": [
-                        "LOW",
-                        "MID",
-                        "HIGH"
-                      ],
-                      "default": "MID"
-                    },
-                    "order": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 3
-                    }
-                  }
-                }
-              },
-              "video_reference_base": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 3,
-                "description": "参考视频，最多 3 个。可与 image_reference 和 audio_reference 组合。",
-                "items": {
-                  "type": "object",
-                  "required": [
-                    "video"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "video": {
                       "type": "object",
                       "required": [
                         "url"
@@ -1809,47 +1616,6 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 2
-                    }
-                  }
-                }
-              },
-              "audio_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "description": "参考音频。当前必须同时提供至少一个 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true，否则请求会返回 400 参数错误。它不是原音轨直通：若要尽量保留具体音色、节奏、旋律或声音事件，prompt 中必须逐项明确写出要保留的声音特征；只写风格不能保证复现，更不保证逐波形复制。",
-                "items": {
-                  "type": "object",
-                  "required": [
-                    "audio"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "audio": {
-                      "type": "object",
-                      "required": [
-                        "url"
-                      ],
-                      "additionalProperties": false,
-                      "properties": {
-                        "url": {
-                          "type": "string",
-                          "format": "uri",
-                          "description": "必须填写 POST /videos/uploads 返回的完整 media_url；不要填写 upload_id，也不要手工删除签名参数。"
-                        },
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "UPLOADED"
-                          ],
-                          "default": "UPLOADED"
-                        }
-                      }
-                    },
-                    "order": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 0
                     }
                   }
                 }
@@ -1969,241 +1735,6 @@
                 "description": "必填。填写这个参考音频文件的真实时长（秒，可为小数），不是目标视频的 duration。上传接口不会代填此值。"
               }
             }
-          }
-        }
-      },
-      "SeedanceSD20MX933Request": {
-        "title": "sd-2.0-mx933 请求",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "description": "公开模型 sd-2.0-mx933 支持 resolution=480p 或 720p，客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，duration 不作为价格乘数；旧分组切换前仍按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 9 张，视频最多 3 个，音频最多 3 个，全部素材合计最多 15 个。参考视频累计最多 15 秒，参考音频累计最多 15 秒；每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
-        "example": {
-          "model": "sd-2.0-mx933",
-          "prompt": "清晨的滨海公路上，一辆银色电动汽车平稳驶过，镜头连续跟拍，无字幕，无水印。",
-          "resolution": "480p",
-          "duration": 5,
-          "aspect_ratio": "16:9",
-          "audio": false
-        },
-        "properties": {
-          "model": {
-            "type": "string",
-            "enum": [
-              "sd-2.0-mx933"
-            ],
-            "description": "固定填写 sd-2.0-mx933。"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000,
-            "description": "必填。可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p",
-            "description": "支持 480p 和 720p；省略时为 720p。"
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              5,
-              10,
-              15
-            ],
-            "default": 5,
-            "description": "目标视频时长，只能填整数 5、10 或 15；省略时为 5。在显式启用按次计费的分组中，不乘以此秒数；旧分组切换前仍按秒计费。"
-          },
-          "aspect_ratio": {
-            "type": "string",
-            "enum": [
-              "16:9",
-              "9:16",
-              "1:1",
-              "4:3",
-              "3:4",
-              "21:9"
-            ],
-            "default": "16:9"
-          },
-          "audio": {
-            "type": "boolean",
-            "default": false,
-            "description": "是否请求输出同步音轨。使用 audio_reference 时必须显式填写 true；参考音频不会自动开启音轨。"
-          },
-          "image_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "首帧快捷字段。填写 POST /videos/uploads 返回的完整 media_url；不能与 start_frame_url 或 end_frame_url 同时填写，可以与 guidances.image_reference 组合。"
-          },
-          "start_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "首帧。填写 POST /videos/uploads 返回的完整 media_url；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
-          },
-          "end_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "尾帧。填写 POST /videos/uploads 返回的完整 media_url；必须同时填写 start_frame_url，可以与 guidances.image_reference 组合。"
-          },
-          "guidances": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "image_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 9,
-                "description": "普通参考图最多 9 张；与首帧、尾帧合计不能超过 9 张。可与首尾帧、视频参考和音频参考组合。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceProductImageReference"
-                }
-              },
-              "video_reference_base": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 3,
-                "description": "参考视频最多 3 个，所有参考视频的 duration_seconds 合计不能超过 15。每个视频都要先上传并填写上传响应中的完整 media_url。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceTimedVideoReference"
-                }
-              },
-              "audio_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 3,
-                "description": "参考音频最多 3 个，所有参考音频的 duration_seconds 合计不能超过 15。必须同时存在至少一个普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
-                }
-              }
-            },
-            "description": "图片、视频、音频和首尾帧全部素材合计最多 15 个。数组顺序就是参考顺序。"
-          }
-        }
-      },
-      "SeedanceSD25MXRequest": {
-        "title": "sd-2.5-mx 请求",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "description": "【官方渠道】公开模型 sd-2.5-mx 为官方渠道。仅支持 resolution=720p；duration 只允许 5、10、15、30，省略时为 5。客户端只传本文档定义的统一公开字段。只有 Key 所属 Seedance 分组显式启用按次计费时，该模型才按 model + resolution 的单次价格、每个输出视频计费，四个时长档位使用同一单次价格；旧分组切换前仍按实际时长按秒计费。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；不支持 prompt_enhance。首帧、尾帧与普通参考图合计最多 30 张，视频最多 10 个，音频最多 10 个，全部素材合计最多 50 个。每个视频和音频对象都必须填写实际 duration_seconds。尾帧必须搭配首帧。参考音频必须搭配至少一个普通 image_reference 或 video_reference_base，只有首尾帧不满足条件，并且必须在请求顶层显式填写 audio=true。prompt 可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。",
-        "example": {
-          "model": "sd-2.5-mx",
-          "prompt": "傍晚的现代美术馆中，一名舞者连续旋转，镜头沿弧线平稳环绕，无字幕，无水印。",
-          "resolution": "720p",
-          "duration": 5,
-          "aspect_ratio": "16:9",
-          "audio": true
-        },
-        "properties": {
-          "model": {
-            "type": "string",
-            "enum": [
-              "sd-2.5-mx"
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 30000,
-            "description": "必填。可手写 @ImageN / @AudioN / @VideoN 引用素材编号；未手写时平台按上传顺序自动注入。使用参考音频时要明确写出需要保留的音色、语言内容、节奏、旋律或声音事件。使用大量素材时建议给平台自动约束预留字符空间。"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p"
-            ],
-            "default": "720p",
-            "description": "固定填写 720p。"
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              5,
-              10,
-              15,
-              30
-            ],
-            "default": 5,
-            "description": "目标视频时长只允许整数 5、10、15 或 30；省略时为 5。其他值会直接返回参数错误。在显式启用按次计费的分组中，四个时长档位使用同一单次价格；旧分组切换前仍按实际时长按秒计费。"
-          },
-          "aspect_ratio": {
-            "type": "string",
-            "enum": [
-              "16:9",
-              "9:16",
-              "1:1",
-              "4:3",
-              "3:4",
-              "21:9"
-            ],
-            "default": "16:9"
-          },
-          "audio": {
-            "type": "boolean",
-            "default": false,
-            "description": "是否请求输出同步音轨。使用 audio_reference 时必须显式填写 true；参考音频不会自动开启音轨。"
-          },
-          "image_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "首帧快捷字段。填写 POST /videos/uploads 返回的完整 media_url；不能与 start_frame_url 或 end_frame_url 同时填写，可以与 guidances.image_reference 组合。"
-          },
-          "start_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "首帧。填写 POST /videos/uploads 返回的完整 media_url；不能与 image_url 同时填写，可以与 end_frame_url 和 guidances.image_reference 组合。"
-          },
-          "end_frame_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "尾帧。填写 POST /videos/uploads 返回的完整 media_url；必须同时填写 start_frame_url，可以与 guidances.image_reference 组合。"
-          },
-          "guidances": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "image_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 30,
-                "description": "普通参考图最多 30 张；与首帧、尾帧合计不能超过 30 张。可与首尾帧、视频参考和音频参考组合。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceProductImageReference"
-                }
-              },
-              "video_reference_base": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 10,
-                "description": "参考视频最多 10 个。每个视频都要先上传，填写上传响应中的完整 media_url 和文件真实 duration_seconds。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceTimedVideoReference"
-                }
-              },
-              "audio_reference": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 10,
-                "description": "参考音频最多 10 个。每个音频都要先上传并填写文件真实 duration_seconds；必须同时存在至少一个普通 image_reference 或 video_reference_base，并在请求顶层显式填写 audio=true。",
-                "items": {
-                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
-                }
-              }
-            },
-            "description": "图片、视频、音频和首尾帧全部素材合计最多 50 个。数组顺序就是参考顺序。"
           }
         }
       },
@@ -3475,6 +3006,145 @@
               }
             }
           }
+        }
+      },
+      "Seedance25Request": {
+        "title": "seedance-2.5 请求",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "prompt",
+          "resolution"
+        ],
+        "description": "公开模型 seedance-2.5 支持 480p、720p；duration 支持 4、5、6、8、10、12、15、20、25、30 秒，其中 20、25、30 秒仅支持 480p，省略时为 4 秒。支持纯文本、首帧、首尾帧、多图、参考视频和参考音频；图片最多 30 张、视频最多 10 个、音频最多 10 个，全部素材最多 50 个。",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "seedance-2.5"
+            ],
+            "description": "公开模型名，固定为 seedance-2.5。"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "480p",
+              "720p"
+            ],
+            "default": "720p"
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 30,
+            "default": 5,
+            "enum": [
+              4,
+              5,
+              6,
+              8,
+              10,
+              12,
+              15,
+              20,
+              25,
+              30
+            ]
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "default": "16:9"
+          },
+          "audio": {
+            "type": "boolean",
+            "default": false,
+            "description": "使用 audio_reference 时必须显式填写 true。"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "start_frame_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "end_frame_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "guidances": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "image_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 30,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "image"
+                  ],
+                  "properties": {
+                    "image": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "url"
+                      ],
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "video_reference_base": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedVideoReference"
+                },
+                "description": "单个 3-10 秒、24-60 FPS，累计不超过 30 秒。"
+              },
+              "audio_reference": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "$ref": "#/components/schemas/SeedanceTimedAudioReference"
+                },
+                "description": "必须同时提供至少一张普通 image_reference。"
+              }
+            }
+          }
+        },
+        "example": {
+          "model": "seedance-2.5",
+          "prompt": "一名舞者在现代美术馆中连续旋转，镜头平稳环绕。",
+          "resolution": "720p",
+          "duration": 4,
+          "aspect_ratio": "16:9"
         }
       }
     },

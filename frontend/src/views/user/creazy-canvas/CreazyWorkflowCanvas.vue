@@ -127,7 +127,6 @@
           class="wf-tool wf-tool--image"
           title="添加图片生成节点"
           draggable="true"
-          :disabled="!imageModels.length"
           @dragstart="onPaletteDragStart($event, 'image')"
           @dragend="onPaletteDragEnd"
           @click="addNode('image')"
@@ -140,7 +139,6 @@
           class="wf-tool wf-tool--video"
           title="添加视频生成节点"
           draggable="true"
-          :disabled="!videoModels.length"
           @dragstart="onPaletteDragStart($event, 'video')"
           @dragend="onPaletteDragEnd"
           @click="addNode('video')"
@@ -210,7 +208,7 @@
           pan-activation-key-code="Space"
           :pan-on-drag="[1]"
           :selection-mode="SelectionMode.Partial"
-          :nodes-draggable="!graphEditingLocked"
+          :nodes-draggable="true"
           :nodes-connectable="!graphEditingLocked"
           :edges-updatable="!graphEditingLocked"
           :edge-updater-radius="18"
@@ -299,7 +297,7 @@
                 </span>
               </header>
 
-              <div class="wf-node__body">
+      <div class="wf-node__body">
                 <template v-if="slotProps.data.kind === 'asset' || slotProps.data.kind === 'result'">
                   <div class="wf-node__media" :class="`wf-node__media--${slotProps.data.mediaKind || 'image'}`">
                     <img
@@ -370,6 +368,7 @@
                     <span>{{ incomingMediaCount(slotProps.id) }} 个素材</span>
                     <span v-for="label in nodeCapabilityLabels(slotProps.data)" :key="label" class="wf-node__capability">{{ label }}</span>
                   </div>
+                  <button type="button" class="wf-node__asset-action nodrag" :disabled="!apiReady" @pointerdown.stop @click.stop="openAssetPickerForNode(slotProps.id)"><Icon name="upload" size="xs" />添加参考图</button>
                 </template>
 
                 <template v-else-if="slotProps.data.kind === 'video'">
@@ -405,6 +404,7 @@
                     <span>{{ incomingMediaCount(slotProps.id) }} 个素材</span>
                     <span v-for="label in nodeCapabilityLabels(slotProps.data)" :key="label" class="wf-node__capability">{{ label }}</span>
                   </div>
+                  <button type="button" class="wf-node__asset-action nodrag" :disabled="!apiReady" @pointerdown.stop @click.stop="openAssetPickerForNode(slotProps.id)"><Icon name="upload" size="xs" />上传参考素材</button>
                 </template>
 
                 <p v-if="slotProps.data.error" class="wf-node__error">{{ slotProps.data.error }}</p>
@@ -480,8 +480,8 @@
         >
           <template v-if="contextMenu.kind === 'pane'">
             <button type="button" role="menuitem" @click="addNodeFromContext('prompt')"><Icon name="document" size="sm" />添加提示词</button>
-            <button type="button" role="menuitem" :disabled="!imageModels.length" @click="addNodeFromContext('image')"><Icon name="sparkles" size="sm" />添加图片生成</button>
-            <button type="button" role="menuitem" :disabled="!videoModels.length" @click="addNodeFromContext('video')"><Icon name="play" size="sm" />添加视频生成</button>
+            <button type="button" role="menuitem" @click="addNodeFromContext('image')"><Icon name="sparkles" size="sm" />添加图片生成</button>
+            <button type="button" role="menuitem" @click="addNodeFromContext('video')"><Icon name="play" size="sm" />添加视频生成</button>
             <div></div>
             <button type="button" role="menuitem" :disabled="!clipboardFragment" @click="pasteSelection(contextMenu.flowPosition)"><Icon name="clipboard" size="sm" />粘贴</button>
             <button type="button" role="menuitem" :disabled="nodes.length < 2" @click="autoLayout"><Icon name="layout" size="sm" />自动排版</button>
@@ -953,6 +953,7 @@ const paletteTab = ref<PaletteTab>('nodes')
 const assetSearch = ref('')
 const connectionNotice = ref('')
 const assetInput = ref<HTMLInputElement | null>(null)
+const assetUploadTargetNodeId = ref('')
 const shellEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const commandInput = ref<HTMLInputElement | null>(null)
@@ -1065,17 +1066,17 @@ const selectedImageAspectOptions = computed(() => {
 })
 const selectedVideoResolutionOptions = computed(() => {
   const model = selectedVideoModel.value
-  const values = model?.resolutions?.length ? model.resolutions : model?.allowed_resolutions
+  const values = model?.allowed_resolutions?.length ? model.allowed_resolutions : model?.resolutions
   return values?.length ? values : DEFAULT_RESOLUTIONS
 })
 const selectedVideoDurationOptions = computed(() => {
   const model = selectedVideoModel.value
-  const values = model?.durations?.length ? model.durations : model?.allowed_durations
+  const values = model?.allowed_durations?.length ? model.allowed_durations : model?.durations
   return values?.length ? values : DEFAULT_DURATIONS
 })
 const selectedVideoAspectOptions = computed(() => {
   const model = selectedVideoModel.value
-  const values = model?.aspect_ratios?.length ? model.aspect_ratios : model?.allowed_aspect_ratios
+  const values = model?.allowed_aspect_ratios?.length ? model.allowed_aspect_ratios : model?.aspect_ratios
   return values?.length ? values : DEFAULT_VIDEO_RATIOS
 })
 const commandItems = computed<CommandPaletteItem[]>(() => [
@@ -1300,7 +1301,6 @@ function createNode(kind: WorkflowKind, position: XYPosition, id = uid(kind)): W
     type: 'workflow',
     position,
     data: base,
-    dragHandle: '.wf-node-drag',
     ariaLabel: base.title,
   }
 }
@@ -1552,6 +1552,13 @@ function makeEdge(source: string, target: string, nodeList = nodes.value, id = u
 
 function canReceiveManualInput(data: WorkflowNodeData): boolean {
   return data.kind === 'image' || data.kind === 'video'
+}
+
+function canAttachMediaToTarget(source: WorkflowNodeData, target: WorkflowNodeData): boolean {
+  const handle = targetHandleFor(source, target)
+  if (!handle) return false
+  const signal = signalKindForNode(source)
+  return inputPorts(target).some((port) => port.id === handle && port.signal === signal)
 }
 
 function nodeDataConnectionCompatible(source: WorkflowNodeData, target: WorkflowNodeData): boolean {
@@ -2109,6 +2116,18 @@ function openAssetPicker() {
     showConnectionNotice('请先选择可用的 API Key')
     return
   }
+  assetUploadTargetNodeId.value = ''
+  assetInput.value?.click()
+}
+
+function openAssetPickerForNode(nodeId: string) {
+  const node = nodes.value.find((item) => item.id === nodeId)
+  if (!node || !canReceiveManualInput(node.data)) return
+  if (!apiReady.value) {
+    showConnectionNotice('请先选择可用的 API Key')
+    return
+  }
+  assetUploadTargetNodeId.value = nodeId
   assetInput.value?.click()
 }
 
@@ -2117,7 +2136,9 @@ async function onAssetInput(event: Event) {
   const files = Array.from(input.files || [])
   input.value = ''
   if (!files.length) return
-  await uploadFiles(files)
+  const targetNodeId = assetUploadTargetNodeId.value || undefined
+  assetUploadTargetNodeId.value = ''
+  await uploadFiles(files, undefined, targetNodeId)
 }
 
 function onStageDragLeave(event: DragEvent) {
@@ -2156,7 +2177,7 @@ async function onStageDrop(event: DragEvent) {
   await uploadFiles(files, position)
 }
 
-async function uploadFiles(files: File[], origin?: XYPosition) {
+async function uploadFiles(files: File[], origin?: XYPosition, targetNodeId?: string) {
   if (!ensureGraphEditable()) return
   if (!apiReady.value) {
     showConnectionNotice('请先选择可用的 API Key')
@@ -2200,6 +2221,13 @@ async function uploadFiles(files: File[], origin?: XYPosition) {
       if (!mediaUrl) throw new Error('上传接口没有返回媒体地址')
       Object.assign(node.data, { status: 'succeeded' as const, mediaUrl, error: '' })
       patchNode(node.id, { status: 'succeeded', mediaUrl, error: '' })
+      const target = targetNodeId ? nodes.value.find((item) => item.id === targetNodeId) : undefined
+      if (target && canAttachMediaToTarget(node.data, target.data) && !edges.value.some((edge) => edge.source === node.id && edge.target === target.id)) {
+        edges.value.push(makeEdge(node.id, target.id, nodes.value))
+        scheduleSave()
+      } else if (target) {
+        showConnectionNotice(`${mediaKindLabel(mediaKind)}与当前节点的参考素材端口不兼容，已保留为独立资产`)
+      }
     } catch (error) {
       const message = errorMessage(error)
       Object.assign(node.data, { status: 'failed' as const, error: message })
@@ -2998,6 +3026,17 @@ async function fitCanvas() {
   await fitView({ padding: 0.18, duration: 320, minZoom: 0.45, maxZoom: 1.05 })
 }
 
+function hasSevereNodeOverlap(items = nodes.value): boolean {
+  for (let index = 0; index < items.length; index += 1) {
+    for (let next = index + 1; next < items.length; next += 1) {
+      const a = items[index].position
+      const b = items[next].position
+      if (Math.abs(a.x - b.x) < 80 && Math.abs(a.y - b.y) < 80) return true
+    }
+  }
+  return false
+}
+
 async function undoEditor() {
   if (!ensureGraphEditable()) return
   await flushPendingNodeEdit()
@@ -3143,7 +3182,6 @@ async function pasteSelection(anchor?: XYPosition) {
       type: 'workflow' as const,
       position: { x: origin.x + item.position.x, y: origin.y + item.position.y },
       data: resetCopiedNodeData(item.data),
-      dragHandle: '.wf-node-drag',
       ariaLabel: item.data.title,
       selected: true,
     } satisfies WorkflowNode
@@ -3540,7 +3578,6 @@ function graphForPersistence(): CreazyCanvasGraph {
       id: node.id,
       type: 'workflow',
       position: { x: node.position.x, y: node.position.y },
-      dragHandle: '.wf-node-drag',
       data: sanitizeNodeData(node.data),
     })),
     edges: edges.value.map((edge) => ({
@@ -3576,7 +3613,6 @@ function graphFromDocument(graph?: CreazyCanvasGraph): { nodes: WorkflowNode[]; 
       type: 'workflow' as const,
       position: { x: Number(item.position.x || 0), y: Number(item.position.y || 0) },
       data: { status: 'idle', title: '节点', ...item.data } as WorkflowNodeData,
-      dragHandle: '.wf-node-drag',
     })) as WorkflowNode[]
   const restoredNodeIds = new Set(restoredNodes.map((node) => node.id))
   const restoredEdges = graph.edges
@@ -3850,6 +3886,10 @@ async function loadDocument() {
   await nextTick()
   if (restored.nodes.length) {
     await setViewport(restored.viewport, { duration: 0 })
+    if (restored.nodes.length > 1 && hasSevereNodeOverlap(restored.nodes)) {
+      await nextTick()
+      autoLayout()
+    }
   } else {
     await fitCanvas()
   }
@@ -3922,14 +3962,15 @@ watch(
       }
       if (node.data.kind === 'video' && videoModels.value.length) {
         const model = videoModels.value.find((item) => item.id === node.data.model) || videoModels.value[0]
-        const resolution = (model.resolutions || model.allowed_resolutions || []).includes(node.data.resolution || '')
+        const resolutionOptions = model.allowed_resolutions || model.resolutions || []
+        const resolution = resolutionOptions.includes(node.data.resolution || '')
           ? String(node.data.resolution)
-          : model.default_resolution || model.resolutions?.[0] || model.allowed_resolutions?.[0] || '720p'
-        const durationOptions = model.durations || model.allowed_durations || []
+          : model.default_resolution || resolutionOptions[0] || '720p'
+        const durationOptions = model.allowed_durations || model.durations || []
         const duration = durationOptions.includes(Number(node.data.duration))
           ? Number(node.data.duration)
           : model.default_duration || durationOptions[0] || 5
-        const aspectOptions = model.aspect_ratios || model.allowed_aspect_ratios || []
+        const aspectOptions = model.allowed_aspect_ratios || model.aspect_ratios || []
         const aspectRatio = aspectOptions.includes(node.data.aspectRatio || '')
           ? String(node.data.aspectRatio)
           : aspectOptions[0] || '16:9'
@@ -4324,7 +4365,9 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 4px 12px -9px rgba(32, 38, 46, 0.42);
+  cursor: grab;
 }
+.wf-node:active { cursor: grabbing; }
 .wf-node--prompt { width: 300px; }
 .wf-node--asset,
 .wf-node--result { width: 360px; }
@@ -4424,6 +4467,9 @@ onBeforeUnmount(() => {
 .wf-node__version { padding: 2px 5px; border: 1px solid #bbf7d0; border-radius: 3px; background: #f0fdf4; color: #047857; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 8px; font-weight: 700; }
 .wf-node__source-link { min-height: 25px; display: inline-flex; align-items: center; gap: 5px; margin-top: 5px; padding: 0; border: 0; background: transparent; color: #52667a; font-size: 9px; font-weight: 700; }
 .wf-node__source-link:hover { color: #1d4ed8; }
+.wf-node__asset-action { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 0 8px; border: 1px solid #c9d7e8; border-radius: 4px; background: #f8fbff; color: #315b8f; font-size: 9px; font-weight: 700; }
+.wf-node__asset-action:hover:not(:disabled) { border-color: #8fb2ef; background: #eef5ff; color: #1d4ed8; }
+.wf-node__asset-action:disabled { cursor: not-allowed; opacity: 0.45; }
 
 .wf-handle {
   width: 10px;

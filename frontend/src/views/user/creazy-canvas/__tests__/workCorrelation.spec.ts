@@ -16,6 +16,29 @@ function functionSource(source: string, startMarker: string, endMarker: string):
 }
 
 describe('Creazy Canvas work correlation', () => {
+  it('keeps workflow nodes creatable and draggable without waiting for model catalogs', () => {
+    expect(workflowSource).toContain(':nodes-draggable="true"')
+    expect(workflowSource).not.toContain(':disabled="!imageModels.length"')
+    expect(workflowSource).not.toContain(':disabled="!videoModels.length"')
+    expect(workflowSource).not.toContain("dragHandle: '.wf-node-drag'")
+    expect(workflowSource).toContain('model?.allowed_resolutions?.length ? model.allowed_resolutions : model?.resolutions')
+  })
+
+  it('uploads reference media from generation nodes and connects compatible assets', () => {
+    expect(workflowSource).toContain('openAssetPickerForNode(slotProps.id)')
+    expect(workflowSource).toContain('async function uploadFiles(files: File[], origin?: XYPosition, targetNodeId?: string)')
+    expect(workflowSource).toContain('canAttachMediaToTarget(node.data, target.data)')
+    expect(workflowSource).toContain('edges.value.push(makeEdge(node.id, target.id, nodes.value))')
+    expect(workflowSource).toContain('添加参考图')
+    expect(workflowSource).toContain('上传参考素材')
+  })
+
+  it('repairs severely overlapped saved workflows when loading them', () => {
+    expect(workflowSource).toContain('function hasSevereNodeOverlap')
+    expect(workflowSource).toContain('hasSevereNodeOverlap(restored.nodes)')
+    expect(workflowSource).toContain('autoLayout()')
+  })
+
   it('uses a native playback URL for video previews instead of downloading the full blob', () => {
     const preview = functionSource(
       canvasSource,
