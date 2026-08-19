@@ -21,12 +21,13 @@ import (
 )
 
 const (
-	VideoProviderXimei         = "ximei"
-	VideoProviderLensForge     = "lensforge"
-	VideoProviderOpenVideo     = "openvideo"
-	SeedanceLensForge933Model  = "sd2.0-933-345"
-	SeedanceOpenVideoMiniModel = "seedancemini"
-	DefaultXimeiVideoBaseURL   = "https://liantongyidong.ximeiedu.org"
+	VideoProviderXimei             = "ximei"
+	VideoProviderLensForge         = "lensforge"
+	VideoProviderOpenVideo         = "openvideo"
+	SeedanceLensForge933Model      = "sd2.0-933-345"
+	SeedanceOpenVideoModel         = "sd2.0-933"
+	SeedanceOpenVideoUpstreamModel = "seedancemini"
+	DefaultXimeiVideoBaseURL       = "https://liantongyidong.ximeiedu.org"
 
 	SeedanceXimeiSD20Model = "sd-2.0-mx933"
 	SeedanceXimeiSD25Model = "sd-2.5-mx"

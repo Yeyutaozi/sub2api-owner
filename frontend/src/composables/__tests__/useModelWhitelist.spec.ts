@@ -38,7 +38,7 @@ describe('useModelWhitelist', () => {
       'sd-2.5-mx',
       'sd-2.0-900-720p',
       'seedance-2.5-c1-03',
-      'seedancemini'
+      'sd2.0-933'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -74,7 +74,7 @@ describe('useModelWhitelist', () => {
     expect(getSeedanceModelsByVideoProvider('globalaiopc')).toEqual([
       'seedance-2.5-c1-03'
     ])
-    expect(getSeedanceModelsByVideoProvider('openvideo')).toEqual(['seedancemini'])
+    expect(getSeedanceModelsByVideoProvider('openvideo')).toEqual(['sd2.0-933'])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
     expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(

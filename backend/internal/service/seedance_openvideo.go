@@ -35,14 +35,14 @@ func (a *Account) IsOpenVideo() bool {
 }
 
 func buildOpenVideoCreateRequest(info *SeedanceRequestInfo) ([]byte, error) {
-	if info == nil || !strings.EqualFold(strings.TrimSpace(info.Model), SeedanceOpenVideoMiniModel) {
+	if info == nil || !strings.EqualFold(strings.TrimSpace(info.Model), SeedanceOpenVideoModel) {
 		return nil, errors.New("unsupported OpenVideo model")
 	}
 	if strings.TrimSpace(info.Prompt) == "" {
 		return nil, errors.New("prompt is required")
 	}
 	request := openVideoCreateRequest{
-		Model: SeedanceOpenVideoMiniModel, Prompt: info.Prompt, Object: "video",
+		Model: SeedanceOpenVideoUpstreamModel, Prompt: info.Prompt, Object: "video",
 		Duration: info.DurationSeconds, Ratio: info.AspectRatio, Resolution: info.Resolution,
 	}
 	for _, reference := range info.References {
@@ -117,7 +117,7 @@ func (s *OpenAIGatewayService) forwardOpenVideoSeedance(ctx context.Context, c *
 	if upstreamID == "" {
 		return nil, &SeedanceUpstreamAcceptanceUnknownError{Err: errors.New("OpenVideo response did not include a task id")}
 	}
-	response.Result = &OpenAIForwardResult{RequestID: "seedance:" + upstreamID, ResponseID: upstreamID, UpstreamResponseID: upstreamID, Model: info.Model, BillingModel: info.Model, UpstreamModel: SeedanceOpenVideoMiniModel, UpstreamEndpoint: path, ResponseHeaders: response.Header.Clone(), VideoCount: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
+	response.Result = &OpenAIForwardResult{RequestID: "seedance:" + upstreamID, ResponseID: upstreamID, UpstreamResponseID: upstreamID, Model: info.Model, BillingModel: info.Model, UpstreamModel: SeedanceOpenVideoUpstreamModel, UpstreamEndpoint: path, ResponseHeaders: response.Header.Clone(), VideoCount: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
 	return response, nil
 }
 

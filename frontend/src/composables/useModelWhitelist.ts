@@ -201,7 +201,7 @@ const seedanceGlobalAIOPCModels = [
   'seedance-2.5-c1-03'
 ]
 
-const seedanceOpenVideoModels = ['seedancemini']
+const seedanceOpenVideoModels = ['sd2.0-933']
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels, ...seedanceGlobalAIOPCModels, ...seedanceOpenVideoModels]
 

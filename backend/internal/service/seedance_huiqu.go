@@ -276,7 +276,7 @@ func videoProviderSupportsModelForPlatform(platform, provider, model string) boo
 	case VideoProviderLensForge:
 		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceLensForge933Model)
 	case VideoProviderOpenVideo:
-		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceOpenVideoMiniModel)
+		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceOpenVideoModel)
 	default: // fflink and future non-opaque providers
 		if platform == PlatformMiniMax {
 			return false

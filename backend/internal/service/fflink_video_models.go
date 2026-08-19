@@ -172,7 +172,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 			return isWeijin900DurationSupported(duration)
 		},
 	},
-	SeedanceOpenVideoMiniModel: {
+	SeedanceOpenVideoModel: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
 		AllowedAspectRatios: ratioSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "9:21"),
@@ -248,7 +248,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			SeedanceWeijinFaceRef480pModel,
 			SeedanceWeijinFaceRef720pModel,
 			SeedanceWeijin900Model,
-			SeedanceOpenVideoMiniModel,
+			SeedanceOpenVideoModel,
 		}
 	case PlatformMiniMax:
 		return []string{
