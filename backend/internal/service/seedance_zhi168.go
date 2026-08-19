@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 type zhi168VideoRequest struct {
@@ -83,7 +84,26 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 		return nil, &SeedanceUpstreamError{StatusCode: resp.StatusCode, Body: out.Body}
 	}
 	if method == http.MethodPost {
-		out.Result = &OpenAIForwardResult{RequestID: "seedance:zhi168", ResponseID: "zhi168", UpstreamResponseID: "zhi168", Model: info.Model, BillingModel: info.Model, UpstreamModel: SeedanceZhi168UpstreamModel, UpstreamEndpoint: path, ResponseHeaders: out.Header.Clone(), VideoCount: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
+		var created struct {
+			TaskID int64 `json:"task_id"`
+			ID     int64 `json:"id"`
+			Data   struct {
+				TaskID int64 `json:"task_id"`
+			} `json:"data"`
+		}
+		_ = json.Unmarshal(out.Body, &created)
+		upstreamID := created.TaskID
+		if upstreamID == 0 {
+			upstreamID = created.ID
+		}
+		if upstreamID == 0 {
+			upstreamID = created.Data.TaskID
+		}
+		if upstreamID == 0 {
+			return nil, errors.New("zhi168 response did not include task_id")
+		}
+		taskID := strconv.FormatInt(upstreamID, 10)
+		out.Result = &OpenAIForwardResult{RequestID: "seedance:" + taskID, ResponseID: taskID, UpstreamResponseID: taskID, Model: info.Model, BillingModel: info.Model, UpstreamModel: SeedanceZhi168UpstreamModel, UpstreamEndpoint: path, ResponseHeaders: out.Header.Clone(), VideoCount: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
 	}
 	return out, nil
 }
