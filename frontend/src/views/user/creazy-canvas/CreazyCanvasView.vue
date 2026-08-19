@@ -1987,7 +1987,6 @@ const workPreviewUrls = reactive<Record<string, string>>({})
 /** Poster-only overrides are never passed to the video player. */
 const workCoverOverrides = reactive<Record<string, string>>({})
 const workCoverFailed = reactive<Record<string, boolean>>({})
-const workCoverReady = reactive<Record<string, boolean>>({})
 const workPreviewLoading = reactive<Record<string, boolean>>({})
 const workPreviewBlobUrls = new Set<string>()
 const workPreviewRequests = new Map<string, Promise<boolean>>()
@@ -3720,30 +3719,6 @@ function workPosterUrl(work: CreazyWork): string {
 
 function workPreviewUrl(work: CreazyWork): string {
   return workPreviewUrls[String(work.id)] || ''
-}
-
-function onCoverMediaReady(work: CreazyWork, _ev?: Event) {
-  workCoverFailed[String(work.id)] = false
-  workCoverReady[String(work.id)] = true
-}
-
-function onCoverMediaError(work: CreazyWork) {
-  workCoverFailed[String(work.id)] = true
-  workCoverReady[String(work.id)] = false
-}
-
-function isWorkCoverReady(work: CreazyWork): boolean {
-  const id = String(work.id)
-  if (!workCoverUrl(work)) return false
-  return Boolean(workCoverReady[id])
-}
-
-function isWorkCoverLoading(work: CreazyWork): boolean {
-  if (!canPreviewWork(work)) return false
-  const id = String(work.id)
-  if (workPreviewLoading[id]) return true
-  if (workCoverUrl(work) && !workCoverReady[id]) return true
-  return false
 }
 
 /** Covers use lightweight posters; video playback URLs stay out of the grid. */
