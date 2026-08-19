@@ -11,7 +11,7 @@ import (
 )
 
 type zhi168VideoRequest struct {
-	Model              string   `json:"model"`
+	ModelCode          string   `json:"model_code"`
 	Prompt             string   `json:"prompt"`
 	Resolution         string   `json:"resolution"`
 	Duration           int      `json:"duration_seconds"`
@@ -33,7 +33,7 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 		if info == nil {
 			return nil, errors.New("video request is required")
 		}
-		req := zhi168VideoRequest{Model: SeedanceZhi168UpstreamModel, Prompt: info.Prompt, Resolution: VideoBillingResolution1080P, Duration: 15, AspectRatio: info.AspectRatio, WithAudio: info.GenerateAudio}
+		req := zhi168VideoRequest{ModelCode: SeedanceZhi168UpstreamModel, Prompt: info.Prompt, Resolution: VideoBillingResolution1080P, Duration: 15, AspectRatio: info.AspectRatio, WithAudio: info.GenerateAudio}
 		for _, v := range info.References {
 			req.ReferenceImageURLs = append(req.ReferenceImageURLs, v.URL)
 		}
