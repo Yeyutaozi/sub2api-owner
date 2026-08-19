@@ -97,6 +97,12 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 			}
 		}
 	}
+	if provider == VideoProviderFFLink {
+		mapping := stringMappingFromRaw(credentials["model_mapping"])
+		if mapped := strings.TrimSpace(mapping["sd-2.5-ff"]); mapped != "" && mapped != "seedance-2-5" {
+			return infraerrors.BadRequest("VIDEO_PROVIDER_MODEL_MISMATCH", "model sd-2.5-ff must map to seedance-2-5")
+		}
+	}
 	if provider == VideoProviderGlobalAIOPC {
 		mapping := stringMappingFromRaw(credentials["model_mapping"])
 		if strings.TrimSpace(mapping[SeedanceGlobalAIOPCC1Model]) != seedanceGlobalAIOPCUpstreamModel {
