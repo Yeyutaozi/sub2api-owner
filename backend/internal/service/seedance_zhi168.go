@@ -26,7 +26,7 @@ type zhi168VideoRequest struct {
 	AudioURLs          []string `json:"audio_urls,omitempty"`
 }
 
-func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin.Context, account *Account, method, taskID string, info *SeedanceRequestInfo, _ *string) (*SeedanceUpstreamResponse, error) {
+func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin.Context, account *Account, method, taskID string, info *SeedanceRequestInfo, contentRangeOverride *string) (*SeedanceUpstreamResponse, error) {
 	base, err := s.validateUpstreamBaseURL(account.GetSeedanceBaseURL())
 	if err != nil {
 		return nil, err
