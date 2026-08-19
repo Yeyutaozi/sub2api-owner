@@ -1196,6 +1196,7 @@
             <option v-if="form.platform === 'seedance'" value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
             <option v-if="form.platform === 'seedance'" value="weijin">{{ t('admin.accounts.videoProvider.weijin') }}</option>
             <option v-if="form.platform === 'seedance'" value="globalaiopc">{{ t('admin.accounts.videoProvider.globalaiopc') }}</option>
+            <option v-if="form.platform === 'seedance'" value="lensforge">{{ t('admin.accounts.videoProvider.lensforge') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>

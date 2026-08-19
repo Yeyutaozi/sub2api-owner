@@ -3,7 +3,8 @@ export const SEEDANCE_VIDEO_PROVIDER_BASE_URLS = {
   huiqu: 'https://api.bjhuiqu.net',
   ximei: 'https://liantongyidong.ximeiedu.org',
   weijin: 'https://www.weijinapi.top',
-  globalaiopc: 'https://zcbservice.aizfw.cn/kyyReactApiServer'
+  globalaiopc: 'https://zcbservice.aizfw.cn/kyyReactApiServer',
+  lensforge: 'https://lensforge.tsxzz.com'
 } as const
 
 export type SeedanceVideoProvider = keyof typeof SEEDANCE_VIDEO_PROVIDER_BASE_URLS

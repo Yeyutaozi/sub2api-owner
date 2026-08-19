@@ -1367,39 +1367,11 @@
                     </span>
                     <span v-if="isExpired(work)" class="cc-work-expired">{{ t('creazyCanvas.works.expired') }}</span>
 
-                    <div
-                      v-if="isWorkCoverLoading(work)"
-                      class="cc-cover-skeleton"
-                      aria-hidden="true"
-                    >
-                      <div class="cc-cover-skeleton__shine" />
-                      <span class="cc-cover-skeleton__label">{{ t('creazyCanvas.works.coverLoading') }}</span>
-                    </div>
-
                     <button
-                      v-if="workCoverUrl(work)"
-                      type="button"
-                      class="cc-work-cover"
-                      :class="{ 'is-ready': isWorkCoverReady(work) }"
-                      :title="t('creazyCanvas.works.preview')"
-                      @click="openWorkPreview(work)"
-                    >
-                      <img
-                        :src="workCoverUrl(work)"
-                        alt=""
-                        class="cc-work-cover__media"
-                        @load="onCoverMediaReady(work, $event)"
-                        @error="onCoverMediaError(work)"
-                      />
-                      <span class="cc-work-cover__veil">
-                        <span class="cc-work-cover__play">{{ t('creazyCanvas.works.preview') }}</span>
-                      </span>
-                    </button>
-
-                    <button
-                      v-else-if="canPreviewWork(work)"
+                      v-if="canPreviewWork(work)"
                       type="button"
                       class="cc-work-cover cc-work-cover--pending"
+                      :title="t('creazyCanvas.works.preview')"
                       :disabled="workPreviewLoading[String(work.id)]"
                       @click="openWorkPreview(work)"
                     >

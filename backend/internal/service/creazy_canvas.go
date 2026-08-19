@@ -36,7 +36,7 @@ const (
 	CreazyCanvasWorkStatusCanceled  = "canceled"
 	CreazyCanvasWorkStatusExpired   = "expired"
 
-	creazyCanvasWorkTTL      = 3 * 24 * time.Hour
+	creazyCanvasWorkTTL      = 24 * time.Hour
 	creazyCanvasDownloadTTL  = time.Hour
 	creazyCanvasObjectPrefix = "creazy-canvas"
 	creazyCanvasGraphMaxSize = 2 * 1024 * 1024
@@ -982,6 +982,20 @@ func (s *CreazyCanvasService) GetDownloadURL(ctx context.Context, userID, workID
 	}
 	if work.Status == CreazyCanvasWorkStatusFailed {
 		return nil, infraerrors.BadRequest("CREAZY_CANVAS_WORK_NOT_READY", "作品未成功生成，无法下载")
+	}
+	if work.Status == CreazyCanvasWorkStatusSucceeded && strings.TrimSpace(work.ObjectKey) == "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
+		if work.Kind == CreazyCanvasWorkKindVideo {
+			err = s.ensureSucceededVideoArchived(ctx, work)
+		} else {
+			err = s.archiveSucceededImage(ctx, work)
+		}
+		if err != nil {
+			return nil, infraerrors.New(http.StatusBadGateway, "CREAZY_CANVAS_LOCAL_ARCHIVE_FAILED", "作品本地归档失败，请稍后重试")
+		}
+		work, err = s.GetWork(ctx, userID, workID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(work.ObjectKey) != "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
 		ttl := creazyCanvasDownloadTTL

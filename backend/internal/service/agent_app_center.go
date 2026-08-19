@@ -641,6 +641,10 @@ type AgentArtifactObjectReader interface {
 	ReadObject(ctx context.Context, location AgentArtifactObjectLocation, rangeHeader string) (*AgentArtifactObjectReadResult, error)
 }
 
+type AgentArtifactSignedReader interface {
+	OpenSignedObject(ctx context.Context, key string, expires int64, signature, rangeHeader string) (*AgentArtifactObjectReadResult, error)
+}
+
 type AgentArtifactStore interface {
 	IsConfigured() bool
 	Put(ctx context.Context, input AgentArtifactStorePutInput) (*AgentArtifactStorePutResult, error)

@@ -56,6 +56,9 @@ func NewAgentArtifactStore(cfg *config.Config) AgentArtifactStore {
 }
 
 func newAgentArtifactStoreFromConfig(storageConfig config.AgentArtifactStorageConfig) AgentArtifactStore {
+	if normalizeAgentArtifactProvider(storageConfig.Provider) == "local" {
+		return newAgentLocalArtifactStore(storageConfig)
+	}
 	storage, err := resolveAgentArtifactStorageSettings(storageConfig)
 	if err != nil {
 		return disabledAgentArtifactStore{err: err}
@@ -130,6 +133,12 @@ func resolveAgentArtifactStorageSettings(storage config.AgentArtifactStorageConf
 		}
 	}
 	accountID := strings.TrimSpace(storage.AccountID)
+	if provider == "local" {
+		if endpoint == "" || publicBaseURL == "" || strings.TrimSpace(storage.SecretAccessKey) == "" {
+			return agentArtifactStorageSettings{}, errors.New("local artifact storage requires endpoint, public_base_url, and secret_access_key")
+		}
+		return agentArtifactStorageSettings{provider: provider, endpoint: endpoint, bucket: "local-media", prefix: normalizeArtifactPrefix(storage.Prefix), publicBaseURL: publicBaseURL, secretAccessKey: strings.TrimSpace(storage.SecretAccessKey)}, nil
+	}
 	forcePathStyle := storage.ForcePathStyle
 	if storage.VirtualHostStyle {
 		forcePathStyle = false
@@ -179,6 +188,8 @@ func normalizeAgentArtifactProvider(provider string) string {
 		return "r2"
 	case "minio", "min-io":
 		return "minio"
+	case "local", "filesystem", "file":
+		return "local"
 	case "wasabi":
 		return "wasabi"
 	case "backblaze", "backblaze-b2":

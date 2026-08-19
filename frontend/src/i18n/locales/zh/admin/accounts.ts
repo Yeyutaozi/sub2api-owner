@@ -701,6 +701,7 @@ export default {
         ximei: '西梅 Developer API V3',
         weijin: 'Seedance 特惠',
         globalaiopc: 'GlobalAiOpc Seedance 2.5 C1',
+        lensforge: 'LensForge 渠道2-sd2.0 933',
         lingdongMappingTitle: '扩展参考视频映射（管理员）',
         lingdongMappingHint: '开启后，可配置「公开请求模型 → 扩展上游模型」。仅映射列表内的模型在带参考视频/音频时会转发扩展上游；纯图/纯提示仍走 Weijin。默认只映射 720p，避免 480p 低价吃到高价成本。开关与密钥仅管理员可见。',
         lingdongMappingEnabled: '启用参考视频扩展映射',

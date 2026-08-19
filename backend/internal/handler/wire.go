@@ -203,6 +203,7 @@ func ProvideHandlers(
 	tokenRewardHandler *TokenRewardHandler,
 	agentRunHandler *AgentRunHandler,
 	creazyCanvasHandler *CreazyCanvasHandler,
+	localMediaHandler *LocalMediaHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -230,6 +231,7 @@ func ProvideHandlers(
 		TokenReward:      tokenRewardHandler,
 		AgentRun:         agentRunHandler,
 		CreazyCanvas:     creazyCanvasHandler,
+		LocalMedia:       localMediaHandler,
 	}
 }
 
@@ -258,6 +260,7 @@ var ProviderSet = wire.NewSet(
 	NewTokenRewardHandler,
 	NewAgentRunHandler,
 	NewCreazyCanvasHandler,
+	NewLocalMediaHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

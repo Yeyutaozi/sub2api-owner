@@ -22,6 +22,8 @@ func RegisterUserRoutes(
 	v1.GET("/agent-artifacts/:id/content", h.AgentRun.StreamArtifactPreview)
 	v1.GET("/creazy-canvas/works/:id/playback", h.CreazyCanvas.StreamWorkPlayback)
 	v1.HEAD("/creazy-canvas/works/:id/playback", h.CreazyCanvas.StreamWorkPlayback)
+	v1.GET("/local-media", h.LocalMedia.Serve)
+	v1.HEAD("/local-media", h.LocalMedia.Serve)
 
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))

@@ -28,7 +28,7 @@ func (r *creazyCanvasWorkRepository) Create(ctx context.Context, work *service.C
 		return err
 	}
 	if work.ExpiresAt.IsZero() {
-		work.ExpiresAt = time.Now().Add(3 * 24 * time.Hour)
+		work.ExpiresAt = time.Now().Add(24 * time.Hour)
 	}
 	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO creazy_canvas_works (
@@ -96,7 +96,7 @@ func (r *creazyCanvasWorkRepository) CreateOrUpdateAcceptedVideo(ctx context.Con
 		return err
 	}
 	if work.ExpiresAt.IsZero() {
-		work.ExpiresAt = time.Now().Add(3 * 24 * time.Hour)
+		work.ExpiresAt = time.Now().Add(24 * time.Hour)
 	}
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO creazy_canvas_works (

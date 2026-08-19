@@ -2900,10 +2900,11 @@ func (c *Config) Validate() error {
 		warnIfInsecureURL("oidc_connect.frontend_redirect_url", c.OIDC.FrontendRedirectURL)
 	}
 	if c.AgentArtifacts.Enabled {
-		if strings.TrimSpace(c.AgentArtifacts.Bucket) == "" {
+		localArtifacts := strings.EqualFold(strings.TrimSpace(c.AgentArtifacts.Provider), "local")
+		if !localArtifacts && strings.TrimSpace(c.AgentArtifacts.Bucket) == "" {
 			return fmt.Errorf("agent_artifacts.bucket is required when agent_artifacts.enabled=true")
 		}
-		if strings.TrimSpace(c.AgentArtifacts.AccessKeyID) == "" {
+		if !localArtifacts && strings.TrimSpace(c.AgentArtifacts.AccessKeyID) == "" {
 			return fmt.Errorf("agent_artifacts.access_key_id is required when agent_artifacts.enabled=true")
 		}
 		if strings.TrimSpace(c.AgentArtifacts.SecretAccessKey) == "" {
@@ -2921,11 +2922,17 @@ func (c *Config) Validate() error {
 		if c.AgentArtifacts.RetentionDays < 0 {
 			return fmt.Errorf("agent_artifacts.retention_days must be non-negative")
 		}
-		if endpoint := strings.TrimSpace(c.AgentArtifacts.Endpoint); endpoint != "" {
+		if endpoint := strings.TrimSpace(c.AgentArtifacts.Endpoint); endpoint != "" && !localArtifacts {
 			if err := ValidateAbsoluteHTTPURL(endpoint); err != nil {
 				return fmt.Errorf("agent_artifacts.endpoint invalid: %w", err)
 			}
 			warnIfInsecureURL("agent_artifacts.endpoint", endpoint)
+		}
+		if localArtifacts && strings.TrimSpace(c.AgentArtifacts.Endpoint) == "" {
+			return fmt.Errorf("agent_artifacts.endpoint local directory is required when provider=local")
+		}
+		if localArtifacts && strings.TrimSpace(c.AgentArtifacts.PublicBaseURL) == "" {
+			return fmt.Errorf("agent_artifacts.public_base_url is required when provider=local")
 		}
 		if publicBaseURL := strings.TrimSpace(c.AgentArtifacts.PublicBaseURL); publicBaseURL != "" {
 			if err := ValidateAbsoluteHTTPURL(publicBaseURL); err != nil {

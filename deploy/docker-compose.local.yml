@@ -57,6 +57,15 @@ services:
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
+      - AGENT_ARTIFACTS_ENABLED=true
+      - AGENT_ARTIFACTS_PROVIDER=local
+      - AGENT_ARTIFACTS_ENDPOINT=/app/data
+      - AGENT_ARTIFACTS_PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:7999}/api/v1/local-media
+      - AGENT_ARTIFACTS_SECRET_ACCESS_KEY=${JWT_SECRET:?JWT_SECRET is required for local media signing}
+      - AGENT_ARTIFACTS_PREFIX=media
+      - AGENT_ARTIFACTS_DOWNLOAD_URL_TTL_SECONDS=3600
+      - AGENT_ARTIFACTS_RETENTION_DAYS=1
+      - AGENT_ARTIFACTS_CLEANUP_EXPIRED_ARTIFACTS_ENABLED=true
 
       # =======================================================================
       # Database Configuration (PostgreSQL)
@@ -192,6 +201,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  media-cleaner:
+    image: alpine:3.22
+    container_name: sub2api-media-cleaner
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do find /data/media -type f -mmin +1440 -delete 2>/dev/null; find /data/media -depth -type d -empty -delete 2>/dev/null; sleep 900; done"]
+    volumes:
+      - ./data:/data:Z
+    networks:
+      - sub2api-network
 
   # ===========================================================================
   # PostgreSQL Database

@@ -73,6 +73,7 @@ type Handlers struct {
 	TokenReward      *TokenRewardHandler
 	AgentRun         *AgentRunHandler
 	CreazyCanvas     *CreazyCanvasHandler
+	LocalMedia       *LocalMediaHandler
 }
 
 // BuildInfo contains build-time information

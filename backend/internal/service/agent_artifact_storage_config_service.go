@@ -294,6 +294,11 @@ func (s *AgentArtifactStorageConfigService) CurrentRuntimeConfig(ctx context.Con
 }
 
 func (s *AgentArtifactStorageConfigService) loadEffectiveRecord(ctx context.Context) (*agentArtifactStorageConfigRecord, string, error) {
+	// An explicitly configured local backend is an operational deployment choice:
+	// it must not be shadowed by an older COS setting persisted in the database.
+	if s != nil && s.cfg != nil && s.cfg.AgentArtifacts.Enabled && normalizeAgentArtifactProvider(s.cfg.AgentArtifacts.Provider) == "local" {
+		return recordFromConfig(s.cfg.AgentArtifacts), "config", nil
+	}
 	if record, ok, err := s.loadDBRecord(ctx); err != nil {
 		return nil, "", err
 	} else if ok {
@@ -466,6 +471,18 @@ func validateAgentArtifactStorageRecord(record agentArtifactStorageConfigRecord,
 	if !record.Enabled {
 		return nil
 	}
+	if normalizeAgentArtifactProvider(record.Provider) == "local" {
+		if strings.TrimSpace(record.Endpoint) == "" {
+			return infraerrors.BadRequest("AGENT_ARTIFACT_STORAGE_ENDPOINT_REQUIRED", "local storage directory is required")
+		}
+		if strings.TrimSpace(record.PublicBaseURL) == "" {
+			return infraerrors.BadRequest("AGENT_ARTIFACT_STORAGE_PUBLIC_BASE_URL_REQUIRED", "public base URL is required")
+		}
+		if !secretConfigured {
+			return infraerrors.BadRequest("AGENT_ARTIFACT_STORAGE_SECRET_REQUIRED", "signing secret is required")
+		}
+		return nil
+	}
 	if strings.TrimSpace(record.Bucket) == "" {
 		return infraerrors.BadRequest("AGENT_ARTIFACT_STORAGE_BUCKET_REQUIRED", "bucket is required")
 	}
@@ -620,6 +637,17 @@ func (s *dynamicAgentArtifactStore) ReadObject(ctx context.Context, location Age
 		return nil, errors.New("artifact store does not support direct reads")
 	}
 	return reader.ReadObject(ctx, location, rangeHeader)
+}
+
+func (s *dynamicAgentArtifactStore) OpenSignedObject(ctx context.Context, key string, expires int64, signature, rangeHeader string) (*AgentArtifactObjectReadResult, error) {
+	if err := s.Reload(ctx); err != nil {
+		return nil, err
+	}
+	reader, ok := s.currentStore().(AgentArtifactSignedReader)
+	if !ok {
+		return nil, ErrAgentArtifactStorageNotConfigured
+	}
+	return reader.OpenSignedObject(ctx, key, expires, signature, rangeHeader)
 }
 
 func (s *dynamicAgentArtifactStore) Delete(ctx context.Context, key string) error {

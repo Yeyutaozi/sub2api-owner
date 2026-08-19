@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	VideoProviderXimei       = "ximei"
-	DefaultXimeiVideoBaseURL = "https://liantongyidong.ximeiedu.org"
+	VideoProviderXimei        = "ximei"
+	VideoProviderLensForge    = "lensforge"
+	SeedanceLensForge933Model = "sd2.0-933-345"
+	DefaultXimeiVideoBaseURL  = "https://liantongyidong.ximeiedu.org"
 
 	SeedanceXimeiSD20Model = "sd-2.0-mx933"
 	SeedanceXimeiSD25Model = "sd-2.5-mx"
@@ -106,7 +108,7 @@ func isSeedanceMixedImageModel(model string) bool {
 
 func IsOpaqueSeedanceVideoProvider(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC:
+	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC, VideoProviderLensForge:
 		return true
 	default:
 		return false

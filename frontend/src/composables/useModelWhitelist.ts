@@ -210,6 +210,7 @@ export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider
   if (provider === 'ximei') return [...seedanceXimeiModels]
   if (provider === 'weijin') return [...seedanceWeijinModels]
   if (provider === 'globalaiopc') return [...seedanceGlobalAIOPCModels]
+  if (provider === 'lensforge') return ['sd2.0-933-345']
   return [...seedanceFFLinkModels]
 }
 
