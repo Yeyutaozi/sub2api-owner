@@ -143,6 +143,15 @@ func seedanceInspectionFromPayload(body []byte) (*SeedanceTaskInspection, error)
 	}
 	status = MapSeedanceTaskStatus(status)
 	if status == "" {
+		if nested, ok := payload["data"].(map[string]any); ok {
+			status, _ = nested["status"].(string)
+			if strings.TrimSpace(status) == "" {
+				status, _ = nested["state"].(string)
+			}
+			status = MapSeedanceTaskStatus(status)
+		}
+	}
+	if status == "" {
 		return nil, errors.New("seedance upstream task status is missing")
 	}
 	inspection := &SeedanceTaskInspection{Status: status}
