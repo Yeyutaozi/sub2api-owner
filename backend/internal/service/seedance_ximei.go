@@ -24,9 +24,13 @@ const (
 	VideoProviderXimei             = "ximei"
 	VideoProviderLensForge         = "lensforge"
 	VideoProviderOpenVideo         = "openvideo"
+	VideoProviderZhi168            = "zhi168"
 	SeedanceLensForge933Model      = "sd2.0-933-345"
 	SeedanceOpenVideoModel         = "sd2.0-933"
 	SeedanceOpenVideoUpstreamModel = "seedancemini"
+	SeedanceZhi168Model             = "sd2-933-25"
+	SeedanceZhi168UpstreamModel     = "47"
+	DefaultZhi168VideoBaseURL       = "https://www.zhi168.it.com/api"
 	DefaultXimeiVideoBaseURL       = "https://liantongyidong.ximeiedu.org"
 
 	SeedanceXimeiSD20Model = "sd-2.0-mx933"
@@ -111,7 +115,7 @@ func isSeedanceMixedImageModel(model string) bool {
 
 func IsOpaqueSeedanceVideoProvider(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC, VideoProviderLensForge, VideoProviderOpenVideo:
+	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC, VideoProviderLensForge, VideoProviderOpenVideo, VideoProviderZhi168:
 		return true
 	default:
 		return false

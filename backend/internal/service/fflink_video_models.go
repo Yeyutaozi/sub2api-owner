@@ -42,6 +42,13 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 			}
 		},
 	},
+	SeedanceZhi168Model: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 15,
+		AllowedResolutions: resolutionSet(VideoBillingResolution1080P), AllowedAspectRatios: ratioSet("16:9", "9:16", "21:9", "4:3", "1:1", "3:4"),
+		PromptLimit: 5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration == 15 },
+	},
 	"seedance-2.0": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P),
