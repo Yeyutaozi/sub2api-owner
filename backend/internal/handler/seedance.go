@@ -46,6 +46,11 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 	if !ok {
 		return
 	}
+	if !allowSeedanceRequest(apiKey.ID) {
+		c.Header("Retry-After", "2")
+		seedanceError(c, http.StatusTooManyRequests, "rate_limit_error", "Too many video requests; please retry later")
+		return
+	}
 	reqLog := requestLogger(c, "handler.seedance.create",
 		zap.Int64("user_id", subject.UserID),
 		zap.Int64("api_key_id", apiKey.ID),
