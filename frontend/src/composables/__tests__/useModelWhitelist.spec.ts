@@ -36,10 +36,9 @@ describe('useModelWhitelist', () => {
       'sd2-mx933-fast',
       'sd-2.0-mx933',
       'sd-2.5-mx',
-      'seedance2.0-one-face-reference-480p',
-      'seedance2.0-one-face-reference-720p',
       'sd-2.0-900-720p',
-      'seedance-2.5-c1-03'
+      'seedance-2.5-c1-03',
+      'seedancemini'
     ])
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
@@ -48,8 +47,6 @@ describe('useModelWhitelist', () => {
       { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
       { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
       { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
-      { from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p' },
-      { from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p' },
       { from: 'sd-2.0-900-720p', to: 'seedance2.0-900-3' },
       { from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1' },
       { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
@@ -72,13 +69,12 @@ describe('useModelWhitelist', () => {
       'sd-2.5-mx'
     ])
     expect(getSeedanceModelsByVideoProvider('weijin')).toEqual([
-      'seedance2.0-one-face-reference-480p',
-      'seedance2.0-one-face-reference-720p',
       'sd-2.0-900-720p'
     ])
     expect(getSeedanceModelsByVideoProvider('globalaiopc')).toEqual([
       'seedance-2.5-c1-03'
     ])
+    expect(getSeedanceModelsByVideoProvider('openvideo')).toEqual(['seedancemini'])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
     expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
@@ -87,6 +83,9 @@ describe('useModelWhitelist', () => {
     expect(getSeedanceVideoProviderBaseUrl('weijin')).toBe('https://www.weijinapi.top')
     expect(getSeedanceVideoProviderBaseUrl('globalaiopc')).toBe(
       'https://zcbservice.aizfw.cn/kyyReactApiServer'
+    )
+    expect(getSeedanceVideoProviderBaseUrl('openvideo')).toBe(
+      'https://www.openvideo.top/api/v1'
     )
   })
 

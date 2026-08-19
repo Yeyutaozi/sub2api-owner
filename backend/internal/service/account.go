@@ -1482,6 +1482,12 @@ func (a *Account) GetSeedanceBaseURL() string {
 	if a.IsGlobalAIOPCVideo() {
 		return DefaultGlobalAIOPCVideoBaseURL
 	}
+	if a.IsLensForgeVideo() {
+		return DefaultLensForgeVideoBaseURL
+	}
+	if a.IsOpenVideo() {
+		return DefaultOpenVideoBaseURL
+	}
 	return DefaultSeedanceBaseURL
 }
 

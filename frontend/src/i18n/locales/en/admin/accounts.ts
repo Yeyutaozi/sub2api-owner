@@ -642,6 +642,7 @@ export default {
         weijin: 'Seedance Special Offer',
         globalaiopc: 'GlobalAiOpc Seedance 2.5 C1',
         lensforge: 'LensForge Seedance 2.0 933',
+        openvideo: 'OpenVideo Seedance Mini',
         lingdongMappingTitle: 'Extended reference-video mapping (admin)',
         lingdongMappingHint: 'When enabled, configure public request model → extension upstream model. Only mapped models with video/audio use the extension upstream; prompt/image-only stays on Weijin. Default maps 720p only so 480p cheap pricing cannot hit expensive cost. Toggle and keys are admin-only.',
         lingdongMappingEnabled: 'Enable reference-video extension mapping',

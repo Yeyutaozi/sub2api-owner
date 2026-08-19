@@ -172,6 +172,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 			return isWeijin900DurationSupported(duration)
 		},
 	},
+	SeedanceOpenVideoMiniModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P),
+		AllowedAspectRatios: ratioSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "9:21"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 0, MaxAudioReferences: 3, MaxTotalMedia: 12,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 1 && duration <= 60 },
+	},
 	"ltx-2.3-pro": {
 		Platform: PlatformLTX, DefaultResolution: VideoBillingResolution1080P, DefaultDuration: 6,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution1080P, VideoBillingResolution1440P, VideoBillingResolution2160P),
@@ -240,6 +248,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			SeedanceWeijinFaceRef480pModel,
 			SeedanceWeijinFaceRef720pModel,
 			SeedanceWeijin900Model,
+			SeedanceOpenVideoMiniModel,
 		}
 	case PlatformMiniMax:
 		return []string{

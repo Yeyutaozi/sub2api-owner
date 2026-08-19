@@ -434,8 +434,6 @@ describe('EditAccountModal', () => {
       video_provider: 'weijin',
       api_key: 'sk_live_weijin_900',
       model_mapping: {
-        'seedance2.0-one-face-reference-480p': 'seedance2.0-one-face-reference-480p',
-        'seedance2.0-one-face-reference-720p': 'seedance2.0-one-face-reference-720p',
         'sd-2.0-900-720p': 'seedance2.0-900-3'
       }
     })

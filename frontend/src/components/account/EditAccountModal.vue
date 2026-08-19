@@ -42,6 +42,7 @@
             <option v-if="account.platform === 'seedance'" value="weijin">{{ t('admin.accounts.videoProvider.weijin') }}</option>
             <option v-if="account.platform === 'seedance'" value="globalaiopc">{{ t('admin.accounts.videoProvider.globalaiopc') }}</option>
             <option v-if="account.platform === 'seedance'" value="lensforge">{{ t('admin.accounts.videoProvider.lensforge') }}</option>
+            <option v-if="account.platform === 'seedance'" value="openvideo">{{ t('admin.accounts.videoProvider.openvideo') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>

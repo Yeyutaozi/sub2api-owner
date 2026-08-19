@@ -194,8 +194,6 @@ const seedanceXimeiModels = [
 ]
 
 const seedanceWeijinModels = [
-  'seedance2.0-one-face-reference-480p',
-  'seedance2.0-one-face-reference-720p',
   'sd-2.0-900-720p'
 ]
 
@@ -203,7 +201,9 @@ const seedanceGlobalAIOPCModels = [
   'seedance-2.5-c1-03'
 ]
 
-const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels, ...seedanceGlobalAIOPCModels]
+const seedanceOpenVideoModels = ['seedancemini']
+
+const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels, ...seedanceGlobalAIOPCModels, ...seedanceOpenVideoModels]
 
 export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider): string[] {
   if (provider === 'huiqu') return [...seedanceHuiquModels]
@@ -211,6 +211,7 @@ export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider
   if (provider === 'weijin') return [...seedanceWeijinModels]
   if (provider === 'globalaiopc') return [...seedanceGlobalAIOPCModels]
   if (provider === 'lensforge') return ['sd2.0-933-345']
+  if (provider === 'openvideo') return [...seedanceOpenVideoModels]
   return [...seedanceFFLinkModels]
 }
 
@@ -391,8 +392,6 @@ const seedancePresetMappings = [
   { label: 'MX933 Fast', from: 'sd2-mx933-fast', to: 'sd2-mx933-fast', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'Ximei SD 2.0 MX933', from: 'sd-2.0-mx933', to: 'sd-2.0-mx933', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Ximei SD 2.5 MX', from: 'sd-2.5-mx', to: 'sd-2.5-mx', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
-  { label: 'Seedance特惠 480p', from: 'seedance2.0-one-face-reference-480p', to: 'seedance2.0-one-face-reference-480p', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
-  { label: 'Seedance特惠 720p', from: 'seedance2.0-one-face-reference-720p', to: 'seedance2.0-one-face-reference-720p', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },
   { label: 'SD 2.0 900 (720P)', from: 'sd-2.0-900-720p', to: 'seedance2.0-900-3', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
   { label: 'Seedance 2.5 C1 03', from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'Legacy Pro alias', from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },

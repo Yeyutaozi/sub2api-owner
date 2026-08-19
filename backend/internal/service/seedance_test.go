@@ -32,6 +32,7 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		SeedanceWeijinFaceRef480pModel,
 		SeedanceWeijinFaceRef720pModel,
 		SeedanceWeijin900Model,
+		SeedanceOpenVideoMiniModel,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
 	require.Equal(t, []string{SeedanceMiniMaxH3Model}, defaultModelsListCandidateIDs(PlatformMiniMax))
 }

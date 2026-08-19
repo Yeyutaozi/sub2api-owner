@@ -1597,6 +1597,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if provider == VideoProviderLensForge {
 		return s.forwardLensForgeSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
+	if provider == VideoProviderOpenVideo {
+		return s.forwardOpenVideoSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
@@ -1899,6 +1902,11 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	}
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	isOpaqueTask := IsOpaqueSeedanceVideoProvider(provider)
+	if provider == VideoProviderOpenVideo {
+		if state, ok := job["state"].(string); ok && strings.TrimSpace(state) != "" {
+			job["status"] = state
+		}
+	}
 	statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 	contentPath := statusPath + "/content"
 	// Public job IDs are opaque strings even when a transparent upstream emits
@@ -1916,7 +1924,7 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	if status, ok := job["status"].(string); ok {
 		job["status"] = MapSeedancePublicTaskStatus(status)
 	}
-	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge || provider == VideoProviderOpenVideo) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
 		job["error"] = map[string]any{"message": "Video generation failed"}
 	}
 	synthesizeHuiquResult := func() {
