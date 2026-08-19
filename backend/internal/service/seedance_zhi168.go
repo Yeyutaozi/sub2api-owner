@@ -206,7 +206,7 @@ func (s *OpenAIGatewayService) forwardZhi168Request(ctx context.Context, c *gin.
 		return nil, err
 	}
 	out := &SeedanceUpstreamResponse{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), ContentType: resp.Header.Get("Content-Type")}
-	if rangeHeader != "" && resp.StatusCode < 400 {
+	if strings.HasSuffix(endpoint, "/content") && resp.StatusCode < 400 {
 		out.BodyStream = resp.Body
 		return out, nil
 	}
