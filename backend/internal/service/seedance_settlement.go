@@ -137,6 +137,10 @@ func seedanceInspectionFromPayload(body []byte) (*SeedanceTaskInspection, error)
 		return nil, errors.New("seedance upstream task response is invalid")
 	}
 	status, _ := payload["status"].(string)
+	if strings.TrimSpace(status) == "" {
+		// OpenVideo returns the lifecycle in `state` rather than `status`.
+		status, _ = payload["state"].(string)
+	}
 	status = MapSeedanceTaskStatus(status)
 	if status == "" {
 		return nil, errors.New("seedance upstream task status is missing")

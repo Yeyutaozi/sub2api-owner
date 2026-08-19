@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSeedanceInspectionFromPayloadAcceptsOpenVideoState(t *testing.T) {
+	inspection, err := seedanceInspectionFromPayload([]byte(`{"id":"tk_test","state":"succeeded"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inspection.Status != SeedanceTaskStatusSucceeded {
+		t.Fatalf("status = %q, want %q", inspection.Status, SeedanceTaskStatusSucceeded)
+	}
+}
+
 func TestSeedanceInspectionFromErrorMapsNotFound(t *testing.T) {
 	inspection, ok := seedanceInspectionFromError(&SeedanceUpstreamError{
 		StatusCode: http.StatusNotFound,
