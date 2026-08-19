@@ -127,29 +127,12 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 }
 
 func parseZhi168TaskResult(body []byte) (string, string, error) {
-	var p struct {
-		Status    string `json:"status"`
-		State     string `json:"state"`
-		ResultURL string `json:"result_url"`
-		VideoURL  string `json:"video_url"`
-		Result    struct {
-			URL string `json:"url"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &p); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return "", "", errors.New("invalid zhi168 task response")
 	}
-	status := strings.TrimSpace(p.Status)
-	if status == "" {
-		status = strings.TrimSpace(p.State)
-	}
-	result := strings.TrimSpace(p.ResultURL)
-	if result == "" {
-		result = strings.TrimSpace(p.VideoURL)
-	}
-	if result == "" {
-		result = strings.TrimSpace(p.Result.URL)
-	}
+	status := zhi168String(payload, "status", "state")
+	result := zhi168FindURL(payload)
 	if status != "" && MapSeedanceTaskStatus(status) != SeedanceTaskStatusSucceeded {
 		return status, "", &SeedanceUpstreamError{StatusCode: http.StatusConflict, Body: []byte("video task is not completed")}
 	}
@@ -157,6 +140,41 @@ func parseZhi168TaskResult(body []byte) (string, string, error) {
 		return status, "", errors.New("completed zhi168 task response is missing result URL")
 	}
 	return status, result, nil
+}
+
+func zhi168String(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := m[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	if nested, ok := m["data"].(map[string]any); ok {
+		return zhi168String(nested, keys...)
+	}
+	return ""
+}
+
+func zhi168FindURL(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"result_url", "video_url", "output_url", "download_url", "url"} {
+			if raw, ok := typed[key].(string); ok && strings.HasPrefix(strings.TrimSpace(raw), "http") {
+				return strings.TrimSpace(raw)
+			}
+		}
+		for _, child := range typed {
+			if found := zhi168FindURL(child); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if found := zhi168FindURL(child); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 func (s *OpenAIGatewayService) forwardZhi168Request(ctx context.Context, c *gin.Context, account *Account, method, target, endpoint string, body []byte, rangeHeader string) (*SeedanceUpstreamResponse, error) {
