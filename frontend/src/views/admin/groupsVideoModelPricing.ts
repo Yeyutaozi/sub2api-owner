@@ -48,7 +48,7 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<
   "sd-2.0-mx933": ["480p", "720p"],
   "sd-2.0-900-720p": ["720p"],
   "seedance-2.5-c1-03": ["720p"],
-  "sd-2.5-ff": ["480p"],
+  "sd-2.5-ff": ["480p", "720p"],
   "sd-2.5-mx": ["720p"],
   "seedance2.0-one-face-reference-480p": ["480p"],
   "seedance2.0-one-face-reference-720p": ["720p"],

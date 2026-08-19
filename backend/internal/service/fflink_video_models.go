@@ -7,32 +7,40 @@ import (
 )
 
 type ffLinkVideoModelProfile struct {
-	Platform            string
-	DefaultResolution   string
-	DefaultDuration     int
-	AllowedResolutions  map[string]struct{}
-	AllowedAspectRatios map[string]struct{}
-	PromptLimit         int
-	MaxImageReferences  int
-	MaxTotalImages      int
-	MaxVideoReferences  int
-	MaxAudioReferences  int
-	MaxTotalMedia       int
-	AllowStartFrame     bool
-	RequireStartFrame   bool
-	AllowEndFrame       bool
-	AllowGeneratedAudio bool
-	PromptEnhanceMode   string
-	ValidateDuration    func(int, string) bool
+	Platform             string
+	DefaultResolution    string
+	DefaultDuration      int
+	AllowedResolutions   map[string]struct{}
+	AllowedAspectRatios  map[string]struct{}
+	PromptLimit          int
+	MaxImageReferences   int
+	MaxTotalImages       int
+	MaxVideoReferences   int
+	MaxAudioReferences   int
+	MaxTotalMedia        int
+	AllowStartFrame      bool
+	RequireStartFrame    bool
+	AllowEndFrame        bool
+	AllowGeneratedAudio  bool
+	PromptEnhanceMode    string
+	ValidateDuration     func(int, string) bool
+	Max720PAudioDuration int
 }
 
 var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 	"sd-2.5-ff": {
-		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 30,
-		AllowedResolutions: resolutionSet(VideoBillingResolution480P), AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1"),
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 4,
+		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P), AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9"),
 		PromptLimit: 5000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
-		AllowStartFrame: false, AllowEndFrame: false, AllowGeneratedAudio: true,
-		ValidateDuration: func(duration int, _ string) bool { return duration == 30 },
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, Max720PAudioDuration: 15,
+		ValidateDuration: func(duration int, _ string) bool {
+			switch duration {
+			case 4, 5, 6, 8, 10, 12, 15, 20, 25, 30:
+				return true
+			default:
+				return false
+			}
+		},
 	},
 	"seedance-2.0": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
@@ -375,6 +383,9 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	}
 	if !profile.AllowGeneratedAudio && info.GenerateAudio {
 		return fmt.Errorf("model %s does not support generated audio", info.Model)
+	}
+	if profile.Max720PAudioDuration > 0 && info.Resolution == VideoBillingResolution720P && info.GenerateAudio && info.DurationSeconds > profile.Max720PAudioDuration {
+		return fmt.Errorf("model %s supports at most %d seconds with generated audio at 720p", info.Model, profile.Max720PAudioDuration)
 	}
 	// Weijin special-offer face models market "933" but reject audio references
 	// later with a compliance message; do not force audio=true here.
