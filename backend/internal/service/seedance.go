@@ -1606,6 +1606,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if provider == VideoProviderOpenVideo {
 		return s.forwardOpenVideoSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
+	if provider == VideoProviderZhi168 {
+		return s.forwardZhi168Seedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
