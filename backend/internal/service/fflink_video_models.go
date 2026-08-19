@@ -263,6 +263,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			"seedance-2.0-mini",
 			"seedance-2.5",
 			"sd-2.5-ff",
+			SeedanceZhi168Model,
 			SeedanceMX933Model,
 			SeedanceMX933FastModel,
 			SeedanceXimeiSD20Model,

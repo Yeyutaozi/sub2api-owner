@@ -3623,7 +3623,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       credentials?.video_provider === 'huiqu' ? 'huiqu' : 'huiqu'
   } else if (newAccount.platform === 'seedance') {
     seedanceVideoProvider.value =
-      credentials?.video_provider === 'globalaiopc'
+      credentials?.video_provider === 'zhi168'
+            ? 'zhi168'
+        : credentials?.video_provider === 'globalaiopc'
             ? 'globalaiopc'
         : credentials?.video_provider === 'lensforge'
           ? 'lensforge'
