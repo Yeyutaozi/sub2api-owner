@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type zhi168VideoRequest struct {
@@ -50,6 +53,21 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 			return nil, errors.New("invalid task id")
 		}
 		path += "/" + url.PathEscape(taskID)
+		if contentRangeOverride != nil {
+			query, queryErr := s.forwardZhi168Request(ctx, c, account, http.MethodGet, buildXimeiEndpointURL(base, path), path, nil, "")
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			_, resultURL, parseErr := parseZhi168TaskResult(query.Body)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			validated, validateErr := urlvalidator.ValidateHTTPSURL(resultURL, urlvalidator.ValidationOptions{AllowPrivate: false})
+			if validateErr != nil {
+				return nil, errors.New("zhi168 result URL is invalid")
+			}
+			return s.forwardZhi168Request(ctx, c, account, http.MethodGet, validated, "/v1/video-tasks/{task_id}/content", nil, rangeValue(contentRangeOverride))
+		}
 	} else {
 		return nil, errors.New("unsupported method")
 	}
@@ -104,6 +122,83 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 		}
 		taskID := strconv.FormatInt(upstreamID, 10)
 		out.Result = &OpenAIForwardResult{RequestID: "seedance:" + taskID, ResponseID: taskID, UpstreamResponseID: taskID, Model: info.Model, BillingModel: info.Model, UpstreamModel: SeedanceZhi168UpstreamModel, UpstreamEndpoint: path, ResponseHeaders: out.Header.Clone(), VideoCount: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
+	}
+	return out, nil
+}
+
+func parseZhi168TaskResult(body []byte) (string, string, error) {
+	var p struct {
+		Status    string `json:"status"`
+		State     string `json:"state"`
+		ResultURL string `json:"result_url"`
+		VideoURL  string `json:"video_url"`
+		Result    struct {
+			URL string `json:"url"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		return "", "", errors.New("invalid zhi168 task response")
+	}
+	status := strings.TrimSpace(p.Status)
+	if status == "" {
+		status = strings.TrimSpace(p.State)
+	}
+	result := strings.TrimSpace(p.ResultURL)
+	if result == "" {
+		result = strings.TrimSpace(p.VideoURL)
+	}
+	if result == "" {
+		result = strings.TrimSpace(p.Result.URL)
+	}
+	if status != "" && MapSeedanceTaskStatus(status) != SeedanceTaskStatusSucceeded {
+		return status, "", &SeedanceUpstreamError{StatusCode: http.StatusConflict, Body: []byte("video task is not completed")}
+	}
+	if result == "" {
+		return status, "", errors.New("completed zhi168 task response is missing result URL")
+	}
+	return status, result, nil
+}
+
+func (s *OpenAIGatewayService) forwardZhi168Request(ctx context.Context, c *gin.Context, account *Account, method, target, endpoint string, body []byte, rangeHeader string) (*SeedanceUpstreamResponse, error) {
+	var reader io.Reader
+	if len(body) > 0 {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, reader)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(target, account.GetSeedanceBaseURL()) {
+		req.Header.Set("X-API-Key", account.GetSeedanceAPIKey())
+	}
+	req.Header.Set("Accept", "*/*")
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	SetActualOpenAIUpstreamEndpoint(c, endpoint)
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, err
+	}
+	out := &SeedanceUpstreamResponse{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), ContentType: resp.Header.Get("Content-Type")}
+	if rangeHeader != "" && resp.StatusCode < 400 {
+		out.BodyStream = resp.Body
+		return out, nil
+	}
+	defer resp.Body.Close()
+	out.Body, err = ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &SeedanceUpstreamError{StatusCode: resp.StatusCode, Body: out.Body}
 	}
 	return out, nil
 }
