@@ -1198,6 +1198,7 @@
             <option v-if="form.platform === 'seedance'" value="globalaiopc">{{ t('admin.accounts.videoProvider.globalaiopc') }}</option>
             <option v-if="form.platform === 'seedance'" value="lensforge">{{ t('admin.accounts.videoProvider.lensforge') }}</option>
             <option v-if="form.platform === 'seedance'" value="openvideo">{{ t('admin.accounts.videoProvider.openvideo') }}</option>
+            <option v-if="form.platform === 'seedance'" value="zhi168">{{ t('admin.accounts.videoProvider.zhi168') }}</option>
             <option v-if="form.platform === 'seedance'" value="zhi168">智168（SD2.0通道3）</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
