@@ -200,7 +200,10 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		}
 
 		account := selection.Account
-		if fallbackActive && !account.IsHuiquVideo() {
+		// The scheduler already filtered by platform/model capability. Do not
+		// restrict fallback to Huiqu: Ximei, Weijin, GlobalAiOpc and other
+		// Seedance video API-key providers are valid fallback accounts too.
+		if fallbackActive && (!account.IsFFLinkVideo() || account.Type != service.AccountTypeAPIKey) {
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
@@ -1339,6 +1342,11 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 	mediaRelease, err := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), seedanceMediaOwner(apiKey, subject), subject.Concurrency)
 	if err != nil {
 		reqLog.Warn("seedance.fallback_media_slot_failed", zap.Error(err), zap.String("task_id", publicTaskID))
+		if infraerrors.Code(err) == http.StatusTooManyRequests {
+			c.Header("Retry-After", "5")
+			writeSeedanceMediaError(c, err)
+			return seedanceFallbackAttemptResult{Handled: true, Outcome: seedanceFallbackOutcomeRetryableLocal}
+		}
 		writeError(http.StatusServiceUnavailable, "fallback_unavailable", "Video fallback media preparation is temporarily unavailable; retry this task")
 		return seedanceFallbackAttemptResult{Handled: true, Outcome: seedanceFallbackOutcomeRetryableLocal}
 	}
@@ -1366,7 +1374,7 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 			failedAccountIDs, service.OpenAIUpstreamTransportHTTPSSE,
 			"", false, false, false, apiKey.Group.Platform,
 		)
-		if selectErr != nil || selection == nil || selection.Account == nil || !selection.Account.IsHuiquVideo() {
+		if selectErr != nil || selection == nil || selection.Account == nil || !selection.Account.IsFFLinkVideo() || selection.Account.Type != service.AccountTypeAPIKey {
 			if selection != nil && selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
