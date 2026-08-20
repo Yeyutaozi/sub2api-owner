@@ -967,12 +967,13 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	}
 	account := selection.Account
 	setOpsSelectedAccount(c, account.ID, account.Platform)
-	accountRelease, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-	if !acquired {
-		return
-	}
-	if content && accountRelease != nil {
-		defer accountRelease()
+	var accountRelease func()
+	if !content {
+		var acquired bool
+		accountRelease, acquired = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if !acquired {
+			return
+		}
 	}
 	clientRange := strings.TrimSpace(c.GetHeader("Range"))
 	streamPlayback := content && strings.TrimSpace(c.Query("canvas_playback")) == "1"
