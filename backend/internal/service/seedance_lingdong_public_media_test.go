@@ -42,6 +42,9 @@ func TestSeedanceMediaURLNeedsLingdongRehost(t *testing.T) {
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://httpbin.org/image/png"))
 	require.True(t, seedanceMediaURLIsCloudObjectStorage("https://bucket.s3.amazonaws.com/key"))
 	require.False(t, seedanceMediaURLIsCloudObjectStorage("https://litter.catbox.moe/a.png"))
+	require.True(t, seedanceMediaURLIsDirectFile("https://example.com/person.png", "image"))
+	require.False(t, seedanceMediaURLIsDirectFile("https://example.com/person", "image"))
+	require.False(t, seedanceMediaURLIsDirectFile("https://example.com/person.png?token=private", "image"))
 }
 
 func TestPrepareLingdongPublicMediaAllowsPublicURLsWithoutStorage(t *testing.T) {
@@ -82,7 +85,7 @@ func TestPrepareLingdongPublicMediaAllowsPublicURLsWithoutStorage(t *testing.T) 
 	require.Contains(t, strings.ToLower(err2.Error()), "media_storage_not_configured")
 }
 
-func TestPrepareZhi168PublicMediaRehostsLocalArtifactURL(t *testing.T) {
+func TestPrepareZhi168PublicMediaFallsBackToDirectImageURL(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
 	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
@@ -98,7 +101,7 @@ func TestPrepareZhi168PublicMediaRehostsLocalArtifactURL(t *testing.T) {
 	svc.lingdongRehostFn = func(_ context.Context, _ string, _ string, payload []byte) (string, error) {
 		rehostCalls++
 		require.Equal(t, []byte("png-bytes"), payload)
-		return "https://litter.catbox.moe/zhi168-reference.png", nil
+		return "https://example.com/extensionless-image", nil
 	}
 
 	info := &SeedanceRequestInfo{
@@ -121,7 +124,17 @@ func TestPrepareZhi168PublicMediaRehostsLocalArtifactURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, extra)
 	require.Equal(t, 1, rehostCalls)
-	require.Equal(t, "https://litter.catbox.moe/zhi168-reference.png", info.References[0].URL)
+	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
+	require.True(t, strings.HasSuffix(info.References[0].URL, ".png"), info.References[0].URL)
+
+	token := strings.TrimPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/")
+	stream, err := svc.OpenPublicMedia(context.Background(), token, "")
+	require.NoError(t, err)
+	require.Equal(t, "image/png", stream.Header.Get("Content-Type"))
+	defer stream.Body.Close()
+	payload, err := io.ReadAll(stream.Body)
+	require.NoError(t, err)
+	require.Equal(t, []byte("png-bytes"), payload)
 }
 
 func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {
@@ -313,6 +326,7 @@ func TestPrepareLingdongPublicMediaFallsBackToPublicMedia(t *testing.T) {
 	require.NoError(t, err)
 	_ = extra
 	require.True(t, strings.HasPrefix(info.References[0].URL, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), info.References[0].URL)
+	require.True(t, strings.HasSuffix(info.References[0].URL, ".png"), info.References[0].URL)
 	require.NotContains(t, info.References[0].URL, "myqcloud.com")
 	require.Equal(t, "https://files.catbox.moe/keep.mp4", info.VideoReferences[0].URL)
 
@@ -344,6 +358,7 @@ func TestOpenPublicMediaStillServesInlineForProxyEndpoint(t *testing.T) {
 	}, "image/png")
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(url, "https://tkcreazy.top/v1/videos/public-media/sdpub_"), url)
+	require.True(t, strings.HasSuffix(url, ".png"), url)
 
 	token := strings.TrimPrefix(url, "https://tkcreazy.top/v1/videos/public-media/")
 	stream, err := svc.OpenPublicMedia(context.Background(), token, "")

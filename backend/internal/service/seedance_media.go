@@ -1880,8 +1880,80 @@ func seedanceMediaURLAcceptableForMappedUpstream(source string) bool {
 	return true
 }
 
+func seedanceMediaURLIsDirectFile(source, mediaKind string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(source))
+	if err != nil || parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return false
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(parsed.Path))
+	switch mediaKind {
+	case "image":
+		return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp"
+	case "video":
+		return ext == ".mp4" || ext == ".mov" || ext == ".webm"
+	case "audio":
+		return ext == ".mp3" || ext == ".wav" || ext == ".m4a" || ext == ".aac"
+	default:
+		return ext != ""
+	}
+}
+
 func normalizeSeedancePublicBaseURL(publicBase string) string {
 	return strings.TrimRight(strings.TrimSpace(publicBase), "/")
+}
+
+func seedancePublicMediaExtension(contentType, objectKey string) string {
+	mediaType := strings.ToLower(strings.TrimSpace(contentType))
+	if parsed, _, err := mime.ParseMediaType(mediaType); err == nil {
+		mediaType = parsed
+	}
+	switch mediaType {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "video/mp4":
+		return ".mp4"
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav":
+		return ".wav"
+	}
+	if ext := strings.ToLower(strings.TrimSpace(filepath.Ext(objectKey))); ext != "" && len(ext) <= 10 {
+		for _, ch := range ext[1:] {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+				return ".bin"
+			}
+		}
+		return ext
+	}
+	return ".bin"
+}
+
+func seedanceMediaContentTypeIsGeneric(contentType string) bool {
+	mediaType := strings.ToLower(strings.TrimSpace(contentType))
+	if parsed, _, err := mime.ParseMediaType(mediaType); err == nil {
+		mediaType = parsed
+	}
+	return mediaType == "" || mediaType == "application/octet-stream" || mediaType == "binary/octet-stream"
+}
+
+func seedancePublicMediaToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	if strings.Contains(token, "/") {
+		return ""
+	}
+	// Public URLs include a media extension for upstreams that validate the URL
+	// as a direct file. Redis keys continue to use the extension-free token.
+	if dot := strings.LastIndexByte(token, '.'); dot > len("sdpub_") {
+		token = token[:dot]
+	}
+	return token
 }
 
 func (s *SeedanceMediaService) IssuePublicMediaURL(
@@ -1917,14 +1989,15 @@ func (s *SeedanceMediaService) IssuePublicMediaURL(
 	if err := s.redisClient.Set(ctx, seedancePublicMediaRecordPrefix+token, payload, seedancePublicMediaTTL).Err(); err != nil {
 		return "", infraerrors.ServiceUnavailable("media_storage_error", "failed to issue public media token").WithCause(err)
 	}
-	return publicBase + SeedancePublicMediaEndpoint + "/" + url.PathEscape(token), nil
+	extension := seedancePublicMediaExtension(record.ContentType, record.ObjectKey)
+	return publicBase + SeedancePublicMediaEndpoint + "/" + url.PathEscape(token+extension), nil
 }
 
 func (s *SeedanceMediaService) OpenPublicMedia(ctx context.Context, token, rangeHeader string) (*SeedanceMediaStream, error) {
 	if s == nil || s.redisClient == nil || !s.IsConfigured() {
 		return nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
-	token = strings.TrimSpace(token)
+	token = seedancePublicMediaToken(token)
 	if token == "" || !strings.HasPrefix(token, "sdpub_") || strings.Contains(token, "/") {
 		return nil, infraerrors.NotFound("media_not_found", "public media token not found")
 	}
@@ -1960,7 +2033,7 @@ func (s *SeedanceMediaService) OpenPublicMedia(ctx context.Context, token, range
 		stream.Header = make(http.Header)
 	}
 	// Normalize headers for upstream fetchers (some probe HEAD and reject attachment).
-	if strings.TrimSpace(stream.Header.Get("Content-Type")) == "" && strings.TrimSpace(record.ContentType) != "" {
+	if seedanceMediaContentTypeIsGeneric(stream.Header.Get("Content-Type")) && strings.TrimSpace(record.ContentType) != "" {
 		stream.Header.Set("Content-Type", record.ContentType)
 	}
 	stream.Header.Set("Content-Disposition", "inline")
@@ -1974,6 +2047,7 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
 	source, mediaKind string,
+	forceFetch bool,
 ) (seedanceMediaRecord, bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -2008,7 +2082,7 @@ func (s *SeedanceMediaService) resolveLingdongPublicMediaSource(
 			ContentType:     contentType,
 		}, false, nil
 	}
-	if !seedanceMediaURLNeedsLingdongRehost(source) {
+	if !forceFetch && !seedanceMediaURLNeedsLingdongRehost(source) {
 		return seedanceMediaRecord{}, false, nil
 	}
 	// Signed/private/cloud remote media that we cannot map to a stored object:
@@ -2039,18 +2113,18 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	info *SeedanceRequestInfo,
 	publicBase string,
 ) (*SeedanceMaterializedImages, error) {
-	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase)
+	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase, false)
 }
 
-// PrepareZhi168PublicMedia prevents zhi168 from receiving gateway-local signed
-// URLs that its media fetcher cannot access.
+// PrepareZhi168PublicMedia gives zhi168 query-free public file URLs with media
+// extensions; its fetcher rejects otherwise reachable extensionless URLs.
 func (s *SeedanceMediaService) PrepareZhi168PublicMedia(
 	ctx context.Context,
 	owner SeedanceMediaOwner,
 	info *SeedanceRequestInfo,
 	publicBase string,
 ) (*SeedanceMaterializedImages, error) {
-	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase)
+	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase, true)
 }
 
 func (s *SeedanceMediaService) preparePublicUpstreamMedia(
@@ -2058,6 +2132,7 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 	owner SeedanceMediaOwner,
 	info *SeedanceRequestInfo,
 	publicBase string,
+	requireDirectFileURL bool,
 ) (*SeedanceMaterializedImages, error) {
 	if info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
@@ -2074,7 +2149,7 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 		if source == "" {
 			continue
 		}
-		if seedanceMediaURLNeedsLingdongRehost(source) {
+		if seedanceMediaURLNeedsLingdongRehost(source) || (requireDirectFileURL && !seedanceMediaURLIsDirectFile(source, target.kind)) {
 			needsRehost = true
 			break
 		}
@@ -2117,7 +2192,8 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 		if source == "" {
 			continue
 		}
-		if !seedanceMediaURLNeedsLingdongRehost(source) {
+		needsTargetRehost := seedanceMediaURLNeedsLingdongRehost(source) || (requireDirectFileURL && !seedanceMediaURLIsDirectFile(source, target.kind))
+		if !needsTargetRehost {
 			continue
 		}
 		var record seedanceMediaRecord
@@ -2130,7 +2206,7 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 			}
 		} else {
 			var err error
-			record, temporary, err = s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind)
+			record, temporary, err = s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind, requireDirectFileURL)
 			if err != nil {
 				return cleanupOnError(err)
 			}
@@ -2155,7 +2231,7 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 
 		// Prefer bare public-read COS for Pixelle; otherwise third-party / public-media.
 		// Signed cloud URLs must never remain on the outbound create payload.
-		publicURL, rehostedLoc, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind, publicBase)
+		publicURL, rehostedLoc, rehostErr := s.rehostLingdongPublicMedia(ctx, record, target.kind, publicBase, requireDirectFileURL)
 		if rehostErr != nil {
 			return cleanupOnError(rehostErr)
 		}
@@ -2164,6 +2240,9 @@ func (s *SeedanceMediaService) preparePublicUpstreamMedia(
 		}
 		if !seedanceMediaURLAcceptableForMappedUpstream(publicURL) {
 			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to rehost reference media for upstream"))
+		}
+		if requireDirectFileURL && !seedanceMediaURLIsDirectFile(publicURL, target.kind) {
+			return cleanupOnError(infraerrors.ServiceUnavailable("media_rehost_failed", "failed to produce a direct media URL for upstream"))
 		}
 		if rehostedLoc != nil && strings.TrimSpace(rehostedLoc.ObjectKey) != "" {
 			materialized.objects = append(materialized.objects, *rehostedLoc)
@@ -2242,19 +2321,23 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	record seedanceMediaRecord,
 	mediaKind string,
 	publicBase string,
+	requireDirectFileURL bool,
 ) (string, *AgentArtifactObjectLocation, error) {
 	if s == nil {
 		return "", nil, infraerrors.ServiceUnavailable("media_storage_not_configured", "Seedance media storage is not configured")
 	}
 
 	var failures []string
+	acceptable := func(candidate string) bool {
+		return seedanceMediaURLAcceptableForMappedUpstream(candidate) && (!requireDirectFileURL || seedanceMediaURLIsDirectFile(candidate, mediaKind))
+	}
 
 	// Primary path for Pixelle: public-read object storage bare URL.
 	// Avoid re-uploading large images/videos to third-party hosts when the bucket
 	// is already public-read private-write.
 	if cosURL, cosErr := s.unsignedPublicObjectURL(ctx, record); cosErr == nil {
 		cosURL = strings.TrimSpace(cosURL)
-		if cosURL != "" && seedanceMediaURLAcceptableForMappedUpstream(cosURL) {
+		if cosURL != "" && acceptable(cosURL) {
 			return cosURL, nil, nil
 		}
 		if cosURL != "" {
@@ -2299,7 +2382,7 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	if contentType == "" && stream.Header != nil {
 		contentType = strings.TrimSpace(stream.Header.Get("Content-Type"))
 	}
-	if contentType == "" {
+	if seedanceMediaContentTypeIsGeneric(contentType) {
 		contentType = seedanceDefaultContentTypeForKind(mediaKind)
 	}
 	filename := seedanceRehostFilename(mediaKind, contentType, record.ObjectKey)
@@ -2309,14 +2392,14 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 		hookURL, hookErr := s.lingdongRehostFn(ctx, filename, contentType, payload)
 		if hookErr != nil {
 			failures = append(failures, "third-party: "+hookErr.Error())
-		} else if strings.TrimSpace(hookURL) == "" || !seedanceMediaURLAcceptableForMappedUpstream(hookURL) {
+		} else if strings.TrimSpace(hookURL) == "" || !acceptable(hookURL) {
 			failures = append(failures, "third-party: empty or auth-gated url")
 		} else {
 			return hookURL, nil, nil
 		}
 	} else {
 		publicURL, extErr := s.uploadLingdongLitterbox(ctx, filename, contentType, payload)
-		if extErr == nil && strings.TrimSpace(publicURL) != "" && seedanceMediaURLAcceptableForMappedUpstream(publicURL) {
+		if extErr == nil && strings.TrimSpace(publicURL) != "" && acceptable(publicURL) {
 			return publicURL, nil, nil
 		}
 		if extErr != nil {
@@ -2331,7 +2414,7 @@ func (s *SeedanceMediaService) rehostLingdongPublicMedia(
 	if publicBase != "" {
 		loc := record.location()
 		mediaURL, issueErr := s.IssuePublicMediaURL(ctx, publicBase, loc, contentType)
-		if issueErr == nil && strings.TrimSpace(mediaURL) != "" && seedanceMediaURLAcceptableForMappedUpstream(mediaURL) {
+		if issueErr == nil && strings.TrimSpace(mediaURL) != "" && acceptable(mediaURL) {
 			return mediaURL, nil, nil
 		}
 		if issueErr != nil {
