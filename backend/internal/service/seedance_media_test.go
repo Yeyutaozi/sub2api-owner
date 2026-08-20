@@ -672,7 +672,7 @@ func TestNewSeedanceMediaHTTPClientHasNoTotalTimeout(t *testing.T) {
 	require.Zero(t, client.Timeout)
 }
 
-func TestSeedanceMediaIOConcurrencyIsOwnerScoped(t *testing.T) {
+func TestSeedanceMediaIOConcurrencyDoesNotReuseSubmissionLimit(t *testing.T) {
 	miniRedis := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
 	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
@@ -681,22 +681,21 @@ func TestSeedanceMediaIOConcurrencyIsOwnerScoped(t *testing.T) {
 
 	release, err := service.AcquireMediaIO(context.Background(), owner, 1)
 	require.NoError(t, err)
-	_, err = service.AcquireMediaIO(context.Background(), owner, 1)
-	require.Error(t, err)
-	require.Equal(t, http.StatusTooManyRequests, infraerrors.Code(err))
-	require.Equal(t, "media_concurrency_exceeded", infraerrors.Reason(err))
+	secondRelease, err := service.AcquireMediaIO(context.Background(), owner, 1)
+	require.NoError(t, err)
 
-	_, err = service.AcquireMediaIO(context.Background(), SeedanceMediaOwner{
+	otherKeyRelease, err := service.AcquireMediaIO(context.Background(), SeedanceMediaOwner{
 		UserID: owner.UserID, APIKeyID: owner.APIKeyID + 1, GroupID: owner.GroupID,
 	}, 1)
-	require.Error(t, err)
-	require.Equal(t, "media_concurrency_exceeded", infraerrors.Reason(err))
+	require.NoError(t, err)
 
 	otherRelease, err := service.AcquireMediaIO(context.Background(), SeedanceMediaOwner{
 		UserID: owner.UserID + 1, APIKeyID: owner.APIKeyID + 1, GroupID: owner.GroupID,
 	}, 1)
 	require.NoError(t, err)
 	otherRelease()
+	otherKeyRelease()
+	secondRelease()
 	release()
 
 	releaseAgain, err := service.AcquireMediaIO(context.Background(), owner, 1)

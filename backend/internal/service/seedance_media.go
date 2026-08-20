@@ -35,23 +35,27 @@ import (
 )
 
 const (
-	SeedanceMaxImageBytes             int64 = 30_000_000 // align with Huiqu/MX933 upstream single-image limit
-	SeedanceMaxImagePixels                  = 40_000_000
-	SeedanceMaxImageDimension               = 8192
-	SeedanceUploadBodyOverhead        int64 = 2 << 20
-	seedanceDefaultVideoBytes         int64 = 512 << 20
-	seedanceUploadRecordTTL                 = 24 * time.Hour
-	seedanceOutputRecordTTL                 = 7 * 24 * time.Hour
-	seedanceDefaultPresignTTL               = time.Hour
-	seedanceImageFetchTimeout               = 60 * time.Second
-	seedanceOutputArchiveLockTTL            = 30 * time.Minute
-	seedanceObjectCleanupTimeout            = 10 * time.Second
-	seedanceMaxConcurrentArchives           = 2
-	seedanceDefaultMediaConcurrency         = 2
-	seedanceMaxMediaConcurrency             = 8
-	seedanceMediaLeaseTTL                   = 5 * time.Minute
-	seedanceMediaLeaseRefreshInterval       = time.Minute
-	seedanceMaxProcessMediaStreams          = 32
+	SeedanceMaxImageBytes         int64 = 30_000_000 // align with Huiqu/MX933 upstream single-image limit
+	SeedanceMaxImagePixels              = 40_000_000
+	SeedanceMaxImageDimension           = 8192
+	SeedanceUploadBodyOverhead    int64 = 2 << 20
+	seedanceDefaultVideoBytes     int64 = 512 << 20
+	seedanceUploadRecordTTL             = 24 * time.Hour
+	seedanceOutputRecordTTL             = 7 * 24 * time.Hour
+	seedanceDefaultPresignTTL           = time.Hour
+	seedanceImageFetchTimeout           = 60 * time.Second
+	seedanceOutputArchiveLockTTL        = 30 * time.Minute
+	seedanceObjectCleanupTimeout        = 10 * time.Second
+	seedanceMaxConcurrentArchives       = 2
+	// Media concurrency is an internal processing limit, separate from the
+	// user's submission concurrency. Queued requests wait for a slot instead
+	// of immediately surfacing a misleading 429 to end users.
+	seedanceMaxMediaConcurrency       = 100
+	seedanceMediaAcquireWait          = 30 * time.Second
+	seedanceMediaAcquireRetry         = 250 * time.Millisecond
+	seedanceMediaLeaseTTL             = 5 * time.Minute
+	seedanceMediaLeaseRefreshInterval = time.Minute
+	seedanceMaxProcessMediaStreams    = 32
 )
 
 const (
@@ -312,51 +316,65 @@ func (s *SeedanceMediaService) SupportsOutputArchive() bool {
 	return s.IsConfigured() && s.redisClient != nil
 }
 
-func (s *SeedanceMediaService) AcquireMediaIO(ctx context.Context, owner SeedanceMediaOwner, requestedConcurrency int) (func(), error) {
+func (s *SeedanceMediaService) AcquireMediaIO(ctx context.Context, owner SeedanceMediaOwner, _ int) (func(), error) {
 	if !validSeedanceMediaOwner(owner) {
 		return nil, infraerrors.BadRequest("invalid_media_owner", "Seedance media owner is invalid")
 	}
 	if s == nil || s.redisClient == nil {
 		return nil, infraerrors.ServiceUnavailable("media_concurrency_unavailable", "Seedance media concurrency control is unavailable")
 	}
-	limit := requestedConcurrency
-	if limit <= 0 {
-		limit = seedanceDefaultMediaConcurrency
-	}
-	if limit > seedanceMaxMediaConcurrency {
-		limit = seedanceMaxMediaConcurrency
-	}
+	// Media preparation is a short-lived internal operation, not a generated
+	// task. Reusing the user's submission concurrency here makes valid parallel
+	// creates fail before they ever reach the upstream account. The process-wide
+	// mediaSlots semaphore remains the hard resource guard.
+	limit := seedanceMaxMediaConcurrency
 	nowMillis := s.currentTime().UnixMilli()
 	expiresMillis := nowMillis + seedanceMediaLeaseTTL.Milliseconds()
 	keyDigest := sha256.Sum256([]byte(strconv.FormatInt(owner.UserID, 10)))
 	key := seedanceMediaIOPrefix + hex.EncodeToString(keyDigest[:])
 	token := uuid.NewString()
-	result, err := seedanceAcquireMediaIOScript.Run(
-		ctx,
-		s.redisClient,
-		[]string{key},
-		nowMillis,
-		limit,
-		expiresMillis,
-		token,
-		(seedanceMediaLeaseTTL + time.Minute).Milliseconds(),
-	).Int()
-	if err != nil {
-		return nil, infraerrors.ServiceUnavailable("media_concurrency_unavailable", "Seedance media concurrency control is unavailable")
-	}
-	if result != 1 {
-		return nil, infraerrors.TooManyRequests("media_concurrency_exceeded", "Too many concurrent Seedance media requests")
-	}
-	if s.mediaSlots != nil {
+	deadline := time.Now().Add(seedanceMediaAcquireWait)
+	for {
+		nowMillis = s.currentTime().UnixMilli()
+		expiresMillis = nowMillis + seedanceMediaLeaseTTL.Milliseconds()
+		result, err := seedanceAcquireMediaIOScript.Run(ctx, s.redisClient, []string{key}, nowMillis, limit, expiresMillis, token, (seedanceMediaLeaseTTL + time.Minute).Milliseconds()).Int()
+		if err != nil {
+			return nil, infraerrors.ServiceUnavailable("media_concurrency_unavailable", "Seedance media concurrency control is unavailable")
+		}
+		if result == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return nil, infraerrors.TooManyRequests("media_concurrency_exceeded", "Seedance media queue is full; retry after the task queue drains")
+		}
+		timer := time.NewTimer(seedanceMediaAcquireRetry)
 		select {
-		case s.mediaSlots <- struct{}{}:
-		default:
-			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = s.redisClient.ZRem(releaseCtx, key, token).Err()
-			cancel()
-			return nil, infraerrors.TooManyRequests("media_concurrency_exceeded", "Too many concurrent Seedance media requests")
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
+	if s.mediaSlots != nil {
+		deadline := time.NewTimer(seedanceMediaAcquireWait)
+		defer deadline.Stop()
+		for {
+			select {
+			case s.mediaSlots <- struct{}{}:
+				goto acquired
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-deadline.C:
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = s.redisClient.ZRem(releaseCtx, key, token).Err()
+				cancel()
+				return nil, infraerrors.TooManyRequests("media_concurrency_exceeded", "Seedance media queue is full; retry after the task queue drains")
+			default:
+				time.Sleep(seedanceMediaAcquireRetry)
+			}
+		}
+	}
+acquired:
 	heartbeatCtx, stopHeartbeat := context.WithCancel(context.Background())
 	go s.refreshMediaIOLease(heartbeatCtx, key, token)
 	var releaseOnce sync.Once
