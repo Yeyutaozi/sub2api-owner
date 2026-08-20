@@ -5569,17 +5569,15 @@ async function loadWorks(opts?: { quiet?: boolean; page?: number }) {
 
 function openOrDownloadUrl(url: string, filename = 'creazy-media') {
   if (!url) return
-  if (isBlobUrl(url)) {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    return
-  }
-  window.open(url, '_blank', 'noopener')
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.rel = 'noopener'
+  // Keep the user gesture in the current page. Opening a new tab for every
+  // video is unreliable when users download many works in succession.
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 async function downloadWork(work: CreazyWork) {
@@ -5591,7 +5589,7 @@ async function downloadWork(work: CreazyWork) {
   try {
     const res = await getWorkDownloadURL(work.id)
     if (res.source === 'object' && res.url && !needsAuthForMediaPlayback(res.url)) {
-      openOrDownloadUrl(res.url)
+      openOrDownloadUrl(res.url, isImageWork(work) ? `creazy-image-${work.id}.png` : `creazy-video-${work.id}.mp4`)
       return
     }
     const params = (work.params || {}) as Record<string, unknown>
