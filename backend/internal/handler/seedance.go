@@ -937,18 +937,10 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	}
 	var selection *service.AccountSelectionResult
 	owner := seedanceMediaOwner(apiKey, subject)
-	if content && h.seedanceMediaService != nil && h.seedanceMediaService.IsConfigured() {
-		mediaRelease, mediaErr := h.seedanceMediaService.AcquireMediaIO(c.Request.Context(), owner, subject.Concurrency)
-		if mediaErr != nil {
-			if infraerrors.Code(mediaErr) == http.StatusTooManyRequests {
-				writeSeedanceMediaError(c, mediaErr)
-				return
-			}
-			reqLog.Warn("seedance.media_concurrency_unavailable", zap.String("task_id", taskID))
-		} else {
-			defer mediaRelease()
-		}
-	}
+	// Content reads are file/network streams and must not consume the user's
+	// media-processing quota. Batch API downloads commonly open several Range
+	// requests at once; throttling them here causes otherwise valid downloads
+	// to stall or fail. Upload and archive work retain their own bounded slots.
 	if content && h.seedanceMediaService != nil {
 		cached, hit, cacheErr := h.seedanceMediaService.OpenCachedOutput(c.Request.Context(), owner, taskID, c.GetHeader("Range"))
 		if cacheErr != nil {
