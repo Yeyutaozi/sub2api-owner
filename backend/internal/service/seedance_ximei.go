@@ -29,7 +29,7 @@ const (
 	SeedanceOpenVideoModel         = "sd2.0-933"
 	SeedanceOpenVideoUpstreamModel = "seedancemini"
 	SeedanceZhi168Model             = "sd2-933-25"
-	SeedanceZhi168UpstreamModel     = "47"
+	SeedanceZhi168UpstreamModel     = "49"
 	DefaultZhi168VideoBaseURL       = "https://www.zhi168.it.com/api"
 	DefaultXimeiVideoBaseURL       = "https://liantongyidong.ximeiedu.org"
 
