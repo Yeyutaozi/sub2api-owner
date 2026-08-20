@@ -186,7 +186,7 @@ func TestWeijin900ProfileExposesOnlyVerifiedCapabilities(t *testing.T) {
 	require.Zero(t, profile.MaxAudioReferences)
 	require.Equal(t, 9, profile.MaxTotalMedia)
 	require.False(t, profile.AllowGeneratedAudio)
-	require.Equal(t, ratioSet("16:9"), profile.AllowedAspectRatios)
+	require.Equal(t, ratioSet("16:9", "9:16", "4:3", "1:1"), profile.AllowedAspectRatios)
 
 	for duration := 5; duration <= 15; duration++ {
 		info := &SeedanceRequestInfo{
@@ -224,7 +224,7 @@ func TestWeijin900ProfileExposesOnlyVerifiedCapabilities(t *testing.T) {
 	generatedAudio.GenerateAudio = true
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(generatedAudio), "does not support generated audio")
 	wrongRatio := base()
-	wrongRatio.AspectRatio = "9:16"
+	wrongRatio.AspectRatio = "3:4"
 	require.ErrorContains(t, validateFFLinkVideoRequestInfo(wrongRatio), "aspect_ratio")
 	wrongResolution := base()
 	wrongResolution.Resolution = VideoBillingResolution480P

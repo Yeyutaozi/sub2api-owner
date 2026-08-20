@@ -183,7 +183,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 	SeedanceWeijin900Model: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
-		AllowedAspectRatios: ratioSet("16:9"),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "4:3", "1:1"),
 		MaxImageReferences:  9,
 		MaxTotalImages:      9,
 		MaxVideoReferences:  0,
