@@ -28,9 +28,9 @@ const (
 	SeedanceLensForge933Model      = "sd2.0-933-345"
 	SeedanceOpenVideoModel         = "sd2.0-933"
 	SeedanceOpenVideoUpstreamModel = "seedancemini"
-	SeedanceZhi168Model             = "sd2-933-25"
-	SeedanceZhi168UpstreamModel     = "49"
-	DefaultZhi168VideoBaseURL       = "https://www.zhi168.it.com/api"
+	SeedanceZhi168Model            = "sd2-933-25"
+	SeedanceZhi168UpstreamModel    = "47"
+	DefaultZhi168VideoBaseURL      = "https://www.zhi168.it.com/api"
 	DefaultXimeiVideoBaseURL       = "https://liantongyidong.ximeiedu.org"
 
 	SeedanceXimeiSD20Model = "sd-2.0-mx933"
@@ -124,6 +124,10 @@ func IsOpaqueSeedanceVideoProvider(provider string) bool {
 
 func (a *Account) IsXimeiVideo() bool {
 	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderXimei
+}
+
+func (a *Account) IsZhi168Video() bool {
+	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderZhi168
 }
 
 func ximeiVideoProductFor(model, resolution string) (ximeiVideoProduct, error) {

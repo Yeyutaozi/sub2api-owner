@@ -38,8 +38,8 @@ func (s *OpenAIGatewayService) forwardZhi168Seedance(ctx context.Context, c *gin
 			return nil, errors.New("video request is required")
 		}
 		req := zhi168VideoRequest{ModelCode: SeedanceZhi168UpstreamModel, Prompt: info.Prompt, Resolution: VideoBillingResolution1080P, Duration: 15, AspectRatio: info.AspectRatio, WithAudio: info.GenerateAudio}
-		for _, v := range info.References {
-			req.ReferenceImageURLs = append(req.ReferenceImageURLs, v.URL)
+		for _, image := range ximeiOrderedImageSlots(info) {
+			req.ReferenceImageURLs = append(req.ReferenceImageURLs, image.URL)
 		}
 		for _, v := range info.VideoReferences {
 			req.VideoURLs = append(req.VideoURLs, v.URL)

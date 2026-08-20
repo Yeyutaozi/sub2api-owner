@@ -20,6 +20,7 @@ func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
+	require.True(t, seedanceMediaURLNeedsPublicProxy("https://tkcreazy.top/api/v1/local-media?key=abc&expires=123&signature=def"))
 	// Bare public-read COS is fine for general proxy checks (not Lingdong).
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/public-rehost/abc/x.png"))
 	require.False(t, seedanceMediaURLNeedsPublicProxy("https://litter.catbox.moe/example.png"))
@@ -34,6 +35,8 @@ func TestSeedanceMediaURLNeedsLingdongRehost(t *testing.T) {
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://zntcenter-1326757433.cos.ap-hongkong.myqcloud.com/agent-artifacts/seedance/inputs/staged/1/2/a.png"))
 	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/uploads/sdupl_abc123"))
 	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/v1/videos/public-media/sdpub_abc123"))
+	require.True(t, seedanceMediaURLNeedsLingdongRehost("https://tkcreazy.top/api/v1/local-media?key=abc&expires=123&signature=def"))
+	require.False(t, seedanceMediaURLAcceptableForMappedUpstream("https://tkcreazy.top/api/v1/local-media"))
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://litter.catbox.moe/example.png"))
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://files.catbox.moe/example.mp4"))
 	require.False(t, seedanceMediaURLNeedsLingdongRehost("https://httpbin.org/image/png"))
@@ -77,6 +80,48 @@ func TestPrepareLingdongPublicMediaAllowsPublicURLsWithoutStorage(t *testing.T) 
 	require.Error(t, err2)
 	require.Nil(t, extra2)
 	require.Contains(t, strings.ToLower(err2.Error()), "media_storage_not_configured")
+}
+
+func TestPrepareZhi168PublicMediaRehostsLocalArtifactURL(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+
+	memory := newSeedanceMediaMemoryStore()
+	memory.provider = "local"
+	memory.bucket = "local-media"
+	objectKey := "seedance/inputs/task/9/8/reference.png"
+	memory.objects[objectKey] = []byte("png-bytes")
+	readStore := &seedancePublicMediaReadStore{seedanceMediaMemoryStore: memory}
+	svc := NewSeedanceMediaService(readStore, nil, redisClient)
+	var rehostCalls int
+	svc.lingdongRehostFn = func(_ context.Context, _ string, _ string, payload []byte) (string, error) {
+		rehostCalls++
+		require.Equal(t, []byte("png-bytes"), payload)
+		return "https://litter.catbox.moe/zhi168-reference.png", nil
+	}
+
+	info := &SeedanceRequestInfo{
+		Model: SeedanceZhi168Model,
+		References: []SeedanceReferenceImage{{
+			URL: "https://tkcreazy.top/api/v1/local-media?key=abc&expires=1893456000&signature=def",
+		}},
+		StoredMedia: []SeedanceStoredMediaReference{{
+			Slot: seedanceStoredMediaImage, Index: 0, StorageProvider: "local", Bucket: "local-media", ObjectKey: objectKey,
+		}},
+	}
+
+	extra, err := svc.PrepareZhi168PublicMedia(
+		context.Background(),
+		SeedanceMediaOwner{UserID: 9, APIKeyID: 8, GroupID: 7},
+		info,
+		"https://tkcreazy.top",
+	)
+
+	require.NoError(t, err)
+	require.Nil(t, extra)
+	require.Equal(t, 1, rehostCalls)
+	require.Equal(t, "https://litter.catbox.moe/zhi168-reference.png", info.References[0].URL)
 }
 
 func TestPrepareLingdongPublicMediaRewritesCOSAndLeavesPublic(t *testing.T) {

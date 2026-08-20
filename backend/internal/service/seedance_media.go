@@ -1796,6 +1796,9 @@ func seedanceMediaURLNeedsPublicProxy(source string) bool {
 	if path == "" {
 		path = parsed.Path
 	}
+	if strings.HasSuffix(strings.ToLower(strings.TrimRight(path, "/")), "/local-media") {
+		return true
+	}
 	if strings.HasPrefix(path, SeedancePublicUploadsEndpoint+"/") ||
 		strings.HasPrefix(path, SeedanceOfficialUploadsEndpoint+"/") {
 		return true
@@ -1866,6 +1869,9 @@ func seedanceMediaURLAcceptableForMappedUpstream(source string) bool {
 	path := parsed.EscapedPath()
 	if path == "" {
 		path = parsed.Path
+	}
+	if strings.HasSuffix(strings.ToLower(strings.TrimRight(path, "/")), "/local-media") {
+		return false
 	}
 	if strings.HasPrefix(path, SeedancePublicUploadsEndpoint+"/") ||
 		strings.HasPrefix(path, SeedanceOfficialUploadsEndpoint+"/") {
@@ -2033,6 +2039,26 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 	info *SeedanceRequestInfo,
 	publicBase string,
 ) (*SeedanceMaterializedImages, error) {
+	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase)
+}
+
+// PrepareZhi168PublicMedia prevents zhi168 from receiving gateway-local signed
+// URLs that its media fetcher cannot access.
+func (s *SeedanceMediaService) PrepareZhi168PublicMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	info *SeedanceRequestInfo,
+	publicBase string,
+) (*SeedanceMaterializedImages, error) {
+	return s.preparePublicUpstreamMedia(ctx, owner, info, publicBase)
+}
+
+func (s *SeedanceMediaService) preparePublicUpstreamMedia(
+	ctx context.Context,
+	owner SeedanceMediaOwner,
+	info *SeedanceRequestInfo,
+	publicBase string,
+) (*SeedanceMaterializedImages, error) {
 	if info == nil {
 		return nil, infraerrors.BadRequest("invalid_request", "Seedance request info is required")
 	}
@@ -2066,6 +2092,22 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		materialized.Cleanup(context.Background())
 		return nil, err
 	}
+	stored := make(map[string]AgentArtifactObjectLocation, len(info.StoredMedia))
+	for _, reference := range info.StoredMedia {
+		location := AgentArtifactObjectLocation{
+			StorageProvider: strings.TrimSpace(reference.StorageProvider),
+			Bucket:          strings.TrimSpace(reference.Bucket),
+			ObjectKey:       strings.TrimLeft(strings.TrimSpace(reference.ObjectKey), "/"),
+		}
+		if !seedanceObjectKeyBelongsToOwner(location.ObjectKey, owner) {
+			return cleanupOnError(infraerrors.BadRequest("invalid_media", "stored reference media is invalid"))
+		}
+		key := seedanceStoredMediaKey(reference.Slot, reference.Index)
+		if _, exists := stored[key]; exists {
+			return cleanupOnError(infraerrors.BadRequest("invalid_media", "stored reference media is duplicated"))
+		}
+		stored[key] = location
+	}
 
 	for _, target := range targets {
 		if target.url == nil {
@@ -2078,9 +2120,20 @@ func (s *SeedanceMediaService) PrepareLingdongPublicMedia(
 		if !seedanceMediaURLNeedsLingdongRehost(source) {
 			continue
 		}
-		record, temporary, err := s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind)
-		if err != nil {
-			return cleanupOnError(err)
+		var record seedanceMediaRecord
+		temporary := false
+		if location, ok := stored[seedanceStoredMediaKey(target.slot, target.index)]; ok {
+			record = seedanceMediaRecord{
+				StorageProvider: location.StorageProvider,
+				Bucket:          location.Bucket,
+				ObjectKey:       location.ObjectKey,
+			}
+		} else {
+			var err error
+			record, temporary, err = s.resolveLingdongPublicMediaSource(ctx, owner, source, target.kind)
+			if err != nil {
+				return cleanupOnError(err)
+			}
 		}
 		if strings.TrimSpace(record.ObjectKey) == "" {
 			// Needs rewrite but could not resolve storage: fail loud rather than
@@ -2140,6 +2193,9 @@ func (s *SeedanceMediaService) unsignedPublicObjectURL(ctx context.Context, reco
 	}
 	if strings.TrimSpace(record.ObjectKey) == "" {
 		return "", infraerrors.ServiceUnavailable("media_storage_error", "Seedance media object location is invalid")
+	}
+	if normalizeAgentArtifactProvider(record.StorageProvider) == "local" {
+		return "", infraerrors.ServiceUnavailable("media_rehost_failed", "local media storage does not provide public object URLs")
 	}
 	signed, err := s.presignLocation(ctx, record.location())
 	if err != nil {

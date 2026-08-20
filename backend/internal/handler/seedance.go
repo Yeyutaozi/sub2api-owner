@@ -253,6 +253,27 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				}
 			}
 		}
+		if account.IsZhi168Video() && activeRequestInfo.HasReferenceMedia() && h.seedanceMediaService != nil {
+			zhi168Media, prepErr := h.seedanceMediaService.PrepareZhi168PublicMedia(
+				c.Request.Context(),
+				seedanceMediaOwner(apiKey, subject),
+				activeRequestInfo,
+				seedanceAbsoluteURL(c, ""),
+			)
+			if prepErr != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				writeSeedanceMediaError(c, prepErr)
+				return
+			}
+			if zhi168Media != nil {
+				zhi168Media.Retain()
+				if updatedCleanup, snapErr := service.SnapshotSeedanceTaskMediaCleanup(activeRequestInfo); snapErr == nil {
+					mediaCleanupSnapshot = updatedCleanup
+				}
+			}
+		}
 		accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
 		if !accountAcquired {
 			return

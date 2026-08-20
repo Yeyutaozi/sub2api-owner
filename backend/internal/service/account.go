@@ -1488,6 +1488,9 @@ func (a *Account) GetSeedanceBaseURL() string {
 	if a.IsOpenVideo() {
 		return DefaultOpenVideoBaseURL
 	}
+	if a.IsZhi168Video() {
+		return DefaultZhi168VideoBaseURL
+	}
 	return DefaultSeedanceBaseURL
 }
 
