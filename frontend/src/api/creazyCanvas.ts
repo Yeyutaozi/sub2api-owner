@@ -8,6 +8,7 @@
 
 import { apiClient, buildApiUrl, buildGatewayUrl } from './client'
 import type { VideoBillingUnit } from '@/types'
+import { optimizeCanvasImageUpload } from '@/utils/canvasImageUpload'
 
 // ==================== Types ====================
 
@@ -620,7 +621,14 @@ export async function uploadVideoAsset(
   const mime = (file as File).type || ''
   const resolvedKind: VideoUploadKind =
     kind || (mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'image')
-  form.append(resolvedKind, file, filename || (file as File).name || 'upload.bin')
+  let uploadBody = file
+  let uploadFilename = filename || (file as File).name || 'upload.bin'
+  if (resolvedKind === 'image') {
+    const optimized = await optimizeCanvasImageUpload(file, uploadFilename)
+    uploadBody = optimized.body
+    uploadFilename = optimized.filename
+  }
+  form.append(resolvedKind, uploadBody, uploadFilename)
   const response = await fetch(buildGatewayUrl('/v1/videos/uploads'), {
     method: 'POST',
     headers: authHeaders(apiKey),
