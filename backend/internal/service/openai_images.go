@@ -289,6 +289,26 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		req.PartialImages = &v
 	}
 	if req.IsEdits() {
+		image := gjson.GetBytes(body, "image")
+		if image.Exists() {
+			switch {
+			case image.Type == gjson.String:
+				if imageURL := strings.TrimSpace(image.String()); imageURL != "" {
+					req.InputImageURLs = append(req.InputImageURLs, imageURL)
+				}
+			case image.IsArray():
+				for _, item := range image.Array() {
+					if item.Type != gjson.String {
+						return fmt.Errorf("invalid image array item type")
+					}
+					if imageURL := strings.TrimSpace(item.String()); imageURL != "" {
+						req.InputImageURLs = append(req.InputImageURLs, imageURL)
+					}
+				}
+			default:
+				return fmt.Errorf("invalid image field type")
+			}
+		}
 		images := gjson.GetBytes(body, "images")
 		if images.Exists() {
 			if !images.IsArray() {
@@ -312,7 +332,7 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 			return fmt.Errorf("mask.file_id is not supported (use mask.image_url instead)")
 		}
 		if len(req.InputImageURLs) == 0 {
-			return fmt.Errorf("images[].image_url is required")
+			return fmt.Errorf("image is required")
 		}
 	}
 	req.HasNativeOptions = hasOpenAINativeImageOptions(func(path string) bool {

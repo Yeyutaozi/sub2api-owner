@@ -203,6 +203,9 @@ export interface ImageGenerationRequest {
   size?: string
   aspect_ratio?: string
   response_format?: 'url' | 'b64_json' | string
+  output_format?: 'jpeg' | 'png' | 'webp' | string
+  async?: boolean
+  image?: string | string[]
   [key: string]: unknown
 }
 
@@ -216,6 +219,8 @@ export interface ImageGenerationResponse {
   id?: string
   task_id?: string
   status?: string
+  query_path?: string
+  poll_url?: string
   image_url?: string
   result?: unknown
   error?: unknown
@@ -558,39 +563,130 @@ export async function getWorkContentBlob(id: number | string): Promise<string> {
 
 // ==================== Gateway APIs (API Key Bearer) ====================
 
+export const OPENAI_IMAGE_SIZE_MAP = {
+  '1K': {
+    '1:1': '1024x1024',
+    '2:3': '688x1024',
+    '3:2': '1024x688',
+    '3:4': '768x1024',
+    '4:3': '1024x768',
+    '9:16': '608x1088',
+    '16:9': '1088x608',
+    '21:9': '1248x528',
+  },
+  '2K': {
+    '1:1': '2048x2048',
+    '2:3': '1360x2048',
+    '3:2': '2048x1360',
+    '3:4': '1536x2048',
+    '4:3': '2048x1536',
+    '9:16': '1152x2048',
+    '16:9': '2048x1152',
+    '21:9': '2048x880',
+  },
+  '4K': {
+    '1:1': '2880x2880',
+    '2:3': '2336x3520',
+    '3:2': '3520x2336',
+    '3:4': '2480x3312',
+    '4:3': '3312x2480',
+    '9:16': '2160x3840',
+    '16:9': '3840x2160',
+    '21:9': '3840x1648',
+  },
+} as const
+
+export type OpenAIImageQualityTier = keyof typeof OPENAI_IMAGE_SIZE_MAP
+
+export function resolveOpenAIImageSize(tier: string, aspectRatio: string): string | undefined {
+  const normalizedTier = String(tier || '').trim().toUpperCase() as OpenAIImageQualityTier
+  const sizes = OPENAI_IMAGE_SIZE_MAP[normalizedTier]
+  if (!sizes) return undefined
+  return (sizes as Record<string, string>)[String(aspectRatio || '').trim()]
+}
+
+export function openAIImageQualityTierForSize(size: string): OpenAIImageQualityTier | undefined {
+  const normalized = String(size || '').trim().toLowerCase()
+  for (const [tier, sizes] of Object.entries(OPENAI_IMAGE_SIZE_MAP)) {
+    if (Object.values(sizes).some((candidate) => candidate.toLowerCase() === normalized)) {
+      return tier as OpenAIImageQualityTier
+    }
+  }
+  return undefined
+}
+
+function newImageRequestID(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  return `creazy_canvas_${uuid || `${Date.now()}_${Math.random().toString(16).slice(2)}`}`
+}
+
+function pluginAsyncImagePayload(payload: ImageGenerationRequest, edit: boolean): ImageGenerationRequest {
+  const normalized: ImageGenerationRequest = {
+    n: 1,
+    response_format: 'url',
+    output_format: 'jpeg',
+    ...payload,
+    async: true,
+  }
+  delete normalized.quality
+  if (!edit || normalized.image != null) return normalized
+
+  const legacyRefs = Array.isArray(normalized.images)
+    ? normalized.images
+    : Array.isArray(normalized.reference_images)
+      ? normalized.reference_images
+      : []
+  const urls = legacyRefs
+    .map((item: any) => String(item?.image_url || item?.url || '').trim())
+    .filter(Boolean)
+  if (urls.length) normalized.image = urls.length === 1 ? urls[0] : urls
+  delete normalized.images
+  delete normalized.reference_images
+  return normalized
+}
+
 export async function generateImage(
   apiKey: string,
   payload: ImageGenerationRequest,
   options?: CreazyGatewayRequestOptions & { async?: boolean; edit?: boolean; imageFiles?: File[] },
 ): Promise<ImageGenerationResponse> {
   const edit = Boolean(options?.edit)
-  const path = edit
-    ? options?.async
-      ? '/v1/images/edits/async'
-      : '/v1/images/edits'
-    : options?.async
-      ? '/v1/images/generations/async'
-      : '/v1/images/generations'
+  const path = edit ? '/v1/images/edits' : '/v1/images/generations'
+  const requestPayload = options?.async ? pluginAsyncImagePayload(payload, edit) : { ...payload }
+  const requestId = newImageRequestID()
   const imageFiles = (options?.imageFiles || []).filter((file) => file instanceof File)
+  if (edit && imageFiles.length) {
+    delete requestPayload.image
+    delete requestPayload.images
+    delete requestPayload.reference_images
+  }
   let headers: HeadersInit
   let body: BodyInit
   if (edit && imageFiles.length) {
     const form = new FormData()
-    for (const [name, value] of Object.entries(payload)) {
+    for (const [name, value] of Object.entries(requestPayload)) {
       if (name === 'images' || name === 'reference_images' || value == null) continue
       if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
         form.append(name, String(value))
       }
     }
-    const imageField = imageFiles.length > 1 ? 'image[]' : 'image'
     for (const file of imageFiles) {
-      form.append(imageField, file, file.name || 'reference-image')
+      form.append('image', file, file.name || 'reference-image')
     }
-    headers = authHeaders(apiKey, undefined, options?.workId)
+    headers = authHeaders(apiKey, {
+      Accept: 'application/json',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    }, options?.workId)
     body = form
   } else {
-    headers = authHeaders(apiKey, { 'Content-Type': 'application/json' }, options?.workId)
-    body = JSON.stringify(payload)
+    headers = authHeaders(apiKey, {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    }, options?.workId)
+    body = JSON.stringify(requestPayload)
   }
   const response = await fetch(buildGatewayUrl(path), {
     method: 'POST',
@@ -601,9 +697,12 @@ export async function generateImage(
   return response.json()
 }
 
-export async function getImageTask(apiKey: string, taskId: string): Promise<ImageGenerationResponse> {
-  const response = await fetch(buildGatewayUrl(`/v1/images/tasks/${encodeURIComponent(taskId)}`), {
-    headers: authHeaders(apiKey),
+export async function getImageTask(apiKey: string, taskId: string, queryPath?: string): Promise<ImageGenerationResponse> {
+  const fallback = `/v1/image/tasks/${encodeURIComponent(taskId)}`
+  const path = String(queryPath || fallback).trim() || fallback
+  const url = /^https?:\/\//i.test(path) ? path : buildGatewayUrl(path)
+  const response = await fetch(url, {
+    headers: authHeaders(apiKey, { Accept: 'application/json' }),
   })
   if (!response.ok) throw await parseGatewayError(response)
   return response.json()

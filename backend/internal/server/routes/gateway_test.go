@@ -140,15 +140,29 @@ func TestGatewayRoutesAsyncImagesPathsAreRegistered(t *testing.T) {
 	}
 
 	for _, route := range []string{
+		"GET /v1/image/tasks/:task_id",
 		"POST /v1/images/generations/async",
 		"POST /v1/images/edits/async",
 		"GET /v1/images/tasks/:task_id",
+		"GET /image/tasks/:task_id",
 		"POST /images/generations/async",
 		"POST /images/edits/async",
 		"GET /images/tasks/:task_id",
 	} {
 		require.True(t, registered[route], "%s should be registered", route)
 	}
+}
+
+func TestGatewayRoutesStandardImagesAsyncFlagUsesTaskHandler(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"gpt-image-2","prompt":"draw","async":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "async image tasks are not enabled")
 }
 
 func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {

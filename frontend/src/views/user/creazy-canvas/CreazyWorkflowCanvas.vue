@@ -777,6 +777,8 @@ import {
   createDocument,
   createWork,
   generateImage,
+  openAIImageQualityTierForSize,
+  resolveOpenAIImageSize,
   generateVideo,
   getDocument,
   getImageTask,
@@ -2342,7 +2344,14 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
       return false
     }
 
-    const payload: Record<string, unknown> = { model: model.id, prompt, size, n: 1 }
+    const payload: Record<string, unknown> = {
+      model: model.id,
+      prompt,
+      size,
+      n: 1,
+      response_format: 'url',
+      output_format: 'jpeg',
+    }
     if (/^[124]K$/i.test(size)) payload.aspect_ratio = node.data.aspectRatio || '1:1'
     if (usableRefs.length) {
       payload.images = usableRefs.map((url) => ({ image_url: url }))
@@ -2370,6 +2379,7 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
       })
     }
     remoteId = String(response.task_id || response.id || '')
+    const imageTaskQueryPath = String(response.query_path || response.poll_url || '')
     if (remoteId) {
       gatewayType = 'image_task'
       await updateWork(workId, { gateway_type: gatewayType, gateway_remote_id: remoteId, status: 'running' })
@@ -2377,13 +2387,14 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
     }
     let urls = extractImageUrls(response)
     if (!urls.length && remoteId) {
-      for (let index = 0; index < 90 && !disposed; index += 1) {
-        await delay(2000)
+      await delay(20_000)
+      for (let index = 0; index < 900 && !disposed; index += 1) {
+        if (index > 0) await delay(2000)
         if (index % 5 === 0 && await workWasCanceled(workId)) {
           patchNode(node.id, { status: 'canceled', error: '任务已被管理员终止' })
           return false
         }
-        response = await getImageTask(props.apiKeySecret, remoteId)
+        response = await getImageTask(props.apiKeySecret, remoteId, imageTaskQueryPath)
         urls = extractImageUrls(response)
         if (urls.length || isTerminalImageStatus(response.status)) break
       }
@@ -2399,7 +2410,7 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
       gateway_remote_id: remoteId,
       preview_url: outputUrl,
       object_url: outputUrl,
-      mime_type: 'image/png',
+      mime_type: 'image/jpeg',
       error_message: '',
       params: {
         ...buildImageWorkParams({
@@ -2672,12 +2683,14 @@ function addResultNode(
 
 function extractImageUrls(payload: any): string[] {
   const urls: string[] = []
-  if (Array.isArray(payload?.data)) {
-    payload.data.forEach((item: any) => {
+  const result = payload?.result && typeof payload.result === 'object' ? payload.result : payload
+  if (Array.isArray(result?.data)) {
+    result.data.forEach((item: any) => {
       if (item?.url) urls.push(String(item.url))
-      else if (item?.b64_json) urls.push(`data:image/png;base64,${item.b64_json}`)
+      else if (item?.b64_json) urls.push(`data:image/jpeg;base64,${item.b64_json}`)
     })
   }
+  if (payload?.image_url) urls.push(String(payload.image_url))
   if (payload?.url) urls.push(String(payload.url))
   if (payload?.result_url) urls.push(String(payload.result_url))
   if (Array.isArray(payload?.result_urls)) urls.push(...payload.result_urls.map(String))
@@ -2693,7 +2706,7 @@ function extractVideoUrl(job: any): string {
 }
 
 function isTerminalImageStatus(status?: string): boolean {
-  return ['succeeded', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled'].includes(String(status || '').toLowerCase())
+  return ['succeeded', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled', 'expired'].includes(String(status || '').toLowerCase())
 }
 
 function isTerminalVideoStatus(status?: string): boolean {
@@ -2933,6 +2946,10 @@ function updateSelectedImageAspect(ratio: string) {
 }
 
 function resolveImageSize(model: CreazyCanvasImageModel | undefined, tier: string, ratio: string): string {
+  if (/^gpt-image-2(?:$|-)/i.test(String(model?.id || ''))) {
+    const pluginSize = resolveOpenAIImageSize(tier, ratio)
+    if (pluginSize) return pluginSize
+  }
   const sizes = model?.sizes?.length ? model.sizes : [tier]
   const candidates = sizes.filter((size) => classifyImageQualityTier(size) === tier)
   const match = String(ratio).match(/^(\d+):(\d+)$/)
@@ -2968,6 +2985,8 @@ function parseImageSize(size: string): { width: number; height: number } | null 
 function classifyImageQualityTier(size: string): string {
   const normalized = String(size || '').trim().toUpperCase()
   if (normalized === '1K' || normalized === '2K' || normalized === '4K') return normalized
+  const pluginTier = openAIImageQualityTierForSize(size)
+  if (pluginTier) return pluginTier
   const dims = parseImageSize(size)
   if (!dims) return '1K'
   const maxEdge = Math.max(dims.width, dims.height)

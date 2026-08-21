@@ -244,16 +244,18 @@
               </div>
             </div>
 
-            <div class="cc-field">
+            <div class="cc-field" :class="{ 'cc-field--error': imageFieldErrors.model }">
               <label class="cc-label">{{ t('creazyCanvas.form.model') }}</label>
               <select
                 v-model="imageForm.model"
                 class="input cc-control"
+                :class="{ 'cc-input--error': imageFieldErrors.model }"
                 :disabled="loadingCatalog"
               >
                 <option value="">{{ loadingCatalog ? t('creazyCanvas.catalog.loading') : t('creazyCanvas.form.selectPlaceholder') }}</option>
                 <option v-for="m in imageModels" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
               </select>
+              <p v-if="imageFieldErrors.model" class="cc-field__error">{{ imageFieldErrors.model }}</p>
               <p
                 v-if="!loadingCatalog && selectedKeyId && imageModels.length === 0"
                 class="cc-callout cc-callout--warn"
@@ -265,7 +267,12 @@
               </div>
             </div>
 
-            <details v-if="imageAllowCustomSize" class="cc-advanced">
+            <details
+              v-if="imageAllowCustomSize"
+              class="cc-advanced"
+              :class="{ 'cc-field--error': imageFieldErrors.size }"
+              :open="Boolean(imageFieldErrors.size) || undefined"
+            >
               <summary class="cc-advanced__summary">
                 <span>{{ t('creazyCanvas.form.sizeCustomOption') }}</span>
                 <strong>{{ imageForm.size }}</strong>
@@ -276,6 +283,7 @@
                   v-model="imageForm.size"
                   type="text"
                   class="input cc-control font-mono text-sm"
+                  :class="{ 'cc-input--error': imageFieldErrors.size }"
                   :placeholder="t('creazyCanvas.form.sizeCustomPlaceholder')"
                   list="creazy-canvas-image-sizes"
                   spellcheck="false"
@@ -286,7 +294,9 @@
                   <option v-for="s in imageSizeOptions" :key="'dl-' + s" :value="s" />
                 </datalist>
                 <p class="cc-field-hint">{{ imageSizeHintText }}</p>
-                <p v-if="imageSizeLiveError" class="cc-field__error">{{ imageSizeLiveError }}</p>
+                <p v-if="imageFieldErrors.size || imageSizeLiveError" class="cc-field__error">
+                  {{ imageFieldErrors.size || imageSizeLiveError }}
+                </p>
               </div>
             </details>
           </div>
@@ -1611,6 +1621,8 @@ import {
   updateWork,
   deleteWork,
   generateImage as gatewayGenerateImage,
+  openAIImageQualityTierForSize,
+  resolveOpenAIImageSize,
   type ImageGenerationRequest,
   generateVideo as gatewayGenerateVideo,
   getCatalog,
@@ -2264,6 +2276,8 @@ function imageBillingTier(size: string): string[] {
 function classifyImageQualityTier(size: string): string {
   const normalized = String(size || '').trim().toUpperCase()
   if (normalized === '1K' || normalized === '2K' || normalized === '4K') return normalized
+  const pluginTier = openAIImageQualityTierForSize(size)
+  if (pluginTier) return pluginTier
   const dims = parseImageSizeWxH(size)
   if (!dims) return '1K'
   const maxEdge = Math.max(dims.w, dims.h)
@@ -2534,6 +2548,10 @@ const imageAspectOptions = computed(() => {
 })
 
 function imageSizeForSelection(tier: string, ratio: string): string {
+  if (/^gpt-image-2(?:$|-)/i.test(String(selectedImageModel.value?.id || ''))) {
+    const pluginSize = resolveOpenAIImageSize(tier, ratio)
+    if (pluginSize) return pluginSize
+  }
   const sizes = imageSizeOptions.value
   const candidates = sizes.filter((size) => classifyImageQualityTier(size) === tier)
   const [rw, rh] = ratio.split(':').map(Number)
@@ -4570,13 +4588,15 @@ async function onKeyChange() {
 
 function extractImageUrls(payload: any): string[] {
   const urls: string[] = []
-  const data = payload?.data
+  const result = payload?.result && typeof payload.result === 'object' ? payload.result : payload
+  const data = result?.data
   if (Array.isArray(data)) {
     for (const item of data) {
       if (item?.url) urls.push(item.url)
-      else if (item?.b64_json) urls.push(`data:image/png;base64,${item.b64_json}`)
+      else if (item?.b64_json) urls.push(`data:image/jpeg;base64,${item.b64_json}`)
     }
   }
+  if (payload?.image_url) urls.push(payload.image_url)
   if (payload?.url) urls.push(payload.url)
   if (payload?.result_url) urls.push(payload.result_url)
   if (Array.isArray(payload?.result_urls)) urls.push(...payload.result_urls.filter(Boolean))
@@ -4585,7 +4605,7 @@ function extractImageUrls(payload: any): string[] {
 
 function isTerminalImageStatus(status?: string) {
   const s = (status || '').toLowerCase()
-  return ['succeeded', 'completed', 'success', 'failed', 'error', 'cancelled'].includes(s)
+  return ['succeeded', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled', 'expired'].includes(s)
 }
 
 function isTerminalVideoStatus(status?: string) {
@@ -4703,6 +4723,8 @@ async function runImageLifecycle(opts: {
       prompt: snapshot.prompt,
       size: snapshot.size,
       n: 1,
+      response_format: 'url',
+      output_format: 'jpeg',
     }
     if (/^[124]K$/i.test(snapshot.size)) {
       imagePayload.aspect_ratio = snapshot.aspectRatio
@@ -4712,7 +4734,7 @@ async function runImageLifecycle(opts: {
       // Grok-compatible alias
       imagePayload.reference_images = snapshot.refs.map((url) => ({ image_url: url }))
     }
-    let usedAsync = snapshot.preferAsync && snapshot.refFiles.length === 0
+    let usedAsync = snapshot.preferAsync
     let response: any
     try {
       response = await gatewayGenerateImage(apiKey, imagePayload, {
@@ -4740,6 +4762,7 @@ async function runImageLifecycle(opts: {
 
     let urls = extractImageUrls(response)
     const taskId = response.task_id || response.id
+    const imageTaskQueryPath = String(response.query_path || response.poll_url || '')
     if (usedAsync || taskId) {
       lastGatewayType = 'image_task'
       lastTaskId = taskId ? String(taskId) : ''
@@ -4757,9 +4780,10 @@ async function runImageLifecycle(opts: {
     if (!urls.length && taskId) {
       lastGatewayType = 'image_task'
       lastTaskId = String(taskId)
-      for (let i = 0; i < 90 && !cancelled; i++) {
-        await sleepMs(2000)
-        response = await getImageTask(apiKey, String(taskId))
+      await sleepMs(20_000)
+      for (let i = 0; i < 900 && !cancelled; i++) {
+        if (i > 0) await sleepMs(2000)
+        response = await getImageTask(apiKey, String(taskId), imageTaskQueryPath)
         urls = extractImageUrls(response)
         if (urls.length || isTerminalImageStatus(response.status)) break
         if (runningWorkId && i % 5 === 4) {
@@ -4825,7 +4849,7 @@ async function runImageLifecycle(opts: {
       gateway_remote_id: lastTaskId,
       preview_url: cleanUrls[0],
       object_url: cleanUrls[0],
-      mime_type: 'image/png',
+      mime_type: 'image/jpeg',
       error_message: '',
     }
     if (runningWorkId) {

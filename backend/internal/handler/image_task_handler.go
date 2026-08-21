@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +47,35 @@ func (h *AsyncImageHandler) enabled() bool {
 // feature is switched off, so an in-flight task is never stranded.
 func (h *AsyncImageHandler) pollable() bool {
 	return h != nil && h.tasks != nil && h.tasks.Pollable()
+}
+
+// SubmitIfRequested lets the standard Images endpoints opt into the durable
+// task protocol with async=true. The request body is restored before either
+// handler consumes it.
+func (h *AsyncImageHandler) SubmitIfRequested(c *gin.Context) bool {
+	if h == nil || c == nil || c.Request == nil {
+		return false
+	}
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			imageTaskJSONError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+		} else {
+			imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		}
+		return true
+	}
+	restoreImageTaskRequestBody(c.Request, body)
+	requested, err := asyncImageRequested(c.GetHeader("Content-Type"), body)
+	if err != nil {
+		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	if !requested {
+		return false
+	}
+	h.Submit(c)
+	return true
 }
 
 // Submit accepts the same payload as the synchronous Images endpoint and
@@ -100,7 +132,12 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	taskCtx, recorder, cancel := newAsyncImageContext(c, body, h.tasks.ExecutionTimeout())
+	executionBody, executionContentType, err := stripAsyncImageFlag(c.GetHeader("Content-Type"), body)
+	if err != nil {
+		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	taskCtx, recorder, cancel := newAsyncImageContext(c, executionBody, executionContentType, h.tasks.ExecutionTimeout())
 	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
 	if err != nil {
 		cancel()
@@ -151,6 +188,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		"status":     task.Status,
 		"created_at": task.CreatedAt,
 		"expires_at": task.ExpiresAt,
+		"query_path": pollURL,
 		"poll_url":   pollURL,
 	})
 
@@ -306,7 +344,7 @@ func (h *AsyncImageHandler) failTask(taskID string, statusCode int, taskErr json
 	}
 }
 
-func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Duration) (*gin.Context, *httptest.ResponseRecorder, context.CancelFunc) {
+func newAsyncImageContext(c *gin.Context, body []byte, contentType string, timeoutDuration time.Duration) (*gin.Context, *httptest.ResponseRecorder, context.CancelFunc) {
 	base := context.WithoutCancel(c.Request.Context())
 	executionCtx, cancel := context.WithTimeout(base, timeoutDuration)
 	request := c.Request.Clone(executionCtx)
@@ -315,6 +353,7 @@ func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Dura
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
 	request.ContentLength = int64(len(body))
+	request.Header.Set("Content-Type", contentType)
 	request.URL.Path = strings.TrimSuffix(request.URL.Path, "/async")
 
 	taskCtx := c.Copy()
@@ -323,6 +362,107 @@ func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Dura
 	taskCtx.Writer = recorderCtx.Writer
 	taskCtx.Request = request
 	return taskCtx, recorder, cancel
+}
+
+func restoreImageTaskRequestBody(request *http.Request, body []byte) {
+	if request == nil {
+		return
+	}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	request.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	request.ContentLength = int64(len(body))
+}
+
+func asyncImageRequested(contentType string, body []byte) (bool, error) {
+	if !isMultipartImagesContentType(contentType) {
+		var envelope struct {
+			Async *bool `json:"async"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			return false, nil // The synchronous handler reports malformed JSON.
+		}
+		return envelope.Async != nil && *envelope.Async, nil
+	}
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || strings.TrimSpace(params["boundary"]) == "" {
+		return false, errors.New("invalid multipart content type")
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			return false, nil
+		}
+		if nextErr != nil {
+			return false, errors.New("failed to parse multipart image request")
+		}
+		if part.FormName() != "async" {
+			_ = part.Close()
+			continue
+		}
+		value, readErr := io.ReadAll(io.LimitReader(part, 16))
+		_ = part.Close()
+		if readErr != nil {
+			return false, errors.New("failed to read async field")
+		}
+		requested, parseErr := strconv.ParseBool(strings.TrimSpace(string(value)))
+		if parseErr != nil {
+			return false, errors.New("invalid async field value")
+		}
+		return requested, nil
+	}
+}
+
+func stripAsyncImageFlag(contentType string, body []byte) ([]byte, string, error) {
+	if !isMultipartImagesContentType(contentType) {
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			return nil, contentType, errors.New("failed to parse request body")
+		}
+		delete(envelope, "async")
+		delete(envelope, "quality")
+		cleaned, err := json.Marshal(envelope)
+		if err != nil {
+			return nil, contentType, errors.New("failed to prepare asynchronous image request")
+		}
+		return cleaned, contentType, nil
+	}
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || strings.TrimSpace(params["boundary"]) == "" {
+		return nil, contentType, errors.New("invalid multipart content type")
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	var cleaned bytes.Buffer
+	writer := multipart.NewWriter(&cleaned)
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return nil, contentType, errors.New("failed to parse multipart image request")
+		}
+		if part.FormName() == "async" || part.FormName() == "quality" {
+			_ = part.Close()
+			continue
+		}
+		destination, createErr := writer.CreatePart(part.Header)
+		if createErr != nil {
+			_ = part.Close()
+			return nil, contentType, errors.New("failed to prepare multipart image request")
+		}
+		_, copyErr := io.Copy(destination, part)
+		_ = part.Close()
+		if copyErr != nil {
+			return nil, contentType, errors.New("failed to prepare multipart image request")
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, contentType, errors.New("failed to prepare multipart image request")
+	}
+	return cleaned.Bytes(), writer.FormDataContentType(), nil
 }
 
 func asyncImageRequestStreams(contentType string, body []byte) bool {
@@ -337,9 +477,9 @@ func asyncImageRequestStreams(contentType string, body []byte) bool {
 
 func imageTaskPollURL(submitPath, taskID string) string {
 	if strings.HasPrefix(submitPath, "/v1/") {
-		return "/v1/images/tasks/" + taskID
+		return "/v1/image/tasks/" + taskID
 	}
-	return "/images/tasks/" + taskID
+	return "/image/tasks/" + taskID
 }
 
 func extractImageTaskError(body []byte) json.RawMessage {

@@ -7,14 +7,19 @@ Asynchronous image tasks let clients submit long-running OpenAI-compatible image
 The authenticated gateway exposes both `/v1` paths and their existing no-prefix aliases:
 
 ```text
-POST /v1/images/generations/async
-POST /v1/images/edits/async
-GET  /v1/images/tasks/{task_id}
+POST /v1/images/generations   (JSON body: "async": true)
+POST /v1/images/edits         (JSON or multipart field: "async": true)
+GET  /v1/image/tasks/{task_id}
 ```
 
-The aliases are `/images/generations/async`, `/images/edits/async`, and `/images/tasks/{task_id}`.
+The legacy `/v1/images/generations/async`, `/v1/images/edits/async`, and plural
+`/v1/images/tasks/{task_id}` paths remain available for compatibility, but new
+clients should use the contract above and poll the returned `query_path`.
 
-Only OpenAI and Grok groups are supported. Requests use the same JSON or multipart payload as the corresponding synchronous endpoint. Streaming image requests are rejected because a polled task returns one final JSON result.
+Only OpenAI and Grok groups are supported. Requests are based on the corresponding
+synchronous JSON or multipart payload, with `async: true` added and `quality`
+omitted. Streaming image requests are rejected because a polled task returns one
+final JSON result.
 
 ## Enabling the feature (object storage)
 
@@ -74,15 +79,23 @@ Two further causes of a 404 that are unrelated to storage: the API key's group m
 ## Submit a task
 
 ```bash
-curl -i https://api.example.com/v1/images/generations/async \
+curl -i https://api.example.com/v1/images/generations \
   -H 'Authorization: Bearer sk-...' \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "gpt-image-1",
     "prompt": "A lighthouse during a winter storm",
-    "size": "1536x1024"
+    "size": "1536x1024",
+    "n": 1,
+    "response_format": "url",
+    "output_format": "jpeg",
+    "async": true
   }'
 ```
+
+`quality` is not part of the asynchronous request contract. Resolution is selected
+through `size`. For compatibility, the gateway accepts older clients that include
+`quality`, but ignores it and removes it before upstream execution.
 
 The server stores the initial task in Redis and responds with `202 Accepted`:
 
@@ -94,7 +107,8 @@ The server stores the initial task in Redis and responds with `202 Accepted`:
   "status": "processing",
   "created_at": 1784092800,
   "expires_at": 1784179200,
-  "poll_url": "/v1/images/tasks/imgtask_0123456789abcdef"
+  "query_path": "/v1/image/tasks/imgtask_0123456789abcdef",
+  "poll_url": "/v1/image/tasks/imgtask_0123456789abcdef"
 }
 ```
 
@@ -105,7 +119,7 @@ The server stores the initial task in Redis and responds with `202 Accepted`:
 Use the same API key that submitted the task:
 
 ```bash
-curl https://api.example.com/v1/images/tasks/imgtask_0123456789abcdef \
+curl https://api.example.com/v1/image/tasks/imgtask_0123456789abcdef \
   -H 'Authorization: Bearer sk-...'
 ```
 

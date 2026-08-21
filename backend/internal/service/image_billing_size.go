@@ -37,9 +37,11 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 		return ImageBillingSize2K, true
 	case "4k":
 		return ImageBillingSize4K, true
-	case "2048x2048", "2048x1152":
+	case "1024x1024", "688x1024", "1024x688", "768x1024", "1024x768", "608x1088", "1088x608", "1248x528":
+		return ImageBillingSize1K, true
+	case "2048x2048", "1360x2048", "2048x1360", "1536x2048", "2048x1536", "1152x2048", "2048x1152", "2048x880":
 		return ImageBillingSize2K, true
-	case "3840x2160", "2160x3840":
+	case "2880x2880", "2336x3520", "3520x2336", "2480x3312", "3312x2480", "2160x3840", "3840x2160", "3840x1648":
 		return ImageBillingSize4K, true
 	}
 

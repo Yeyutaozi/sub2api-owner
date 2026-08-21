@@ -616,7 +616,7 @@ func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
 
 	// gpt-image-2: free-form with official constraints + 2K/4K presets.
 	require.True(t, img2.AllowCustomSize)
-	require.False(t, img2.Async)
+	require.True(t, img2.Async)
 	require.NotNil(t, img2.SizeConstraints)
 	require.Equal(t, 3840, img2.SizeConstraints.MaxEdge)
 	require.Equal(t, 16, img2.SizeConstraints.MultipleOf)
@@ -625,13 +625,17 @@ func TestCreazyCanvasOpenAIImageSizePolicy(t *testing.T) {
 	require.EqualValues(t, 8294400, img2.SizeConstraints.MaxPixels)
 	require.Contains(t, img2.Sizes, "2048x2048")
 	require.Contains(t, img2.Sizes, "3840x2160")
+	require.Contains(t, img2.Sizes, "2880x2880")
+	require.Contains(t, img2.Sizes, "2336x3520")
 	require.Contains(t, img2.Sizes, "auto")
 	require.Equal(t, []string{"1K", "2K", "4K"}, img2.QualityTiers)
 	require.Contains(t, img2.AspectRatios, "1:1")
 	require.Contains(t, img2.AspectRatios, "16:9")
 	require.Contains(t, img2.AspectRatios, "9:16")
 	require.Contains(t, img2.AspectRatios, "21:9")
-	require.Contains(t, img2.AspectRatios, "9:21")
+	require.NotContains(t, img2.AspectRatios, "5:4")
+	require.NotContains(t, img2.AspectRatios, "4:5")
+	require.NotContains(t, img2.AspectRatios, "9:21")
 
 	// gpt-image-1: presets only.
 	require.False(t, img1.AllowCustomSize)

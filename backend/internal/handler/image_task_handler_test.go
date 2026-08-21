@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +18,36 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAsyncImageMultipartFlagIsRemovedBeforeExecution(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "gpt-image-2"))
+	require.NoError(t, writer.WriteField("prompt", "edit"))
+	require.NoError(t, writer.WriteField("quality", "medium"))
+	require.NoError(t, writer.WriteField("async", "true"))
+	for _, name := range []string{"first.png", "second.png"} {
+		part, err := writer.CreateFormFile("image", name)
+		require.NoError(t, err)
+		_, err = part.Write([]byte("image-data"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	requested, err := asyncImageRequested(writer.FormDataContentType(), body.Bytes())
+	require.NoError(t, err)
+	require.True(t, requested)
+
+	cleaned, contentType, err := stripAsyncImageFlag(writer.FormDataContentType(), body.Bytes())
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(cleaned))
+	req.Header.Set("Content-Type", contentType)
+	require.NoError(t, req.ParseMultipartForm(1<<20))
+	require.Empty(t, req.MultipartForm.Value["async"])
+	require.Empty(t, req.MultipartForm.Value["quality"])
+	require.Equal(t, []string{"gpt-image-2"}, req.MultipartForm.Value["model"])
+	require.Len(t, req.MultipartForm.File["image"], 2)
+}
 
 type asyncImageMemoryStore struct {
 	mu    sync.RWMutex
@@ -49,6 +82,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
 	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
 	release := make(chan struct{})
+	executedBody := make(chan string, 1)
 	canvasWorks := &creazyCanvasGatewayWorkServiceStub{}
 	h := &AsyncImageHandler{
 		tasks:  tasks,
@@ -56,6 +90,8 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	}
 	h.execute = func(_ string, c *gin.Context) {
 		<-release
+		body, _ := io.ReadAll(c.Request.Body)
+		executedBody <- string(body)
 		c.JSON(http.StatusOK, gin.H{"created": 123, "data": []gin.H{{"url": "https://example.test/image.png"}}})
 	}
 
@@ -71,11 +107,11 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7, Concurrency: 1})
 		c.Next()
 	})
-	router.POST("/v1/images/generations/async", h.Submit)
-	router.GET("/v1/images/tasks/:task_id", h.Get)
+	router.POST("/v1/images/generations", h.Submit)
+	router.GET("/v1/image/tasks/:task_id", h.Get)
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`)).WithContext(requestCtx)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat","quality":"medium","async":true}`)).WithContext(requestCtx)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -84,13 +120,15 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	require.Equal(t, "3", w.Header().Get("Retry-After"))
 
 	var accepted struct {
-		TaskID  string `json:"task_id"`
-		Status  string `json:"status"`
-		PollURL string `json:"poll_url"`
+		TaskID    string `json:"task_id"`
+		Status    string `json:"status"`
+		QueryPath string `json:"query_path"`
+		PollURL   string `json:"poll_url"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &accepted))
 	require.Equal(t, service.ImageTaskStatusProcessing, accepted.Status)
-	require.Equal(t, "/v1/images/tasks/"+accepted.TaskID, accepted.PollURL)
+	require.Equal(t, "/v1/image/tasks/"+accepted.TaskID, accepted.QueryPath)
+	require.Equal(t, accepted.QueryPath, accepted.PollURL)
 	require.Equal(t, accepted.PollURL, w.Header().Get("Location"))
 	require.Len(t, canvasWorks.createCalls, 1)
 	require.Equal(t, service.CreazyCanvasWorkKindImage, canvasWorks.createCalls[0].Kind)
@@ -101,6 +139,9 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	// from the short submission request.
 	cancelRequest()
 	close(release)
+	forwardedBody := <-executedBody
+	require.NotContains(t, forwardedBody, `"async"`)
+	require.NotContains(t, forwardedBody, `"quality"`)
 	require.Eventually(t, func() bool {
 		got, err := tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 7, APIKeyID: 9}, accepted.TaskID)
 		return err == nil && got.Status == service.ImageTaskStatusCompleted

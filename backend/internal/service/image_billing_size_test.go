@@ -17,6 +17,8 @@ func TestClassifyImageBillingTier(t *testing.T) {
 		{name: "explicit 2k landscape", size: "2048x1152", wantTier: "2K", wantOK: true},
 		{name: "explicit 4k landscape", size: "3840x2160", wantTier: "4K", wantOK: true},
 		{name: "explicit 4k portrait", size: "2160x3840", wantTier: "4K", wantOK: true},
+		{name: "plugin 1k ultrawide", size: "1248x528", wantTier: "1K", wantOK: true},
+		{name: "plugin 4k square", size: "2880x2880", wantTier: "4K", wantOK: true},
 		{name: "long edge 1k", size: "1024X768", wantTier: "1K", wantOK: true},
 		{name: "long edge 2k", size: "1280x768", wantTier: "2K", wantOK: true},
 		{name: "long edge 4k", size: "2560x1600", wantTier: "4K", wantOK: true},

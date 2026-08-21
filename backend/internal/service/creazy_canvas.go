@@ -1279,7 +1279,7 @@ func creazyCanvasGatewayContentPath(work *CreazyCanvasWork) string {
 	case CreazyCanvasGatewayVideoJob:
 		return "/v1/videos/jobs/" + urlPathEscape(remoteID) + "/content"
 	case CreazyCanvasGatewayImageTask:
-		return "/v1/images/tasks/" + urlPathEscape(remoteID)
+		return "/v1/image/tasks/" + urlPathEscape(remoteID)
 	default:
 		return ""
 	}
@@ -1965,11 +1965,11 @@ func buildCreazyCanvasImageModels(group *Group) []CreazyCanvasImageModel {
 			Name:               id,
 			Sizes:              sizes,
 			QualityTiers:       creazyCanvasImageQualityTiers(sizes),
-			AspectRatios:       creazyCanvasImageAspectRatios(group.Platform, sizes, allowCustom),
+			AspectRatios:       creazyCanvasImageAspectRatios(group.Platform, id, sizes, allowCustom),
 			AllowCustomSize:    allowCustom,
 			SizeConstraints:    constraints,
 			Prices:             prices,
-			Async:              group.Platform != PlatformOpenAI && group.Platform != PlatformGrok,
+			Async:              group.Platform == PlatformOpenAI,
 			MaxN:               1,
 			SupportsReference:  supportsRef,
 			MaxReferenceImages: maxRefs,
@@ -1997,7 +1997,10 @@ func creazyCanvasImageQualityTiers(sizes []string) []string {
 	return out
 }
 
-func creazyCanvasImageAspectRatios(platform string, sizes []string, allowCustom bool) []string {
+func creazyCanvasImageAspectRatios(platform, modelID string, sizes []string, allowCustom bool) []string {
+	if platform == PlatformOpenAI && strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "gpt-image-2") {
+		return []string{"1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"}
+	}
 	if allowCustom || platform == PlatformGemini || platform == PlatformAntigravity {
 		return []string{"1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"}
 	}
@@ -2045,9 +2048,9 @@ func creazyCanvasImageSizePolicy(platform, modelID string) (sizes []string, allo
 		switch {
 		case strings.HasPrefix(id, "gpt-image-2"):
 			sizes = []string{
-				"1024x1024", "1536x1024", "1024x1536",
-				"2048x2048", "2048x1152", "1152x2048",
-				"3840x2160", "2160x3840",
+				"1024x1024", "688x1024", "1024x688", "768x1024", "1024x768", "608x1088", "1088x608", "1248x528",
+				"2048x2048", "1360x2048", "2048x1360", "1536x2048", "2048x1536", "1152x2048", "2048x1152", "2048x880",
+				"2880x2880", "2336x3520", "3520x2336", "2480x3312", "3312x2480", "2160x3840", "3840x2160", "3840x1648",
 				"auto",
 			}
 			allowCustom = true
@@ -2405,9 +2408,9 @@ func creazyCanvasGatewayContentHint(work *CreazyCanvasWork) string {
 		return "GET /v1/videos/jobs/{job_id}/content"
 	case CreazyCanvasGatewayImageTask:
 		if remoteID != "" {
-			return fmt.Sprintf("GET /v1/images/tasks/%s", remoteID)
+			return fmt.Sprintf("GET /v1/image/tasks/%s", remoteID)
 		}
-		return "GET /v1/images/tasks/{task_id}"
+		return "GET /v1/image/tasks/{task_id}"
 	case CreazyCanvasGatewayImageSync:
 		return "同步生图结果请使用创建时返回的 URL；或重新生成"
 	default:
