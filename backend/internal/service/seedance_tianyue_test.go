@@ -24,9 +24,30 @@ func TestTianyueAccountSupportsCustomPublicModelMapping(t *testing.T) {
 	require.True(t, account.IsTianyueVideo())
 	require.True(t, account.IsModelSupported("my-standard-video"))
 	require.True(t, account.IsModelSupported("my-fast-video"))
+	require.True(t, account.IsModelSupported("MY-STANDARD-VIDEO"))
 	require.False(t, account.IsModelSupported(SeedanceTianyueSD20Model), "Tianyue requires an explicit public mapping")
 	require.False(t, account.IsModelSupported("unmapped-video"))
 	require.Equal(t, DefaultTianyueVideoBaseURL, account.GetSeedanceBaseURL())
+}
+
+func TestParseTianyueCanonicalModelPreservesPublicCasing(t *testing.T) {
+	info, err := ParseSeedanceVideoGenerationRequest([]byte(`{
+		"model":"b-sd2.0-f-933",
+		"prompt":"cinematic portrait",
+		"resolution":"720p",
+		"duration":15
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, SeedanceTianyueSD20FastModel, info.Model)
+
+	account := &Account{Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key":        "test-key",
+		"video_provider": VideoProviderTianyue,
+		"model_mapping":  map[string]any{SeedanceTianyueSD20FastModel: SeedanceTianyueSD20FastModel},
+	}}
+	require.True(t, account.IsModelSupported(info.Model))
+	require.NoError(t, ValidateSeedanceRequestForAccount(account, info))
+	require.Equal(t, SeedanceTianyueSD20FastModel, account.GetMappedModel(info.Model))
 }
 
 func TestTianyueAccountRejectsUnsupportedMappingTarget(t *testing.T) {

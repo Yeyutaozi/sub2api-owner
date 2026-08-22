@@ -896,6 +896,11 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 		return mappedModel, true
 	}
 	if a.Platform == PlatformSeedance {
+		for publicModel, upstreamModel := range mapping {
+			if !strings.Contains(publicModel, "*") && strings.EqualFold(strings.TrimSpace(publicModel), strings.TrimSpace(requestedModel)) {
+				return upstreamModel, true
+			}
+		}
 		for _, candidate := range seedanceModelLookupCandidates(requestedModel) {
 			if candidate == requestedModel {
 				continue

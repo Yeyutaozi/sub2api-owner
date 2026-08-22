@@ -621,11 +621,33 @@ func appendPlazaMediaModelsOpt(pg *PlazaGroup, g *Group, idx map[string]int, inv
 	}
 
 	if IsFFLinkVideoPlatform(g.Platform) {
+		// Account mappings are authoritative for plaza membership. Enrich those
+		// admitted names directly so provider-specific casing/catalog omissions do
+		// not detach an explicit group price card from its public model.
+		for at := range pg.Models {
+			modelID := pg.Models[at].Name
+			if !GroupAllowsVideoModelExposure(g, modelID) {
+				continue
+			}
+			if pg.Models[at].Kind == "" || pg.Models[at].Kind == PlazaKindChat {
+				pg.Models[at].Kind = PlazaKindVideo
+			}
+			if pg.Models[at].VideoBillingUnit == "" {
+				pg.Models[at].VideoBillingUnit = g.EffectiveVideoBillingUnitForModel(modelID)
+			}
+			if len(pg.Models[at].VideoResolutions) == 0 {
+				pg.Models[at].VideoResolutions = plazaVideoResolutionsForModel(modelID)
+			}
+			if pg.Models[at].VideoPrices == nil {
+				pg.Models[at].VideoPrices = plazaVideoPricesForModel(g, modelID)
+			}
+		}
+
 		for _, modelID := range plazaOpenVideoModelIDs(g) {
 			unit := g.EffectiveVideoBillingUnitForModel(modelID)
 			prices := plazaVideoPricesForModel(g, modelID)
 			resolutions := plazaVideoResolutionsForModel(modelID)
-			if at, seen := idx[modelID]; seen {
+			if at, seen := plazaFindModelIndex(idx, modelID); seen {
 				// Enrich existing entry with video price card.
 				if pg.Models[at].Kind == "" || pg.Models[at].Kind == PlazaKindChat {
 					pg.Models[at].Kind = PlazaKindVideo
@@ -659,7 +681,7 @@ func appendPlazaMediaModelsOpt(pg *PlazaGroup, g *Group, idx map[string]int, inv
 	if g.AllowImageGeneration {
 		for _, modelID := range plazaOpenImageModelIDs(g) {
 			imagePrices := plazaImagePricesForGroup(g)
-			if at, seen := idx[modelID]; seen {
+			if at, seen := plazaFindModelIndex(idx, modelID); seen {
 				if pg.Models[at].Kind == PlazaKindChat {
 					// Keep chat kind if it has token pricing; still attach image tiers.
 					if pg.Models[at].Pricing == nil || pg.Models[at].Pricing.BillingMode == BillingModeImage {
@@ -683,6 +705,22 @@ func appendPlazaMediaModelsOpt(pg *PlazaGroup, g *Group, idx map[string]int, inv
 			})
 		}
 	}
+}
+
+func plazaFindModelIndex(idx map[string]int, modelID string) (int, bool) {
+	if at, ok := idx[modelID]; ok {
+		return at, true
+	}
+	want := plazaNormalizeModelKey(modelID)
+	if want == "" {
+		return 0, false
+	}
+	for candidate, at := range idx {
+		if plazaNormalizeModelKey(candidate) == want {
+			return at, true
+		}
+	}
+	return 0, false
 }
 
 // plazaOpenVideoModelIDs returns models the group currently exposes for video generation.

@@ -376,7 +376,12 @@ func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo,
 	if !ok {
 		return fmt.Errorf("unsupported video model: %s", strings.TrimSpace(info.Model))
 	}
-	info.Model = strings.ToLower(strings.TrimSpace(info.Model))
+	trimmedModel := strings.TrimSpace(info.Model)
+	if canonicalModel, isTianyue := canonicalTianyueVideoModel(trimmedModel); isTianyue {
+		info.Model = canonicalModel
+	} else {
+		info.Model = strings.ToLower(trimmedModel)
+	}
 	if info.Resolution == "" {
 		info.Resolution = profile.DefaultResolution
 	}

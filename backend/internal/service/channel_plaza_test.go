@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -306,6 +307,60 @@ func TestListPlazaGroups_VideoAndImageModels(t *testing.T) {
 	require.NotNil(t, img.ImagePrices)
 	require.NotNil(t, img.ImagePrices["1K"])
 	require.InDelta(t, 0.04, *img.ImagePrices["1K"], 1e-12)
+}
+
+func TestListPlazaGroups_TianyueOriginalCaseGetsVideoPricing(t *testing.T) {
+	standardPrice := 5.5
+	fastPrice := 4.0
+	group := Group{
+		ID: 28, Name: "seedance-933", Platform: PlatformSeedance, Status: StatusActive, RateMultiplier: 1,
+		VideoBillingUnit: VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			strings.ToLower(SeedanceTianyueSD20Model): {
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &standardPrice,
+			},
+			strings.ToLower(SeedanceTianyueSD20FastModel): {
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &fastPrice,
+			},
+		},
+	}
+	account := Account{
+		ID: 820, Name: "tianyue", Platform: PlatformSeedance, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":        "k",
+			"video_provider": VideoProviderTianyue,
+			"model_mapping": map[string]any{
+				SeedanceTianyueSD20Model:     SeedanceTianyueSD20Model,
+				SeedanceTianyueSD20FastModel: SeedanceTianyueSD20FastModel,
+			},
+		},
+	}
+
+	svc := newPlazaChannelServiceWithAccounts(nil, []Group{group}, nil, map[int64][]Account{28: {account}})
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+
+	models := make(map[string]PlazaModel, len(out[0].Models))
+	for _, model := range out[0].Models {
+		models[model.Name] = model
+	}
+	for modelID, wantPrice := range map[string]float64{
+		SeedanceTianyueSD20Model:     standardPrice,
+		SeedanceTianyueSD20FastModel: fastPrice,
+	} {
+		model, ok := models[modelID]
+		require.True(t, ok, "original Tianyue model casing must be preserved")
+		require.Equal(t, PlazaKindVideo, model.Kind)
+		require.Equal(t, VideoBillingUnitPerRequest, model.VideoBillingUnit)
+		require.Equal(t, []string{VideoBillingResolution720P}, model.VideoResolutions)
+		require.NotNil(t, model.VideoPrices)
+		require.NotNil(t, model.VideoPrices.Price720P)
+		require.InDelta(t, wantPrice, *model.VideoPrices.Price720P, 1e-12)
+	}
 }
 
 func TestListPlazaGroups_AvgFirstTokenAlwaysPresent(t *testing.T) {
