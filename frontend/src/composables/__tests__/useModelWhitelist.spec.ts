@@ -33,6 +33,7 @@ describe('useModelWhitelist', () => {
       'seedance-2.0-mini',
       'seedance-2.5',
       'sd-2.5-ff',
+      'sd-2.0-933-art',
       'sd2-mx933',
       'sd2-mx933-fast',
       'sd-2.0-mx933',
@@ -63,7 +64,8 @@ describe('useModelWhitelist', () => {
       'seedance-2.0-fast',
       'seedance-2.0-mini',
       'seedance-2.5',
-      'sd-2.5-ff'
+      'sd-2.5-ff',
+      'sd-2.0-933-art'
     ])
     expect(getSeedanceModelsByVideoProvider('huiqu')).toEqual([
       'sd2-mx933',

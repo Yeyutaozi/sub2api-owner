@@ -6,6 +6,8 @@ import (
 	"unicode/utf8"
 )
 
+const SeedanceArtSD20Model = "sd-2.0-933-art"
+
 type ffLinkVideoModelProfile struct {
 	Platform             string
 	DefaultResolution    string
@@ -58,6 +60,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		ValidateDuration: func(duration int, resolution string) bool {
 			return isSeedanceDurationSupported(duration) && !(resolution == VideoBillingResolution1080P && duration > 12)
 		},
+	},
+	SeedanceArtSD20Model: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 10,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
+		ValidateDuration: func(duration int, _ string) bool { return duration == 10 || duration == 15 },
 	},
 	"seedance-2.0-fast": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
@@ -263,6 +273,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			"seedance-2.0-mini",
 			"seedance-2.5",
 			"sd-2.5-ff",
+			SeedanceArtSD20Model,
 			SeedanceZhi168Model,
 			SeedanceMX933Model,
 			SeedanceMX933FastModel,

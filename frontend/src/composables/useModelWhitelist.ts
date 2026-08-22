@@ -177,7 +177,8 @@ const seedanceFFLinkModels = [
   'seedance-2.0-fast',
   'seedance-2.0-mini',
   'seedance-2.5',
-  'sd-2.5-ff'
+  'sd-2.5-ff',
+  'sd-2.0-933-art'
 ]
 
 const seedanceHuiquModels = [
