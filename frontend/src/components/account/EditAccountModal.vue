@@ -44,6 +44,7 @@
             <option v-if="account.platform === 'seedance'" value="lensforge">{{ t('admin.accounts.videoProvider.lensforge') }}</option>
             <option v-if="account.platform === 'seedance'" value="openvideo">{{ t('admin.accounts.videoProvider.openvideo') }}</option>
             <option v-if="account.platform === 'seedance'" value="zhi168">{{ t('admin.accounts.videoProvider.zhi168') }}</option>
+            <option v-if="account.platform === 'seedance'" value="tianyue">{{ t('admin.accounts.videoProvider.tianyue') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
@@ -3623,7 +3624,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       credentials?.video_provider === 'huiqu' ? 'huiqu' : 'huiqu'
   } else if (newAccount.platform === 'seedance') {
     seedanceVideoProvider.value =
-      credentials?.video_provider === 'zhi168'
+      credentials?.video_provider === 'tianyue'
+        ? 'tianyue'
+        : credentials?.video_provider === 'zhi168'
             ? 'zhi168'
         : credentials?.video_provider === 'globalaiopc'
             ? 'globalaiopc'

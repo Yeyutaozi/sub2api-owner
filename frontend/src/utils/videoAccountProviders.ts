@@ -6,7 +6,8 @@ export const SEEDANCE_VIDEO_PROVIDER_BASE_URLS = {
   globalaiopc: 'https://zcbservice.aizfw.cn/kyyReactApiServer',
   lensforge: 'https://lensforge.tsxzz.com',
   openvideo: 'https://www.openvideo.top/api/v1',
-  zhi168: 'https://www.zhi168.it.com/api'
+  zhi168: 'https://www.zhi168.it.com/api',
+  tianyue: 'http://192.220.23.225:3000'
 } as const
 
 export type SeedanceVideoProvider = keyof typeof SEEDANCE_VIDEO_PROVIDER_BASE_URLS

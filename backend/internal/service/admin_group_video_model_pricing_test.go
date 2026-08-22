@@ -29,6 +29,8 @@ func TestDefaultModelsListCandidateIDsSeedance(t *testing.T) {
 		SeedanceWeijin900Model,
 		SeedanceOpenVideoModel,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformSeedance), SeedanceTianyueSD20Model)
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformSeedance), SeedanceTianyueSD20FastModel)
 	require.Equal(t, []string{
 		SeedanceMiniMaxH3Model,
 	}, defaultModelsListCandidateIDs(PlatformMiniMax))

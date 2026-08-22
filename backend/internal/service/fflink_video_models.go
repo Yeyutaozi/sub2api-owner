@@ -30,6 +30,22 @@ type ffLinkVideoModelProfile struct {
 }
 
 var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
+	strings.ToLower(SeedanceTianyueSD20Model): {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 15,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "4:3", "3:4", "1:1"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration == 15 },
+	},
+	strings.ToLower(SeedanceTianyueSD20FastModel): {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 15,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "4:3", "3:4", "1:1"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration == 15 },
+	},
 	"sd-2.5-ff": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 4,
 		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P), AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9"),
@@ -310,6 +326,43 @@ func ValidateFFLinkVideoModelPlatform(platform, model string) error {
 
 func validateFFLinkVideoRequestInfo(info *SeedanceRequestInfo) error {
 	return validateFFLinkVideoRequestInfoWithLegacyDuration(info, false)
+}
+
+func validateFFLinkVideoRequestInfoIfKnown(info *SeedanceRequestInfo) error {
+	if info == nil {
+		return fmt.Errorf("video request is required")
+	}
+	if _, ok := ffLinkVideoModelProfileFor(info.Model); !ok {
+		return nil
+	}
+	return validateFFLinkVideoRequestInfo(info)
+}
+
+// ValidateSeedanceRequestForAccount validates a public alias against the
+// concrete model selected by the account mapping while preserving the public
+// model used for billing and client responses.
+func ValidateSeedanceRequestForAccount(account *Account, info *SeedanceRequestInfo) error {
+	if account == nil || info == nil {
+		return fmt.Errorf("video account and request are required")
+	}
+	mappedModel, _ := account.ResolveMappedModel(info.Model)
+	if !videoProviderSupportsModelForPlatform(account.Platform, account.GetVideoProvider(), mappedModel) {
+		return fmt.Errorf("model %s is not supported by the selected video provider", info.Model)
+	}
+	validationModel := info.Model
+	if _, ok := ffLinkVideoModelProfileFor(validationModel); !ok {
+		validationModel = mappedModel
+	}
+	validated := *info
+	validated.Model = validationModel
+	if err := validateFFLinkVideoRequestInfo(&validated); err != nil {
+		return err
+	}
+	info.Resolution = validated.Resolution
+	info.DurationSeconds = validated.DurationSeconds
+	info.AspectRatio = validated.AspectRatio
+	info.GenerateAudio = validated.GenerateAudio
+	return nil
 }
 
 func validateFFLinkVideoRequestInfoWithLegacyDuration(info *SeedanceRequestInfo, allowLegacyVariableDuration bool) error {

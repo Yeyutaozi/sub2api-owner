@@ -115,7 +115,7 @@ func isSeedanceMixedImageModel(model string) bool {
 
 func IsOpaqueSeedanceVideoProvider(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC, VideoProviderLensForge, VideoProviderOpenVideo, VideoProviderZhi168:
+	case VideoProviderHuiqu, VideoProviderXimei, VideoProviderWeijin, VideoProviderGlobalAIOPC, VideoProviderLensForge, VideoProviderOpenVideo, VideoProviderZhi168, VideoProviderTianyue:
 		return true
 	default:
 		return false

@@ -205,6 +205,7 @@ const seedanceGlobalAIOPCModels = [
 
 const seedanceOpenVideoModels = ['sd2.0-933']
 const seedanceZhi168Models = ['sd2-933-25']
+const seedanceTianyueModels = ['B-SD2.0-933', 'B-SD2.0-F-933']
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels, ...seedanceGlobalAIOPCModels, ...seedanceOpenVideoModels, ...seedanceZhi168Models]
 
@@ -216,6 +217,7 @@ export function getSeedanceModelsByVideoProvider(provider: SeedanceVideoProvider
   if (provider === 'lensforge') return ['sd2.0-933-345']
   if (provider === 'openvideo') return [...seedanceOpenVideoModels]
   if (provider === 'zhi168') return [...seedanceZhi168Models]
+  if (provider === 'tianyue') return [...seedanceTianyueModels]
   return [...seedanceFFLinkModels]
 }
 

@@ -40,6 +40,7 @@ describe('CreateAccountModal video platform account types', () => {
     expect(source).toContain('value="huiqu"')
     expect(source).toContain('value="ximei"')
     expect(source).toContain('value="globalaiopc"')
+    expect(source).toContain('value="tianyue"')
     expect(source).toContain("const seedanceVideoProvider = ref<SeedanceVideoProvider>('fflink')")
     expect(source).toContain('credentials.video_provider = seedanceVideoProvider.value')
     expect(source).toContain('apiKeyBaseUrl.value = getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
@@ -48,12 +49,14 @@ describe('CreateAccountModal video platform account types', () => {
     expect(editSource).toContain("credentials?.video_provider === 'huiqu'")
     expect(editSource).toContain("credentials?.video_provider === 'ximei'")
     expect(editSource).toContain("credentials?.video_provider === 'globalaiopc'")
+    expect(editSource).toContain("credentials?.video_provider === 'tianyue'")
     expect(editSource).toContain('newCredentials.video_provider = seedanceVideoProvider.value')
     expect(editSource).toContain('getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)')
     expect(editSource).toContain('getMiniMaxVideoProviderBaseUrl')
     expect(providerSource).toContain("huiqu: 'https://api.bjhuiqu.net'")
     expect(providerSource).toContain("ximei: 'https://liantongyidong.ximeiedu.org'")
     expect(providerSource).toContain("globalaiopc: 'https://zcbservice.aizfw.cn/kyyReactApiServer'")
+    expect(providerSource).toContain("tianyue: 'http://192.220.23.225:3000'")
   })
 
   it('requires an explicit model mapping for every video account', () => {

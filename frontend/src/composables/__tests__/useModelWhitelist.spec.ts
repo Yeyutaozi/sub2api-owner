@@ -43,6 +43,8 @@ describe('useModelWhitelist', () => {
       'sd2.0-933',
       'sd2-933-25'
     ])
+    expect(getModelsByPlatform('seedance')).not.toContain('B-SD2.0-933')
+    expect(getModelsByPlatform('seedance')).not.toContain('B-SD2.0-F-933')
     expect(
       getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
     ).toEqual([
@@ -83,6 +85,10 @@ describe('useModelWhitelist', () => {
     ])
     expect(getSeedanceModelsByVideoProvider('openvideo')).toEqual(['sd2.0-933'])
     expect(getSeedanceModelsByVideoProvider('zhi168')).toEqual(['sd2-933-25'])
+    expect(getSeedanceModelsByVideoProvider('tianyue')).toEqual([
+      'B-SD2.0-933',
+      'B-SD2.0-F-933'
+    ])
     expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
     expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
     expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
@@ -97,6 +103,9 @@ describe('useModelWhitelist', () => {
     )
     expect(getSeedanceVideoProviderBaseUrl('zhi168')).toBe(
       'https://www.zhi168.it.com/api'
+    )
+    expect(getSeedanceVideoProviderBaseUrl('tianyue')).toBe(
+      'http://192.220.23.225:3000'
     )
   })
 

@@ -89,6 +89,15 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 					fmt.Sprintf("model %s must use the canonical dedicated Weijin mapping", requestedModel),
 				)
 			}
+			if provider == VideoProviderTianyue {
+				if !videoProviderSupportsModelForPlatform(platform, provider, upstreamModel) {
+					return infraerrors.BadRequest(
+						"VIDEO_PROVIDER_MODEL_MISMATCH",
+						fmt.Sprintf("model %s must map to a supported Tianyue model", requestedModel),
+					)
+				}
+				continue
+			}
 			if !videoProviderSupportsModelForPlatform(platform, provider, requestedModel) || !videoProviderSupportsModelForPlatform(platform, provider, upstreamModel) {
 				return infraerrors.BadRequest(
 					"VIDEO_PROVIDER_MODEL_MISMATCH",
@@ -96,6 +105,9 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 				)
 			}
 		}
+	}
+	if provider == VideoProviderTianyue && len(stringMappingFromRaw(credentials["model_mapping"])) == 0 {
+		return infraerrors.BadRequest("VIDEO_MODEL_MAPPING_REQUIRED", "Tianyue video accounts require an explicit model mapping")
 	}
 	if provider == VideoProviderFFLink {
 		mapping := stringMappingFromRaw(credentials["model_mapping"])
@@ -542,7 +554,7 @@ func ParseSeedanceCreateRequest(body []byte) (*SeedanceRequestInfo, error) {
 	if len(info.References) > 0 && (info.StartFrameURL != "" || info.EndFrameURL != "") && !isSeedanceMixedImageModel(info.Model) {
 		return nil, errors.New("reference images cannot be combined with first/last frames")
 	}
-	if err := validateFFLinkVideoRequestInfo(info); err != nil {
+	if err := validateFFLinkVideoRequestInfoIfKnown(info); err != nil {
 		return nil, err
 	}
 	return info, nil
@@ -653,7 +665,7 @@ func ParseSeedanceVideoGenerationRequest(body []byte) (*SeedanceRequestInfo, err
 		return nil, errors.New("a last-frame image requires a first-frame image")
 	}
 	// 首尾帧与参考图允许同时使用
-	if err := validateFFLinkVideoRequestInfo(info); err != nil {
+	if err := validateFFLinkVideoRequestInfoIfKnown(info); err != nil {
 		return nil, err
 	}
 	return info, nil
@@ -1609,6 +1621,9 @@ func (s *OpenAIGatewayService) forwardSeedance(
 	if provider == VideoProviderZhi168 {
 		return s.forwardZhi168Seedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
 	}
+	if provider == VideoProviderTianyue {
+		return s.forwardTianyueSeedance(ctx, c, account, method, taskID, requestInfo, contentRangeOverride)
+	}
 
 	method = strings.ToUpper(strings.TrimSpace(method))
 	path := seedanceUpstreamCreatePath
@@ -1933,7 +1948,7 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	if status, ok := job["status"].(string); ok {
 		job["status"] = MapSeedancePublicTaskStatus(status)
 	}
-	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge || provider == VideoProviderOpenVideo) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge || provider == VideoProviderOpenVideo || provider == VideoProviderTianyue) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
 		job["error"] = map[string]any{"message": "Video generation failed"}
 	}
 	synthesizeHuiquResult := func() {
@@ -2204,7 +2219,7 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 		response["content"] = map[string]any{"video_url": strings.TrimSpace(contentURL)}
 	}
 	if internalStatus == SeedanceTaskStatusFailed {
-		if provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC {
+		if provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderTianyue {
 			response["error"] = map[string]any{"message": "Video generation failed"}
 			return response, nil
 		}

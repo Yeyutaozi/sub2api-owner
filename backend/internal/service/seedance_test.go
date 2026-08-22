@@ -25,6 +25,7 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		"seedance-2.0-mini",
 		"seedance-2.5",
 		"sd-2.5-ff",
+		SeedanceArtSD20Model,
 		SeedanceZhi168Model,
 		SeedanceMX933Model,
 		SeedanceMX933FastModel,
@@ -36,6 +37,8 @@ func TestSeedanceDefaultModelsUseFFLinkIDs(t *testing.T) {
 		SeedanceWeijin900Model,
 		SeedanceOpenVideoModel,
 	}, defaultModelsListCandidateIDs(PlatformSeedance))
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformSeedance), SeedanceTianyueSD20Model)
+	require.NotContains(t, defaultModelsListCandidateIDs(PlatformSeedance), SeedanceTianyueSD20FastModel)
 	require.Equal(t, []string{SeedanceMiniMaxH3Model}, defaultModelsListCandidateIDs(PlatformMiniMax))
 }
 

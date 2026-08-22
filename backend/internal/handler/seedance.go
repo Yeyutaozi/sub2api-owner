@@ -77,7 +77,8 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if err := service.ValidateFFLinkVideoModelPlatform(apiKey.Group.Platform, requestInfo.Model); err != nil {
+	if err := service.ValidateFFLinkVideoModelPlatform(apiKey.Group.Platform, requestInfo.Model); err != nil &&
+		!service.GroupAllowsVideoModelExposure(apiKey.Group, requestInfo.Model) {
 		seedanceError(c, http.StatusBadRequest, "model_not_supported", err.Error())
 		return
 	}
@@ -200,6 +201,13 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		}
 
 		account := selection.Account
+		if err := service.ValidateSeedanceRequestForAccount(account, activeRequestInfo); err != nil {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			seedanceError(c, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		// The scheduler already filtered by platform/model capability. Do not
 		// restrict fallback to Huiqu: Ximei, Weijin, GlobalAiOpc and other
 		// Seedance video API-key providers are valid fallback accounts too.
@@ -269,6 +277,27 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			}
 			if zhi168Media != nil {
 				zhi168Media.Retain()
+				if updatedCleanup, snapErr := service.SnapshotSeedanceTaskMediaCleanup(activeRequestInfo); snapErr == nil {
+					mediaCleanupSnapshot = updatedCleanup
+				}
+			}
+		}
+		if account.IsTianyueVideo() && activeRequestInfo.HasReferenceMedia() && h.seedanceMediaService != nil {
+			tianyueMedia, prepErr := h.seedanceMediaService.PrepareLingdongPublicMedia(
+				c.Request.Context(),
+				seedanceMediaOwner(apiKey, subject),
+				activeRequestInfo,
+				seedanceAbsoluteURL(c, ""),
+			)
+			if prepErr != nil {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				writeSeedanceMediaError(c, prepErr)
+				return
+			}
+			if tianyueMedia != nil {
+				tianyueMedia.Retain()
 				if updatedCleanup, snapErr := service.SnapshotSeedanceTaskMediaCleanup(activeRequestInfo); snapErr == nil {
 					mediaCleanupSnapshot = updatedCleanup
 				}

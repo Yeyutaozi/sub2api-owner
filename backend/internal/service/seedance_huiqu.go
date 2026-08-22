@@ -231,7 +231,14 @@ func normalizeVideoProvider(platform, provider string) (string, error) {
 		}
 		return provider, nil
 	case VideoProviderZhi168:
-		if platform != PlatformSeedance { return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider) }
+		if platform != PlatformSeedance {
+			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
+		}
+		return provider, nil
+	case VideoProviderTianyue:
+		if platform != PlatformSeedance {
+			return "", fmt.Errorf("video provider %s is only supported by the seedance platform", provider)
+		}
 		return provider, nil
 	default:
 		return "", fmt.Errorf("unsupported video provider: %s", provider)
@@ -282,6 +289,8 @@ func videoProviderSupportsModelForPlatform(platform, provider, model string) boo
 		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceOpenVideoModel)
 	case VideoProviderZhi168:
 		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceZhi168Model)
+	case VideoProviderTianyue:
+		return (platform == PlatformSeedance || platform == "") && isTianyueVideoModel(model)
 	default: // fflink and future non-opaque providers
 		if platform == PlatformMiniMax {
 			return false

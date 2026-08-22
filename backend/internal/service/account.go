@@ -831,7 +831,15 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsFFLinkVideo() {
 		provider := a.GetVideoProvider()
-		if provider == "" || !videoProviderSupportsModelForPlatform(a.Platform, provider, requestedModel) {
+		providerModel := requestedModel
+		if provider == VideoProviderTianyue {
+			var matched bool
+			providerModel, matched = a.ResolveMappedModel(requestedModel)
+			if !matched {
+				return false
+			}
+		}
+		if provider == "" || !videoProviderSupportsModelForPlatform(a.Platform, provider, providerModel) {
 			return false
 		}
 	}
@@ -1490,6 +1498,9 @@ func (a *Account) GetSeedanceBaseURL() string {
 	}
 	if a.IsZhi168Video() {
 		return DefaultZhi168VideoBaseURL
+	}
+	if a.IsTianyueVideo() {
+		return DefaultTianyueVideoBaseURL
 	}
 	return DefaultSeedanceBaseURL
 }
