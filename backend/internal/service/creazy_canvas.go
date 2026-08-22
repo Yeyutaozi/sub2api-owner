@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1838,7 +1839,31 @@ func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
 		return out
 	}
 
+	platformIDSet := make(map[string]struct{}, len(platformIDs))
+	for _, id := range platformIDs {
+		platformIDSet[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+	}
 	allowed := make(map[string]struct{}, len(group.VideoModelPrices))
+	extraIDs := make(map[string]string)
+	allowCandidate := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || isLegacyHuiquVariableDurationModel(candidate) {
+			return
+		}
+		candidate = PublicSeedanceModelID(candidate)
+		if canonical, ok := canonicalTianyueVideoModel(candidate); ok {
+			candidate = canonical
+		}
+		profile, ok := ffLinkVideoModelProfileFor(candidate)
+		if !ok || profile.Platform != group.Platform {
+			return
+		}
+		normalized := strings.ToLower(strings.TrimSpace(candidate))
+		allowed[normalized] = struct{}{}
+		if _, isDefault := platformIDSet[normalized]; !isDefault {
+			extraIDs[normalized] = candidate
+		}
+	}
 	for configured := range group.VideoModelPrices {
 		configured = strings.TrimSpace(configured)
 		if configured == "" {
@@ -1851,21 +1876,7 @@ func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
 			candidates = append(candidates, seedanceModelLookupCandidates(configured)...)
 		}
 		for _, candidate := range candidates {
-			profile, ok := ffLinkVideoModelProfileFor(candidate)
-			if !ok || profile.Platform != group.Platform {
-				continue
-			}
-			// Never surface internal legacy variable-duration IDs in the catalog.
-			if isLegacyHuiquVariableDurationModel(candidate) {
-				continue
-			}
-			allowed[strings.ToLower(strings.TrimSpace(candidate))] = struct{}{}
-			// Also allow the public ID when the matrix key is a duration-encoded alias.
-			if public := PublicSeedanceModelID(candidate); public != "" {
-				if p, ok := ffLinkVideoModelProfileFor(public); ok && p.Platform == group.Platform && !isLegacyHuiquVariableDurationModel(public) {
-					allowed[strings.ToLower(strings.TrimSpace(public))] = struct{}{}
-				}
-			}
+			allowCandidate(candidate)
 		}
 	}
 
@@ -1874,6 +1885,14 @@ func creazyCanvasVideoModelIDsForGroup(group *Group) []string {
 		if _, ok := allowed[strings.ToLower(strings.TrimSpace(id))]; ok {
 			out = append(out, id)
 		}
+	}
+	extraKeys := make([]string, 0, len(extraIDs))
+	for normalized := range extraIDs {
+		extraKeys = append(extraKeys, normalized)
+	}
+	sort.Strings(extraKeys)
+	for _, normalized := range extraKeys {
+		out = append(out, extraIDs[normalized])
 	}
 	return out
 }

@@ -410,6 +410,55 @@ func TestCreazyCanvasCatalogFiltersByVideoModelPrices(t *testing.T) {
 	require.Equal(t, "seedance-2.0-mini", catalog.VideoModels[0].ID)
 }
 
+func TestCreazyCanvasCatalogIncludesExplicitTianyueModels(t *testing.T) {
+	groupID := int64(35)
+	standardPrice := 5.5
+	fastPrice := 4.0
+	group := &Group{
+		ID:                groupID,
+		Name:              "seedance-tianyue",
+		Platform:          PlatformSeedance,
+		AllowCreazyCanvas: true,
+		VideoBillingUnit:  VideoBillingUnitPerSecond,
+		VideoModelPrices: VideoModelPrices{
+			strings.ToLower(SeedanceTianyueSD20Model): {
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &standardPrice,
+			},
+			strings.ToLower(SeedanceTianyueSD20FastModel): {
+				BillingUnit: VideoBillingUnitPerRequest,
+				Price720P:   &fastPrice,
+			},
+		},
+	}
+	keys := map[int64]*APIKey{
+		43: {ID: 43, UserID: 7, Status: StatusAPIKeyActive, GroupID: &groupID, Group: group},
+	}
+	svc := NewCreazyCanvasService(newCreazyCanvasWorkRepoStub(), &creazyCanvasAPIKeyStub{keys: keys}, nil, nil)
+
+	catalog, err := svc.Catalog(context.Background(), 7, 43)
+	require.NoError(t, err)
+	require.Len(t, catalog.VideoModels, 2)
+
+	models := make(map[string]CreazyCanvasVideoModel, len(catalog.VideoModels))
+	for _, model := range catalog.VideoModels {
+		models[model.ID] = model
+	}
+	for modelID, expectedPrice := range map[string]float64{
+		SeedanceTianyueSD20Model:     standardPrice,
+		SeedanceTianyueSD20FastModel: fastPrice,
+	} {
+		model, ok := models[modelID]
+		require.True(t, ok, "Tianyue model casing must be canonical")
+		require.Equal(t, []int{15}, model.AllowedDurations)
+		require.Equal(t, []string{VideoBillingResolution720P}, model.AllowedResolutions)
+		require.Equal(t, VideoBillingUnitPerRequest, model.BillingUnit)
+		require.Equal(t, 12, model.MaxTotalMedia)
+		require.NotNil(t, model.Prices[VideoBillingResolution720P])
+		require.InDelta(t, expectedPrice, *model.Prices[VideoBillingResolution720P], 1e-12)
+	}
+}
+
 func TestCreazyCanvasCatalogUsesUserVideoPriceWithoutChangingBillingUnit(t *testing.T) {
 	groupID := int64(34)
 	groupPrice := 0.05
