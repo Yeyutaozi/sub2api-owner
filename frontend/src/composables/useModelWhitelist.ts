@@ -205,7 +205,7 @@ const seedanceGlobalAIOPCModels = [
 
 const seedanceOpenVideoModels = ['sd2.0-933']
 const seedanceZhi168Models = ['sd2-933-25']
-const seedanceTianyueModels = ['B-SD2.0-933', 'B-SD2.0-F-933']
+const seedanceTianyueModels = ['L-SD2-F-720-933', 'L-stable-seedance-2-0-933-720p']
 
 const seedanceModels = [...seedanceFFLinkModels, ...seedanceHuiquModels, ...seedanceXimeiModels, ...seedanceWeijinModels, ...seedanceGlobalAIOPCModels, ...seedanceOpenVideoModels, ...seedanceZhi168Models]
 

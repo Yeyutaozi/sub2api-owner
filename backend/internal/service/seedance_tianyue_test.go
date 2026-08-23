@@ -32,7 +32,7 @@ func TestTianyueAccountSupportsCustomPublicModelMapping(t *testing.T) {
 
 func TestParseTianyueCanonicalModelPreservesPublicCasing(t *testing.T) {
 	info, err := ParseSeedanceVideoGenerationRequest([]byte(`{
-		"model":"b-sd2.0-f-933",
+		"model":"l-stable-seedance-2-0-933-720p",
 		"prompt":"cinematic portrait",
 		"resolution":"720p",
 		"duration":15
@@ -86,7 +86,7 @@ func TestBuildTianyueVideoCreateRequestUsesPerRequestBillingDuration(t *testing.
 		References:      []SeedanceReferenceImage{{URL: "https://example.com/reference.jpg"}},
 		AudioReferences: []SeedanceReferenceAudio{{URL: "https://example.com/reference.mp3"}},
 		VideoReferences: []SeedanceReferenceVideo{{URL: "https://example.com/reference.mp4"}},
-	}, "b-sd2.0-f-933")
+	}, "l-stable-seedance-2-0-933-720p")
 	require.NoError(t, err)
 
 	var request tianyueVideoCreateRequest
@@ -155,7 +155,7 @@ func TestParseTianyueTaskResult(t *testing.T) {
 
 func TestNormalizeTianyueTaskHidesUpstreamDetails(t *testing.T) {
 	body, err := NormalizeSeedanceJobForRoute(
-		[]byte(`{"id":"upstream-task","status":"completed","model":"B-SD2.0-933","video_url":"https://cdn.example.com/video.mp4"}`),
+		[]byte(`{"id":"upstream-task","status":"completed","model":"L-SD2-F-720-933","video_url":"https://cdn.example.com/video.mp4"}`),
 		"vidjob_public", VideoProviderTianyue, "my-video",
 	)
 	require.NoError(t, err)
