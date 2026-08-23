@@ -122,6 +122,11 @@
         </div>
       </header>
 
+      <div class="cc-retention-notice" role="note">
+        <Icon name="clock" size="sm" aria-hidden="true" />
+        <span>{{ t('creazyCanvas.retentionNotice') }}</span>
+      </div>
+
       <CreazyWorkflowCanvas
         v-if="activeTab === 'workflow'"
         :api-key-id="selectedKeyId"
@@ -6286,6 +6291,28 @@ onBeforeUnmount(() => {
 }
 .cc-shell--workspace::before {
   display: none;
+}
+
+.cc-retention-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0.42rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--cc-warn) 28%, var(--cc-line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cc-warn-soft) 72%, var(--cc-surface));
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.cc-shell--workspace > .cc-retention-notice {
+  margin: 6px 10px 0;
+}
+:global(.dark) .cc-retention-notice {
+  color: #fde68a;
+  background: color-mix(in srgb, #78350f 32%, var(--cc-surface));
 }
 
 .cc-workspace-nav {

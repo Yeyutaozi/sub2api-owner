@@ -4,6 +4,7 @@ export default {
     title: 'Creazy 画布',
     heroTagline: '选 Key，生成，归档',
     subtitle: '选择分组 API Key，直接生图 / 生视频；结果只显示当前 Key，并沉淀到作品库。',
+    retentionNotice: '作品仅在本地保留 24 小时，请及时下载。',
     tabs: {
       workflow: '工作流',
       image: '生图',

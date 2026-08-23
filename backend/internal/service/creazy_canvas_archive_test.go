@@ -10,6 +10,8 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,7 @@ func (f creazyCanvasArchiveRoundTripFunc) RoundTrip(req *http.Request) (*http.Re
 }
 
 type creazyCanvasArchiveStore struct {
+	provider       string
 	putErr         error
 	putCalls       int
 	putKey         string
@@ -35,8 +38,18 @@ type creazyCanvasArchiveStore struct {
 }
 
 func (s *creazyCanvasArchiveStore) IsConfigured() bool { return true }
-func (s *creazyCanvasArchiveStore) Provider() string   { return "cos" }
-func (s *creazyCanvasArchiveStore) Bucket() string     { return "canvas-bucket" }
+func (s *creazyCanvasArchiveStore) Provider() string {
+	if s.provider != "" {
+		return s.provider
+	}
+	return "cos"
+}
+func (s *creazyCanvasArchiveStore) Bucket() string {
+	if s.Provider() == "local" {
+		return "local-media"
+	}
+	return "canvas-bucket"
+}
 
 func (s *creazyCanvasArchiveStore) Put(_ context.Context, input AgentArtifactStorePutInput) (*AgentArtifactStorePutResult, error) {
 	s.putCalls++
@@ -59,12 +72,101 @@ func (s *creazyCanvasArchiveStore) Put(_ context.Context, input AgentArtifactSto
 		objectURL = "https://canvas-bucket.example.com/tenant/creazy-canvas/7/video/1/result.mp4"
 	}
 	return &AgentArtifactStorePutResult{
-		Provider:  "cos",
-		Bucket:    "canvas-bucket",
+		Provider:  s.Provider(),
+		Bucket:    s.Bucket(),
 		ObjectKey: objectKey,
 		ObjectURL: objectURL,
 		SizeBytes: int64(len(payload)),
 	}, nil
+}
+
+func TestCreazyCanvasVideoArchiveFollowsRedirectedDownload(t *testing.T) {
+	payload := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'm', 'p', '4', '2', 'd', 'a', 't', 'a'}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://cdn.example.com/result.mp4")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	store := &creazyCanvasArchiveStore{provider: "local"}
+	svc := newCreazyCanvasPlaybackTestService(t, upstream.URL)
+	svc.artifactStore = store
+	svc.mediaHTTPClient.Transport = creazyCanvasArchiveRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, "cdn.example.com", req.URL.Hostname())
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{"video/mp4"}},
+			Body:          io.NopCloser(bytes.NewReader(payload)),
+			ContentLength: int64(len(payload)),
+			Request:       req,
+		}, nil
+	})
+
+	playback, err := svc.GetPlaybackURL(context.Background(), 7, 41)
+	require.NoError(t, err)
+	require.Equal(t, "object", playback.Source)
+	require.Equal(t, payload, store.putBody)
+	require.Equal(t, 1, store.putCalls)
+}
+
+func TestCreazyCanvasVideoArchiveRetriesTransientGatewayFailure(t *testing.T) {
+	payload := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"busy"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	defer upstream.Close()
+
+	store := &creazyCanvasArchiveStore{provider: "local"}
+	svc := newCreazyCanvasPlaybackTestService(t, upstream.URL)
+	svc.artifactStore = store
+	playback, err := svc.GetPlaybackURL(context.Background(), 7, 41)
+	require.NoError(t, err)
+	require.Equal(t, "object", playback.Source)
+	require.Equal(t, 2, requests)
+	require.Equal(t, 1, store.putCalls)
+}
+
+func TestCreazyCanvasPlaybackFallsBackWhenLocalArchiveFails(t *testing.T) {
+	payload := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write(payload)
+	}))
+	defer upstream.Close()
+
+	svc := newCreazyCanvasPlaybackTestService(t, upstream.URL)
+	svc.artifactStore = &creazyCanvasArchiveStore{provider: "local", putErr: errors.New("no space left on device")}
+	playback, err := svc.GetPlaybackURL(context.Background(), 7, 41)
+	require.NoError(t, err)
+	require.Equal(t, "playback", playback.Source)
+	require.Contains(t, playback.URL, "/creazy-canvas/works/41/playback")
+}
+
+func TestCreazyCanvasCleanupExpiredLocalContent(t *testing.T) {
+	repo := newCreazyCanvasWorkRepoStub()
+	repo.works[41] = &CreazyCanvasWork{
+		ID: 41, UserID: 7, Status: CreazyCanvasWorkStatusSucceeded,
+		ObjectKey: "media/creazy-canvas/7/video/41/result.mp4", StorageProvider: "local", Bucket: "local-media",
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}
+	store := &creazyCanvasArchiveStore{provider: "local"}
+	svc := NewCreazyCanvasService(repo, &creazyCanvasAPIKeyStub{}, store, nil)
+	svc.cleanupExpiredLocalContent(context.Background())
+
+	require.Equal(t, 1, store.deleteCalls)
+	require.Equal(t, CreazyCanvasWorkStatusExpired, repo.works[41].Status)
+	require.Empty(t, repo.works[41].ObjectKey)
+	require.Zero(t, repo.works[41].SizeBytes)
 }
 
 func (s *creazyCanvasArchiveStore) PresignGet(context.Context, string, time.Duration) (string, error) {

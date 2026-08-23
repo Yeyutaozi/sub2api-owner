@@ -930,7 +930,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(ModelProxyGatewayCaller), new(*AgentModelProxyGatewayCaller)),
 	ProvideAgentRunService,
 	wire.Bind(new(CreazyCanvasAPIKeyService), new(*APIKeyService)),
-	NewCreazyCanvasService,
+	ProvideCreazyCanvasService,
 )
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
@@ -951,6 +951,17 @@ func ProvideAgentRunService(
 	redisClient *redis.Client,
 ) *AgentRunService {
 	return NewAgentRunService(appRepo, workerHostRepo, runRepo, apiKeyService, modelProxy, artifactStore, cfg, redisClient)
+}
+
+func ProvideCreazyCanvasService(
+	workRepo CreazyCanvasWorkRepository,
+	apiKeyService CreazyCanvasAPIKeyService,
+	artifactStore AgentArtifactStore,
+	cfg *config.Config,
+) *CreazyCanvasService {
+	svc := NewCreazyCanvasService(workRepo, apiKeyService, artifactStore, cfg)
+	svc.Start()
+	return svc
 }
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named

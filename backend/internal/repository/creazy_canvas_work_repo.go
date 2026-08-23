@@ -348,6 +348,59 @@ func (r *creazyCanvasWorkRepository) UpdateContentMeta(ctx context.Context, work
 	return nil
 }
 
+func (r *creazyCanvasWorkRepository) ListExpiredLocalContent(ctx context.Context, before time.Time, limit int) ([]service.CreazyCanvasWork, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, creazyCanvasWorkSelectSQL()+`
+		WHERE expires_at <= $1
+		  AND object_key <> ''
+		  AND COALESCE(storage_provider, '') IN ('', 'local')
+		ORDER BY expires_at ASC, id ASC
+		LIMIT $2
+	`, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	works := make([]service.CreazyCanvasWork, 0)
+	for rows.Next() {
+		work, err := scanCreazyCanvasWork(rows)
+		if err != nil {
+			return nil, err
+		}
+		works = append(works, *work)
+	}
+	return works, rows.Err()
+}
+
+func (r *creazyCanvasWorkRepository) MarkLocalContentExpired(ctx context.Context, id, userID int64, objectKey string) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE creazy_canvas_works
+		SET object_key = '',
+		    storage_provider = '',
+		    bucket = '',
+		    object_url = '',
+		    preview_url = '',
+		    mime_type = '',
+		    size_bytes = 0,
+		    status = 'expired',
+		    updated_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND object_key = $3 AND expires_at <= NOW()
+	`, id, userID, strings.TrimSpace(objectKey))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("expired canvas work %d content metadata was not updated", id)
+	}
+	return nil
+}
+
 func creazyCanvasWorkSelectSQL() string {
 	return `
 		SELECT id, user_id, api_key_id, group_id, kind, public_model, status, prompt, params_json,
