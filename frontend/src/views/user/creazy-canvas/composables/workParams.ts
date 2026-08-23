@@ -6,7 +6,14 @@ export function isReusableMediaUrl(url: unknown): url is string {
   const u = String(url || '').trim()
   if (!u) return false
   if (u.startsWith('blob:') || u.startsWith('data:')) return false
-  return /^https?:\/\//i.test(u) || u.startsWith('/')
+  if (!/^https?:\/\//i.test(u) && !u.startsWith('/')) return false
+  try {
+    const parsed = new URL(u, 'https://canvas.invalid')
+    if (parsed.pathname.startsWith('/v1/videos/public-media/')) return false
+  } catch {
+    return false
+  }
+  return true
 }
 
 export function sanitizeReusableUrlList(urls: unknown): string[] {

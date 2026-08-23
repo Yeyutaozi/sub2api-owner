@@ -610,7 +610,7 @@ func (s *CreazyCanvasService) SyncAcceptedVideoWork(ctx context.Context, input S
 	if input.AssociatedWorkID > 0 {
 		associated, err := s.workRepo.GetByIDForUser(ctx, input.AssociatedWorkID, input.UserID)
 		if err == nil && creazyCanvasAcceptedVideoAssociationMatches(associated, input.APIKey.ID, remoteID) {
-			input.ParamsJSON = mergeCreazyCanvasWorkParams(associated.ParamsJSON, input.ParamsJSON)
+			input.ParamsJSON = mergeAcceptedCreazyCanvasWorkParams(associated.ParamsJSON, input.ParamsJSON)
 			input.ParamsJSON["source"] = "canvas"
 			return s.updateAcceptedVideoWork(ctx, associated, input)
 		}
@@ -681,6 +681,53 @@ func mergeCreazyCanvasWorkParams(base, overlay map[string]any) map[string]any {
 		merged[key] = value
 	}
 	return merged
+}
+
+var creazyCanvasVideoMediaParamGroups = [][]string{
+	{"start_frame", "start_frame_url", "first_frame"},
+	{"end_frame", "end_frame_url", "last_frame"},
+	{"ref_images", "reference_images", "image_refs"},
+	{"ref_videos", "reference_videos"},
+	{"ref_audios", "reference_audios"},
+}
+
+// Accepted gateway params may contain short-lived materialized media URLs.
+// Keep the canvas-owned originals so a later "reuse" can still load them.
+func mergeAcceptedCreazyCanvasWorkParams(base, overlay map[string]any) map[string]any {
+	merged := mergeCreazyCanvasWorkParams(base, overlay)
+	for _, aliases := range creazyCanvasVideoMediaParamGroups {
+		preserved := make(map[string]any, len(aliases))
+		for _, key := range aliases {
+			if value, ok := base[key]; ok && creazyCanvasMediaParamPresent(value) {
+				preserved[key] = value
+			}
+		}
+		if len(preserved) == 0 {
+			continue
+		}
+		for _, key := range aliases {
+			delete(merged, key)
+		}
+		for key, value := range preserved {
+			merged[key] = value
+		}
+	}
+	return merged
+}
+
+func creazyCanvasMediaParamPresent(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []string:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	default:
+		return true
+	}
 }
 
 func (s *CreazyCanvasService) updateAcceptedVideoWork(ctx context.Context, work *CreazyCanvasWork, input SyncAcceptedCreazyCanvasVideoInput) (*CreazyCanvasWork, error) {
