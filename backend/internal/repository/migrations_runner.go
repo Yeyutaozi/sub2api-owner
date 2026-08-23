@@ -93,8 +93,13 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	// platforms. Accept every previously published destructive variant for
 	// databases that already recorded one of them.
 	"220_clear_non_grok_video_generation_config.sql": newMigrationChecksumCompatibilityRule("531494f6b1086b76ef398cf9bc9a088e2d094811b0fd020f5098f3e0a995c898", "3da48c8fdffe6390325f43d08b8e353e0a365df43d44a78dbbe655d0deb18402", "85e320b9ec64f2d3fcd8cf705b2b4e76a7b49f7a57140c14bff97f32691c818b", "cf4dbfa75ac27d93a30a6a14439fe7dccfc911c043358363d5ec47946aa0e28b"),
-	"219_group_search_price_per_1k.sql":              newMigrationChecksumCompatibilityRule("e86786ebcc3b14206fd2d321380a4e50e80cdadbfcf4962c639255e6a14008db", "df6ffd71b97e30ec2c8fe7b95e15783042dea58c553e32701ee7c42a5619af80"),
-	"218_group_audio_voice_pricing.sql":              newMigrationChecksumCompatibilityRule("40ee9f3a2af0e0a5e99dabc878fd0fe98be1011f26bcfcefcac7197f7081f0e7", "c2a5e5b4ffd6968ad1c10593289fbc11192cdea19fec3ed9bce3a84eff9a8351"),
+	// 224/227 originally rebuilt their CHECK constraints from the upstream-only
+	// platform list, narrowing constraints that owner-edition migrations had
+	// already expanded. The corrected files preserve the complete platform union.
+	"224_user_platform_quotas_add_cn_providers.sql": newMigrationChecksumCompatibilityRule("61ab89f5bec7228056c3342f7182b61bee9043019e188527acc6bc45e28b7159", "5227db3c1a6a1e2e422a9f9ba9d1f490c708b6c6dd91ce89f3c48115421a3e55"),
+	"227_composite_routes_add_cn_providers.sql":     newMigrationChecksumCompatibilityRule("76ce28db9bec78661d4c3104b44cf0774df7511770dccacbcdc46cf8dac300da", "ff6e3323b4bcb195a4f11bfa9b1b22286e77169f551b5c4294ab3d31828d8ff8"),
+	"219_group_search_price_per_1k.sql":             newMigrationChecksumCompatibilityRule("e86786ebcc3b14206fd2d321380a4e50e80cdadbfcf4962c639255e6a14008db", "df6ffd71b97e30ec2c8fe7b95e15783042dea58c553e32701ee7c42a5619af80"),
+	"218_group_audio_voice_pricing.sql":             newMigrationChecksumCompatibilityRule("40ee9f3a2af0e0a5e99dabc878fd0fe98be1011f26bcfcefcac7197f7081f0e7", "c2a5e5b4ffd6968ad1c10593289fbc11192cdea19fec3ed9bce3a84eff9a8351"),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。

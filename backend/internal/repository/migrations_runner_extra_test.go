@@ -113,18 +113,26 @@ func TestMigrationChecksumCompatibilityRules_CoverEditedUpgradeCompatibilityMigr
 	}
 }
 
-func TestMigration220ChecksumRuleMatchesEmbeddedNoOp(t *testing.T) {
-	const name = "220_clear_non_grok_video_generation_config.sql"
+func TestEditedMigrationChecksumRulesMatchEmbeddedFiles(t *testing.T) {
+	tests := map[string]string{
+		"220_clear_non_grok_video_generation_config.sql": "cf4dbfa75ac27d93a30a6a14439fe7dccfc911c043358363d5ec47946aa0e28b",
+		"224_user_platform_quotas_add_cn_providers.sql":  "5227db3c1a6a1e2e422a9f9ba9d1f490c708b6c6dd91ce89f3c48115421a3e55",
+		"227_composite_routes_add_cn_providers.sql":      "ff6e3323b4bcb195a4f11bfa9b1b22286e77169f551b5c4294ab3d31828d8ff8",
+	}
 
-	content, err := migrations.FS.ReadFile(name)
-	require.NoError(t, err)
-	digest := sha256.Sum256([]byte(strings.TrimSpace(string(content))))
-	checksum := hex.EncodeToString(digest[:])
+	for name, previousChecksum := range tests {
+		t.Run(name, func(t *testing.T) {
+			content, err := migrations.FS.ReadFile(name)
+			require.NoError(t, err)
+			digest := sha256.Sum256([]byte(strings.TrimSpace(string(content))))
+			checksum := hex.EncodeToString(digest[:])
 
-	rule, ok := migrationChecksumCompatibilityRules[name]
-	require.True(t, ok)
-	require.Equal(t, checksum, rule.fileChecksum)
-	require.Contains(t, rule.acceptedDBChecksum, "cf4dbfa75ac27d93a30a6a14439fe7dccfc911c043358363d5ec47946aa0e28b")
+			rule, ok := migrationChecksumCompatibilityRules[name]
+			require.True(t, ok)
+			require.Equal(t, checksum, rule.fileChecksum)
+			require.Contains(t, rule.acceptedDBChecksum, previousChecksum)
+		})
+	}
 }
 
 func TestEnsureAtlasBaselineAligned(t *testing.T) {
