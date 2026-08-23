@@ -789,9 +789,20 @@ func (s *SeedanceMediaService) seedanceObjectLocationFromOwnURL(owner SeedanceMe
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return AgentArtifactObjectLocation{}, false
 	}
-	objectKey, err := url.PathUnescape(parsed.EscapedPath())
-	if err != nil {
-		return AgentArtifactObjectLocation{}, false
+	provider := strings.TrimSpace(s.store.Provider())
+	objectKey := ""
+	if provider == "local" && strings.HasSuffix(strings.ToLower(strings.TrimRight(parsed.Path, "/")), "/local-media") {
+		encodedKey := strings.TrimSpace(parsed.Query().Get("key"))
+		decodedKey, decodeErr := base64.RawURLEncoding.DecodeString(encodedKey)
+		if decodeErr != nil {
+			return AgentArtifactObjectLocation{}, false
+		}
+		objectKey = filepath.ToSlash(string(decodedKey))
+	} else {
+		objectKey, err = url.PathUnescape(parsed.EscapedPath())
+		if err != nil {
+			return AgentArtifactObjectLocation{}, false
+		}
 	}
 	objectKey = strings.TrimLeft(objectKey, "/")
 	bucket := strings.TrimSpace(s.store.Bucket())
@@ -803,7 +814,7 @@ func (s *SeedanceMediaService) seedanceObjectLocationFromOwnURL(owner SeedanceMe
 		return AgentArtifactObjectLocation{}, false
 	}
 	return AgentArtifactObjectLocation{
-		StorageProvider: strings.TrimSpace(s.store.Provider()),
+		StorageProvider: provider,
 		Bucket:          bucket,
 		ObjectKey:       objectKey,
 	}, true

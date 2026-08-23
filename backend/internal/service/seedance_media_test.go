@@ -441,6 +441,45 @@ func TestSeedanceMaterializeImagesResignsOwnPersistentUploadURL(t *testing.T) {
 	require.Len(t, store.puts, 0)
 }
 
+func TestSeedanceMaterializeImagesResignsOwnLocalMediaURLWithoutHTTPFetch(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	store.provider = "local"
+	store.bucket = "local-media"
+	store.presignURL = "https://gateway.example.com/api/v1/local-media?key=fresh&expires=1893456000&signature=fresh"
+	service := NewSeedanceMediaService(store, nil, nil)
+	fetchCalls := 0
+	service.httpClient = &http.Client{Transport: seedanceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		fetchCalls++
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("not found")),
+			Request:    request,
+		}, nil
+	})}
+
+	owner := seedanceMediaTestOwner()
+	objectKey := "media/seedance/inputs/staged/101/202/sdupl_local.png"
+	encodedKey := base64.RawURLEncoding.EncodeToString([]byte(objectKey))
+	source := "https://gateway.example.com/api/v1/local-media?key=" + encodedKey + "&expires=1893456000&signature=old"
+	info := &SeedanceRequestInfo{Model: SeedanceTianyueSD20FastModel, References: []SeedanceReferenceImage{{URL: source}}}
+	otherOwner := owner
+	otherOwner.UserID++
+	_, belongsToOtherOwner := service.seedanceObjectLocationFromOwnURL(otherOwner, source)
+	require.False(t, belongsToOtherOwner)
+
+	materialized, err := service.MaterializeImages(context.Background(), owner, info)
+	require.NoError(t, err)
+	require.NotNil(t, materialized)
+	require.Zero(t, fetchCalls, "own local-media URLs must be resolved from storage instead of fetched over HTTP")
+	require.Equal(t, store.presignURL, info.References[0].URL)
+	require.Equal(t, []SeedanceStoredMediaReference{{
+		Slot: seedanceStoredMediaImage, StorageProvider: "local", Bucket: "local-media", ObjectKey: objectKey,
+	}}, info.StoredMedia)
+	require.Empty(t, materialized.objects)
+	require.Empty(t, store.puts)
+}
+
 func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSignatures(t *testing.T) {
 	store := newSeedanceMediaMemoryStore()
 	service := NewSeedanceMediaService(store, nil, nil)

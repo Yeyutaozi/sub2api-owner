@@ -282,27 +282,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				}
 			}
 		}
-		if account.IsTianyueVideo() && activeRequestInfo.HasReferenceMedia() && h.seedanceMediaService != nil {
-			tianyueMedia, prepErr := h.seedanceMediaService.PrepareLingdongPublicMedia(
-				c.Request.Context(),
-				seedanceMediaOwner(apiKey, subject),
-				activeRequestInfo,
-				seedanceAbsoluteURL(c, ""),
-			)
-			if prepErr != nil {
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-				}
-				writeSeedanceMediaError(c, prepErr)
-				return
-			}
-			if tianyueMedia != nil {
-				tianyueMedia.Retain()
-				if updatedCleanup, snapErr := service.SnapshotSeedanceTaskMediaCleanup(activeRequestInfo); snapErr == nil {
-					mediaCleanupSnapshot = updatedCleanup
-				}
-			}
-		}
+		// Tianyue fetches the signed HTTP(S) media URLs produced by materialization
+		// directly. Rehosting them through the Lingdong path can turn local uploads
+		// into gateway token URLs that are not backed by the same service instance.
 		accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
 		if !accountAcquired {
 			return

@@ -99,6 +99,19 @@ func TestBuildTianyueVideoCreateRequestUsesPerRequestBillingDuration(t *testing.
 	require.Equal(t, []string{"https://example.com/reference.mp4"}, request.VideoURLs)
 }
 
+func TestBuildTianyueVideoCreateRequestPreservesSignedCanvasMediaURL(t *testing.T) {
+	mediaURL := "https://gateway.example.com/api/v1/local-media?key=canvas-image&expires=1893456000&signature=test-signature"
+	body, err := buildTianyueVideoCreateRequest(&SeedanceRequestInfo{
+		Prompt: "animate the reference", DurationSeconds: 15, AspectRatio: "16:9", Resolution: VideoBillingResolution720P,
+		References: []SeedanceReferenceImage{{URL: mediaURL}},
+	}, SeedanceTianyueSD20FastModel)
+	require.NoError(t, err)
+
+	var request tianyueVideoCreateRequest
+	require.NoError(t, json.Unmarshal(body, &request))
+	require.Equal(t, []string{mediaURL}, request.ImageURLs)
+}
+
 func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	upstream := &seedanceHTTPUpstreamStub{body: `{"id":"task_123","task_id":"task_123","status":"queued"}`}
 	cfg := &config.Config{}
