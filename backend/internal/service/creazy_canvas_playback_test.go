@@ -56,7 +56,7 @@ func TestCreazyCanvasPlaybackStreamsRangeWithoutArchiveWait(t *testing.T) {
 	require.Empty(t, svc.playbackStreams)
 }
 
-func TestCreazyCanvasPlaybackArchivesSucceededVideoBeforeServing(t *testing.T) {
+func TestCreazyCanvasPlaybackArchivesSucceededVideoBeforeReturningURL(t *testing.T) {
 	payload := []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v1/videos/jobs/job-41/content", r.URL.Path)
@@ -71,10 +71,10 @@ func TestCreazyCanvasPlaybackArchivesSucceededVideoBeforeServing(t *testing.T) {
 	store := &creazyCanvasArchiveStore{}
 	svc := newCreazyCanvasPlaybackTestService(t, upstream.URL)
 	svc.artifactStore = store
-	content, err := svc.openWorkContent(context.Background(), 7, 41, "bytes=0-3", true)
+	playback, err := svc.GetPlaybackURL(context.Background(), 7, 41)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusFound, content.StatusCode)
-	require.Equal(t, "https://signed.example.com/result.png", content.RedirectURL)
+	require.Equal(t, "object", playback.Source)
+	require.Equal(t, "https://signed.example.com/result.png", playback.URL)
 	require.Equal(t, 1, store.putCalls)
 	require.Equal(t, "video/mp4", store.putContentType)
 	require.Equal(t, payload, store.putBody)

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -41,11 +42,12 @@ func (s *CreazyCanvasService) GetPlaybackURL(ctx context.Context, userID, workID
 	}
 	if strings.TrimSpace(work.ObjectKey) == "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
 		if err := s.ensureSucceededVideoArchived(ctx, work); err != nil {
-			return nil, infraerrors.New(http.StatusBadGateway, "CREAZY_CANVAS_LOCAL_ARCHIVE_FAILED", "视频本地归档失败，请稍后重试")
-		}
-		work, err = s.creazyCanvasPlaybackWork(ctx, userID, workID)
-		if err != nil {
-			return nil, err
+			slog.Warn("creazy canvas playback local archive failed; using gateway fallback", "work_id", work.ID, "user_id", work.UserID, "error", err)
+		} else {
+			work, err = s.creazyCanvasPlaybackWork(ctx, userID, workID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if strings.TrimSpace(work.ObjectKey) != "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {

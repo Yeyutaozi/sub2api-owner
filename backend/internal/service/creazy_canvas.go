@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,10 +38,13 @@ const (
 	CreazyCanvasWorkStatusCanceled  = "canceled"
 	CreazyCanvasWorkStatusExpired   = "expired"
 
-	creazyCanvasWorkTTL      = 24 * time.Hour
-	creazyCanvasDownloadTTL  = time.Hour
-	creazyCanvasObjectPrefix = "creazy-canvas"
-	creazyCanvasGraphMaxSize = 2 * 1024 * 1024
+	creazyCanvasWorkTTL                   = 24 * time.Hour
+	creazyCanvasDownloadTTL               = time.Hour
+	creazyCanvasObjectPrefix              = "creazy-canvas"
+	creazyCanvasGraphMaxSize              = 2 * 1024 * 1024
+	creazyCanvasVideoArchiveAttempts      = 3
+	creazyCanvasRetentionCleanupInterval  = time.Minute
+	creazyCanvasRetentionCleanupBatchSize = 100
 
 	// 公开 gateway_type（作品元数据，非上游供应商名）
 	CreazyCanvasGatewayImageTask = "image_task"
@@ -296,6 +300,11 @@ type CreazyCanvasWorkRepository interface {
 	UpdateContentMeta(ctx context.Context, work *CreazyCanvasWork) error
 }
 
+type creazyCanvasLocalRetentionRepository interface {
+	ListExpiredLocalContent(ctx context.Context, before time.Time, limit int) ([]CreazyCanvasWork, error)
+	MarkLocalContentExpired(ctx context.Context, id, userID int64, objectKey string) error
+}
+
 type CreazyCanvasDocumentRepository interface {
 	CreateDocument(ctx context.Context, document *CreazyCanvasDocument) error
 	ListDocumentsByUser(ctx context.Context, userID int64, limit int) ([]CreazyCanvasDocument, error)
@@ -321,16 +330,21 @@ type creazyCanvasVideoPriceOverrideLoader interface {
 }
 
 type CreazyCanvasService struct {
-	workRepo        CreazyCanvasWorkRepository
-	apiKeyService   CreazyCanvasAPIKeyService
-	artifactStore   AgentArtifactStore
-	cfg             *config.Config
-	httpClient      *http.Client
-	mediaHTTPClient *http.Client
-	playbackMu      sync.Mutex
-	playbackStreams map[int64]int
-	videoArchiveMu  sync.Mutex
-	videoArchives   map[int64]chan struct{}
+	workRepo           CreazyCanvasWorkRepository
+	apiKeyService      CreazyCanvasAPIKeyService
+	artifactStore      AgentArtifactStore
+	cfg                *config.Config
+	httpClient         *http.Client
+	mediaHTTPClient    *http.Client
+	playbackMu         sync.Mutex
+	playbackStreams    map[int64]int
+	videoArchiveMu     sync.Mutex
+	videoArchives      map[int64]chan struct{}
+	videoArchiveSlots  chan struct{}
+	retentionStartOnce sync.Once
+	retentionStopOnce  sync.Once
+	retentionCancel    context.CancelFunc
+	retentionDone      chan struct{}
 }
 
 func NewCreazyCanvasService(
@@ -343,11 +357,12 @@ func NewCreazyCanvasService(
 		artifactStore = disabledAgentArtifactStore{}
 	}
 	return &CreazyCanvasService{
-		workRepo:        workRepo,
-		apiKeyService:   apiKeyService,
-		artifactStore:   artifactStore,
-		cfg:             cfg,
-		mediaHTTPClient: newSeedanceMediaHTTPClient(),
+		workRepo:          workRepo,
+		apiKeyService:     apiKeyService,
+		artifactStore:     artifactStore,
+		cfg:               cfg,
+		mediaHTTPClient:   newSeedanceMediaHTTPClient(),
+		videoArchiveSlots: make(chan struct{}, seedanceMaxConcurrentArchives),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Minute,
 			// Manual redirect handling so Authorization is not leaked to foreign hosts.
@@ -355,6 +370,83 @@ func NewCreazyCanvasService(
 				return http.ErrUseLastResponse
 			},
 		},
+	}
+}
+
+// Start enables periodic removal of expired Creazy Canvas files from the
+// configured local filesystem. Work metadata remains visible as expired.
+func (s *CreazyCanvasService) Start() {
+	if s == nil || s.artifactStore == nil || !s.artifactStore.IsConfigured() || normalizeAgentArtifactProvider(s.artifactStore.Provider()) != "local" {
+		return
+	}
+	if _, ok := s.workRepo.(creazyCanvasLocalRetentionRepository); !ok {
+		return
+	}
+	s.retentionStartOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.retentionCancel = cancel
+		s.retentionDone = make(chan struct{})
+		go s.localRetentionLoop(ctx)
+	})
+}
+
+func (s *CreazyCanvasService) Stop() {
+	if s == nil {
+		return
+	}
+	s.retentionStopOnce.Do(func() {
+		if s.retentionCancel != nil {
+			s.retentionCancel()
+		}
+		if s.retentionDone != nil {
+			<-s.retentionDone
+		}
+	})
+}
+
+func (s *CreazyCanvasService) localRetentionLoop(ctx context.Context) {
+	defer close(s.retentionDone)
+	s.cleanupExpiredLocalContent(ctx)
+	ticker := time.NewTicker(creazyCanvasRetentionCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.cleanupExpiredLocalContent(ctx)
+		}
+	}
+}
+
+func (s *CreazyCanvasService) cleanupExpiredLocalContent(ctx context.Context) {
+	repo, ok := s.workRepo.(creazyCanvasLocalRetentionRepository)
+	if !ok || s.artifactStore == nil || normalizeAgentArtifactProvider(s.artifactStore.Provider()) != "local" {
+		return
+	}
+	for {
+		works, err := repo.ListExpiredLocalContent(ctx, time.Now().UTC(), creazyCanvasRetentionCleanupBatchSize)
+		if err != nil {
+			slog.Warn("creazy canvas local retention scan failed", "error", err)
+			return
+		}
+		cleaned := 0
+		for i := range works {
+			work := &works[i]
+			location := AgentArtifactObjectLocation{StorageProvider: work.StorageProvider, Bucket: work.Bucket, ObjectKey: work.ObjectKey}
+			if err := s.artifactStore.DeleteObject(ctx, location); err != nil {
+				slog.Warn("creazy canvas expired local file delete failed", "work_id", work.ID, "user_id", work.UserID, "error", err)
+				continue
+			}
+			if err := repo.MarkLocalContentExpired(ctx, work.ID, work.UserID, work.ObjectKey); err != nil {
+				slog.Warn("creazy canvas expired work update failed", "work_id", work.ID, "user_id", work.UserID, "error", err)
+				continue
+			}
+			cleaned++
+		}
+		if len(works) < creazyCanvasRetentionCleanupBatchSize || cleaned != len(works) {
+			return
+		}
 	}
 }
 
@@ -1038,11 +1130,12 @@ func (s *CreazyCanvasService) GetDownloadURL(ctx context.Context, userID, workID
 			err = s.archiveSucceededImage(ctx, work)
 		}
 		if err != nil {
-			return nil, infraerrors.New(http.StatusBadGateway, "CREAZY_CANVAS_LOCAL_ARCHIVE_FAILED", "作品本地归档失败，请稍后重试")
-		}
-		work, err = s.GetWork(ctx, userID, workID)
-		if err != nil {
-			return nil, err
+			slog.Warn("creazy canvas on-demand local archive failed; using source fallback", "work_id", work.ID, "user_id", work.UserID, "error", err)
+		} else {
+			work, err = s.GetWork(ctx, userID, workID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if strings.TrimSpace(work.ObjectKey) != "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
@@ -1110,17 +1203,7 @@ func (s *CreazyCanvasService) openWorkContent(ctx context.Context, userID, workI
 			return nil, infraerrors.BadRequest("CREAZY_CANVAS_WORK_NOT_READY", "作品尚未就绪，无法预览")
 		}
 	}
-	if playback && work.Kind == CreazyCanvasWorkKindVideo && work.Status == CreazyCanvasWorkStatusSucceeded && strings.TrimSpace(work.ObjectKey) == "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
-		if err := s.ensureSucceededVideoArchived(ctx, work); err != nil {
-			return nil, infraerrors.New(http.StatusBadGateway, "CREAZY_CANVAS_VIDEO_ARCHIVE_FAILED", "视频正在准备或归档失败，请稍后重试")
-		}
-		work, err = s.GetWork(ctx, userID, workID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// 1) COS / object storage
+	// 1) Locally archived content.
 	if strings.TrimSpace(work.ObjectKey) != "" && s.artifactStore != nil && s.artifactStore.IsConfigured() {
 		ttl := creazyCanvasDownloadTTL
 		url, err := s.artifactStore.PresignGetObject(ctx, AgentArtifactObjectLocation{
@@ -1139,7 +1222,7 @@ func (s *CreazyCanvasService) openWorkContent(ctx context.Context, userID, workI
 	}
 
 	// 2) Public absolute media URL stored on the work. Playback tokens prefer
-	// the gateway below when both are present, because a stored upstream/COS
+	// the gateway below when both are present, because a stored upstream
 	// URL may be private or short-lived even though the task is still replayable.
 	if !playback {
 		if url := creazyCanvasPublicMediaURL(work); url != "" {
@@ -1476,7 +1559,14 @@ func (s *CreazyCanvasService) ensureSucceededVideoArchived(ctx context.Context, 
 	s.videoArchives[work.ID] = done
 	s.videoArchiveMu.Unlock()
 
-	err := s.archiveSucceededVideo(ctx, work)
+	var err error
+	select {
+	case s.videoArchiveSlots <- struct{}{}:
+		err = s.archiveSucceededVideo(ctx, work)
+		<-s.videoArchiveSlots
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	s.videoArchiveMu.Lock()
 	delete(s.videoArchives, work.ID)
 	close(done)
@@ -1496,50 +1586,28 @@ func (s *CreazyCanvasService) archiveSucceededVideo(ctx context.Context, work *C
 	if gatewayPath == "" {
 		return errors.New("video archive has no gateway content path")
 	}
-	content, err := s.openGatewayContent(ctx, apiKey.Key, gatewayPath, "", work, false)
-	if err != nil {
-		return err
-	}
-	if content.Body == nil {
-		return errors.New("video archive source has no body")
-	}
-	defer content.Body.Close()
-
 	maxBytes := seedanceDefaultVideoBytes
 	if s.cfg != nil && s.cfg.AgentArtifacts.MaxUploadBytes > 0 {
 		maxBytes = s.cfg.AgentArtifacts.MaxUploadBytes
 	}
-	if content.ContentLength > maxBytes && maxBytes > 0 {
-		return fmt.Errorf("video source exceeds %d bytes", maxBytes)
-	}
-	tmp, err := os.CreateTemp("", "creazy-canvas-video-*.mp4")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = tmp.Close(); _ = os.Remove(tmpPath) }()
-	reader := io.Reader(content.Body)
-	if maxBytes > 0 {
-		reader = io.LimitReader(content.Body, maxBytes+1)
-	}
-	sizeBytes, err := io.Copy(tmp, reader)
-	if err != nil {
-		return err
-	}
-	if maxBytes > 0 && sizeBytes > maxBytes {
-		return fmt.Errorf("video source exceeds %d bytes", maxBytes)
-	}
-	if err := validateSeedanceMP4(tmp, sizeBytes); err != nil {
-		return err
-	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
 	objectKey := buildCreazyCanvasObjectKey(work, "result.mp4")
-	put, err := s.artifactStore.Put(ctx, AgentArtifactStorePutInput{Key: objectKey, Body: tmp, ContentType: "video/mp4", SizeBytes: sizeBytes, Metadata: map[string]string{
-		"creazy-canvas-work-id": strconv.FormatInt(work.ID, 10),
-		"creazy-canvas-user-id": strconv.FormatInt(work.UserID, 10),
-	}})
+	var put *AgentArtifactStorePutResult
+	var sizeBytes int64
+	for attempt := 1; attempt <= creazyCanvasVideoArchiveAttempts; attempt++ {
+		put, sizeBytes, err = s.archiveSucceededVideoAttempt(ctx, apiKey.Key, gatewayPath, objectKey, work, maxBytes)
+		if err == nil {
+			break
+		}
+		if attempt == creazyCanvasVideoArchiveAttempts || !isRetryableCreazyCanvasVideoArchiveError(err) {
+			return err
+		}
+		delay := time.Duration(attempt*attempt) * 400 * time.Millisecond
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if err != nil || put == nil {
 		if err != nil {
 			return err
@@ -1570,6 +1638,143 @@ func (s *CreazyCanvasService) archiveSucceededVideo(ctx context.Context, work *C
 	}
 	*work = archived
 	return nil
+}
+
+func (s *CreazyCanvasService) archiveSucceededVideoAttempt(ctx context.Context, apiKeySecret, gatewayPath, objectKey string, work *CreazyCanvasWork, maxBytes int64) (*AgentArtifactStorePutResult, int64, error) {
+	content, err := s.openGatewayContent(ctx, apiKeySecret, gatewayPath, "", work, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	if content.RedirectURL != "" {
+		content, err = s.openRemoteVideoArchiveSource(ctx, content.RedirectURL, work)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	if content == nil || content.Body == nil {
+		return nil, 0, errors.New("video archive source has no body")
+	}
+	defer content.Body.Close()
+	if content.ContentLength > maxBytes && maxBytes > 0 {
+		return nil, 0, fmt.Errorf("video source exceeds %d bytes", maxBytes)
+	}
+
+	reader := io.Reader(content.Body)
+	if maxBytes > 0 {
+		reader = &creazyCanvasMaxBytesReader{reader: reader, remaining: maxBytes, max: maxBytes}
+	}
+	header := make([]byte, 12)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		return nil, 0, err
+	}
+	if string(header[4:8]) != "ftyp" {
+		return nil, 0, infraerrors.New(http.StatusBadGateway, "invalid_upstream_response", "video upstream did not return a valid MP4")
+	}
+	counted := &creazyCanvasCountingReader{reader: io.MultiReader(bytes.NewReader(header), reader)}
+	put, err := s.artifactStore.Put(ctx, AgentArtifactStorePutInput{
+		Key:         objectKey,
+		Body:        counted,
+		ContentType: "video/mp4",
+		Metadata: map[string]string{
+			"creazy-canvas-work-id": strconv.FormatInt(work.ID, 10),
+			"creazy-canvas-user-id": strconv.FormatInt(work.UserID, 10),
+		},
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	if put == nil {
+		return nil, 0, errors.New("video artifact store returned an empty result")
+	}
+	sizeBytes := counted.read
+	if sizeBytes < int64(len(header)) {
+		return nil, 0, errors.New("video archive stored an incomplete body")
+	}
+	return put, sizeBytes, nil
+}
+
+func (s *CreazyCanvasService) openRemoteVideoArchiveSource(ctx context.Context, rawURL string, work *CreazyCanvasWork) (*CreazyCanvasWorkContent, error) {
+	validatedURL, err := validateSeedanceMediaRemoteURL(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate redirected video source: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, validatedURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "video/mp4,application/octet-stream")
+	req.Header.Set("Accept-Encoding", "identity")
+	client := s.mediaHTTPClient
+	if client == nil {
+		client = newSeedanceMediaHTTPClient()
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch redirected video source: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_ = resp.Body.Close()
+		return nil, infraerrors.New(resp.StatusCode, "CREAZY_CANVAS_CONTENT_UPSTREAM_ERROR", fmt.Sprintf("redirected video source returned HTTP %d", resp.StatusCode))
+	}
+	return &CreazyCanvasWorkContent{
+		Body:          resp.Body,
+		StatusCode:    resp.StatusCode,
+		ContentType:   strings.TrimSpace(resp.Header.Get("Content-Type")),
+		ContentLength: resp.ContentLength,
+		Filename:      creazyCanvasContentFilename(work),
+		Header:        resp.Header.Clone(),
+	}, nil
+}
+
+type creazyCanvasMaxBytesReader struct {
+	reader    io.Reader
+	remaining int64
+	max       int64
+}
+
+type creazyCanvasCountingReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (r *creazyCanvasCountingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read += int64(n)
+	return n, err
+}
+
+func (r *creazyCanvasMaxBytesReader) Read(p []byte) (int, error) {
+	if r.remaining > 0 {
+		if int64(len(p)) > r.remaining {
+			p = p[:r.remaining]
+		}
+		n, err := r.reader.Read(p)
+		r.remaining -= int64(n)
+		return n, err
+	}
+	var probe [1]byte
+	n, err := r.reader.Read(probe[:])
+	if n > 0 || err == nil {
+		return 0, fmt.Errorf("video source exceeds %d bytes", r.max)
+	}
+	return 0, err
+}
+
+func isRetryableCreazyCanvasVideoArchiveError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, permanent := range []string{"no space left", "permission denied", "exceeds", "not return a valid mp4", "object key"} {
+		if strings.Contains(message, permanent) {
+			return false
+		}
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(message, "no body") || strings.Contains(message, "empty body") {
+		return true
+	}
+	code := infraerrors.Code(err)
+	return code == http.StatusRequestTimeout || code == http.StatusTooEarly || code == http.StatusTooManyRequests || code >= http.StatusInternalServerError
 }
 
 func (s *CreazyCanvasService) archiveSucceededImage(ctx context.Context, work *CreazyCanvasWork) error {
@@ -1751,7 +1956,7 @@ func creazyCanvasExtractMediaURL(payload map[string]any) string {
 	return ""
 }
 
-// SaveWorkContent 可选：将生成内容转存到 COS（前缀 creazy-canvas/）。
+// SaveWorkContent 将生成内容写入本地媒体目录（前缀 creazy-canvas/）。
 func (s *CreazyCanvasService) SaveWorkContent(ctx context.Context, userID, workID int64, body io.Reader, contentType string, sizeBytes int64, filename string) (*CreazyCanvasWork, error) {
 	work, err := s.GetWork(ctx, userID, workID)
 	if err != nil {

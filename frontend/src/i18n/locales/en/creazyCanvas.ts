@@ -4,6 +4,7 @@ export default {
     title: 'Creazy Canvas',
     heroTagline: 'Pick a key. Generate. Archive.',
     subtitle: 'Pick a group API key, generate image or video. Results stay private to the selected key and your works library.',
+    retentionNotice: 'Works are stored locally for 24 hours only. Download them promptly.',
     tabs: {
       workflow: 'Workflow',
       image: 'Image',

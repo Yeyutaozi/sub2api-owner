@@ -283,7 +283,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	agentAppHandler := admin.NewAgentAppHandler(agentAppService)
 	agentArtifactStorageHandler := admin.NewAgentArtifactStorageHandler(agentArtifactStorageConfigService)
 	creazyCanvasWorkRepository := repository.NewCreazyCanvasWorkRepository(db)
-	creazyCanvasService := service.NewCreazyCanvasService(creazyCanvasWorkRepository, apiKeyService, agentArtifactStore, configConfig)
+	creazyCanvasService := service.ProvideCreazyCanvasService(creazyCanvasWorkRepository, apiKeyService, agentArtifactStore, configConfig)
 	imageTaskStore := repository.NewImageTaskStore(redisClient)
 	imageTaskService := service.ProvideImageTaskService(imageTaskStore, imageStorageSettingService)
 	videoJobHandler := admin.NewVideoJobHandler(openAIGatewayService, creazyCanvasService, imageTaskService)

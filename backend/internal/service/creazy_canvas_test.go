@@ -221,6 +221,36 @@ func (r *creazyCanvasWorkRepoStub) UpdateContentMeta(_ context.Context, work *Cr
 	return nil
 }
 
+func (r *creazyCanvasWorkRepoStub) ListExpiredLocalContent(_ context.Context, before time.Time, limit int) ([]CreazyCanvasWork, error) {
+	out := make([]CreazyCanvasWork, 0)
+	for _, work := range r.works {
+		if len(out) >= limit || work.ObjectKey == "" || work.ExpiresAt.After(before) {
+			continue
+		}
+		if work.StorageProvider != "" && work.StorageProvider != "local" {
+			continue
+		}
+		out = append(out, *work)
+	}
+	return out, nil
+}
+
+func (r *creazyCanvasWorkRepoStub) MarkLocalContentExpired(_ context.Context, id, userID int64, objectKey string) error {
+	work := r.works[id]
+	if work == nil || work.UserID != userID || work.ObjectKey != objectKey {
+		return ErrCreazyCanvasWorkNotFound
+	}
+	work.ObjectKey = ""
+	work.StorageProvider = ""
+	work.Bucket = ""
+	work.ObjectURL = ""
+	work.PreviewURL = ""
+	work.MimeType = ""
+	work.SizeBytes = 0
+	work.Status = CreazyCanvasWorkStatusExpired
+	return nil
+}
+
 func TestCreazyCanvasDeleteWorkOnlyAllowsTerminalTasks(t *testing.T) {
 	repo := newCreazyCanvasWorkRepoStub()
 	repo.works[1] = &CreazyCanvasWork{ID: 1, UserID: 7, Status: CreazyCanvasWorkStatusRunning}
@@ -566,7 +596,7 @@ func TestCreazyCanvasCreateWorkAndDownloadHint(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), work.ID)
 	require.Equal(t, CreazyCanvasWorkKindImage, work.Kind)
-	require.WithinDuration(t, time.Now().Add(3*24*time.Hour), work.ExpiresAt, time.Minute)
+	require.WithinDuration(t, time.Now().Add(24*time.Hour), work.ExpiresAt, time.Minute)
 
 	group.AllowImageGeneration = false
 	keys[31].Group = group
