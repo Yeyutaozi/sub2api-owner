@@ -328,12 +328,11 @@ func (a *Account) IsCNProvider() bool {
 	return a != nil && IsCNProvider(a.Platform)
 }
 
-// IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
-// openai/grok 原生走 OpenAI 网关；kimi/zhipu/deepseek 同为 OpenAI Chat Completions
-// 兼容上游，也经 OpenAI 网关转发。
+// IsOpenAICompatible reports whether the account uses the OpenAI gateway.
 func (a *Account) IsOpenAICompatible() bool {
 	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok ||
-		a.Platform == PlatformKimi || a.Platform == PlatformZhipu || a.Platform == PlatformDeepseek)
+		a.Platform == PlatformKimi || a.Platform == PlatformZhipu || a.Platform == PlatformDeepseek ||
+		a.IsGLMAPIKey())
 }
 
 func (a *Account) GeminiOAuthType() string {

@@ -284,18 +284,34 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	)
 }
 
-// NormalizeOpenAICompatiblePlatform 保留 grok 与国产 OpenAI 兼容供应商（kimi/zhipu/
-// deepseek）的原值，其他值一律归一为 openai。调度器据此对账号与请求做精确平台匹配：
-// kimi 分组请求只命中 kimi 账号，语义与 openai/grok 一致。
-// （upstream 曾将本函数改为未导出 normalizeOpenAICompatiblePlatform，本分支的
-// handler 调度入口仍需导出，保持导出名。）
+// NormalizeOpenAICompatiblePlatform preserves platforms routed through the
+// OpenAI-compatible scheduler. Unknown platforms fall back to OpenAI.
 func NormalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
+	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformGLM,
+		PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformMiniMax, PlatformGrokImagine:
 		return platform
 	default:
 		return PlatformOpenAI
 	}
+}
+
+func normalizeOpenAICompatiblePlatform(platform string) string {
+	return NormalizeOpenAICompatiblePlatform(platform)
+}
+
+func accountMatchesOpenAICompatiblePlatform(account *Account, platform string) bool {
+	if account == nil {
+		return false
+	}
+	platform = NormalizeOpenAICompatiblePlatform(platform)
+	if account.Platform != platform {
+		return false
+	}
+	if IsFFLinkVideoPlatform(platform) {
+		return account.IsFFLinkVideo()
+	}
+	return account.IsOpenAICompatible()
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
@@ -376,7 +392,7 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 // profit veto so earlier failures retain their actual reason.
 func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if account == nil || account.Platform != platform || !accountMatchesOpenAICompatiblePlatform(account, platform) || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if account.IsOpenAI() {

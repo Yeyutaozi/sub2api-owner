@@ -8,13 +8,16 @@ import (
 
 func TestSchedulerSnapshotPlatformsIncludesAllCanonicalPlatformsExactlyOnce(t *testing.T) {
 	platforms := schedulerSnapshotPlatforms()
-	require.Len(t, platforms, 11)
+	require.Len(t, platforms, 14)
 	require.ElementsMatch(t, []string{
 		PlatformAnthropic,
 		PlatformGemini,
 		PlatformOpenAI,
 		PlatformAntigravity,
 		PlatformGrok,
+		PlatformKimi,
+		PlatformZhipu,
+		PlatformDeepseek,
 		PlatformGLM,
 		PlatformSeedance,
 		PlatformLTX,

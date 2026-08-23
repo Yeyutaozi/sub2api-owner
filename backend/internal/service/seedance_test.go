@@ -718,6 +718,31 @@ func TestSeedancePlatformIsolation(t *testing.T) {
 	require.False(t, (&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}).IsSeedance())
 }
 
+func TestVideoPlatformsRemainEligibleOnlyForTheirOwnSchedulerBuckets(t *testing.T) {
+	platforms := []string{
+		PlatformSeedance,
+		PlatformLTX,
+		PlatformHappyHorse,
+		PlatformMiniMax,
+		PlatformGrokImagine,
+	}
+
+	for _, platform := range platforms {
+		t.Run(platform, func(t *testing.T) {
+			account := &Account{Platform: platform, Type: AccountTypeAPIKey}
+			require.Equal(t, platform, NormalizeOpenAICompatiblePlatform(platform))
+			require.True(t, accountMatchesOpenAICompatiblePlatform(account, platform))
+			for _, otherPlatform := range platforms {
+				if otherPlatform == platform {
+					continue
+				}
+				require.False(t, accountMatchesOpenAICompatiblePlatform(account, otherPlatform))
+			}
+			require.False(t, accountMatchesOpenAICompatiblePlatform(account, PlatformOpenAI))
+		})
+	}
+}
+
 func TestValidateSeedanceAccountConfiguration(t *testing.T) {
 	require.NoError(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeAPIKey, map[string]any{"api_key": "key"}))
 	require.Error(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeOAuth, map[string]any{"api_key": "key"}))
