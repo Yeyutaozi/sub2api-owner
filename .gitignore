@@ -150,6 +150,7 @@ docs/*
 frontend/coverage/
 aicodex
 output/
-dump.rdb
-__pycache__/
-*.py[cod]
+.codegraph/
+
+# Vitest / Vite cache at repo root
+.vite/

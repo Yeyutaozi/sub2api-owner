@@ -4,7 +4,13 @@ const ipGeoMocks = vi.hoisted(() => ({
   fetchBatch: vi.fn(),
 }))
 
+const appStoreMocks = vi.hoisted(() => ({
+  showSuccess: vi.fn(),
+  showError: vi.fn(),
+}))
+
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
+vi.mock('@/stores/app', () => ({ useAppStore: () => appStoreMocks }))
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -62,6 +68,15 @@ const messages: Record<string, string> = {
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
+	'admin.usage.requestIdCopied': 'Request ID copied',
+	'keys.copied': 'Copied',
+	'keys.copyToClipboard': 'Copy to clipboard',
+	'common.copyFailed': 'Copy failed',
+	'usage.requestedModel': 'Requested',
+	'usage.sentUpstreamModel': 'Sent upstream',
+	'usage.upstreamResponseModel': 'Upstream response',
+	'usage.modelVariant': 'Possible version variant',
+	'usage.modelMismatch': 'Different model',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -89,6 +104,7 @@ const DataTableStub = {
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
+        <slot name="cell-request_id" :row="row" />
       </div>
     </div>
   `,
@@ -257,6 +273,48 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('claude-sonnet-4-20250514')
   })
 
+	it.each([
+		{
+			name: 'possible version variant',
+			responseModel: 'gpt-5.5-2026-08-01',
+			expectedBadge: 'Possible version variant',
+		},
+		{
+			name: 'different upstream model',
+			responseModel: 'gpt-5.4',
+			expectedBadge: 'Different model',
+		},
+	])('shows a compact upstream response audit marker for $name', ({ responseModel, expectedBadge }) => {
+		const wrapper = mount(UsageTable, {
+			props: {
+				data: [{
+					request_id: `req-${responseModel}`,
+					model: 'gpt-5.6-sol',
+					upstream_model: 'gpt-5.5',
+					model_mapping_chain: 'gpt-5.6-sol→gpt-5.5',
+					upstream_response_model: responseModel,
+					upstream_model_mismatch: true,
+				}],
+				loading: false,
+				columns: [],
+			},
+			global: {
+				stubs: {
+					DataTable: DataTableStub,
+					EmptyState: true,
+					Icon: true,
+					Teleport: true,
+				},
+			},
+		})
+
+		const text = wrapper.text()
+		expect(text).toContain('gpt-5.6-sol')
+		expect(text).toContain('gpt-5.5')
+		expect(text).toContain(responseModel)
+		expect(text).toContain(expectedBadge)
+	})
+
   it.each([
     {
       name: 'defaulted row',
@@ -380,41 +438,21 @@ describe('admin UsageTable tooltip', () => {
   })
 })
 
-describe('admin UsageTable video settlement status', () => {
-  const baseVideoRow = {
-    request_id: 'req-video-settlement',
-    model: 'sd2-mx933-720-1s',
-    actual_cost: 4.4,
-    total_cost: 4.4,
-    account_rate_multiplier: 1,
-    rate_multiplier: 1,
-    input_cost: 0,
-    output_cost: 0,
-    cache_creation_cost: 0,
-    cache_read_cost: 0,
-    input_tokens: 0,
-    output_tokens: 0,
-  }
+describe('admin UsageTable request ID column', () => {
+  beforeEach(() => {
+    appStoreMocks.showSuccess.mockReset()
+    appStoreMocks.showError.mockReset()
+  })
 
-  it.each([
-    { task: 'queued', refund: null, state: 'queued', label: 'Queued', color: 'text-amber-700' },
-    { task: 'running', refund: null, state: 'running', label: 'Generating', color: 'text-amber-700' },
-    { task: 'unknown', refund: null, state: 'unknown', label: 'Confirming status', color: 'text-amber-700' },
-    { task: 'succeeded', refund: null, state: 'succeeded', label: 'Succeeded', color: 'text-emerald-700' },
-    { task: 'failed', refund: 'applied', state: 'failed_refunded', label: 'Failed · Refunded', color: 'text-violet-700' },
-    { task: 'cancelled', refund: 'applied', state: 'cancelled_refunded', label: 'Cancelled · Refunded', color: 'text-violet-700' },
-    { task: 'failed', refund: 'pending', state: 'refund_pending', label: 'Refund pending', color: 'text-amber-700' },
-    { task: 'failed', refund: 'failed', state: 'refund_error', label: 'Refund error', color: 'text-rose-700' },
-  ])('renders $state for a settled video usage row', ({ task, refund, state, label, color }) => {
+  it('renders and copies the request ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
     const wrapper = mount(UsageTable, {
       props: {
-        data: [{
-          ...baseVideoRow,
-          video_task_status: task,
-          video_refund_status: refund,
-        }],
+        data: [{ ...baseImageRow, request_id: 'req-admin-visible-id' }],
         loading: false,
-        columns: [],
+        columns: [{ key: 'request_id', label: 'Request ID' }],
       },
       global: {
         stubs: {
@@ -426,79 +464,11 @@ describe('admin UsageTable video settlement status', () => {
       },
     })
 
-    const badge = wrapper.get('[data-testid="video-settlement-status"]')
-    expect(badge.text()).toBe(label)
-    expect(badge.attributes('data-status')).toBe(state)
-    expect(badge.classes()).toContain(color)
-  })
+    expect(wrapper.text()).toContain('req-admin-visible-id')
+    await wrapper.get('button[title="Copy to clipboard"]').trigger('click')
 
-  it('treats a terminal failure without a completed refund as refund pending', () => {
-    const wrapper = mount(UsageTable, {
-      props: {
-        data: [{ ...baseVideoRow, video_task_status: 'failed' }],
-        loading: false,
-        columns: [],
-      },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
-    })
-
-    expect(wrapper.get('[data-testid="video-settlement-status"]').text()).toBe('Refund pending')
-    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-amber-600')
-  })
-
-  it('prioritizes refund errors and exposes settlement details in the badge tooltip', () => {
-    const wrapper = mount(UsageTable, {
-      props: {
-        data: [{
-          ...baseVideoRow,
-          video_task_status: 'succeeded',
-          video_refund_status: 'error',
-          video_settlement_error: 'balance update failed',
-          video_settled_at: '2026-08-04T10:00:00Z',
-        }],
-        loading: false,
-        columns: [],
-      },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
-    })
-
-    const badge = wrapper.get('[data-testid="video-settlement-status"]')
-    expect(badge.text()).toBe('Refund error')
-    expect(badge.attributes('title')).toContain('Status detail: balance update failed')
-    expect(badge.attributes('title')).toContain('Settled at:')
-    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-rose-600')
-  })
-
-  it('shows a refunded task failure as status detail instead of a refund error', () => {
-    const wrapper = mount(UsageTable, {
-      props: {
-        data: [{
-          ...baseVideoRow,
-          actual_cost: 0,
-          video_task_status: 'failed',
-          video_refund_status: 'applied',
-          video_settlement_error: 'video generation was rejected',
-        }],
-        loading: false,
-        columns: [],
-      },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
-    })
-
-    const badge = wrapper.get('[data-testid="video-settlement-status"]')
-    expect(badge.text()).toBe('Failed · Refunded')
-    expect(badge.attributes('title')).toContain('Status detail: video generation was rejected')
-    expect(badge.attributes('title')).not.toContain('Refund error')
-  })
-
-  it('keeps legacy non-video usage rows unchanged', () => {
-    const wrapper = mount(UsageTable, {
-      props: { data: [baseVideoRow], loading: false, columns: [] },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
-    })
-
-    expect(wrapper.find('[data-testid="video-settlement-status"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="actual-cost"]').classes()).toContain('text-green-600')
+    expect(writeText).toHaveBeenCalledWith('req-admin-visible-id')
+    expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('Request ID copied')
   })
 })
 

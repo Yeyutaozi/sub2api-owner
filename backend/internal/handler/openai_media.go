@@ -114,6 +114,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 		sessionHash = service.OpenAIMediaResourceSessionHash(apiKey.ID, parsed.ResourceID)
 	}
 	failedAccountIDs := make(map[int64]struct{})
+	profitVetoCount := 0
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
 	maxAccountSwitches := h.maxAccountSwitches
@@ -165,8 +166,15 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			zap.Bool("sticky_session_hit", scheduleDecision.StickySessionHit),
 		)
 
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -196,7 +204,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 					h.handleFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), false, nil)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
@@ -214,7 +222,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 				continue
 			}
 
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), false, nil)
 			if c.Writer.Size() == writerSizeBeforeForward {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
 			}
@@ -222,7 +230,7 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), true, nil)
 		if parsed.IsVideoCreate() && result != nil && strings.TrimSpace(result.ResponseID) != "" {
 			resourceSessionHash := service.OpenAIMediaResourceSessionHash(apiKey.ID, result.ResponseID)
 			if err := h.gatewayService.BindStickySession(c.Request.Context(), apiKey.GroupID, resourceSessionHash, account.ID); err != nil {

@@ -462,7 +462,81 @@ onUnmounted(() => {
   @apply text-gray-400 dark:text-dark-400;
 }
 
-/* Transition classes apply to teleported element via name= */
+.date-picker-dropdown {
+  @apply absolute left-0 z-[100] mt-2;
+  @apply bg-white dark:bg-dark-800;
+  @apply rounded-xl;
+  @apply border border-gray-200 dark:border-dark-700;
+  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
+  @apply overflow-hidden;
+  @apply min-w-[320px];
+}
+
+.date-picker-presets {
+  @apply grid grid-cols-2 gap-1 p-2;
+}
+
+.date-picker-preset {
+  @apply rounded-md px-3 py-1.5 text-xs font-medium;
+  @apply text-gray-600 dark:text-gray-400;
+  @apply hover:bg-gray-100 dark:hover:bg-dark-700;
+  @apply transition-colors duration-150;
+}
+
+.date-picker-preset-active {
+  @apply bg-primary-100 dark:bg-primary-900/30;
+  @apply text-primary-700 dark:text-primary-300;
+}
+
+.date-picker-divider {
+  @apply border-t border-gray-100 dark:border-dark-700;
+}
+
+.date-picker-custom {
+  @apply flex items-end gap-2 p-3;
+}
+
+.date-picker-field {
+  @apply flex-1;
+}
+
+.date-picker-label {
+  @apply mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400;
+}
+
+.date-picker-input {
+  @apply w-full rounded-md px-2 py-1.5 text-sm;
+  @apply bg-gray-50 dark:bg-dark-700;
+  @apply border border-gray-200 dark:border-dark-600;
+  @apply text-gray-900 dark:text-gray-100;
+  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+}
+
+.date-picker-input::-webkit-calendar-picker-indicator {
+  @apply cursor-pointer opacity-60 hover:opacity-100;
+  filter: invert(0.5);
+}
+
+.dark .date-picker-input::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+
+.date-picker-separator {
+  @apply flex items-center justify-center pb-1;
+}
+
+.date-picker-actions {
+  @apply flex justify-end p-2 pt-0;
+}
+
+.date-picker-apply {
+  @apply rounded-lg px-4 py-1.5 text-sm font-medium;
+  @apply bg-primary-600 text-white;
+  @apply hover:bg-primary-700;
+  @apply transition-colors duration-150;
+}
+
+/* Dropdown animation */
 .date-picker-dropdown-enter-active,
 .date-picker-dropdown-leave-active {
   transition: all 0.2s ease;

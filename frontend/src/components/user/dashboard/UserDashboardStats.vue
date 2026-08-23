@@ -62,10 +62,10 @@
         <div class="metric-tile__icon bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
           <Icon name="cube" size="md" :stroke-width="2" />
         </div>
-        <div class="min-w-0">
-          <p class="metric-tile__label">{{ t('dashboard.todayTokens') }}</p>
-          <p class="metric-tile__value">{{ formatTokens(stats?.today_tokens || 0) }}</p>
-          <p class="metric-tile__meta">{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }}</p>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayTokens') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.today_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</p>
         </div>
       </div>
 
@@ -73,10 +73,10 @@
         <div class="metric-tile__icon bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
           <Icon name="database" size="md" :stroke-width="2" />
         </div>
-        <div class="min-w-0">
-          <p class="metric-tile__label">{{ t('dashboard.totalTokens') }}</p>
-          <p class="metric-tile__value">{{ formatTokens(stats?.total_tokens || 0) }}</p>
-          <p class="metric-tile__meta">{{ t('dashboard.input') }}: {{ formatTokens(stats?.total_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.total_output_tokens || 0) }}</p>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalTokens') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.total_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(stats?.total_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.total_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</p>
         </div>
       </div>
 

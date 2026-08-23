@@ -12,8 +12,45 @@ import {
   shouldMarkAdminUIRequest,
   shouldMarkUserUIRequest,
 } from './adminUIRequest'
+import { refreshAuthTokens } from './tokenRefresh'
+export {
+  AUTH_TOKENS_UPDATED_EVENT,
+  type AuthTokensUpdatedDetail
+} from './tokenRefresh'
 import { getAPIBaseURL } from './url'
 export { buildApiUrl, buildGatewayUrl } from './url'
+
+const TRANSIENT_HTTP_STATUSES = new Set([0, 408, 425, 429, 500, 502, 503, 504])
+
+function isTransientRefreshFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as AxiosError & { status?: number }
+  if (
+    candidate.code === 'ERR_NETWORK' ||
+    candidate.code === 'ECONNABORTED' ||
+    candidate.code === 'ETIMEDOUT' ||
+    candidate.code === 'ECONNRESET' ||
+    candidate.code === 'ERR_INTERNET_DISCONNECTED'
+  ) {
+    return true
+  }
+  if (candidate.isAxiosError && !candidate.response) return true
+  const status = candidate.status ?? candidate.response?.status
+  return typeof status === 'number' && (TRANSIENT_HTTP_STATUSES.has(status) || status >= 500)
+}
+
+function clearLocalAuthStorage(): void {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('refresh_token')
+  localStorage.removeItem('auth_user')
+  localStorage.removeItem('token_expires_at')
+}
+
+function redirectToLoginIfNeeded(): void {
+  if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+    window.location.href = '/login'
+  }
+}
 
 // ==================== Axios Instance Configuration ====================
 
@@ -25,224 +62,6 @@ export const apiClient: AxiosInstance = axios.create({
     'Content-Type': 'application/json'
   }
 })
-
-// ==================== Token Refresh State ====================
-
-// Track if a token refresh is in progress to prevent multiple simultaneous refresh requests
-let isRefreshing = false
-// In-flight shared refresh promise (interceptor + proactive store refresh share this)
-let sharedRefreshPromise: Promise<{
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}> | null = null
-// Queue of requests waiting for token refresh
-let refreshSubscribers: Array<(token: string) => void> = []
-
-export const AUTH_TOKENS_UPDATED_EVENT = 'auth-tokens-updated'
-
-export interface AuthTokensUpdatedDetail {
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}
-
-/**
- * Subscribe to token refresh completion
- */
-function subscribeTokenRefresh(callback: (token: string) => void): void {
-  refreshSubscribers.push(callback)
-}
-
-
-/**
- * Notify all subscribers that token has been refreshed
- */
-function onTokenRefreshed(token: string): void {
-  refreshSubscribers.forEach((callback) => callback(token))
-  refreshSubscribers = []
-}
-
-function persistRefreshedTokens(tokens: {
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}): void {
-  localStorage.setItem('auth_token', tokens.access_token)
-  localStorage.setItem('refresh_token', tokens.refresh_token)
-  localStorage.setItem('token_expires_at', String(Date.now() + tokens.expires_in * 1000))
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent(AUTH_TOKENS_UPDATED_EVENT, {
-          detail: {
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-            expires_in: tokens.expires_in
-          }
-        })
-      )
-    } catch {
-      // ignore event failures (non-browser / restricted env)
-    }
-  }
-}
-
-/**
- * Single-flight session refresh shared by response interceptor and auth store.
- * Prevents double-rotate races that force logout when network/VPN flips.
- */
-export async function ensureSessionRefresh(): Promise<{
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}> {
-  if (sharedRefreshPromise) {
-    return sharedRefreshPromise
-  }
-
-  const refreshToken = localStorage.getItem('refresh_token')
-  if (!refreshToken) {
-    throw {
-      status: 401,
-      code: 'NO_REFRESH_TOKEN',
-      message: 'No refresh token available'
-    }
-  }
-
-  sharedRefreshPromise = (async () => {
-    const tokens = await requestTokenRefresh(refreshToken)
-    // If another path rotated while we waited at the network layer, prefer newer local token.
-    const latestLocal = localStorage.getItem('refresh_token')
-    if (latestLocal && latestLocal !== refreshToken && latestLocal !== tokens.refresh_token) {
-      // Concurrent success already wrote a newer pair; keep the newer local values.
-      const access = localStorage.getItem('auth_token') || tokens.access_token
-      const expiresRaw = localStorage.getItem('token_expires_at')
-      const expires_in = expiresRaw
-        ? Math.max(1, Math.floor((parseInt(expiresRaw, 10) - Date.now()) / 1000))
-        : tokens.expires_in
-      return {
-        access_token: access,
-        refresh_token: latestLocal,
-        expires_in
-      }
-    }
-    persistRefreshedTokens(tokens)
-    return tokens
-  })()
-
-  try {
-    return await sharedRefreshPromise
-  } finally {
-    sharedRefreshPromise = null
-  }
-}
-
-/** HTTP statuses that usually mean "try later", not "credentials invalid". */
-const TRANSIENT_HTTP_STATUSES = new Set([0, 408, 425, 429, 500, 502, 503, 504])
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function getHttpStatus(err: unknown): number | undefined {
-  if (!err || typeof err !== 'object') return undefined
-  const anyErr = err as { status?: unknown; response?: { status?: unknown } }
-  if (typeof anyErr.status === 'number') return anyErr.status
-  if (typeof anyErr.response?.status === 'number') return anyErr.response.status
-  return undefined
-}
-
-/**
- * Network blips (VPN/proxy switch, DNS, timeout) should NOT force logout.
- */
-function isNetworkLikeError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const anyErr = err as AxiosError
-  if (
-    anyErr.code === 'ERR_NETWORK' ||
-    anyErr.code === 'ECONNABORTED' ||
-    anyErr.code === 'ETIMEDOUT' ||
-    anyErr.code === 'ECONNRESET' ||
-    anyErr.code === 'ERR_INTERNET_DISCONNECTED'
-  ) {
-    return true
-  }
-  // Axios network failures often have no response body at all.
-  if (anyErr.isAxiosError && !anyErr.response) return true
-  return false
-}
-
-/**
- * True when refresh failure is temporary and local session should be kept.
- * False when server rejected the refresh token (or refresh response is invalid).
- */
-function isTransientRefreshFailure(err: unknown): boolean {
-  if (isNetworkLikeError(err)) return true
-  const status = getHttpStatus(err)
-  if (status === undefined) return false
-  if (status === 401 || status === 403) return false
-  return TRANSIENT_HTTP_STATUSES.has(status) || status >= 500
-}
-
-function clearLocalAuthStorage(): void {
-  localStorage.removeItem('auth_token')
-  localStorage.removeItem('refresh_token')
-  localStorage.removeItem('auth_user')
-  localStorage.removeItem('token_expires_at')
-}
-
-function redirectToLoginIfNeeded(): void {
-  if (typeof window === 'undefined') return
-  if (!window.location.pathname.includes('/login')) {
-    window.location.href = '/login'
-  }
-}
-
-async function requestTokenRefresh(refreshToken: string): Promise<{
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}> {
-  // Retry once on transient network/proxy failures (common when switching VPN).
-  let lastError: unknown
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const refreshResponse = await axios.post(
-        `${getAPIBaseURL()}/auth/refresh`,
-        { refresh_token: refreshToken },
-        // Explicit timeout: a hung refresh would leave isRefreshing=true forever.
-        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
-      )
-
-      const refreshData = refreshResponse.data as ApiResponse<{
-        access_token: string
-        refresh_token: string
-        expires_in: number
-      }>
-
-      if (refreshData.code === 0 && refreshData.data?.access_token && refreshData.data?.refresh_token) {
-        return refreshData.data
-      }
-
-      // Business-level rejection (invalid/revoked refresh token) — not transient.
-      const bizError = {
-        status: refreshResponse.status || 401,
-        code: refreshData.code ?? 'TOKEN_REFRESH_REJECTED',
-        message: refreshData.message || 'Token refresh rejected',
-      }
-      throw bizError
-    } catch (err) {
-      lastError = err
-      if (!isTransientRefreshFailure(err) || attempt === 1) {
-        throw err
-      }
-      await sleep(400 * (attempt + 1))
-    }
-  }
-  throw lastError
-}
-
 
 // ==================== Request Interceptor ====================
 
@@ -444,50 +263,36 @@ apiClient.interceptors.response.use(
 
         // If we have a refresh token and this is not an auth endpoint, try to refresh
         if (refreshToken && !isAuthEndpoint) {
-          if (isRefreshing) {
-            // Wait for the ongoing refresh to complete
-            return new Promise((resolve, reject) => {
-              subscribeTokenRefresh((newToken: string) => {
-                if (newToken) {
-                  // Mark as retried to prevent infinite loop if retry also returns 401
-                  originalRequest._retry = true
-                  if (originalRequest.headers) {
-                    originalRequest.headers.Authorization = `Bearer ${newToken}`
-                  }
-                  resolve(apiClient(originalRequest))
-                } else {
-                  // Refresh failed, reject with original error
-                  reject({
-                    status,
-                    code: apiData.code,
-                    message: apiData.message || apiData.detail || error.message
-                  })
-                }
-              })
-            })
-          }
-
+          const refreshSessionUser = localStorage.getItem('auth_user')
           originalRequest._retry = true
-          isRefreshing = true
 
           try {
-            const refreshed = await ensureSessionRefresh()
-            const { access_token } = refreshed
+            const headers = originalRequest.headers as Record<string, unknown> | undefined
+            const authHeader = headers?.Authorization ?? headers?.authorization
+            const failedAccessToken =
+              typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+                ? authHeader.slice('Bearer '.length)
+                : null
+            const tokens = await refreshAuthTokens({ failedAccessToken })
 
-            // Notify subscribers with new token
-            onTokenRefreshed(access_token)
-
-            // Retry the original request with new token
+            // Retry the original request with the refreshed token
             if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${access_token}`
+              originalRequest.headers.Authorization = `Bearer ${tokens.access_token}`
             }
-
-            isRefreshing = false
             return apiClient(originalRequest)
           } catch (refreshError) {
-            // Always release waiters so they don't hang.
-            onTokenRefreshed('')
-            isRefreshing = false
+            // A stale request must never destroy a session that was logged out or replaced while
+            // its refresh was in flight (for example, when another tab signs in as another user).
+            const sessionChanged =
+              localStorage.getItem('refresh_token') !== refreshToken ||
+              localStorage.getItem('auth_user') !== refreshSessionUser
+            if (sessionChanged) {
+              return Promise.reject({
+                status: 401,
+                code: 'AUTH_SESSION_CHANGED',
+                message: 'Authentication session changed while refreshing.'
+              })
+            }
 
             // VPN/proxy/network blips: keep local session so user does not re-login.
             if (isTransientRefreshFailure(refreshError)) {

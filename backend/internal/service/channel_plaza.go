@@ -66,7 +66,10 @@ type PlazaGroup struct {
 	AvgFirstTokenMs int
 	// TTFTDisclaimer is shown next to the latency figure (never sample=0 messaging).
 	TTFTDisclaimer string
-	Models         []PlazaModel
+	// Image billing display uses the effective charged multiplier.
+	ImageRateIndependent bool
+	ImageRateMultiplier  float64
+	Models               []PlazaModel
 }
 
 // ListPlazaGroups 返回模型广场数据：每个活跃分组附带其可用模型与定价。
@@ -105,17 +108,19 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		g := &groups[i]
 		sourceGroups[g.ID] = g
 		byGroup[g.ID] = &PlazaGroup{
-			ID:                 g.ID,
-			Name:               g.Name,
-			Description:        g.Description,
-			Platform:           g.Platform,
-			SubscriptionType:   g.SubscriptionType,
-			RateMultiplier:     g.RateMultiplier,
-			PeakRateEnabled:    g.PeakRateEnabled,
-			PeakStart:          g.PeakStart,
-			PeakEnd:            g.PeakEnd,
-			PeakRateMultiplier: g.PeakRateMultiplier,
-			IsExclusive:        g.IsExclusive,
+			ID:                   g.ID,
+			Name:                 g.Name,
+			Description:          g.Description,
+			Platform:             g.Platform,
+			SubscriptionType:     g.SubscriptionType,
+			RateMultiplier:       g.RateMultiplier,
+			PeakRateEnabled:      g.PeakRateEnabled,
+			PeakStart:            g.PeakStart,
+			PeakEnd:              g.PeakEnd,
+			PeakRateMultiplier:   g.PeakRateMultiplier,
+			IsExclusive:          g.IsExclusive,
+			ImageRateIndependent: g.ImageRateIndependent,
+			ImageRateMultiplier:  g.ImageRateMultiplier,
 		}
 		order = append(order, g.ID)
 	}
@@ -143,20 +148,25 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			}
 			for j := range supported {
 				m := supported[j]
-				if m.Platform != pg.Platform {
+				if pg.Platform == PlatformComposite {
+					if !isConcreteRequestPlatform(m.Platform) {
+						continue
+					}
+				} else if m.Platform != pg.Platform {
 					continue
 				}
+				pricing := plazaImageDisplayPricing(m.Pricing, sourceGroups[gid])
 				name := strings.TrimSpace(m.Name)
 				if name == "" {
 					continue
 				}
 				if existing, seen := pm[name]; seen {
-					if existing.pricing == nil && m.Pricing != nil {
-						pm[name] = plazaPricedModel{platform: m.Platform, pricing: m.Pricing}
+					if existing.pricing == nil && pricing != nil {
+						pm[name] = plazaPricedModel{platform: m.Platform, pricing: pricing}
 					}
 					continue
 				}
-				pm[name] = plazaPricedModel{platform: m.Platform, pricing: m.Pricing}
+				pm[name] = plazaPricedModel{platform: m.Platform, pricing: pricing}
 				channelModelNames[gid] = append(channelModelNames[gid], name)
 			}
 		}
@@ -228,13 +238,18 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 				}
 				for j := range supported {
 					m := supported[j]
-					if m.Platform != pg.Platform {
+					if pg.Platform == PlatformComposite {
+						if !isConcreteRequestPlatform(m.Platform) {
+							continue
+						}
+					} else if m.Platform != pg.Platform {
 						continue
 					}
+					pricing := plazaImageDisplayPricing(m.Pricing, sourceGroups[gid])
 					if at, seen := idx[m.Name]; seen {
-						if pg.Models[at].Pricing == nil && m.Pricing != nil {
-							pg.Models[at].Pricing = m.Pricing
-							pg.Models[at].Kind = plazaKindFromPricing(m.Pricing)
+						if pg.Models[at].Pricing == nil && pricing != nil {
+							pg.Models[at].Pricing = pricing
+							pg.Models[at].Kind = plazaKindFromPricing(pricing)
 						}
 						continue
 					}
@@ -242,8 +257,8 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 					pg.Models = append(pg.Models, PlazaModel{
 						Name:     m.Name,
 						Platform: m.Platform,
-						Kind:     plazaKindFromPricing(m.Pricing),
-						Pricing:  m.Pricing,
+						Kind:     plazaKindFromPricing(pricing),
+						Pricing:  pricing,
 					})
 				}
 			}
@@ -300,6 +315,51 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// plazaImageDisplayPricing builds image tiers using the same precedence as billing:
+// group tier price, channel tier price, then channel per-request price.
+func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPricing {
+	if p == nil || g == nil || p.BillingMode != BillingModeImage {
+		return p
+	}
+	if g.ImagePrice1K == nil && g.ImagePrice2K == nil && g.ImagePrice4K == nil {
+		return p
+	}
+	channelTierPrice := func(label string) *float64 {
+		for i := range p.Intervals {
+			if p.Intervals[i].TierLabel == label && p.Intervals[i].PerRequestPrice != nil {
+				return p.Intervals[i].PerRequestPrice
+			}
+		}
+		return p.PerRequestPrice
+	}
+	tiers := []struct {
+		label      string
+		groupPrice *float64
+	}{
+		{label: "1K", groupPrice: g.ImagePrice1K},
+		{label: "2K", groupPrice: g.ImagePrice2K},
+		{label: "4K", groupPrice: g.ImagePrice4K},
+	}
+	clone := *p
+	clone.Intervals = make([]PricingInterval, 0, len(tiers))
+	for i, tier := range tiers {
+		price := tier.groupPrice
+		if price == nil {
+			price = channelTierPrice(tier.label)
+		}
+		if price == nil {
+			continue
+		}
+		value := *price
+		clone.Intervals = append(clone.Intervals, PricingInterval{
+			TierLabel:       tier.label,
+			PerRequestPrice: &value,
+			SortOrder:       i,
+		})
+	}
+	return &clone
 }
 
 // plazaFilterAccountsForGroup keeps schedulable-list accounts that can serve the group platform.

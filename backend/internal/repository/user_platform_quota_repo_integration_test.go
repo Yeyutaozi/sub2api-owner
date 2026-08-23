@@ -98,10 +98,11 @@ func TestUserPlatformQuotaRepository_BulkInsertInitial_GrokAllowed(t *testing.T)
 	require.InDelta(t, 9.0, *rec.DailyLimitUSD, 1e-9)
 }
 
-// TestUserPlatformQuotaRepository_BulkInsertInitial_AdditionalPlatformsAllowed
-// covers migration 197 and keeps PostgreSQL aligned with the application-level
-// platform allowlist.
-func TestUserPlatformQuotaRepository_BulkInsertInitial_AdditionalPlatformsAllowed(t *testing.T) {
+// TestUserPlatformQuotaRepository_BulkInsertInitial_CNProvidersAllowed 回归迁移 224：
+// kimi/zhipu/deepseek 平台必须能写入 user_platform_quotas（CHECK 约束已含国产供应商）。
+// 历史 bug：三个平台不在约束内 → 注册预填充 8 平台默认配额时整条多行 INSERT 中止 →
+// fail-open 吞错 → 新用户拿到零条配额记录（缺失配额行 = 无限额）。
+func TestUserPlatformQuotaRepository_BulkInsertInitial_CNProvidersAllowed(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
 	txCtx := dbent.NewTxContext(ctx, tx)
@@ -112,20 +113,17 @@ func TestUserPlatformQuotaRepository_BulkInsertInitial_AdditionalPlatformsAllowe
 
 	daily := 12.0
 	records := []UserPlatformQuotaRecord{
-		{UserID: userID, Platform: "seedance", DailyLimitUSD: &daily},
-		{UserID: userID, Platform: "glm", DailyLimitUSD: &daily},
-		{UserID: userID, Platform: "ltx", DailyLimitUSD: &daily},
-		{UserID: userID, Platform: "happyhorse", DailyLimitUSD: &daily},
+		{UserID: userID, Platform: "kimi", DailyLimitUSD: &daily},
+		{UserID: userID, Platform: "zhipu"},
+		{UserID: userID, Platform: "deepseek"},
 	}
 	require.NoError(t, repo.BulkInsertInitial(txCtx, records),
-		"application-supported platforms should be accepted after migration 197")
+		"kimi/zhipu/deepseek 平台应可写入（迁移 224 后 CHECK 约束已含国产供应商）")
 
-	for _, platform := range []string{"seedance", "glm", "ltx", "happyhorse"} {
+	for _, platform := range []string{"kimi", "zhipu", "deepseek"} {
 		rec, err := repo.GetByUserPlatform(txCtx, userID, platform)
 		require.NoError(t, err)
-		require.NotNil(t, rec)
-		require.NotNil(t, rec.DailyLimitUSD)
-		require.InDelta(t, 12.0, *rec.DailyLimitUSD, 1e-9)
+		require.NotNil(t, rec, "%s 配额行应已写入", platform)
 	}
 }
 

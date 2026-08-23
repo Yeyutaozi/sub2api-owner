@@ -463,7 +463,7 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 				if isSeedanceFallbackExplicitRejection(forwardErr) {
 					explicitRejections++
 				}
-				w.gateway.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(binding.FallbackModel), false, nil)
+				w.gateway.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(binding.FallbackModel), false, nil)
 				continue
 			}
 			if isSeedanceFallbackExplicitRejection(forwardErr) {
@@ -485,7 +485,7 @@ func (w *SeedanceSettlementWorker) startFallback(ctx context.Context, binding *S
 			return seedanceSettlementFallbackUnknown, nil
 		}
 		finalized = true
-		w.gateway.ReportOpenAIAccountScheduleResult(account.ID, forwarded.Result.UpstreamModel, true, nil)
+		w.gateway.ReportOpenAIAccountScheduleResult(account, forwarded.Result.UpstreamModel, true, nil)
 		w.gateway.RecordOpenAIAccountSwitch()
 		return seedanceSettlementFallbackActive, nil
 	}

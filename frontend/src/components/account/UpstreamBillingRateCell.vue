@@ -166,8 +166,8 @@ const { t } = useI18n()
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 const declaringLocal = ref(false)
 const declaring = computed(() => props.declaring || declaringLocal.value)
-
-const eligible = computed(() => props.account.platform === 'openai' && props.account.type === 'apikey')
+// 探测资格已放宽到全部 API-key 平台（上游是 sub2api 即可应答）。
+const eligible = computed(() => props.account.type === 'apikey')
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
 const probeEnabled = computed(() => props.account.extra?.upstream_billing_probe_enabled === true)
@@ -293,19 +293,13 @@ const probeEffectiveRate = computed(() => {
   return value == null || !Number.isFinite(value) ? null : Number(value.toPrecision(12))
 })
 const hasProbeEffectiveRate = computed(() => probeEffectiveRate.value != null)
-const displayRate = computed(() => {
-  if (probeEffectiveRate.value != null) return probeEffectiveRate.value
-  if (declaredRate.value != null) return declaredRate.value
-  return null
-})
+const displayRate = computed(() => probeEffectiveRate.value ?? declaredRate.value ?? null)
 const hasDisplayRate = computed(() => displayRate.value != null)
 const rateSource = computed<'probe' | 'manual' | 'unknown'>(() => {
   if (probeEffectiveRate.value != null) return 'probe'
   if (declaredRate.value != null) return 'manual'
-  // fall back to safe_rate_status source when present
-  const src = safeRateStatus.value?.source
-  if (src === 'probe' || src === 'manual') return src
-  return 'unknown'
+  const source = safeRateStatus.value?.source
+  return source === 'probe' || source === 'manual' ? source : 'unknown'
 })
 const rateSourceLabel = computed(() => {
   if (rateSource.value === 'probe') return t('admin.accounts.upstreamBilling.sourceProbe')
@@ -318,12 +312,8 @@ const sourceBadge = computed(() => {
   return ''
 })
 const sourceBadgeClass = computed(() => {
-  if (rateSource.value === 'probe') {
-    return 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
-  }
-  if (rateSource.value === 'manual') {
-    return 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-  }
+  if (rateSource.value === 'probe') return 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+  if (rateSource.value === 'manual') return 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
   return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-300'
 })
 const statusLabel = computed(() => {

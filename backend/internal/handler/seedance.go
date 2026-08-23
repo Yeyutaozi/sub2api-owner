@@ -155,6 +155,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		maxSwitches = 3
 	}
 	switchCount := 0
+	profitVetoCount := 0
 	var lastFailover *service.UpstreamFailoverError
 	fallbackActive := false
 	enterFallback := func() bool {
@@ -285,8 +286,15 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 		// Tianyue fetches the signed HTTP(S) media URLs produced by materialization
 		// directly. Rehosting them through the Lingdong path can turn local uploads
 		// into gateway token URLs that are not backed by the same service instance.
-		accountRelease, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !accountAcquired {
+		accountRelease, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				seedanceError(c, http.StatusServiceUnavailable, "no_available_account", "No profitable Seedance upstream account is currently available")
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 		forwarded, forwardErr := func() (*service.SeedanceUpstreamResponse, error) {
@@ -305,7 +313,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) {
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(activeRequestInfo.Model), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(activeRequestInfo.Model), false, nil)
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailover = failoverErr
 				if !fallbackActive && enterFallback() {
@@ -319,7 +327,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				continue
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(activeRequestInfo.Model), false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(activeRequestInfo.Model), false, nil)
 			h.writeSeedanceForwardError(c, forwardErr)
 			return
 		}
@@ -329,7 +337,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 			seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream did not return a task id")
 			return
 		}
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, result.UpstreamModel, true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, result.UpstreamModel, true, nil)
 		// Keep the requested model in every client-visible and billing-facing
 		// field, even when the actual request was sent to the MX933 fallback.
 		result.Model = requestInfo.Model
@@ -993,9 +1001,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	var accountRelease func()
 	if !content {
-		var acquired bool
-		accountRelease, acquired = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		var slotResult openAISlotAcquireResult
+		accountRelease, slotResult = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 	}
@@ -1413,8 +1421,14 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 		var accountRelease func()
 		var acquired bool
 		if respond {
-			accountRelease, acquired = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, streamStarted, reqLog)
-			if !acquired {
+			var slotResult openAISlotAcquireResult
+			accountRelease, slotResult = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, streamStarted, reqLog)
+			if slotResult == openAISlotAcquireProfitVetoed {
+				failedAccountIDs[account.ID] = struct{}{}
+				continue
+			}
+			acquired = slotResult == openAISlotAcquireOK
+			if slotResult == openAISlotAcquireFailed {
 				responseWritten = true
 			}
 		} else {
@@ -1451,7 +1465,7 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 			if errors.As(forwardErr, &failoverErr) {
 				failedAccountIDs[account.ID] = struct{}{}
 				explicitRejections++
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(binding.FallbackModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(binding.FallbackModel), false, nil)
 				continue
 			}
 			reqLog.Warn("seedance.fallback_forward_failed", zap.Error(forwardErr), zap.String("task_id", publicTaskID), zap.Int64("account_id", account.ID))
@@ -1474,7 +1488,7 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 			return seedanceFallbackAttemptResult{Handled: true, Outcome: seedanceFallbackOutcomeAcceptanceUnknown}
 		}
 		claimFinalized = true
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, forwarded.Result.UpstreamModel, true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, forwarded.Result.UpstreamModel, true, nil)
 		h.gatewayService.RecordOpenAIAccountSwitch()
 		reqLog.Info("seedance.fallback_activated",
 			zap.String("task_id", publicTaskID),

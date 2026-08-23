@@ -1,8 +1,11 @@
 package service
 
-import "testing"
+import (
+	"testing"
 
-import "github.com/stretchr/testify/require"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/stretchr/testify/require"
+)
 
 func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	t.Parallel()
@@ -26,14 +29,21 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	}, cfg.ExactModelMappings)
 }
 
-func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing.T) {
-	t.Parallel()
-
+func TestGroupResolveMessagesDispatchModel_GrokRequiresCrossClientMapping(t *testing.T) {
+	original := xai.RuntimeModelMappingOptions()
+	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
 	group := &Group{Platform: PlatformGrok}
 
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{})
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+
+	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{
+		DefaultText:          "grok-build-0.1",
+		EnableCrossClientMap: true,
+	})
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("grok"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }
@@ -60,17 +70,17 @@ func TestSanitizeGroupMessagesDispatchFields_ClearsNonOpenAIPlatform(t *testing.
 	require.Equal(t, OpenAIMessagesDispatchModelConfig{}, group.MessagesDispatchModelConfig)
 }
 
-func TestSanitizeGroupMessagesDispatchFields_PreservesGLM(t *testing.T) {
+func TestSanitizeGroupMessagesDispatchFields_PreservesCompositeDispatchToggle(t *testing.T) {
 	t.Parallel()
 
 	group := &Group{
-		Platform:              PlatformGLM,
+		Platform:              PlatformComposite,
 		AllowMessagesDispatch: true,
-		DefaultMappedModel:    "glm-5.2",
+		DefaultMappedModel:    "gpt-5.6-sol",
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
-			SonnetMappedModel: "glm-5.2",
+			SonnetMappedModel: "gpt-5.3-codex",
 			ExactModelMappings: map[string]string{
-				"claude-sonnet-4-6": "glm-5.2",
+				"claude-fable-5": "gpt-5.6-sol",
 			},
 		},
 	}
@@ -78,6 +88,6 @@ func TestSanitizeGroupMessagesDispatchFields_PreservesGLM(t *testing.T) {
 	sanitizeGroupMessagesDispatchFields(group)
 
 	require.True(t, group.AllowMessagesDispatch)
-	require.Equal(t, "glm-5.2", group.DefaultMappedModel)
-	require.Equal(t, "glm-5.2", group.MessagesDispatchModelConfig.SonnetMappedModel)
+	require.Empty(t, group.DefaultMappedModel)
+	require.Equal(t, OpenAIMessagesDispatchModelConfig{}, group.MessagesDispatchModelConfig)
 }

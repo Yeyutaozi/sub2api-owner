@@ -60,10 +60,11 @@ export interface ModelPlazaGroup {
   peak_end: string
   peak_rate_multiplier: number
   is_exclusive: boolean
-  /** Always present for user surfaces (baseline when cold). */
-  avg_first_token_ms: number
-  /** e.g. 根据近期请求统计，仅供参考 */
-  ttft_disclaimer: string
+  avg_first_token_ms?: number | null
+  ttft_disclaimer?: string
+  /** 生图独立倍率：true 时图片计费模型的实付倍率取 image_rate_multiplier，不取分组/专属倍率。 */
+  image_rate_independent: boolean
+  image_rate_multiplier: number
   models: PlazaModel[]
 }
 

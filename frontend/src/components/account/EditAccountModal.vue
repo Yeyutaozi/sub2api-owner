@@ -30,12 +30,7 @@
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div v-if="account.platform === 'seedance' || account.platform === 'minimax'">
           <label class="input-label">{{ t('admin.accounts.videoProvider.title') }}</label>
-          <select
-            v-model="seedanceVideoProvider"
-            class="input"
-            data-testid="edit-seedance-video-provider"
-            @change="handleSeedanceVideoProviderChange"
-          >
+          <select v-model="seedanceVideoProvider" class="input" data-testid="edit-seedance-video-provider" @change="handleSeedanceVideoProviderChange">
             <option v-if="account.platform === 'seedance'" value="fflink">{{ t('admin.accounts.videoProvider.fflink') }}</option>
             <option value="huiqu">{{ t('admin.accounts.videoProvider.huiqu') }}</option>
             <option v-if="account.platform === 'seedance'" value="ximei">{{ t('admin.accounts.videoProvider.ximei') }}</option>
@@ -46,117 +41,26 @@
             <option v-if="account.platform === 'seedance'" value="zhi168">{{ t('admin.accounts.videoProvider.zhi168') }}</option>
             <option v-if="account.platform === 'seedance'" value="tianyue">{{ t('admin.accounts.videoProvider.tianyue') }}</option>
           </select>
-          <p class="input-hint">{{ t('admin.accounts.videoProvider.hint') }}</p>
         </div>
-        <div
-          v-if="account.platform === 'seedance' && seedanceVideoProvider === 'weijin'"
-          class="space-y-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-600"
-          data-testid="edit-lingdong-mapping"
-        >
-          <div class="flex items-start gap-2">
-            <input
-              id="edit-lingdong-mapping-enabled"
-              v-model="lingdongMappingEnabled"
-              type="checkbox"
-              class="mt-1"
-              data-testid="edit-lingdong-mapping-enabled"
-              @change="onLingdongMappingEnabledChange"
-            />
-            <div>
-              <label for="edit-lingdong-mapping-enabled" class="input-label !mb-0">
-                {{ t('admin.accounts.videoProvider.lingdongMappingEnabled') }}
-              </label>
-              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongMappingHint') }}</p>
+        <div v-if="account.platform === 'seedance' && seedanceVideoProvider === 'weijin'" class="space-y-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-600" data-testid="edit-lingdong-mapping">
+          <label class="flex items-start gap-2">
+            <input v-model="lingdongMappingEnabled" type="checkbox" class="mt-1" @change="onLingdongMappingEnabledChange" />
+            <span class="input-label !mb-0">{{ t('admin.accounts.videoProvider.lingdongMappingEnabled') }}</span>
+          </label>
+          <template v-if="lingdongMappingEnabled">
+            <input v-model="lingdongApiKey" type="password" class="input" autocomplete="new-password" data-testid="edit-lingdong-api-key" :placeholder="hasExistingLingdongApiKey ? t('admin.accounts.leaveEmptyToKeep') : t('admin.accounts.videoProvider.lingdongApiKeyPlaceholder')" />
+            <input v-model="lingdongBaseUrl" type="text" class="input" data-testid="edit-lingdong-base-url" :placeholder="t('admin.accounts.videoProvider.lingdongBaseUrlPlaceholder')" />
+            <input v-model="lingdongUpstreamModel" type="text" class="input" data-testid="edit-lingdong-upstream-model" :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')" />
+            <div class="flex justify-end"><button type="button" class="text-xs font-medium text-primary-600" @click="addLingdongModelMappingRow">{{ t('admin.accounts.videoProvider.lingdongModelMappingAdd') }}</button></div>
+            <div v-for="(row, index) in lingdongModelMappings" :key="index" class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+              <input v-model="row.from" type="text" class="input" :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingFromPlaceholder')" />
+              <span class="text-xs text-gray-400">-&gt;</span>
+              <input v-model="row.to" type="text" class="input" :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingToPlaceholder')" />
+              <button type="button" class="rounded p-1 text-gray-400 hover:text-red-600" @click="removeLingdongModelMappingRow(index)"><Icon name="trash" size="sm" /></button>
             </div>
-          </div>
-          <div v-if="lingdongMappingEnabled" class="space-y-3">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongApiKey') }}</label>
-              <input
-                v-model="lingdongApiKey"
-                type="password"
-                class="input"
-                autocomplete="new-password"
-                data-testid="edit-lingdong-api-key"
-                :placeholder="
-                  hasExistingLingdongApiKey
-                    ? t('admin.accounts.videoProvider.lingdongApiKeyPlaceholder')
-                    : t('admin.accounts.videoProvider.lingdongApiKey')
-                "
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongBaseUrl') }}</label>
-              <input
-                v-model="lingdongBaseUrl"
-                type="text"
-                class="input"
-                data-testid="edit-lingdong-base-url"
-                :placeholder="t('admin.accounts.videoProvider.lingdongBaseUrlPlaceholder')"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.videoProvider.lingdongUpstreamModel') }}</label>
-              <input
-                v-model="lingdongUpstreamModel"
-                type="text"
-                class="input"
-                data-testid="edit-lingdong-upstream-model"
-                :placeholder="t('admin.accounts.videoProvider.lingdongUpstreamModelPlaceholder')"
-              />
-              <p class="input-hint">{{ t('admin.accounts.videoProvider.lingdongUpstreamModelHint') }}</p>
-            </div>
-            <div data-testid="edit-lingdong-model-mapping">
-              <div class="mb-2 flex items-center justify-between gap-2">
-                <label class="input-label !mb-0">{{ t('admin.accounts.videoProvider.lingdongModelMapping') }}</label>
-                <button
-                  type="button"
-                  class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-                  data-testid="edit-lingdong-model-mapping-add"
-                  @click="addLingdongModelMappingRow"
-                >
-                  {{ t('admin.accounts.videoProvider.lingdongModelMappingAdd') }}
-                </button>
-              </div>
-              <p class="input-hint mb-2">{{ t('admin.accounts.videoProvider.lingdongModelMappingHint') }}</p>
-              <div v-if="lingdongModelMappings.length === 0" class="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-dark-500 dark:text-gray-400">
-                {{ t('admin.accounts.videoProvider.lingdongModelMappingEmpty') }}
-              </div>
-              <div v-else class="space-y-2">
-                <div
-                  v-for="(row, index) in lingdongModelMappings"
-                  :key="index"
-                  class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2"
-                >
-                  <input
-                    v-model="row.from"
-                    type="text"
-                    class="input"
-                    :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingFromPlaceholder')"
-                    :data-testid="`edit-lingdong-model-mapping-from-${index}`"
-                  />
-                  <span class="text-xs text-gray-400">→</span>
-                  <input
-                    v-model="row.to"
-                    type="text"
-                    class="input"
-                    :placeholder="t('admin.accounts.videoProvider.lingdongModelMappingToPlaceholder')"
-                    :data-testid="`edit-lingdong-model-mapping-to-${index}`"
-                  />
-                  <button
-                    type="button"
-                    class="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                    :data-testid="`edit-lingdong-model-mapping-remove-${index}`"
-                    @click="removeLingdongModelMappingRow(index)"
-                  >
-                    <Icon name="trash" size="sm" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          </template>
         </div>
-        <div>
+        <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
@@ -186,6 +90,71 @@
             class="mt-2"
             @select="editBaseUrl = $event"
           />
+          <CnBaseUrlPresets
+            v-if="isCNApiKeyAccount"
+            class="mt-2"
+            :platform="cnPresetPlatform"
+            :mode="editAccountMode"
+            :protocol="editApiProtocol"
+            :current-url="editBaseUrl"
+            @select="onCnPresetSelect"
+          />
+        </div>
+        <div v-else>
+          <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.endpoints') }}</label>
+          <div class="mt-2 space-y-3">
+            <div v-for="item in editAdaptiveProtocolOptions" :key="item.value">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                {{ t(`admin.accounts.cnProviders.apiProtocol.${item.labelKey}`) }}
+              </label>
+              <input v-model="editAdaptiveBaseUrls[item.value]" type="text" class="input" />
+            </div>
+          </div>
+          <p v-if="account.platform !== 'deepseek'" class="input-hint">
+            {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
+          </p>
+        </div>
+        <!-- Account Mode Selection (CN providers) -->
+        <div v-if="isCNApiKeyAccount">
+          <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              v-for="opt in cnAccountModeOptions"
+              :key="opt.value"
+              type="button"
+              :class="[
+                'rounded-lg border-2 px-3 py-1.5 text-xs transition-all',
+                editAccountMode === opt.value
+                  ? 'border-primary-500 bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'border-gray-200 text-gray-700 hover:border-gray-400 dark:border-dark-600 dark:text-gray-300 dark:hover:border-gray-600'
+              ]"
+              @click="editAccountMode = opt.value"
+            >
+              {{ t(`admin.accounts.cnProviders.accountMode.${opt.labelKey}`) }}
+            </button>
+          </div>
+          <p class="input-hint">{{ t(`admin.accounts.cnProviders.accountMode.${editAccountMode}Desc`) }}</p>
+        </div>
+        <!-- API Protocol Selection (CN providers) -->
+        <div v-if="isCNApiKeyAccount">
+          <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              v-for="opt in cnProtocolOptions"
+              :key="opt.value"
+              type="button"
+              :class="[
+                'rounded-lg border-2 px-3 py-1.5 text-xs transition-all',
+                editApiProtocol === opt.value
+                  ? 'border-primary-500 bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'border-gray-200 text-gray-700 hover:border-gray-400 dark:border-dark-600 dark:text-gray-300 dark:hover:border-gray-600'
+              ]"
+              @click="editApiProtocol = opt.value"
+            >
+              {{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}`) }}
+            </button>
+          </div>
+          <p class="input-hint">{{ t(`admin.accounts.cnProviders.apiProtocol.${cnProtocolDescKey}Desc`) }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -650,7 +619,7 @@
         </div>
       </div>
 
-      <!-- Header Override Section (anthropic/openai apikey + grok apikey/oauth) -->
+      <!-- Header Override Section (eligible API-key platforms + grok OAuth) -->
       <div v-if="headerOverrideCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
           <div>
@@ -1536,6 +1505,40 @@
         </div>
       </div>
 
+
+      <div
+        v-if="supportsAccountSchedulingThresholdOverride"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        data-testid="account-scheduling-threshold-section"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.accountSchedulingThresholdOverride') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.accountSchedulingThresholdOverrideHint') }}
+            </p>
+          </div>
+          <input
+            v-model="accountSchedulingThresholdOverrideEnabled"
+            data-testid="account-scheduling-threshold-override-enabled"
+            type="checkbox"
+            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div v-if="accountSchedulingThresholdOverrideEnabled">
+          <label class="input-label">{{ t('admin.accounts.accountSchedulingThresholdOverrideValue') }}</label>
+          <input
+            v-model.number="accountSchedulingThresholdOverrideValue"
+            data-testid="account-scheduling-threshold-override-value"
+            type="number"
+            min="1"
+            max="100"
+            class="input"
+          />
+          <p class="input-hint">{{ t('admin.accounts.accountSchedulingThresholdOverrideDisabledHint') }}</p>
+        </div>
+      </div>
+
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
         v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity'"
@@ -1602,8 +1605,43 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
-          <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
-          <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
+          <input
+            v-model.number="form.rate_multiplier"
+            type="number"
+            min="0"
+            step="0.001"
+            class="input disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="account-rate-multiplier"
+            :disabled="upstreamBillingRateSyncEnabled"
+          />
+          <p class="input-hint">
+            {{
+              t(
+                upstreamBillingRateSyncEnabled
+                  ? 'admin.accounts.upstreamBilling.syncRateManagedHint'
+                  : 'admin.accounts.billingRateMultiplierHint'
+              )
+            }}
+          </p>
+          <div
+            v-if="account?.type === 'apikey'"
+            class="mt-3 flex items-center justify-between gap-3"
+          >
+            <div class="min-w-0">
+              <p class="text-xs font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.accounts.upstreamBilling.syncRate') }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.syncRateHint') }}
+              </p>
+            </div>
+            <Toggle
+              :model-value="upstreamBillingRateSyncEnabled"
+              data-testid="upstream-billing-rate-sync"
+              :aria-label="t('admin.accounts.upstreamBilling.syncRate')"
+              @update:model-value="handleUpstreamBillingRateSyncChange"
+            />
+          </div>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1636,6 +1674,37 @@
               :class="[
                 'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
                 openaiPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
+      <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.flattenNamespaces') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.flattenNamespacesDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="edit-openai-flatten-namespaces-toggle"
+            @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openaiFlattenNamespacesEnabled ? 'translate-x-5' : 'translate-x-0'
               ]"
             />
           </button>
@@ -1780,8 +1849,8 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
-        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        v-if="account?.type === 'apikey'"
+        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -1814,67 +1883,12 @@
             {{ t('admin.accounts.upstreamBilling.manualDeclaredRateHint') }}
           </p>
         </div>
-        <div class="mt-4 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40">
-          <div>
-            <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">
-              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
-            </p>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.newapiAccessHint') }}
-            </p>
-          </div>
-          <div>
-            <label class="input-label" for="edit-newapi-access-token">
-              {{ t('admin.accounts.upstreamBilling.newapiAccessToken') }}
-            </label>
-            <input
-              id="edit-newapi-access-token"
-              v-model="newapiAccessTokenInput"
-              type="password"
-              autocomplete="off"
-              class="input-field"
-              data-testid="edit-newapi-access-token"
-              :placeholder="t('admin.accounts.upstreamBilling.newapiAccessTokenPlaceholder')"
-            />
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.newapiAccessTokenHint') }}
-            </p>
-          </div>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label class="input-label" for="edit-newapi-user-id">
-                {{ t('admin.accounts.upstreamBilling.newapiUserId') }}
-              </label>
-              <input
-                id="edit-newapi-user-id"
-                v-model="newapiUserIdInput"
-                type="text"
-                class="input-field"
-                data-testid="edit-newapi-user-id"
-                :placeholder="t('admin.accounts.upstreamBilling.newapiUserIdPlaceholder')"
-              />
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.upstreamBilling.newapiUserIdHint') }}
-              </p>
-            </div>
-            <div>
-              <label class="input-label" for="edit-newapi-group">
-                {{ t('admin.accounts.upstreamBilling.newapiGroup') }}
-              </label>
-              <input
-                id="edit-newapi-group"
-                v-model="newapiGroupInput"
-                type="text"
-                class="input-field"
-                data-testid="edit-newapi-group"
-                :placeholder="t('admin.accounts.upstreamBilling.newapiGroupPlaceholder')"
-              />
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.upstreamBilling.newapiGroupHint') }}
-              </p>
-            </div>
-          </div>
-        </div>
+        <Toggle
+          :model-value="upstreamBillingAutoProbeEnabled"
+          data-testid="upstream-billing-auto-probe"
+          :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
+          @update:model-value="handleUpstreamBillingAutoProbeChange"
+        />
       </div>
 
       <OllamaCloudUsageSettings
@@ -2056,7 +2070,7 @@
 
       <!-- OpenAI API 长上下文计费开关 -->
       <div
-        v-if="account?.platform === 'openai' && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !isSparkShadow && !hideAccountLongContextBilling && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2139,6 +2153,24 @@
               ]"
             />
           </button>
+        </div>
+      </div>
+
+      <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexFingerprintMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.codexFingerprintModeDesc') }}
+            </p>
+          </div>
+          <div class="w-52 flex-shrink-0">
+            <Select v-model="codexFingerprintMode" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
+          </div>
         </div>
       </div>
 
@@ -2833,7 +2865,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -2860,6 +2892,7 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import {
@@ -2873,12 +2906,18 @@ import {
   isHeaderOverrideCapable,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows,
+  defaultCNAdaptiveBaseUrls,
+  defaultCNBaseUrl,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
+  type CnAccountMode,
+  type CnApiProtocol,
+  type CnNativeApiProtocol,
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -2925,6 +2964,10 @@ const authStore = useAuthStore()
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
+const hideAccountLongContextBilling = computed(() => {
+  return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
+})
 
 const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
@@ -2976,58 +3019,156 @@ const lingdongUpstreamModel = ref('')
 const hasExistingLingdongApiKey = ref(false)
 type LingdongModelMappingRow = { from: string; to: string }
 const lingdongModelMappings = ref<LingdongModelMappingRow[]>([])
-
 const defaultLingdongModelMappings = (): LingdongModelMappingRow[] => [
-  { from: 'seedance2.0-one-face-reference-720p', to: 'sora-v3-pro' },
+  { from: 'seedance2.0-one-face-reference-720p', to: 'sora-v3-pro' }
 ]
-
 const parseLingdongModelMappings = (raw: unknown): LingdongModelMappingRow[] => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
   return Object.entries(raw as Record<string, unknown>)
-    .map(([from, to]) => ({
-      from: String(from || '').trim(),
-      to: typeof to === 'string' ? to.trim() : String(to ?? '').trim(),
-    }))
-    .filter((row) => row.from || row.to)
+    .map(([from, to]) => ({ from: from.trim(), to: String(to ?? '').trim() }))
+    .filter(row => row.from || row.to)
 }
-
 const buildLingdongModelMappingPayload = (): Record<string, string> | null => {
-  const out: Record<string, string> = {}
+  const result: Record<string, string> = {}
   for (const row of lingdongModelMappings.value) {
     const from = row.from.trim().toLowerCase()
     const to = row.to.trim()
     if (!from && !to) continue
     if (!from || !to) return null
-    out[from] = to
+    result[from] = to
   }
-  return out
+  return result
 }
-
-const addLingdongModelMappingRow = () => {
-  lingdongModelMappings.value.push({ from: '', to: lingdongUpstreamModel.value.trim() || 'sora-v3-pro' })
-}
-
-const removeLingdongModelMappingRow = (index: number) => {
-  lingdongModelMappings.value.splice(index, 1)
-}
-
+const addLingdongModelMappingRow = () => lingdongModelMappings.value.push({ from: '', to: lingdongUpstreamModel.value.trim() || 'sora-v3-pro' })
+const removeLingdongModelMappingRow = (index: number) => lingdongModelMappings.value.splice(index, 1)
 const onLingdongMappingEnabledChange = () => {
   if (lingdongMappingEnabled.value && lingdongModelMappings.value.length === 0) {
     lingdongModelMappings.value = defaultLingdongModelMappings()
   }
 }
-const seedanceProviderBaseUrl = computed(() =>
-  getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value)
-)
+const seedanceProviderBaseUrl = computed(() => getSeedanceVideoProviderBaseUrl(seedanceVideoProvider.value))
 const seedanceProviderModels = computed(() =>
   props.account?.platform === 'seedance'
     ? getSeedanceModelsByVideoProvider(seedanceVideoProvider.value)
     : props.account?.platform === 'minimax'
       ? getModelsByPlatform('minimax')
-    : props.account?.platform === 'grokimagine'
-      ? getModelsByPlatform('grokimagine')
-    : undefined
+      : props.account?.platform === 'grokimagine'
+        ? getModelsByPlatform('grokimagine')
+        : undefined
 )
+
+// ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
+// account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
+// 二者均可修正（早期创建的账号可能存错默认值），切换时重置 base_url 预置。
+const isCNApiKeyAccount = computed(
+  () =>
+    props.account?.type === 'apikey' &&
+    (props.account.platform === 'kimi' ||
+      props.account.platform === 'zhipu' ||
+      props.account.platform === 'deepseek')
+)
+// CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
+// `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
+const cnPresetPlatform = computed<'kimi' | 'zhipu' | 'deepseek'>(() => {
+  const platform = props.account?.platform
+  if (platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek') {
+    return platform
+  }
+  return 'kimi'
+})
+const editApiProtocol = ref<CnApiProtocol>('adaptive')
+const editAccountMode = ref<CnAccountMode>('payg')
+const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
+  chat_completions: '',
+  anthropic: '',
+  responses: ''
+})
+// 回填窗口标志：syncFormFromAccount 会同步改写 editAccountMode / editApiProtocol，
+// 而 watcher（pre-flush）在同步代码执行完之后才触发——若不抑制，会把刚恢复的
+// 存储版 base_url（可能是用户自定义/中转地址）覆盖为官方预设并在下次保存时持久化。
+// nextTick 后解除，此后用户主动切换模式/协议仍正常联动重置。
+const syncingForm = ref(false)
+const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'payg' | 'coding' }>>(
+  () => {
+    // DeepSeek 无 coding 套餐（与创建弹窗一致），仅保留按量付费。
+    if (props.account?.platform === 'deepseek') {
+      return [{ value: 'payg', labelKey: 'payg' }]
+    }
+    return [
+      { value: 'payg', labelKey: 'payg' },
+      { value: 'coding', labelKey: 'coding' }
+    ]
+  }
+)
+const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
+  const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
+    { value: 'adaptive', labelKey: 'adaptive' },
+    { value: 'chat_completions', labelKey: 'chatCompletions' },
+    { value: 'anthropic', labelKey: 'anthropic' }
+  ]
+  if (props.account?.platform === 'deepseek') {
+    opts.push({ value: 'responses', labelKey: 'responses' })
+  }
+  return opts
+})
+const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() => {
+  const opts: Array<{ value: CnNativeApiProtocol; labelKey: string }> = [
+    { value: 'chat_completions', labelKey: 'chatCompletions' },
+    { value: 'anthropic', labelKey: 'anthropic' }
+  ]
+  if (props.account?.platform === 'deepseek') opts.push({ value: 'responses', labelKey: 'responses' })
+  return opts
+})
+watch(editApiProtocol, (protocol, previousProtocol) => {
+  if (!isCNApiKeyAccount.value || syncingForm.value) return
+  if (protocol === 'adaptive') {
+    const defaults = defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, editAccountMode.value)
+    for (const item of editAdaptiveProtocolOptions.value) {
+      if (!editAdaptiveBaseUrls.value[item.value]) editAdaptiveBaseUrls.value[item.value] = defaults[item.value]
+    }
+    if (previousProtocol !== 'adaptive' && editBaseUrl.value.trim()) {
+      editAdaptiveBaseUrls.value[previousProtocol] = editBaseUrl.value.trim()
+    }
+    editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
+    return
+  }
+  if (previousProtocol === 'adaptive') {
+    editBaseUrl.value = editAdaptiveBaseUrls.value[protocol] ||
+      defaultCNBaseUrl(props.account!.platform, editAccountMode.value, protocol)
+    return
+  }
+  editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, editAccountMode.value, protocol)
+})
+watch(editAccountMode, (mode, previousMode) => {
+  if (!isCNApiKeyAccount.value || syncingForm.value) return
+  // deepseek 无 coding 套餐：防御性回退（UI 已隐藏该选项）。
+  const effectiveMode = props.account!.platform === 'deepseek' && mode === 'coding' ? 'payg' : mode
+  if (effectiveMode !== mode) {
+    editAccountMode.value = effectiveMode
+    return
+  }
+  if (editApiProtocol.value === 'adaptive') {
+    const previousDefaults = defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, previousMode)
+    const nextDefaults = defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, mode)
+    for (const item of editAdaptiveProtocolOptions.value) {
+      if (!editAdaptiveBaseUrls.value[item.value] || editAdaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
+        editAdaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
+      }
+    }
+    editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
+    return
+  }
+  editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, editApiProtocol.value)
+})
+const cnProtocolDescKey = computed(
+  () => cnProtocolOptions.value.find(o => o.value === editApiProtocol.value)?.labelKey ?? 'chatCompletions'
+)
+// 点击预设端点：回填 base url 与对应模式/协议。
+function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+  editAccountMode.value = preset.mode
+  editApiProtocol.value = preset.protocol
+  editBaseUrl.value = preset.url
+}
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3110,9 +3251,7 @@ const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
 const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamDeclaredRateInput = ref<string>('')
-const newapiAccessTokenInput = ref<string>('')
-const newapiUserIdInput = ref<string>('')
-const newapiGroupInput = ref<string>('')
+const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -3121,6 +3260,12 @@ const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
 const isSyncingAntigravityUpstream = ref(false)
 const tempUnschedEnabled = ref(false)
+const accountSchedulingThresholdOverrideEnabled = ref(false)
+const accountSchedulingThresholdOverrideValue = ref(100)
+const ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY = 'account_scheduling_threshold'
+const supportsAccountSchedulingThresholdOverride = computed(() =>
+  supportsAccountSchedulingThresholdOverridePlatform(props.account?.platform)
+)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-model-mapping')
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-openai-compact-model-mapping')
@@ -3163,6 +3308,8 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+// OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
+const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
 // OpenAI 订阅档位（Plus/Pro/Free）手动覆盖值,存于 credentials.plan_type;'' 表示清空/自动识别
 const editPlanType = ref<string>('')
@@ -3173,6 +3320,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
+type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
+const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
@@ -3204,6 +3353,13 @@ const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editWeeklyResetDay = ref<number | null>(null)
 const editWeeklyResetHour = ref<number | null>(null)
 const editResetTimezone = ref<string | null>(null)
+const codexFingerprintModeOptions = computed(() => [
+  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
+  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
+  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
+  { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
+])
+
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
@@ -3463,9 +3619,15 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
-  if (props.account?.platform === 'glm') return 'https://open.bigmodel.cn/api/paas/v4'
-  if (props.account?.platform === 'seedance' || props.account?.platform === 'minimax') return seedanceProviderBaseUrl.value
-  if (props.account?.platform === 'ltx' || props.account?.platform === 'happyhorse' || props.account?.platform === 'grokimagine') return 'https://api.fflink.top'
+  // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
+  // 不能落到 anthropic 默认值（会被当 CC base 拼出错误端点）。
+  if (
+    props.account?.platform === 'kimi' ||
+    props.account?.platform === 'zhipu' ||
+    props.account?.platform === 'deepseek'
+  ) {
+    return defaultCNBaseUrl(props.account.platform, editAccountMode.value, editApiProtocol.value)
+  }
   return 'https://api.anthropic.com'
 })
 
@@ -3488,6 +3650,20 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
+  upstreamBillingRateSyncEnabled.value = enabled
+  if (enabled) {
+    upstreamBillingAutoProbeEnabled.value = true
+  }
+}
+
+const handleUpstreamBillingAutoProbeChange = (enabled: boolean) => {
+  upstreamBillingAutoProbeEnabled.value = enabled
+  if (!enabled) {
+    upstreamBillingRateSyncEnabled.value = false
+  }
+}
 
 const statusOptions = computed(() => {
   const options = [
@@ -3599,6 +3775,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
   }
+  // 进入回填窗口：抑制 CN 模式/协议 watcher 联动重置 base_url（见 syncingForm 注释）。
+  syncingForm.value = true
+  void nextTick(() => {
+    syncingForm.value = false
+  })
   antigravityMixedChannelConfirmed.value = false
   showMixedChannelWarning.value = false
   mixedChannelWarningDetails.value = null
@@ -3697,22 +3878,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
-	const declaredRate = extra?.upstream_declared_rate_multiplier
-	upstreamDeclaredRateInput.value =
-		typeof declaredRate === 'number' && Number.isFinite(declaredRate)
-			? String(declaredRate)
-			: typeof declaredRate === 'string'
-				? declaredRate
-				: ''
-      newapiAccessTokenInput.value =
-        typeof extra?.newapi_access_token === 'string' ? extra.newapi_access_token : ''
-      newapiUserIdInput.value =
-        extra?.newapi_user_id != null ? String(extra.newapi_user_id) : ''
-      newapiGroupInput.value =
-        typeof extra?.newapi_group === 'string' ? extra.newapi_group : ''
+  upstreamBillingRateSyncEnabled.value =
+    upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
+  openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
@@ -3723,12 +3894,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
+  codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    openaiFlattenNamespacesEnabled.value =
+      newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
     openAILongContextBillingEnabled.value = longContextBillingValue === true
     // plan_type 手动覆盖仅 OAuth 有实际调度语义(IsOpenAIChatGPTSubscription 要求 oauth),故只对 oauth 回填
@@ -3771,6 +3945,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
       codexCLIOnlyAppServerEnabled.value =
         extra?.codex_cli_only_allow_app_server === true
+    }
+    if (newAccount.type === 'oauth') {
+      const fpMode = extra?.codex_fingerprint_mode as string | undefined
+      // 缺省/非法值按 off 呈现，与后端 GetCodexFingerprintMode 的 opt-in 语义一致（#5610）
+      codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
+        ? fpMode as CodexFingerprintMode
+        : 'off')
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -3860,8 +4041,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   loadQuotaControlSettings(newAccount)
 
   loadTempUnschedRules(credentials)
+  loadAccountSchedulingThresholdOverride(newAccount.platform, credentials)
 
-  // Load header override state (anthropic/openai apikey + grok apikey/oauth)
+  // Load header override state for eligible account platforms/types
   headerOverrideEnabled.value = false
   headerOverrideRows.value = []
   if (newAccount.credentials && isHeaderOverrideCapable(newAccount.platform, newAccount.type)) {
@@ -3894,6 +4076,53 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
+    // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
+    if (newAccount.platform === 'kimi' || newAccount.platform === 'zhipu' || newAccount.platform === 'deepseek') {
+      editAccountMode.value = credentials.account_mode === 'coding' ? 'coding' : 'payg'
+      const storedProtocol = credentials.api_protocol
+      editApiProtocol.value =
+        storedProtocol === 'adaptive' ||
+        storedProtocol === 'chat_completions' ||
+        storedProtocol === 'anthropic' ||
+        storedProtocol === 'responses'
+          ? storedProtocol
+          : 'chat_completions'
+      if (newAccount.platform !== 'deepseek' && editApiProtocol.value === 'responses') {
+        editApiProtocol.value = 'chat_completions'
+      }
+      const adaptiveDefaults = defaultCNAdaptiveBaseUrls(newAccount.platform, editAccountMode.value)
+      const storedBaseUrls = (credentials.api_base_urls as Record<string, unknown> | undefined) || {}
+      const legacyBaseUrl = typeof credentials.base_url === 'string' ? credentials.base_url.trim() : ''
+      const storedChatBaseUrl = typeof storedBaseUrls.chat_completions === 'string'
+        ? storedBaseUrls.chat_completions.trim()
+        : ''
+      const storedAnthropicBaseUrl = typeof storedBaseUrls.anthropic === 'string'
+        ? storedBaseUrls.anthropic.trim()
+        : ''
+      const storedResponsesBaseUrl = typeof storedBaseUrls.responses === 'string'
+        ? storedBaseUrls.responses.trim()
+        : ''
+      const nextAdaptiveBaseUrls: Record<CnNativeApiProtocol, string> = {
+        chat_completions: storedChatBaseUrl || adaptiveDefaults.chat_completions,
+        anthropic: storedAnthropicBaseUrl || adaptiveDefaults.anthropic,
+        responses: storedResponsesBaseUrl || adaptiveDefaults.responses
+      }
+      const legacyProtocol: CnNativeApiProtocol = editApiProtocol.value === 'anthropic'
+        ? 'anthropic'
+        : editApiProtocol.value === 'responses'
+          ? 'responses'
+          : 'chat_completions'
+      const storedLegacyBaseUrl = legacyProtocol === 'anthropic'
+        ? storedAnthropicBaseUrl
+        : legacyProtocol === 'responses'
+          ? storedResponsesBaseUrl
+          : storedChatBaseUrl
+      if (legacyBaseUrl && !storedLegacyBaseUrl) {
+        nextAdaptiveBaseUrls[legacyProtocol] = legacyBaseUrl
+      }
+      editAdaptiveBaseUrls.value = nextAdaptiveBaseUrls
+    }
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -3901,14 +4130,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'glm'
-              ? 'https://open.bigmodel.cn/api/paas/v4'
-            : newAccount.platform === 'seedance' || newAccount.platform === 'minimax'
-              ? seedanceProviderBaseUrl.value
-            : newAccount.platform === 'ltx' || newAccount.platform === 'happyhorse' || newAccount.platform === 'grokimagine'
-              ? 'https://api.fflink.top'
-            : 'https://api.anthropic.com'
-    editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+            : newAccount.platform === 'kimi' ||
+                newAccount.platform === 'zhipu' ||
+                newAccount.platform === 'deepseek'
+              ? defaultCNBaseUrl(newAccount.platform, editAccountMode.value, editApiProtocol.value)
+              : 'https://api.anthropic.com'
+    editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
+      ? editAdaptiveBaseUrls.value.chat_completions
+      : (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode. Existing MX933 accounts may still use fixed execution IDs.
     const rawModelMapping = credentials.model_mapping as Record<string, unknown> | undefined
@@ -4263,6 +4492,69 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
   return true
 }
 
+
+function supportsAccountSchedulingThresholdOverridePlatform(platform: Account['platform'] | undefined) {
+  return platform === 'openai' || platform === 'anthropic' || platform === 'grok'
+}
+
+function normalizeAccountSchedulingThresholdOverride(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return null
+  }
+  const integer = Math.trunc(numeric)
+  if (integer < 1 || integer > 100) {
+    return null
+  }
+  return integer
+}
+
+function clampAccountSchedulingThresholdOverride(value: unknown): number {
+  return Math.min(100, Math.max(1, Math.trunc(Number(value) || 100)))
+}
+
+function loadAccountSchedulingThresholdOverride(
+  platform: Account['platform'] | undefined,
+  credentials: Record<string, unknown> | undefined
+) {
+  if (!supportsAccountSchedulingThresholdOverridePlatform(platform)) {
+    accountSchedulingThresholdOverrideEnabled.value = false
+    accountSchedulingThresholdOverrideValue.value = 100
+    return
+  }
+  const value = normalizeAccountSchedulingThresholdOverride(
+    credentials?.[ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY]
+  )
+  accountSchedulingThresholdOverrideEnabled.value = value !== null
+  accountSchedulingThresholdOverrideValue.value = value ?? 100
+}
+
+const applyAccountSchedulingThresholdOverridePatch = (
+  credentials: Record<string, unknown>,
+  currentCredentials: Record<string, unknown>,
+  platform: Account['platform'] | undefined = props.account?.platform
+) => {
+  if (!supportsAccountSchedulingThresholdOverridePlatform(platform)) {
+    return
+  }
+  const current = normalizeAccountSchedulingThresholdOverride(
+    currentCredentials[ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY]
+  )
+  if (!accountSchedulingThresholdOverrideEnabled.value) {
+    if (current !== null) {
+      credentials[ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY] = null
+    }
+    return
+  }
+  const next = clampAccountSchedulingThresholdOverride(accountSchedulingThresholdOverrideValue.value)
+  if (current !== next) {
+    credentials[ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY] = next
+  }
+}
+
 function loadTempUnschedRules(credentials?: Record<string, unknown>) {
   tempUnschedEnabled.value = credentials?.temp_unschedulable_enabled === true
   const rawRules = credentials?.temp_unschedulable_rules
@@ -4528,6 +4820,13 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
+    if (props.account.type === 'apikey') {
+      updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
+      updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
+      if (upstreamBillingRateSyncEnabled.value) {
+        delete updatePayload.rate_multiplier
+      }
+    }
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
@@ -4615,6 +4914,23 @@ const handleSubmit = async () => {
         delete newCredentials.pixelle_model_mapping
       }
 
+      // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
+      if (isCNApiKeyAccount.value) {
+        newCredentials.account_mode = editAccountMode.value
+        newCredentials.api_protocol = editApiProtocol.value
+        if (editApiProtocol.value === 'adaptive') {
+          const defaults = defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, editAccountMode.value)
+          const protocolBaseUrls: Record<string, string> = {}
+          for (const item of editAdaptiveProtocolOptions.value) {
+            protocolBaseUrls[item.value] = (editAdaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
+          }
+          newCredentials.api_base_urls = protocolBaseUrls
+          newCredentials.base_url = protocolBaseUrls.chat_completions
+        } else {
+          delete newCredentials.api_base_urls
+        }
+      }
+
       // Handle API key
       // 后端响应已脱敏：currentCredentials 不会再包含 api_key 原文。
       // 用户填入新值则覆盖；留空时优先看 credentials_status.has_api_key；
@@ -4687,7 +5003,7 @@ const handleSubmit = async () => {
         delete newCredentials.custom_error_codes
       }
 
-      // Add header override if enabled (anthropic/openai/grok apikey)
+      // Add header override if enabled for this API-key platform
       if (isHeaderOverrideCapable(props.account.platform, 'apikey')) {
         if (headerOverrideEnabled.value) {
           const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
@@ -4701,6 +5017,7 @@ const handleSubmit = async () => {
 
       // Add intercept warmup requests setting
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
         return
       }
@@ -4719,6 +5036,7 @@ const handleSubmit = async () => {
       // Add intercept warmup requests setting
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
 
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
         return
       }
@@ -4767,6 +5085,7 @@ const handleSubmit = async () => {
       }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
         return
       }
@@ -4824,6 +5143,7 @@ const handleSubmit = async () => {
       }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
         return
       }
@@ -4835,6 +5155,7 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {
         return
       }
@@ -5090,6 +5411,12 @@ const handleSubmit = async () => {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
       }
+      // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
+      if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
+        newExtra.openai_responses_flatten_namespaces = true
+      } else {
+        delete newExtra.openai_responses_flatten_namespaces
+      }
       if (isSparkShadow.value) {
         delete newExtra.openai_long_context_billing_enabled
       } else {
@@ -5106,27 +5433,6 @@ const handleSubmit = async () => {
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
         }
-			newExtra.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
-			const declaredRaw = String(upstreamDeclaredRateInput.value ?? '').trim()
-			if (declaredRaw === '') {
-				delete newExtra.upstream_declared_rate_multiplier
-			} else {
-				const declared = Number(declaredRaw)
-				if (!Number.isFinite(declared) || declared < 0) {
-					appStore.showError(t('admin.accounts.upstreamBilling.manualDeclaredRateHint'))
-					return
-				}
-				newExtra.upstream_declared_rate_multiplier = declared
-			}
-			const accessToken = String(newapiAccessTokenInput.value ?? '').trim()
-			const userId = String(newapiUserIdInput.value ?? '').trim()
-			const groupName = String(newapiGroupInput.value ?? '').trim()
-			if (accessToken) newExtra.newapi_access_token = accessToken
-			else delete newExtra.newapi_access_token
-			if (userId) newExtra.newapi_user_id = userId
-			else delete newExtra.newapi_user_id
-			if (groupName) newExtra.newapi_group = groupName
-			else delete newExtra.newapi_group
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
@@ -5183,6 +5489,16 @@ const handleSubmit = async () => {
         }
       }
 
+      // 指纹收敛模式：默认 off（不写入）；device/session/full 是显式 opt-in，
+      // 必须落键，否则管理员的选择会被后端当作"未设置"而回落到 off（#5610）。
+      if (props.account.type === 'oauth') {
+        if (codexFingerprintMode.value !== 'off') {
+          newExtra.codex_fingerprint_mode = codexFingerprintMode.value
+        } else {
+          delete newExtra.codex_fingerprint_mode
+        }
+      }
+
       updatePayload.extra = newExtra
     }
 
@@ -5199,6 +5515,12 @@ const handleSubmit = async () => {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
         (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+      // 上游倍率自动探测对全部 API-key 平台开放（sub2api 上游即可应答），
+      // Bedrock 凭证无静态 Key 不参与。
+      if (props.account.type === 'apikey') {
+        delete newExtra.upstream_billing_probe_enabled
+        delete newExtra.upstream_billing_rate_sync_enabled
+      }
       // Total quota
       if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
         newExtra.quota_limit = editQuotaLimit.value

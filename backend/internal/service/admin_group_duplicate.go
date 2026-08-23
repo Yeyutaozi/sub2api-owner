@@ -88,6 +88,9 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		PeakStart:                       source.PeakStart,
 		PeakEnd:                         source.PeakEnd,
 		PeakRateMultiplier:              source.PeakRateMultiplier,
+		ProfitControlEnabled:            source.ProfitControlEnabled,
+		ProfitMinMargin:                 source.ProfitMinMargin,
+		ProfitSafetyBuffer:              source.ProfitSafetyBuffer,
 		IsExclusive:                     source.IsExclusive,
 		Status:                          duplicateGroupInactiveStatus,
 		DuplicateOperationID:            operationID,
@@ -114,6 +117,10 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		VideoModelPrices:                cloneGroupVideoModelPrices(source.Platform, source.VideoModelPrices),
 		VideoBillingUnit:                source.EffectiveVideoBillingUnit(),
 		WebSearchPricePerCall:           cloneGroupValuePointer(source.WebSearchPricePerCall),
+		SearchPricePer1k:                cloneGroupValuePointer(source.SearchPricePer1k),
+		AudioRealtimePricePerMin:        cloneGroupValuePointer(source.AudioRealtimePricePerMin),
+		AudioTTSPricePerMillionChars:    cloneGroupValuePointer(source.AudioTTSPricePerMillionChars),
+		AudioSTTPricePerHour:            cloneGroupValuePointer(source.AudioSTTPricePerHour),
 		ClaudeCodeOnly:                  source.ClaudeCodeOnly,
 		FallbackGroupID:                 cloneGroupValuePointer(source.FallbackGroupID),
 		FallbackGroupIDOnInvalidRequest: cloneGroupValuePointer(source.FallbackGroupIDOnInvalidRequest),
@@ -141,7 +148,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 }
 
 func cloneGroupVideoModelPrices(platform string, prices VideoModelPrices) VideoModelPrices {
-	if !IsFFLinkVideoPlatform(platform) {
+	if !IsVideoModelPricingPlatform(platform) {
 		return VideoModelPrices{}
 	}
 	return cloneVideoModelPrices(prices)

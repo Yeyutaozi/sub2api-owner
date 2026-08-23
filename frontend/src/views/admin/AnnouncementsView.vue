@@ -161,7 +161,7 @@
           <template #empty>
             <EmptyState
               :title="t('empty.noData')"
-              :description="t('admin.announcements.failedToLoad')"
+              :description="t('admin.announcements.createFirstAnnouncement')"
               :action-text="t('admin.announcements.createAnnouncement')"
               @action="openCreateDialog"
             />

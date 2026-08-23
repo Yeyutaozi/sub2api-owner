@@ -9,6 +9,9 @@ import (
 )
 
 func normalizeVideoModelPrices(platform string, prices VideoModelPrices) (VideoModelPrices, error) {
+	if platform == PlatformGrok {
+		return NormalizeVideoModelPrices(prices), nil
+	}
 	if !IsFFLinkVideoPlatform(platform) || len(prices) == 0 {
 		return VideoModelPrices{}, nil
 	}
