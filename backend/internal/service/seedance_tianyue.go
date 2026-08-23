@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 )
 
@@ -133,22 +132,8 @@ func (s *OpenAIGatewayService) forwardTianyueSeedance(
 		}
 		path += "/" + url.PathEscape(taskID)
 		if contentRangeOverride != nil {
-			query, queryErr := s.doTianyueRequest(ctx, c, account, http.MethodGet, buildXimeiEndpointURL(baseURL, path), path, nil, "", true)
-			if queryErr != nil {
-				return nil, queryErr
-			}
-			status, resultURL, parseErr := parseTianyueTaskResult(query.Body)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			if MapSeedanceTaskStatus(status) != SeedanceTaskStatusSucceeded {
-				return nil, &SeedanceUpstreamError{StatusCode: http.StatusConflict, Body: []byte("video task is not completed")}
-			}
-			validatedURL, validateErr := s.validateTianyueResultURL(resultURL)
-			if validateErr != nil {
-				return nil, errors.New("Tianyue result URL is invalid")
-			}
-			return s.doTianyueRequest(ctx, c, account, http.MethodGet, validatedURL, tianyueVideoTaskPath+"/{task_id}/content", nil, rangeValue(contentRangeOverride), false)
+			path += "/content"
+			return s.doTianyueRequest(ctx, c, account, http.MethodGet, buildXimeiEndpointURL(baseURL, path), tianyueVideoTaskPath+"/{task_id}/content", nil, rangeValue(contentRangeOverride), true)
 		}
 	} else {
 		return nil, &SeedanceUpstreamError{StatusCode: http.StatusMethodNotAllowed, Body: []byte("this video provider does not support this method")}
@@ -243,50 +228,6 @@ func (s *OpenAIGatewayService) doTianyueRequest(
 		out.Result = &OpenAIForwardResult{Duration: time.Since(startedAt)}
 	}
 	return out, nil
-}
-
-func (s *OpenAIGatewayService) validateTianyueResultURL(raw string) (string, error) {
-	allowInsecure := false
-	allowPrivate := false
-	if s != nil && s.cfg != nil {
-		allowInsecure = s.cfg.Security.URLAllowlist.AllowInsecureHTTP
-		allowPrivate = s.cfg.Security.URLAllowlist.AllowPrivateHosts
-	}
-	validated, err := urlvalidator.ValidateHTTPURL(raw, allowInsecure, urlvalidator.ValidationOptions{AllowPrivate: allowPrivate})
-	if err != nil || allowPrivate {
-		return validated, err
-	}
-	parsed, err := url.Parse(validated)
-	if err != nil || parsed.User != nil || parsed.Fragment != "" {
-		return "", errors.New("invalid result URL")
-	}
-	if err := urlvalidator.ValidateResolvedIP(parsed.Hostname()); err != nil {
-		return "", err
-	}
-	return validated, nil
-}
-
-func parseTianyueTaskResult(body []byte) (string, string, error) {
-	var payload struct {
-		Status   string `json:"status"`
-		URL      string `json:"url"`
-		VideoURL string `json:"video_url"`
-		Metadata struct {
-			URL string `json:"url"`
-		} `json:"metadata"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", "", errors.New("invalid Tianyue task response")
-	}
-	status := strings.TrimSpace(payload.Status)
-	if status == "" {
-		return "", "", errors.New("Tianyue task response is missing status")
-	}
-	resultURL := firstNonEmptyString(strings.TrimSpace(payload.VideoURL), strings.TrimSpace(payload.URL), strings.TrimSpace(payload.Metadata.URL))
-	if MapSeedanceTaskStatus(status) == SeedanceTaskStatusSucceeded && resultURL == "" {
-		return "", "", errors.New("completed Tianyue task response is missing video_url")
-	}
-	return status, resultURL, nil
 }
 
 func tianyuePublicTaskID(accountID int64, upstreamTaskID string) string {

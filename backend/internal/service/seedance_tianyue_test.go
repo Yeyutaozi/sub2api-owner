@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -143,14 +144,37 @@ func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	require.Equal(t, 15, request.VideoDuration)
 }
 
-func TestParseTianyueTaskResult(t *testing.T) {
-	status, resultURL, err := parseTianyueTaskResult([]byte(`{
-		"status":"completed",
-		"video_url":"https://cdn.example.com/video.mp4"
-	}`))
+func TestForwardTianyueSeedanceContentUsesAuthenticatedProviderProxy(t *testing.T) {
+	upstream := &seedanceHTTPUpstreamStub{
+		body:       "video-bytes",
+		statusCode: http.StatusPartialContent,
+		header: http.Header{
+			"Content-Type":  []string{"video/mp4"},
+			"Content-Range": []string{"bytes 0-10/11"},
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	gateway := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key":        "secret",
+		"base_url":       "http://tianyue.example",
+		"video_provider": VideoProviderTianyue,
+	}}
+
+	response, err := gateway.ForwardSeedanceContent(t.Context(), nil, account, "task_123", "bytes=0-10")
 	require.NoError(t, err)
-	require.Equal(t, "completed", status)
-	require.Equal(t, "https://cdn.example.com/video.mp4", resultURL)
+	require.NotNil(t, response.BodyStream)
+	defer func() { _ = response.BodyStream.Close() }()
+	content, readErr := io.ReadAll(response.BodyStream)
+	require.NoError(t, readErr)
+	require.Equal(t, "video-bytes", string(content))
+	require.Equal(t, http.StatusPartialContent, response.StatusCode)
+	require.Equal(t, "bytes 0-10/11", response.Header.Get("Content-Range"))
+	require.Equal(t, "http://tianyue.example/v1/videos/task_123/content", upstream.request.URL.String())
+	require.Equal(t, "Bearer secret", upstream.request.Header.Get("Authorization"))
+	require.Equal(t, "bytes=0-10", upstream.request.Header.Get("Range"))
+	require.Equal(t, "*/*", upstream.request.Header.Get("Accept"))
 }
 
 func TestNormalizeTianyueTaskHidesUpstreamDetails(t *testing.T) {
