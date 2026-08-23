@@ -21,8 +21,8 @@ import (
 const (
 	VideoProviderTianyue         = "tianyue"
 	DefaultTianyueVideoBaseURL   = "http://192.220.23.225:3000"
-	SeedanceTianyueSD20Model     = "B-SD2.0-933"
-	SeedanceTianyueSD20FastModel = "B-SD2.0-F-933"
+	SeedanceTianyueSD20Model     = "L-SD2-F-720-933"
+	SeedanceTianyueSD20FastModel = "L-stable-seedance-2-0-933-720p"
 	tianyueVideoTaskPath         = "/v1/videos"
 )
 

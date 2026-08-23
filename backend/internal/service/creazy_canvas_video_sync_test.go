@@ -106,7 +106,7 @@ func TestSyncAcceptedVideoWorkPreservesCanvasMediaInsteadOfMaterializedURLs(t *t
 		UserID:           7,
 		APIKey:           &APIKey{ID: 9, UserID: 7},
 		AssociatedWorkID: 44,
-		PublicModel:      "B-SD2.0-933",
+		PublicModel:      SeedanceTianyueSD20Model,
 		Prompt:           "canvas prompt",
 		ParamsJSON: map[string]any{
 			"start_frame": temporary + "-start",
