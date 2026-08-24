@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const (
@@ -132,8 +134,9 @@ func (s *OpenAIGatewayService) forwardTianyueSeedance(
 		}
 		path += "/" + url.PathEscape(taskID)
 		if contentRangeOverride != nil {
-			path += "/content"
-			return s.doTianyueRequest(ctx, c, account, http.MethodGet, buildXimeiEndpointURL(baseURL, path), tianyueVideoTaskPath+"/{task_id}/content", nil, rangeValue(contentRangeOverride), true)
+			return s.forwardTianyueSeedanceContent(
+				ctx, c, account, baseURL, taskID, rangeValue(contentRangeOverride),
+			)
 		}
 	} else {
 		return nil, &SeedanceUpstreamError{StatusCode: http.StatusMethodNotAllowed, Body: []byte("this video provider does not support this method")}
@@ -159,6 +162,153 @@ func (s *OpenAIGatewayService) forwardTianyueSeedance(
 		VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds,
 	}
 	return response, nil
+}
+
+func (s *OpenAIGatewayService) forwardTianyueSeedanceContent(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	baseURL, taskID, rangeHeader string,
+) (*SeedanceUpstreamResponse, error) {
+	queryPath := tianyueVideoTaskPath + "/" + url.PathEscape(taskID)
+	query, err := s.doTianyueRequest(
+		ctx, c, account, http.MethodGet, buildXimeiEndpointURL(baseURL, queryPath), queryPath, nil, "", true,
+	)
+	if err != nil {
+		return nil, err
+	}
+	status, resultURL, err := parseTianyueTaskResult(query.Body)
+	if err != nil {
+		return nil, err
+	}
+	if MapSeedanceTaskStatus(status) != SeedanceTaskStatusSucceeded {
+		return nil, &SeedanceUpstreamError{StatusCode: http.StatusConflict, Body: []byte("video task is not completed")}
+	}
+
+	validatedURL, initialHTTPS, err := validateTianyueVideoResultURL(resultURL, true)
+	if err != nil {
+		return nil, errors.New("Tianyue video result URL is invalid")
+	}
+	response, err := s.doTianyueRequest(
+		ctx, c, account, http.MethodGet, validatedURL, tianyueVideoTaskPath+"/{task_id}/content", nil, rangeHeader, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode < http.StatusMultipleChoices || response.StatusCode >= http.StatusBadRequest {
+		if !initialHTTPS {
+			closeSeedanceUpstreamBody(response)
+			return nil, errors.New("Tianyue video result URL did not redirect to HTTPS")
+		}
+		return response, nil
+	}
+
+	location := strings.TrimSpace(response.Header.Get("Location"))
+	closeSeedanceUpstreamBody(response)
+	redirectURL, err := resolveTianyueVideoRedirect(validatedURL, location)
+	if err != nil {
+		return nil, errors.New("Tianyue video result redirect is invalid")
+	}
+	redirectURL, _, err = validateTianyueVideoResultURL(redirectURL, false)
+	if err != nil {
+		return nil, errors.New("Tianyue video result redirect is invalid")
+	}
+	response, err = s.doTianyueRequest(
+		ctx, c, account, http.MethodGet, redirectURL, tianyueVideoTaskPath+"/{task_id}/content", nil, rangeHeader, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= http.StatusMultipleChoices && response.StatusCode < http.StatusBadRequest {
+		closeSeedanceUpstreamBody(response)
+		return nil, errors.New("Tianyue video result redirected more than once")
+	}
+	return response, nil
+}
+
+func parseTianyueTaskResult(body []byte) (string, string, error) {
+	var payload struct {
+		Status    string `json:"status"`
+		URL       string `json:"url"`
+		VideoURL  string `json:"video_url"`
+		ResultURL string `json:"result_url"`
+		Metadata  struct {
+			URL string `json:"url"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", "", errors.New("invalid Tianyue task response")
+	}
+	status := strings.TrimSpace(payload.Status)
+	if status == "" {
+		return "", "", errors.New("Tianyue task response is missing status")
+	}
+	resultURL := firstTianyueResultURL(payload.VideoURL, payload.ResultURL, payload.Metadata.URL, payload.URL)
+	if MapSeedanceTaskStatus(status) == SeedanceTaskStatusSucceeded && resultURL == "" {
+		return "", "", errors.New("completed Tianyue task response is missing video_url")
+	}
+	return status, resultURL, nil
+}
+
+func firstTianyueResultURL(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "null") {
+			continue
+		}
+		return value
+	}
+	return ""
+}
+
+func validateTianyueVideoResultURL(raw string, allowHTTPRedirectBootstrap bool) (string, bool, error) {
+	validated, err := urlvalidator.ValidateHTTPURL(
+		raw, allowHTTPRedirectBootstrap, urlvalidator.ValidationOptions{AllowPrivate: false},
+	)
+	if err != nil {
+		return "", false, err
+	}
+	parsed, err := url.Parse(validated)
+	if err != nil || parsed.User != nil || parsed.Fragment != "" {
+		return "", false, errors.New("invalid Tianyue video result URL")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		if port := parsed.Port(); port != "" && port != "443" {
+			return "", false, errors.New("invalid Tianyue HTTPS result port")
+		}
+	case "http":
+		if !allowHTTPRedirectBootstrap || parsed.Port() != "15036" {
+			return "", false, errors.New("invalid Tianyue HTTP redirect port")
+		}
+	default:
+		return "", false, errors.New("invalid Tianyue video result scheme")
+	}
+	if err := urlvalidator.ValidateResolvedIP(parsed.Hostname()); err != nil {
+		return "", false, err
+	}
+	return validated, strings.EqualFold(parsed.Scheme, "https"), nil
+}
+
+func resolveTianyueVideoRedirect(baseURL, location string) (string, error) {
+	if strings.TrimSpace(location) == "" {
+		return "", errors.New("redirect location is missing")
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	target, err := url.Parse(location)
+	if err != nil {
+		return "", err
+	}
+	return base.ResolveReference(target).String(), nil
+}
+
+func closeSeedanceUpstreamBody(response *SeedanceUpstreamResponse) {
+	if response != nil && response.BodyStream != nil {
+		_ = response.BodyStream.Close()
+	}
 }
 
 func (s *OpenAIGatewayService) doTianyueRequest(

@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
 
@@ -144,15 +146,25 @@ func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	require.Equal(t, 15, request.VideoDuration)
 }
 
-func TestForwardTianyueSeedanceContentUsesAuthenticatedProviderProxy(t *testing.T) {
-	upstream := &seedanceHTTPUpstreamStub{
-		body:       "video-bytes",
-		statusCode: http.StatusPartialContent,
-		header: http.Header{
-			"Content-Type":  []string{"video/mp4"},
-			"Content-Range": []string{"bytes 0-10/11"},
+func TestForwardTianyueSeedanceContentUsesFinalVideoRedirect(t *testing.T) {
+	upstream := &tianyueHTTPUpstreamSequenceStub{responses: []tianyueHTTPUpstreamResponse{
+		{
+			body:   `{"status":"completed","url":"http://216.36.118.192:15036/wrong/content","video_url":"http://216.36.118.192:15036/right/content?signature=one"}`,
+			header: http.Header{"Content-Type": []string{"application/json"}},
 		},
-	}
+		{
+			statusCode: http.StatusFound,
+			header:     http.Header{"Location": []string{"https://104.18.0.1/video.mp4?signature=two"}},
+		},
+		{
+			body:       "video-bytes",
+			statusCode: http.StatusPartialContent,
+			header: http.Header{
+				"Content-Type":  []string{"video/mp4"},
+				"Content-Range": []string{"bytes 0-10/11"},
+			},
+		},
+	}}
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	gateway := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
@@ -171,10 +183,75 @@ func TestForwardTianyueSeedanceContentUsesAuthenticatedProviderProxy(t *testing.
 	require.Equal(t, "video-bytes", string(content))
 	require.Equal(t, http.StatusPartialContent, response.StatusCode)
 	require.Equal(t, "bytes 0-10/11", response.Header.Get("Content-Range"))
-	require.Equal(t, "http://tianyue.example/v1/videos/task_123/content", upstream.request.URL.String())
-	require.Equal(t, "Bearer secret", upstream.request.Header.Get("Authorization"))
-	require.Equal(t, "bytes=0-10", upstream.request.Header.Get("Range"))
-	require.Equal(t, "*/*", upstream.request.Header.Get("Accept"))
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, "http://tianyue.example/v1/videos/task_123", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer secret", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "http://216.36.118.192:15036/right/content?signature=one", upstream.requests[1].URL.String())
+	require.Empty(t, upstream.requests[1].Header.Get("Authorization"))
+	require.Equal(t, "https://104.18.0.1/video.mp4?signature=two", upstream.requests[2].URL.String())
+	require.Empty(t, upstream.requests[2].Header.Get("Authorization"))
+	require.Equal(t, "bytes=0-10", upstream.requests[2].Header.Get("Range"))
+	require.Equal(t, "*/*", upstream.requests[2].Header.Get("Accept"))
+}
+
+func TestParseTianyueTaskResultPrefersVideoURL(t *testing.T) {
+	status, resultURL, err := parseTianyueTaskResult([]byte(`{
+		"status":"completed",
+		"url":"http://216.36.118.192:15036/wrong/content",
+		"video_url":"https://104.18.0.1/correct.mp4",
+		"result_url":"https://104.18.0.1/fallback.mp4"
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "completed", status)
+	require.Equal(t, "https://104.18.0.1/correct.mp4", resultURL)
+}
+
+func TestValidateTianyueVideoResultURLRestrictsBootstrapAndFinalPorts(t *testing.T) {
+	_, secure, err := validateTianyueVideoResultURL("http://216.36.118.192:15036/content?signature=one", true)
+	require.NoError(t, err)
+	require.False(t, secure)
+
+	_, secure, err = validateTianyueVideoResultURL("https://104.18.0.1/video.mp4?signature=two", false)
+	require.NoError(t, err)
+	require.True(t, secure)
+
+	_, _, err = validateTianyueVideoResultURL("http://216.36.118.192:8080/content", true)
+	require.Error(t, err)
+	_, _, err = validateTianyueVideoResultURL("https://104.18.0.1:15036/video.mp4", false)
+	require.Error(t, err)
+}
+
+type tianyueHTTPUpstreamResponse struct {
+	body       string
+	statusCode int
+	header     http.Header
+}
+
+type tianyueHTTPUpstreamSequenceStub struct {
+	requests  []*http.Request
+	responses []tianyueHTTPUpstreamResponse
+}
+
+func (s *tianyueHTTPUpstreamSequenceStub) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	s.requests = append(s.requests, request.Clone(request.Context()))
+	response := s.responses[len(s.requests)-1]
+	statusCode := response.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	header := response.header
+	if header == nil {
+		header = http.Header{}
+	}
+	return &http.Response{
+		StatusCode: statusCode,
+		Header:     header.Clone(),
+		Body:       io.NopCloser(strings.NewReader(response.body)),
+	}, nil
+}
+
+func (s *tianyueHTTPUpstreamSequenceStub) DoWithTLS(request *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(request, proxyURL, accountID, concurrency)
 }
 
 func TestNormalizeTianyueTaskHidesUpstreamDetails(t *testing.T) {
