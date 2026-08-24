@@ -433,6 +433,27 @@ func TestGatewayVideoContentRoutesBypassAPIKeyAuthentication(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, w.Code, "unknown public task must fail closed: %s", path)
 	}
 
+	for _, tc := range []struct {
+		path   string
+		header string
+	}{
+		{path: "/v1/videos/jobs/vidjob_legacy/content", header: "Authorization"},
+		{path: "/api/v3/contents/generations/tasks/task_legacy/content", header: "x-api-key"},
+		{path: "/v1/videos/request_legacy/content", header: "x-goog-api-key"},
+	} {
+		authCalls = 0
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		if tc.header == "Authorization" {
+			req.Header.Set(tc.header, "Bearer legacy-key")
+		} else {
+			req.Header.Set(tc.header, "legacy-key")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, 1, authCalls, "legacy content request must fall back to API-key auth: %s", tc.path)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+	}
+
 	for _, path := range []string{
 		"/v1/videos/jobs/vidjob_private",
 		"/api/v3/contents/generations/tasks/task_private",

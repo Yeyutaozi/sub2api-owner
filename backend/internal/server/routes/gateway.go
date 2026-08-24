@@ -237,6 +237,29 @@ func RegisterGatewayRoutes(
 			},
 		})
 	}
+	videoJobContentHandler := func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformSeedance, service.PlatformLTX, service.PlatformHappyHorse, service.PlatformMiniMax, service.PlatformGrokImagine:
+			h.OpenAIGateway.SeedanceJobContent(c)
+		case service.PlatformGrok, service.PlatformComposite:
+			h.OpenAIGateway.GrokVideoContent(c)
+		case service.PlatformOpenAI:
+			if handler.GetInboundEndpoint(c) == handler.EndpointVideos {
+				h.OpenAIGateway.Media(c)
+				return
+			}
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
+		default:
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+		}
+	}
 	videoStatusHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
 		// Video status requests do not carry a model, so composite groups cannot
@@ -244,6 +267,27 @@ func RegisterGatewayRoutes(
 		// the Grok handler and let scheduler/account selection enforce capacity.
 		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoStatus(c)
+		case service.PlatformOpenAI:
+			if handler.GetInboundEndpoint(c) == handler.EndpointVideos {
+				h.OpenAIGateway.Media(c)
+				return
+			}
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
+		default:
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+		}
+	}
+	videoContentHandler := func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok, service.PlatformComposite:
+			h.OpenAIGateway.GrokVideoContent(c)
 		case service.PlatformOpenAI:
 			if handler.GetInboundEndpoint(c) == handler.EndpointVideos {
 				h.OpenAIGateway.Media(c)
@@ -319,8 +363,16 @@ func RegisterGatewayRoutes(
 	publicVideoContent.Use(clientRequestID)
 	publicVideoContent.Use(opsErrorLogger)
 	publicVideoContent.Use(endpointNorm)
-	publicVideoContent.GET("/v1/videos/jobs/:job_id/content", h.OpenAIGateway.PublicVideoContent)
-	publicVideoContent.GET("/api/v3/contents/generations/tasks/:task_id/content", h.OpenAIGateway.PublicVideoContent)
+	publicVideoContent.GET(
+		"/v1/videos/jobs/:job_id/content",
+		h.OpenAIGateway.PublicVideoContent,
+		gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoJobContentHandler,
+	)
+	publicVideoContent.GET(
+		"/api/v3/contents/generations/tasks/:task_id/content",
+		h.OpenAIGateway.PublicVideoContent,
+		gin.HandlerFunc(apiKeyAuth), requireGroupArk, h.OpenAIGateway.SeedanceTaskContent,
+	)
 	for _, path := range []string{
 		"/v1/videos/generations/:request_id/content",
 		"/v1/videos/edits/:request_id/content",
@@ -331,7 +383,11 @@ func RegisterGatewayRoutes(
 		"/videos/extensions/:request_id/content",
 		"/videos/:request_id/content",
 	} {
-		publicVideoContent.GET(path, h.OpenAIGateway.PublicVideoContent)
+		publicVideoContent.GET(
+			path,
+			h.OpenAIGateway.PublicVideoContent,
+			gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoContentHandler,
+		)
 	}
 
 	gateway := r.Group("/v1")

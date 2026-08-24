@@ -29,14 +29,14 @@ const (
 // archival, provider affinity, and deferred completion billing stay unchanged.
 func (h *OpenAIGatewayHandler) PublicVideoContent(c *gin.Context) {
 	if h == nil || h.gatewayService == nil || h.apiKeyService == nil || c == nil || c.Request == nil {
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 
 	route := classifyPublicVideoContentRoute(c.FullPath())
 	requestID := publicVideoContentRequestID(c, route)
 	if requestID == "" {
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 
@@ -50,20 +50,20 @@ func (h *OpenAIGatewayHandler) PublicVideoContent(c *gin.Context) {
 	case publicVideoContentRouteGeneric:
 		binding, err = h.gatewayService.ResolvePublicVideoContentBinding(c.Request.Context(), requestID)
 	default:
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 	if err != nil || binding == nil {
 		if err != nil && !errors.Is(err, service.ErrPublicVideoContentBindingNotFound) {
 			requestLogger(c, "handler.public_video_content").Warn("public_video_content.resolve_failed", zap.Error(err))
 		}
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 
 	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), binding.APIKeyID)
 	if err != nil || !publicVideoBindingMatchesAPIKey(binding, apiKey) {
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 
@@ -73,17 +73,20 @@ func (h *OpenAIGatewayHandler) PublicVideoContent(c *gin.Context) {
 	}
 	restorePublicVideoAuthContext(c, apiKey, subscription, binding.Provider)
 	if !h.restorePublicVideoAccountBinding(c.Request.Context(), binding) {
-		publicVideoContentNotFound(c)
+		publicVideoContentFallbackOrNotFound(c)
 		return
 	}
 	if binding.Provider != service.PublicVideoProviderSeedance {
 		account, accountErr := h.gatewayService.ResolvePublicVideoContentAccount(c.Request.Context(), binding)
 		if accountErr != nil || account == nil {
-			publicVideoContentNotFound(c)
+			publicVideoContentFallbackOrNotFound(c)
 			return
 		}
 		c.Set(publicVideoContentAccountContextKey, account)
 	}
+	// The public binding is authoritative. Stop the route chain before the
+	// legacy API-key fallback, including when callers send a stale credential.
+	c.Abort()
 
 	switch route {
 	case publicVideoContentRouteSeedanceJob:
@@ -108,6 +111,27 @@ func (h *OpenAIGatewayHandler) PublicVideoContent(c *gin.Context) {
 			publicVideoContentNotFound(c)
 		}
 	}
+}
+
+func publicVideoContentFallbackOrNotFound(c *gin.Context) {
+	if publicVideoContentHasLegacyCredential(c) {
+		return
+	}
+	publicVideoContentNotFound(c)
+	if c != nil {
+		c.Abort()
+	}
+}
+
+func publicVideoContentHasLegacyCredential(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	return c.GetHeader("Authorization") != "" ||
+		c.GetHeader("x-api-key") != "" ||
+		c.GetHeader("x-goog-api-key") != "" ||
+		strings.TrimSpace(c.Query("key")) != "" ||
+		strings.TrimSpace(c.Query("api_key")) != ""
 }
 
 func publicVideoContentAccount(c *gin.Context) (*service.Account, bool) {

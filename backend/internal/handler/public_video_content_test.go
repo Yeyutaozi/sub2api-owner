@@ -87,3 +87,27 @@ func TestClassifyPublicVideoContentRoute(t *testing.T) {
 	require.Equal(t, publicVideoContentRouteGeneric, classifyPublicVideoContentRoute("/videos/extensions/:request_id/content"))
 	require.Equal(t, publicVideoContentRouteUnknown, classifyPublicVideoContentRoute("/v1/videos/:request_id"))
 }
+
+func TestPublicVideoContentFallbackOnlyWhenLegacyCredentialIsPresent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	withoutCredentialRecorder := httptest.NewRecorder()
+	withoutCredential, _ := gin.CreateTestContext(withoutCredentialRecorder)
+	withoutCredential.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/old/content", nil)
+	publicVideoContentFallbackOrNotFound(withoutCredential)
+	require.True(t, withoutCredential.IsAborted())
+	require.Equal(t, http.StatusNotFound, withoutCredentialRecorder.Code)
+
+	withCredentialRecorder := httptest.NewRecorder()
+	withCredential, _ := gin.CreateTestContext(withCredentialRecorder)
+	withCredential.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/old/content", nil)
+	withCredential.Request.Header.Set("Authorization", "Bearer legacy-key")
+	publicVideoContentFallbackOrNotFound(withCredential)
+	require.False(t, withCredential.IsAborted())
+	require.Equal(t, http.StatusOK, withCredentialRecorder.Code)
+
+	withDeprecatedQuery, _ := gin.CreateTestContext(httptest.NewRecorder())
+	withDeprecatedQuery.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/old/content?api_key=legacy-key", nil)
+	publicVideoContentFallbackOrNotFound(withDeprecatedQuery)
+	require.False(t, withDeprecatedQuery.IsAborted(), "legacy auth must preserve the existing deprecated-query error path")
+}
