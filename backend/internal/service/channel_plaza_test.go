@@ -46,6 +46,19 @@ func newPlazaChannelServiceWithAccounts(channels []Channel, groups []Group, pric
 	return svc
 }
 
+func TestProvideChannelServiceWiresPlazaAccountSource(t *testing.T) {
+	source := &stubPlazaAccountSource{}
+	svc := ProvideChannelService(
+		&mockChannelRepository{},
+		&stubGroupRepoForAvailable{},
+		nil,
+		nil,
+		source,
+	)
+
+	require.Same(t, source, svc.accountSource)
+}
+
 func plazaMappedAccount(id int64, platform string, models ...string) Account {
 	mapping := make(map[string]any, len(models))
 	for _, m := range models {

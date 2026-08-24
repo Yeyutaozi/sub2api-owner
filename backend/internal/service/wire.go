@@ -792,6 +792,27 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+// ProvidePlazaAccountSource exposes the production account repository through
+// the narrow model-plaza account contract used by ChannelService.
+func ProvidePlazaAccountSource(accountRepo AccountRepository) PlazaAccountSource {
+	return accountRepo
+}
+
+// ProvideChannelService wires account-backed model membership into the plaza.
+// Keep this in the provider graph so regenerating Wire cannot silently restore
+// the legacy channel/group catalog fallback used by tests.
+func ProvideChannelService(
+	repo ChannelRepository,
+	groupRepo GroupRepository,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	pricingService *PricingService,
+	accountSource PlazaAccountSource,
+) *ChannelService {
+	svc := NewChannelService(repo, groupRepo, authCacheInvalidator, pricingService)
+	svc.SetPlazaAccountSource(accountSource)
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -903,7 +924,8 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
-	NewChannelService,
+	ProvidePlazaAccountSource,
+	ProvideChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,
 	NewContentModerationService,
