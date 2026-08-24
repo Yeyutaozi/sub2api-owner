@@ -213,8 +213,13 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Grok video handler", path)
-		require.NotContains(t, w.Body.String(), "not supported for this platform")
+		if strings.HasSuffix(path, "/content") {
+			require.Equal(t, http.StatusNotFound, w.Code, "path=%s should use the public content resolver", path)
+			require.Contains(t, w.Body.String(), "Video content not found")
+		} else {
+			require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Grok video handler", path)
+			require.NotContains(t, w.Body.String(), "not supported for this platform")
+		}
 	}
 }
 
@@ -287,8 +292,13 @@ func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Grok video lookup handler", path)
-		require.NotContains(t, w.Body.String(), "not supported for this platform")
+		if strings.HasSuffix(path, "/content") {
+			require.Equal(t, http.StatusNotFound, w.Code)
+			require.Contains(t, w.Body.String(), "Video content not found")
+		} else {
+			require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Grok video lookup handler", path)
+			require.NotContains(t, w.Body.String(), "not supported for this platform")
+		}
 	}
 }
 
@@ -344,12 +354,6 @@ func TestGatewayRoutesOpenAIRejectsGrokVideoMutationEndpoints(t *testing.T) {
 		{http.MethodGet, "/videos/edits/request-123", ""},
 		{http.MethodGet, "/v1/videos/extensions/request-123", ""},
 		{http.MethodGet, "/videos/extensions/request-123", ""},
-		{http.MethodGet, "/v1/videos/generations/request-123/content", ""},
-		{http.MethodGet, "/videos/generations/request-123/content", ""},
-		{http.MethodGet, "/v1/videos/edits/request-123/content", ""},
-		{http.MethodGet, "/videos/edits/request-123/content", ""},
-		{http.MethodGet, "/v1/videos/extensions/request-123/content", ""},
-		{http.MethodGet, "/videos/extensions/request-123/content", ""},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")
@@ -381,8 +385,64 @@ func TestGatewayRoutesOpenAIVideoRootEndpointsAreRegistered(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
-		require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
+		if strings.HasSuffix(tc.path, "/content") {
+			require.Equal(t, http.StatusNotFound, w.Code)
+			require.Contains(t, w.Body.String(), "Video content not found")
+		} else {
+			require.NotEqual(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
+			require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
+		}
+	}
+}
+
+func TestGatewayVideoContentRoutesBypassAPIKeyAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	authCalls := 0
+	RegisterGatewayRoutes(
+		router,
+		&handler.Handlers{
+			Gateway:       &handler.GatewayHandler{},
+			OpenAIGateway: &handler.OpenAIGatewayHandler{},
+			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
+		},
+		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+			authCalls++
+			c.AbortWithStatus(http.StatusUnauthorized)
+		}),
+		nil, nil, nil, nil, nil,
+		&config.Config{Gateway: config.GatewayConfig{MaxBodySize: 1024 * 1024, TextMaxBodySize: 1024 * 1024}},
+	)
+
+	for _, path := range []string{
+		"/v1/videos/jobs/vidjob_public/content",
+		"/api/v3/contents/generations/tasks/task_public/content",
+		"/v1/videos/request_public/content",
+		"/v1/videos/generations/request_public/content",
+		"/v1/videos/edits/request_public/content",
+		"/v1/videos/extensions/request_public/content",
+		"/videos/request_public/content",
+		"/videos/generations/request_public/content",
+		"/videos/edits/request_public/content",
+		"/videos/extensions/request_public/content",
+	} {
+		authCalls = 0
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Zero(t, authCalls, "content route must not invoke API-key auth: %s", path)
+		require.Equal(t, http.StatusNotFound, w.Code, "unknown public task must fail closed: %s", path)
+	}
+
+	for _, path := range []string{
+		"/v1/videos/jobs/vidjob_private",
+		"/api/v3/contents/generations/tasks/task_private",
+		"/v1/videos/request_private",
+	} {
+		authCalls = 0
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, 1, authCalls, "non-content route must remain authenticated: %s", path)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
 	}
 }
 

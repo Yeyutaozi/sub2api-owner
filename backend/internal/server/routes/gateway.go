@@ -33,6 +33,9 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	if h != nil && h.OpenAIGateway != nil {
+		h.OpenAIGateway.SetPublicVideoSubscriptionService(subscriptionService)
+	}
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
@@ -234,29 +237,6 @@ func RegisterGatewayRoutes(
 			},
 		})
 	}
-	videoJobContentHandler := func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		case service.PlatformSeedance, service.PlatformLTX, service.PlatformHappyHorse, service.PlatformMiniMax, service.PlatformGrokImagine:
-			h.OpenAIGateway.SeedanceJobContent(c)
-		case service.PlatformGrok, service.PlatformComposite:
-			h.OpenAIGateway.GrokVideoContent(c)
-		case service.PlatformOpenAI:
-			if handler.GetInboundEndpoint(c) == handler.EndpointVideos {
-				h.OpenAIGateway.Media(c)
-				return
-			}
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
-		default:
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"type":    "not_found_error",
-					"message": "Videos API is not supported for this platform",
-				},
-			})
-		}
-	}
 	videoStatusHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
 		// Video status requests do not carry a model, so composite groups cannot
@@ -279,31 +259,6 @@ func RegisterGatewayRoutes(
 					"message": "Videos API is not supported for this platform",
 				},
 			})
-		}
-	}
-	videoContentHandler := func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		// Video content requests do not carry a model, so composite groups cannot
-		// be resolved by compositeTargetPlatformMiddleware. Route them through
-		// the Grok handler just like video status lookups.
-		case service.PlatformGrok, service.PlatformComposite:
-			h.OpenAIGateway.GrokVideoContent(c)
-		case service.PlatformOpenAI:
-			if handler.GetInboundEndpoint(c) == handler.EndpointVideos {
-				h.OpenAIGateway.Media(c)
-				return
-			}
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
-		default:
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"type":    "not_found_error",
-					"message": "Videos API is not supported for this platform",
-				},
-			})
-			return
 		}
 	}
 	videoEditHandler := func(c *gin.Context) {
@@ -355,6 +310,29 @@ func RegisterGatewayRoutes(
 	publicSeedanceMedia.Use(endpointNorm)
 	publicSeedanceMedia.GET("/public-media/:token", h.OpenAIGateway.SeedancePublicMediaContent)
 	publicSeedanceMedia.HEAD("/public-media/:token", h.OpenAIGateway.SeedancePublicMediaContent)
+
+	// Video task IDs are opaque bearer identifiers. Content downloads restore
+	// the creation-time owner/account context inside the handler; creation,
+	// status, deletion, listing, and upload routes remain API-key protected.
+	publicVideoContent := r.Group("")
+	publicVideoContent.Use(bodyLimit)
+	publicVideoContent.Use(clientRequestID)
+	publicVideoContent.Use(opsErrorLogger)
+	publicVideoContent.Use(endpointNorm)
+	publicVideoContent.GET("/v1/videos/jobs/:job_id/content", h.OpenAIGateway.PublicVideoContent)
+	publicVideoContent.GET("/api/v3/contents/generations/tasks/:task_id/content", h.OpenAIGateway.PublicVideoContent)
+	for _, path := range []string{
+		"/v1/videos/generations/:request_id/content",
+		"/v1/videos/edits/:request_id/content",
+		"/v1/videos/extensions/:request_id/content",
+		"/v1/videos/:request_id/content",
+		"/videos/generations/:request_id/content",
+		"/videos/edits/:request_id/content",
+		"/videos/extensions/:request_id/content",
+		"/videos/:request_id/content",
+	} {
+		publicVideoContent.GET(path, h.OpenAIGateway.PublicVideoContent)
+	}
 
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -445,16 +423,12 @@ func RegisterGatewayRoutes(
 		gateway.GET("/videos/jobs", videoJobsListHandler)
 		gateway.GET("/videos/jobs/:job_id", videoJobStatusHandler)
 		gateway.DELETE("/videos/jobs/:job_id", videoJobDeleteHandler)
-		gateway.GET("/videos/jobs/:job_id/content", videoJobContentHandler)
 		// OpenAI-compatible clients may create through /videos; xAI receives the
 		// canonical /videos/generations route inside the Grok media forwarder.
 		gateway.POST("/videos", videoGenerationHandler)
 		gateway.POST("/videos/generations", videoGenerationHandler)
 		gateway.POST("/videos/edits", videoEditHandler)
 		gateway.POST("/videos/extensions", videoExtensionHandler)
-		gateway.GET("/videos/generations/:request_id/content", videoContentHandler)
-		gateway.GET("/videos/edits/:request_id/content", videoContentHandler)
-		gateway.GET("/videos/extensions/:request_id/content", videoContentHandler)
 		gateway.GET("/videos/generations/:request_id", videoStatusHandler)
 		gateway.GET("/videos/edits/:request_id", videoStatusHandler)
 		gateway.GET("/videos/extensions/:request_id", videoStatusHandler)
@@ -463,7 +437,6 @@ func RegisterGatewayRoutes(
 		gateway.POST("/audio/transcriptions", openAIMediaHandler)
 		gateway.POST("/audio/translations", openAIMediaHandler)
 		gateway.DELETE("/videos/:request_id", openAIMediaHandler)
-		gateway.GET("/videos/:request_id/content", videoContentHandler)
 
 		// xAI Voice APIs (Grok platform only): HTTP TTS/STT + Realtime WS.
 		// Not part of the creation-center product surface — gateway relay only.
@@ -550,7 +523,6 @@ func RegisterGatewayRoutes(
 		seedance.POST("/contents/generations/tasks", h.OpenAIGateway.SeedanceCreateTask)
 		seedance.GET("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceGetTask)
 		seedance.DELETE("/contents/generations/tasks/:task_id", h.OpenAIGateway.SeedanceCancelTask)
-		seedance.GET("/contents/generations/tasks/:task_id/content", h.OpenAIGateway.SeedanceTaskContent)
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
@@ -613,14 +585,10 @@ func RegisterGatewayRoutes(
 	r.POST("/videos/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoGenerationHandler)
 	r.POST("/videos/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoEditHandler)
 	r.POST("/videos/extensions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoExtensionHandler)
-	r.GET("/videos/generations/:request_id/content", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoContentHandler)
-	r.GET("/videos/edits/:request_id/content", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoContentHandler)
-	r.GET("/videos/extensions/:request_id/content", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoContentHandler)
 	r.GET("/videos/generations/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoStatusHandler)
 	r.GET("/videos/edits/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoStatusHandler)
 	r.GET("/videos/extensions/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoStatusHandler)
 	r.GET("/videos/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoStatusHandler)
-	r.GET("/videos/:request_id/content", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoContentHandler)
 
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return func(c *gin.Context) {

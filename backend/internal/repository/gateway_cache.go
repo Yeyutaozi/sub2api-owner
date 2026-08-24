@@ -164,7 +164,44 @@ var _ service.OpenAIWSSessionPreemptionCache = (*gatewayCache)(nil)
 const (
 	grokVideoPendingBillingPrefix = "grok_video_pending:"
 	grokVideoBilledPrefix         = "grok_video_billed:"
+	publicVideoContentPrefix      = "public_video_content:"
 )
+
+var _ service.PublicVideoContentBindingCache = (*gatewayCache)(nil)
+
+func publicVideoContentKey(requestID string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(requestID)))
+	return publicVideoContentPrefix + hex.EncodeToString(sum[:])
+}
+
+func (c *gatewayCache) SetPublicVideoContentBinding(ctx context.Context, requestID string, payload []byte, ttl time.Duration) error {
+	if c == nil || c.rdb == nil {
+		return errors.New("gateway cache unavailable")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || len(requestID) > 512 || len(payload) == 0 {
+		return errors.New("invalid public video content binding")
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return c.rdb.Set(ctx, publicVideoContentKey(requestID), payload, ttl).Err()
+}
+
+func (c *gatewayCache) GetPublicVideoContentBinding(ctx context.Context, requestID string) ([]byte, error) {
+	if c == nil || c.rdb == nil {
+		return nil, errors.New("gateway cache unavailable")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || len(requestID) > 512 {
+		return nil, errors.New("invalid public video content binding key")
+	}
+	payload, err := c.rdb.Get(ctx, publicVideoContentKey(requestID)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	return payload, err
+}
 
 func (c *gatewayCache) SetGrokVideoPendingBilling(ctx context.Context, key string, payload []byte, ttl time.Duration) error {
 	if c == nil || c.rdb == nil {

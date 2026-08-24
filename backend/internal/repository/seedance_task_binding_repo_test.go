@@ -52,6 +52,17 @@ func TestUsageLogRepositorySeedanceTaskBindings(t *testing.T) {
 	require.Equal(t, int64(4), binding.AccountID)
 	require.Equal(t, createdAt, binding.CreatedAt)
 
+	mock.ExpectQuery(`(?s)SELECT\s+id, user_id, api_key_id, group_id, account_id, job_id, upstream_job_id.*WHERE job_id = \$1`).
+		WithArgs("vidjob_one").
+		WillReturnRows(sqlmock.NewRows(seedanceTaskBindingTestColumns).
+			AddRow(seedanceTaskBindingTestRow(11, 4, "vidjob_one", "seedance-2.0", createdAt)...))
+	publicBinding, err := repo.GetSeedanceTaskBindingByJobID(context.Background(), "vidjob_one")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), publicBinding.UserID)
+	require.Equal(t, int64(2), publicBinding.APIKeyID)
+	require.Equal(t, int64(3), publicBinding.GroupID)
+	require.Equal(t, int64(4), publicBinding.AccountID)
+
 	mock.ExpectQuery(`(?s)SELECT\s+id, user_id, api_key_id, group_id, account_id, job_id, upstream_job_id`).
 		WithArgs(int64(1), int64(2), int64(3), 20).
 		WillReturnRows(sqlmock.NewRows(seedanceTaskBindingTestColumns).

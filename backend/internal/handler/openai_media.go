@@ -91,22 +91,26 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
-	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
-	if !acquired {
-		return
-	}
-	if userReleaseFunc != nil {
-		defer userReleaseFunc()
-	}
-
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.media.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	publicContentAccount, publicContent := publicVideoContentAccount(c)
+	publicContent = publicContent && parsed.Method == http.MethodGet && strings.HasSuffix(parsed.Endpoint, "/content")
+	if !publicContent {
+		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
+		if !acquired {
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
+		if userReleaseFunc != nil {
+			defer userReleaseFunc()
+		}
+
+		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+			reqLog.Info("openai.media.billing_eligibility_check_failed", zap.Error(err))
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
+		}
 	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
@@ -124,19 +128,27 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 	routingStart := time.Now()
 
 	for {
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
-			apiKey.GroupID,
-			"",
-			sessionHash,
-			requestModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportHTTPSSE,
-			parsed.RequiredCapability,
-			false,
-			false,
-			false,
-		)
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		if publicContent {
+			selection = &service.AccountSelectionResult{Account: publicContentAccount}
+			scheduleDecision.Layer = "public_video_binding"
+			scheduleDecision.SelectedAccountID = publicContentAccount.ID
+		} else {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				"",
+				sessionHash,
+				requestModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportHTTPSSE,
+				parsed.RequiredCapability,
+				false,
+				false,
+				false,
+			)
+		}
 		if err != nil {
 			reqLog.Warn("openai.media.account_select_failed", zap.Error(err), zap.Int("excluded_account_count", len(failedAccountIDs)))
 			if len(failedAccountIDs) == 0 {
@@ -166,7 +178,11 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			zap.Bool("sticky_session_hit", scheduleDecision.StickySessionHit),
 		)
 
-		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		var accountReleaseFunc func()
+		slotResult := openAISlotAcquireOK
+		if !publicContent {
+			accountReleaseFunc, slotResult = h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		}
 		if slotResult == openAISlotAcquireProfitVetoed {
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
@@ -198,6 +214,15 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 
 		if forwardErr != nil {
+			if publicContent {
+				var failoverErr *service.UpstreamFailoverError
+				if errors.As(forwardErr, &failoverErr) {
+					h.handleFailoverExhausted(c, failoverErr, c.Writer.Size() != writerSizeBeforeForward)
+				} else if c.Writer.Size() == writerSizeBeforeForward {
+					h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
+				}
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
@@ -230,11 +255,23 @@ func (h *OpenAIGatewayHandler) Media(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), true, nil)
+		if !publicContent {
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), true, nil)
+		}
 		if parsed.IsVideoCreate() && result != nil && strings.TrimSpace(result.ResponseID) != "" {
 			resourceSessionHash := service.OpenAIMediaResourceSessionHash(apiKey.ID, result.ResponseID)
 			if err := h.gatewayService.BindStickySession(c.Request.Context(), apiKey.GroupID, resourceSessionHash, account.ID); err != nil {
 				reqLog.Warn("openai.media.video_account_bind_failed", zap.String("resource_id", result.ResponseID), zap.Error(err))
+			}
+			if err := h.gatewayService.BindPublicVideoContent(c.Request.Context(), service.PublicVideoContentBinding{
+				RequestID: result.ResponseID,
+				UserID:    subject.UserID,
+				APIKeyID:  apiKey.ID,
+				GroupID:   derefGroupID(apiKey.GroupID),
+				AccountID: account.ID,
+				Provider:  service.PublicVideoProviderOpenAI,
+			}); err != nil {
+				reqLog.Warn("openai.media.bind_public_video_content_failed", zap.String("resource_id", result.ResponseID), zap.Error(err))
 			}
 		}
 

@@ -33,6 +33,7 @@ type OpenAIGatewayHandler struct {
 	gatewayService             *service.OpenAIGatewayService
 	billingCacheService        *service.BillingCacheService
 	apiKeyService              *service.APIKeyService
+	subscriptionService        *service.SubscriptionService
 	usageRecordWorkerPool      *service.UsageRecordWorkerPool
 	errorPassthroughService    *service.ErrorPassthroughService
 	contentModerationService   *service.ContentModerationService
@@ -45,6 +46,12 @@ type OpenAIGatewayHandler struct {
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+}
+
+func (h *OpenAIGatewayHandler) SetPublicVideoSubscriptionService(subscriptionService *service.SubscriptionService) {
+	if h != nil {
+		h.subscriptionService = subscriptionService
+	}
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {

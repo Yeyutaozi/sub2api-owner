@@ -18,6 +18,7 @@ var _ service.SeedanceTaskFallbackRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskCancellationRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskSettlementRepository = (*usageLogRepository)(nil)
 var _ service.SeedanceTaskAdminRepository = (*usageLogRepository)(nil)
+var _ service.SeedancePublicTaskBindingRepository = (*usageLogRepository)(nil)
 
 const seedanceTaskBindingSelectColumns = `
 		id, user_id, api_key_id, group_id, account_id, job_id, upstream_job_id,
@@ -147,6 +148,34 @@ func (r *usageLogRepository) GetSeedanceTaskBinding(
 	binding, err := scanSeedanceTaskBinding(rows)
 	if err != nil {
 		return nil, fmt.Errorf("scan seedance task binding: %w", err)
+	}
+	return binding, nil
+}
+
+func (r *usageLogRepository) GetSeedanceTaskBindingByJobID(ctx context.Context, jobID string) (*service.SeedanceTaskBinding, error) {
+	if r == nil || r.sql == nil {
+		return nil, errors.New("seedance task binding repository is unavailable")
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT `+seedanceTaskBindingSelectColumns+`
+		FROM fflink_video_job_bindings
+		WHERE job_id = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`, strings.TrimSpace(jobID))
+	if err != nil {
+		return nil, fmt.Errorf("get public seedance task binding: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("get public seedance task binding: %w", err)
+		}
+		return nil, service.ErrPublicVideoContentBindingNotFound
+	}
+	binding, err := scanSeedanceTaskBinding(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scan public seedance task binding: %w", err)
 	}
 	return binding, nil
 }
@@ -569,7 +598,6 @@ func firstSeedanceBindingValue(values ...string) string {
 	}
 	return ""
 }
-
 
 func (r *usageLogRepository) ListAdminSeedanceTaskBindings(
 	ctx context.Context,
