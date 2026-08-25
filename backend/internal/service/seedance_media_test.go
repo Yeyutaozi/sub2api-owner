@@ -480,6 +480,53 @@ func TestSeedanceMaterializeImagesResignsOwnLocalMediaURLWithoutHTTPFetch(t *tes
 	require.Empty(t, store.puts)
 }
 
+func TestSeedanceMediaURLNeedsPublicProxyForExpiringAndGatewayContentURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "generic expires", url: "https://media.example/audio.wav?expires=1893456000&signature=abc"},
+		{name: "gateway seedance content", url: "https://tkcreazy.top/v1/videos/jobs/task_abc/content"},
+		{name: "legacy task content", url: "https://tkcreazy.top/api/v3/contents/generations/tasks/task_abc/content"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.True(t, seedanceMediaURLNeedsPublicProxy(tt.url))
+			require.True(t, seedanceMediaURLNeedsLingdongRehost(tt.url))
+		})
+	}
+}
+
+func TestSeedanceMaterializeImagesStoresExpiringWeijinMedia(t *testing.T) {
+	store := newSeedanceMediaMemoryStore()
+	service := NewSeedanceMediaService(store, nil, nil)
+	wav := []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+	service.httpClient = &http.Client{Transport: seedanceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type":   []string{"audio/wav"},
+				"Content-Length": []string{strconv.Itoa(len(wav))},
+			},
+			Body:          io.NopCloser(bytes.NewReader(wav)),
+			ContentLength: int64(len(wav)),
+			Request:       request,
+		}, nil
+	})}
+	info := &SeedanceRequestInfo{
+		Model:           SeedanceWeijinFaceRef720pModel,
+		AudioReferences: []SeedanceReferenceAudio{{URL: "https://93.184.216.34/v1/videos/jobs/task_audio/content?expires=1&signature=expired"}},
+	}
+
+	materialized, err := service.MaterializeImages(context.Background(), seedanceMediaTestOwner(), info)
+	require.NoError(t, err)
+	require.NotNil(t, materialized)
+	require.Len(t, store.puts, 1)
+	require.Len(t, info.StoredMedia, 1)
+	require.NotContains(t, info.AudioReferences[0].URL, "expires=1")
+	materialized.Cleanup(context.Background())
+}
+
 func TestSeedanceMaterializeImagesArchivesFallbackVideoAndAudioAndRefreshesSignatures(t *testing.T) {
 	store := newSeedanceMediaMemoryStore()
 	service := NewSeedanceMediaService(store, nil, nil)

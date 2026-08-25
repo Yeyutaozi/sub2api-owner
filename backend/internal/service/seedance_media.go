@@ -1807,6 +1807,26 @@ func seedanceMediaURLNeedsPublicProxy(source string) bool {
 	if path == "" {
 		path = parsed.Path
 	}
+	// Gateway task-content URLs are authenticated bearer resources. They may be
+	// valid for the caller but are not fetchable by an upstream vendor, so copy
+	// them into task-owned storage before forwarding the create request.
+	if strings.Contains(path, "/v1/videos/jobs/") && strings.HasSuffix(strings.TrimRight(path, "/"), "/content") {
+		return true
+	}
+	if strings.Contains(path, "/api/v3/contents/generations/tasks/") && strings.HasSuffix(strings.TrimRight(path, "/"), "/content") {
+		return true
+	}
+	// Providers commonly use a plain `expires`/`signature` pair instead of the
+	// AWS/COS query names handled above. Such URLs are safe to consume once at
+	// request time, but unsafe to persist for an asynchronous upstream queue.
+	for key := range parsed.Query() {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if strings.Contains(key, "expire") || strings.Contains(key, "signature") ||
+			strings.Contains(key, "token") || strings.Contains(key, "auth") ||
+			key == "sig" {
+			return true
+		}
+	}
 	if strings.HasSuffix(strings.ToLower(strings.TrimRight(path, "/")), "/local-media") {
 		return true
 	}
