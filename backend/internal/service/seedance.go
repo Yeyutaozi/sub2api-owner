@@ -913,6 +913,7 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	if i == nil {
 		return nil, errors.New("seedance request info is required")
 	}
+	flatReferenceFields := usesFFLinkDirectReferenceFields(upstreamModel)
 	audioEnabled := i.GenerateAudio || len(i.AudioReferences) > 0
 	body := map[string]any{
 		"model":      strings.TrimSpace(upstreamModel),
@@ -939,13 +940,46 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 			return nil, errors.New("inline first-frame image must be uploaded before forwarding")
 		}
 		// 有参考图时统一走 start_frame_url，避免 image_url 与 guidances 冲突
-		if len(i.References) > 0 {
+		if flatReferenceFields || len(i.References) > 0 {
 			body["start_frame_url"] = i.StartFrameURL
 		} else if profile, ok := ffLinkVideoModelProfileFor(i.Model); ok && (profile.Platform == PlatformLTX || profile.Platform == PlatformHappyHorse || profile.Platform == PlatformGrokImagine || profile.RequireStartFrame) {
 			body["start_frame_url"] = i.StartFrameURL
 		} else {
 			body["image_url"] = i.StartFrameURL
 		}
+	}
+	if flatReferenceFields {
+		if len(i.References) > 0 {
+			references := make([]string, 0, len(i.References))
+			for _, reference := range i.References {
+				if !isSeedanceHTTPImageURL(reference.URL) {
+					return nil, errors.New("inline/reference image must be uploaded before forwarding")
+				}
+				references = append(references, reference.URL)
+			}
+			body["reference_images"] = references
+		}
+		if len(i.VideoReferences) > 0 {
+			references := make([]string, 0, len(i.VideoReferences))
+			for _, reference := range i.VideoReferences {
+				if !isSeedanceHTTPImageURL(reference.URL) {
+					return nil, errors.New("inline/reference video must be uploaded before forwarding")
+				}
+				references = append(references, reference.URL)
+			}
+			body["reference_videos"] = references
+		}
+		if len(i.AudioReferences) > 0 {
+			references := make([]string, 0, len(i.AudioReferences))
+			for _, reference := range i.AudioReferences {
+				if !isSeedanceHTTPImageURL(reference.URL) {
+					return nil, errors.New("inline/reference audio must be uploaded before forwarding")
+				}
+				references = append(references, reference.URL)
+			}
+			body["reference_audios"] = references
+		}
+		return json.Marshal(body)
 	}
 	if len(i.References) > 0 {
 		// 官方/FFLink：首尾帧走专用字段，参考图 order 从 0 起按上传顺序递增。
@@ -997,6 +1031,15 @@ func (i *SeedanceRequestInfo) UpstreamBody(upstreamModel string) ([]byte, error)
 	return json.Marshal(body)
 }
 
+func usesFFLinkDirectReferenceFields(upstreamModel string) bool {
+	switch strings.ToLower(strings.TrimSpace(upstreamModel)) {
+	case SeedanceFFLinkSD20480PModel, SeedanceFFLinkSD20Mini720PModel:
+		return true
+	default:
+		return false
+	}
+}
+
 func isSeedanceHTTPImageURL(value string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
@@ -1016,6 +1059,19 @@ func SeedanceUsageRequestID(taskID string) string {
 		return ""
 	}
 	return "seedance:" + taskID
+}
+
+// SeedanceUsageRequestIDs returns the durable usage-log IDs used by the
+// current and legacy Seedance billing paths. New charges use the canonical
+// seedance:<task_id> ID; older deployments used grok-video:seedance:<task_id>.
+// Keep the canonical ID first so callers can prefer a current row when both
+// records exist for the same task.
+func SeedanceUsageRequestIDs(taskID string) []string {
+	canonical := SeedanceUsageRequestID(taskID)
+	if canonical == "" {
+		return nil
+	}
+	return []string{canonical, "grok-video:" + canonical}
 }
 
 func (s *OpenAIGatewayService) BindSeedanceTaskAccount(

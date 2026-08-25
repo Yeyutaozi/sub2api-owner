@@ -301,7 +301,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Async Grok video: always use the stable task id for dedup (status + content polls
 	// share one bill). Context-local client/local IDs would otherwise create a new row
 	// per poll if Redis claim is lost.
-	if result.VideoCount > 0 {
+	if result.VideoCount > 0 && account.IsGrok() {
 		if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
 			strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
 			strings.TrimSpace(result.ResponseID),
@@ -773,7 +773,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		videoCount = 1
 	}
 	resolution := NormalizeVideoBillingResolutionOrDefault(result.VideoResolution)
-	durationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+	durationSeconds := NormalizeVideoBillingDurationSecondsForModelOrDefault(billingModel, result.VideoDurationSeconds)
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup && resolved.Mode == BillingModeVideo {
 		gid := apiKey.Group.ID
@@ -786,13 +786,13 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 			return cost
 		}
 	}
-	groupConfig := videoPriceConfigFromAPIKey(apiKey)
+	groupConfig := videoPriceConfigFromAPIKeyForModel(apiKey, billingModel)
 	if apiKeyHasConfiguredVideoPrice(apiKey, billingModel, resolution) {
 		return s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
-		groupConfig = videoPriceConfigFromAPIKey(apiKey)
+		groupConfig = videoPriceConfigFromAPIKeyForModel(apiKey, billingModel)
 		if apiKeyHasConfiguredVideoPrice(apiKey, billingModel, resolution) {
 			return s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
 		}

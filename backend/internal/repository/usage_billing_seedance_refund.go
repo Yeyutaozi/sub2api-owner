@@ -33,8 +33,8 @@ func (r *usageBillingRepository) RefundSeedanceUsage(
 	userID int64,
 	apiKeyID int64,
 ) (_ *service.SeedanceUsageRefundResult, err error) {
-	requestID := service.SeedanceUsageRequestID(taskID)
-	if requestID == "" || userID <= 0 || apiKeyID <= 0 {
+	requestIDs := service.SeedanceUsageRequestIDs(taskID)
+	if len(requestIDs) == 0 || userID <= 0 || apiKeyID <= 0 {
 		return &service.SeedanceUsageRefundResult{}, nil
 	}
 	if r == nil || r.db == nil {
@@ -51,7 +51,7 @@ func (r *usageBillingRepository) RefundSeedanceUsage(
 		}
 	}()
 
-	row, err := loadSeedanceRefundUsageRow(ctx, tx, requestID, userID, apiKeyID)
+	row, err := loadSeedanceRefundUsageRowForTask(ctx, tx, requestIDs, userID, apiKeyID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &service.SeedanceUsageRefundResult{}, nil
 	}
@@ -89,6 +89,38 @@ func (r *usageBillingRepository) RefundSeedanceUsage(
 	result.Applied = true
 	result.RefundedCost = row.actualCost
 	return result, nil
+}
+
+// loadSeedanceRefundUsageRowForTask checks the canonical request ID first and
+// then the legacy ID. A zero-cost canonical row can be an old idempotency
+// placeholder, so continue to the legacy row before deciding that there is
+// nothing to refund.
+func loadSeedanceRefundUsageRowForTask(
+	ctx context.Context,
+	tx *sql.Tx,
+	requestIDs []string,
+	userID, apiKeyID int64,
+) (*seedanceRefundUsageRow, error) {
+	var zeroCostRow *seedanceRefundUsageRow
+	for _, requestID := range requestIDs {
+		row, err := loadSeedanceRefundUsageRow(ctx, tx, requestID, userID, apiKeyID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if row.actualCost > 0 {
+			return row, nil
+		}
+		if zeroCostRow == nil {
+			zeroCostRow = row
+		}
+	}
+	if zeroCostRow != nil {
+		return zeroCostRow, nil
+	}
+	return nil, sql.ErrNoRows
 }
 
 func loadSeedanceRefundUsageRow(ctx context.Context, tx *sql.Tx, requestID string, userID, apiKeyID int64) (*seedanceRefundUsageRow, error) {

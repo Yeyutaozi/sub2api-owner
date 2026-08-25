@@ -1010,10 +1010,18 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 	clientRange := strings.TrimSpace(c.GetHeader("Range"))
 	streamPlayback := content && strings.TrimSpace(c.Query("canvas_playback")) == "1"
 	var archiveLease *service.SeedanceOutputArchiveLease
-	if content && h.seedanceMediaService != nil && !streamPlayback {
+	isHeadRequest := c.Request != nil && c.Request.Method == http.MethodHead
+	// A first full download can be archived in parallel with the response. A
+	// Range/HEAD request cannot produce a complete MP4 archive, so it must stay
+	// on the direct streaming path.
+	if content && h.seedanceMediaService != nil && !streamPlayback && clientRange == "" && !isHeadRequest {
 		if lease, won := h.seedanceMediaService.BeginOutputArchive(c.Request.Context(), owner, taskID); won {
 			archiveLease = lease
-			defer lease.Close()
+			defer func() {
+				if archiveLease != nil {
+					archiveLease.Close()
+				}
+			}()
 		}
 	}
 	if archiveLease != nil {
@@ -1032,6 +1040,9 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 		if content && archiveLease != nil {
 			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, "")
 		}
+		if content {
+			return h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, clientRange)
+		}
 		return h.gatewayService.ForwardSeedance(c.Request.Context(), c, account, method, forwardTaskID, nil)
 	}()
 	if err != nil {
@@ -1049,67 +1060,16 @@ func (h *OpenAIGatewayHandler) handleSeedanceTaskOperation(c *gin.Context, metho
 			}
 		}()
 		contentLength, _ := strconv.ParseInt(strings.TrimSpace(forwarded.Header.Get("Content-Length")), 10, 64)
-		canArchive := archiveLease != nil && forwarded.StatusCode == http.StatusOK && h.seedanceMediaService.CanArchiveOutput(c.Request.Context(), contentLength)
-		if archiveLease != nil && !canArchive && clientRange == "" {
+		canArchive := archiveLease != nil && !isHeadRequest && clientRange == "" &&
+			forwarded.StatusCode == http.StatusOK && h.seedanceMediaService.CanArchiveOutput(c.Request.Context(), contentLength)
+		if archiveLease != nil && !canArchive {
 			archiveLease.Close()
 			archiveLease = nil
-		}
-		if archiveLease != nil && !canArchive && clientRange != "" {
-			_ = forwarded.BodyStream.Close()
-			archiveLease.Close()
-			archiveLease = nil
-			forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, clientRange)
-			if err != nil {
-				h.writeSeedanceForwardError(c, err)
-				return
-			}
-			if forwarded.BodyStream == nil {
-				seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream video body is empty")
-				return
-			}
 		}
 		if canArchive {
-			captured, captureErr := h.seedanceMediaService.CaptureAndStoreOutputWithLease(c.Request.Context(), archiveLease, owner, taskID, forwarded.ContentType, contentLength, forwarded.BodyStream)
-			if captureErr != nil {
-				if reason := infraerrors.Reason(captureErr); reason == "invalid_upstream_response" || reason == "video_too_large" {
-					writeSeedanceMediaError(c, captureErr)
-					return
-				}
-				reqLog.Warn("seedance.output_archive_capture_failed", zap.String("task_id", taskID))
-				_ = forwarded.BodyStream.Close()
-				archiveLease.Close()
-				archiveLease = nil
-				forwarded, err = h.gatewayService.ForwardSeedanceContent(c.Request.Context(), c, account, forwardTaskID, clientRange)
-				if err != nil {
-					h.writeSeedanceForwardError(c, err)
-					return
-				}
-				if forwarded.BodyStream == nil {
-					seedanceError(c, http.StatusBadGateway, "invalid_upstream_response", "Seedance upstream video body is empty")
-					return
-				}
-				h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, forwarded.BodyStream)
-				return
-			}
-			defer func() { _ = captured.Close() }()
-			if captured.StorageError != nil {
-				reqLog.Warn("seedance.output_archive_failed", zap.String("task_id", taskID))
-			}
-			if clientRange != "" {
-				if captured.StorageError == nil {
-					cached, hit, cacheErr := h.seedanceMediaService.OpenCachedOutput(c.Request.Context(), owner, taskID, clientRange)
-					if cacheErr == nil && hit {
-						h.writeSeedanceMediaStream(c, cached)
-						return
-					}
-				}
-				h.serveSeedanceCapturedVideo(c, captured)
-				return
-			}
-			header := forwarded.Header.Clone()
-			header.Set("Content-Type", captured.ContentType)
-			header.Set("Content-Length", strconv.FormatInt(captured.SizeBytes, 10))
-			h.writeSeedanceBody(c, forwarded.StatusCode, header, captured.File)
+			lease := archiveLease
+			archiveLease = nil // ownership moves to the background archiver
+			h.streamSeedanceBodyWithArchive(c, reqLog, forwarded, lease, owner, taskID, contentLength)
 			return
 		}
 		h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, forwarded.BodyStream)
@@ -1610,6 +1570,96 @@ func (h *OpenAIGatewayHandler) serveSeedanceCapturedVideo(c *gin.Context, captur
 	http.ServeContent(c.Writer, c.Request, "seedance.mp4", time.Time{}, captured.File)
 }
 
+// seedanceArchiveTeeReader keeps the client-facing stream independent from
+// archive failures. The archive side is best effort: once the pipe reader
+// exits, the upstream body must still be allowed to reach the client.
+type seedanceArchiveTeeReader struct {
+	source  io.Reader
+	archive *io.PipeWriter
+}
+
+func (r *seedanceArchiveTeeReader) Read(buffer []byte) (int, error) {
+	if r == nil || r.source == nil {
+		return 0, io.EOF
+	}
+	n, readErr := r.source.Read(buffer)
+	if n > 0 && r.archive != nil {
+		if _, writeErr := r.archive.Write(buffer[:n]); writeErr != nil {
+			// The archive is optional. Stop feeding it, but preserve the bytes
+			// already read and continue the client stream.
+			_ = r.archive.CloseWithError(writeErr)
+			r.archive = nil
+		}
+	}
+	if readErr != nil && r.archive != nil {
+		if readErr == io.EOF {
+			_ = r.archive.Close()
+		} else {
+			_ = r.archive.CloseWithError(readErr)
+		}
+		r.archive = nil
+	}
+	return n, readErr
+}
+
+// streamSeedanceBodyWithArchive sends the upstream response immediately and
+// copies a second view of the same bytes into the managed output archive. The
+// request context is detached for the archive write because the HTTP handler
+// is allowed to return as soon as the client has received the stream.
+func (h *OpenAIGatewayHandler) streamSeedanceBodyWithArchive(
+	c *gin.Context,
+	reqLog *zap.Logger,
+	forwarded *service.SeedanceUpstreamResponse,
+	lease *service.SeedanceOutputArchiveLease,
+	owner service.SeedanceMediaOwner,
+	taskID string,
+	contentLength int64,
+) {
+	if forwarded == nil || forwarded.BodyStream == nil || lease == nil || h.seedanceMediaService == nil {
+		if forwarded != nil {
+			h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, forwarded.BodyStream)
+		}
+		if lease != nil {
+			lease.Close()
+		}
+		return
+	}
+
+	pipeReader, pipeWriter := io.Pipe()
+	archiveCtx := context.WithoutCancel(c.Request.Context())
+	go func() {
+		defer pipeReader.Close()
+		defer lease.Close()
+		captured, captureErr := h.seedanceMediaService.CaptureAndStoreOutputWithLease(
+			archiveCtx,
+			lease,
+			owner,
+			taskID,
+			forwarded.ContentType,
+			contentLength,
+			pipeReader,
+		)
+		if captureErr != nil {
+			if reqLog != nil {
+				reqLog.Warn("seedance.output_archive_capture_failed", zap.String("task_id", taskID))
+			}
+			return
+		}
+		if captured != nil {
+			if captured.StorageError != nil && reqLog != nil {
+				reqLog.Warn("seedance.output_archive_failed", zap.String("task_id", taskID))
+			}
+			_ = captured.Close()
+		}
+	}()
+
+	tee := &seedanceArchiveTeeReader{source: forwarded.BodyStream, archive: pipeWriter}
+	h.writeSeedanceBody(c, forwarded.StatusCode, forwarded.Header, tee)
+	// If the client disconnected early, close the pipe so archive validation
+	// terminates instead of holding the archive lease indefinitely.
+	_ = pipeWriter.Close()
+}
+
 func (h *OpenAIGatewayHandler) writeSeedanceMediaStream(c *gin.Context, stream *service.SeedanceMediaStream) {
 	if stream == nil || stream.Body == nil {
 		seedanceError(c, http.StatusBadGateway, "media_storage_error", "Seedance media stream is unavailable")
@@ -1643,6 +1693,27 @@ func (h *OpenAIGatewayHandler) writeSeedanceBody(c *gin.Context, status int, hea
 	if strings.TrimSpace(c.Writer.Header().Get("Accept-Ranges")) == "" {
 		c.Header("Accept-Ranges", "bytes")
 	}
+	// Job content is authenticated media. Never let an upstream or reverse
+	// proxy cache one user's bytes for another user or replay a stale Range.
+	c.Header("Cache-Control", "private, no-store")
+	vary := strings.TrimSpace(c.Writer.Header().Get("Vary"))
+	for _, token := range []string{"Authorization", "Range"} {
+		present := false
+		for _, existing := range strings.Split(vary, ",") {
+			if strings.EqualFold(strings.TrimSpace(existing), token) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			if vary != "" {
+				vary += ", "
+			}
+			vary += token
+		}
+	}
+	c.Header("Vary", vary)
+	c.Header("X-Accel-Buffering", "no")
 	if status <= 0 {
 		status = http.StatusOK
 	}

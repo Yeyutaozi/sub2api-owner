@@ -6,7 +6,11 @@ import (
 	"unicode/utf8"
 )
 
-const SeedanceArtSD20Model = "sd-2.0-933-art"
+const (
+	SeedanceArtSD20Model            = "sd-2.0-933-art"
+	SeedanceFFLinkSD20480PModel     = "seedance2.0-480p"
+	SeedanceFFLinkSD20Mini720PModel = "seedance2.0-mini-720p"
+)
 
 type ffLinkVideoModelProfile struct {
 	Platform             string
@@ -100,6 +104,22 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		PromptLimit:         5000, MaxImageReferences: 4, MaxVideoReferences: 3, MaxAudioReferences: 1, MaxTotalMedia: 8,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, PromptEnhanceMode: "legacy",
 		ValidateDuration: func(duration int, _ string) bool { return isSeedanceDurationSupported(duration) },
+	},
+	SeedanceFFLinkSD20480PModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution480P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution480P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
+	},
+	SeedanceFFLinkSD20Mini720PModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
 	},
 	"seedance-2.5": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 4,
@@ -285,6 +305,8 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 	case PlatformSeedance:
 		return []string{
 			"seedance-2.0",
+			SeedanceFFLinkSD20480PModel,
+			SeedanceFFLinkSD20Mini720PModel,
 			"seedance-2.0-fast",
 			"seedance-2.0-mini",
 			"seedance-2.5",

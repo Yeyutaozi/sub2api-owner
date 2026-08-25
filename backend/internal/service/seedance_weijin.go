@@ -408,7 +408,18 @@ func (s *OpenAIGatewayService) forwardWeijinSeedanceContent(
 		return nil, errors.New("invalid Seedance upstream task id")
 	}
 	path := weijinVideoTaskPath + "/" + url.PathEscape(upstreamTaskID) + "/content"
-	return s.doWeijinSeedanceRequest(ctx, c, account, http.MethodGet, buildOpenAIEndpointURL(baseURL, path), path, apiKey, nil, rangeHeader)
+	targetURL := buildOpenAIEndpointURL(baseURL, path)
+	response, err := s.doWeijinSeedanceRequest(ctx, c, account, http.MethodGet, targetURL, path, apiKey, nil, rangeHeader)
+	if err != nil || response == nil || response.BodyStream == nil {
+		return response, err
+	}
+	// Weijin may terminate a large HTTP/1.1 response before Content-Length.
+	// Keep the initial status/headers visible to the caller while transparently
+	// resuming the body from the exact byte offset on a subsequent Range request.
+	response.BodyStream = newWeijinContentResumeReader(
+		s, ctx, c, account, targetURL, path, apiKey, rangeHeader, response,
+	)
+	return response, nil
 }
 
 func (s *OpenAIGatewayService) doWeijinSeedanceRequest(
@@ -425,14 +436,29 @@ func (s *OpenAIGatewayService) doWeijinSeedanceRequest(
 	}
 	isContentResponse := strings.HasSuffix(endpoint, "/content")
 	requestCtx := ctx
+	var contentCancel context.CancelFunc
 	if isContentResponse {
 		requestCtx = WithHTTPUpstreamRedirectsDisabled(requestCtx)
+		requestCtx, contentCancel = context.WithTimeout(requestCtx, weijinContentSegmentTimeout)
+		defer func() {
+			if contentCancel != nil {
+				contentCancel()
+			}
+		}()
 	}
 	request, err := http.NewRequestWithContext(requestCtx, method, targetURL, reader)
 	if err != nil {
 		return nil, fmt.Errorf("build Weijin video request: %w", err)
 	}
-	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), HTTPUpstreamProfileOpenAI))
+	// Weijin's video object endpoint intermittently resets HTTP/2 streams while
+	// a large MP4 is being read. Keep create/status calls on the OpenAI profile,
+	// but use the default transport profile for content so it negotiates
+	// HTTP/1.1 and the client can receive the object without an H2 INTERNAL_ERROR.
+	profile := HTTPUpstreamProfileOpenAI
+	if isContentResponse {
+		profile = HTTPUpstreamProfileDefault
+	}
+	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), profile))
 	if apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+apiKey)
 	}
@@ -508,6 +534,10 @@ func (s *OpenAIGatewayService) doWeijinSeedanceRequest(
 	}
 	if isContentResponse || rangeHeader != "" || strings.HasPrefix(strings.ToLower(contentType), "video/") || resp.StatusCode == http.StatusPartialContent {
 		response.BodyStream = resp.Body
+		if contentCancel != nil {
+			response.BodyStream = &weijinContentTimedBody{body: resp.Body, cancel: contentCancel}
+			contentCancel = nil
+		}
 		return response, nil
 	}
 	defer func() { _ = resp.Body.Close() }()

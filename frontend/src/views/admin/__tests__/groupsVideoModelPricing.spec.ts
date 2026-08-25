@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  DEFAULT_SEEDANCE_VIDEO_MODELS,
   createVideoModelPricesForm,
   serializeVideoModelPrices,
+  supportedResolutionsForVideoModel,
   videoModelPriceFamilyRows
 } from '../groupsVideoModelPricing'
 
@@ -43,5 +45,34 @@ describe('Grok video model pricing form', () => {
     expect(serializeVideoModelPrices(form)).toMatchObject({
       'grok-imagine-video-2': { '480p': 0.2 }
     })
+  })
+})
+
+describe('Seedance video model pricing catalog', () => {
+  it('keeps the fixed-resolution FFLink models next to their model families', () => {
+    expect(DEFAULT_SEEDANCE_VIDEO_MODELS).toEqual([
+      'seedance-2.0',
+      'seedance2.0-480p',
+      'seedance-2.0-fast',
+      'seedance-2.0-mini',
+      'seedance2.0-mini-720p',
+      'seedance-2.5',
+      'sd2-mx933',
+      'sd2-mx933-fast',
+      'sd-2.0-mx933',
+      'sd-2.0-900-720p',
+      'seedance-2.5-c1-03',
+      'sd-2.5-ff',
+      'sd-2.0-933-art',
+      'sd2-933-25',
+      'sd-2.5-mx',
+      'seedance2.0-one-face-reference-480p',
+      'seedance2.0-one-face-reference-720p'
+    ])
+  })
+
+  it('exposes only the resolution supported by each fixed-resolution model', () => {
+    expect(supportedResolutionsForVideoModel('seedance', 'seedance2.0-480p')).toEqual(['480p'])
+    expect(supportedResolutionsForVideoModel('seedance', 'seedance2.0-mini-720p')).toEqual(['720p'])
   })
 })

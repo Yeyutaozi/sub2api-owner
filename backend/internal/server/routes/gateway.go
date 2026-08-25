@@ -368,7 +368,22 @@ func RegisterGatewayRoutes(
 		h.OpenAIGateway.PublicVideoContent,
 		gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoJobContentHandler,
 	)
+	// Media clients commonly probe video resources with HEAD before issuing
+	// GET/Range requests. Keep the route on the same auth and group-aware
+	// handler so HEAD receives the same metadata without a 404.
+	publicVideoContent.HEAD(
+		"/v1/videos/jobs/:job_id/content",
+		h.OpenAIGateway.PublicVideoContent,
+		gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, videoJobContentHandler,
+	)
 	publicVideoContent.GET(
+		"/api/v3/contents/generations/tasks/:task_id/content",
+		h.OpenAIGateway.PublicVideoContent,
+		gin.HandlerFunc(apiKeyAuth), requireGroupArk, h.OpenAIGateway.SeedanceTaskContent,
+	)
+	// Reuse the authenticated content handler for HEAD metadata without
+	// triggering archive or billing work.
+	publicVideoContent.HEAD(
 		"/api/v3/contents/generations/tasks/:task_id/content",
 		h.OpenAIGateway.PublicVideoContent,
 		gin.HandlerFunc(apiKeyAuth), requireGroupArk, h.OpenAIGateway.SeedanceTaskContent,

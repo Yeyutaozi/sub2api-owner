@@ -29,8 +29,10 @@ describe('useModelWhitelist', () => {
   it('uses public Seedance model IDs while keeping legacy alias mappings', () => {
     expect(getModelsByPlatform('seedance')).toEqual([
       'seedance-2.0',
+      'seedance2.0-480p',
       'seedance-2.0-fast',
       'seedance-2.0-mini',
+      'seedance2.0-mini-720p',
       'seedance-2.5',
       'sd-2.5-ff',
       'sd-2.0-933-art',
@@ -63,8 +65,10 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('happyhorse')).toEqual(['happy-horse-1.1'])
     expect(getSeedanceModelsByVideoProvider('fflink')).toEqual([
       'seedance-2.0',
+      'seedance2.0-480p',
       'seedance-2.0-fast',
       'seedance-2.0-mini',
+      'seedance2.0-mini-720p',
       'seedance-2.5',
       'sd-2.5-ff',
       'sd-2.0-933-art'

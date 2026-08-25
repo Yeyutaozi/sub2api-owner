@@ -342,6 +342,22 @@ func isAsyncImageTaskRead(method, path string) bool {
 }
 
 func isSeedanceTaskRead(method, path string) bool {
+	// Media clients commonly issue HEAD before downloading a completed job.
+	// Keep it on the read path so it receives normal API-key authentication and
+	// does not consume billing/concurrency quota.
+	if method == http.MethodHead {
+		trimmed := strings.TrimRight(path, "/")
+		for _, prefix := range []string{
+			"/api/v3/contents/generations/tasks/",
+			"/v1/videos/jobs/",
+		} {
+			if strings.HasPrefix(trimmed, prefix) && strings.HasSuffix(trimmed, "/content") {
+				taskID := strings.TrimSuffix(strings.TrimPrefix(trimmed, prefix), "/content")
+				return taskID != ""
+			}
+		}
+		return false
+	}
 	if method != http.MethodGet && method != http.MethodDelete {
 		return false
 	}

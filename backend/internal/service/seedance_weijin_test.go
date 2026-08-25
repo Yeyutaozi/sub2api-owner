@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -461,4 +464,41 @@ func TestWeijinDeleteNotSupported(t *testing.T) {
 	var upstreamErr *SeedanceUpstreamError
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusMethodNotAllowed, upstreamErr.StatusCode)
+}
+
+func TestForwardWeijinContentUsesHTTP1TransportProfile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &seedanceHTTPUpstreamStub{
+		body:       "\x00\x00\x00\x0cftypisom",
+		statusCode: http.StatusPartialContent,
+		header: http.Header{
+			"Content-Type":   []string{"video/mp4"},
+			"Content-Length": []string{"12"},
+			"Content-Range":  []string{"bytes 0-11/12"},
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:       801,
+		Platform: PlatformSeedance,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":       DefaultWeijinVideoBaseURL,
+			"api_key":        "upstream-secret",
+			"video_provider": VideoProviderWeijin,
+		},
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, SeedanceOfficialTasksEndpoint+"/task_1/content", nil)
+
+	response, err := svc.ForwardSeedanceContent(context.Background(), ctx, account, "task_1", "bytes=0-11")
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.NotNil(t, response.BodyStream)
+	require.NoError(t, response.BodyStream.Close())
+	require.NotNil(t, upstream.request)
+	require.Equal(t, HTTPUpstreamProfileDefault, HTTPUpstreamProfileFromContext(upstream.request.Context()))
+	_, hasDeadline := upstream.request.Context().Deadline()
+	require.True(t, hasDeadline, "Weijin content requests need a segment read deadline")
 }
