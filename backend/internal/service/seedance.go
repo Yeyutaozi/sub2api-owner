@@ -2018,8 +2018,20 @@ func normalizeSeedancePublicJob(job map[string]any, taskID, provider, publicMode
 	if status, ok := job["status"].(string); ok {
 		job["status"] = MapSeedancePublicTaskStatus(status)
 	}
-	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge || provider == VideoProviderOpenVideo || provider == VideoProviderTianyue) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+	if (provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderLensForge || provider == VideoProviderOpenVideo) && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
 		job["error"] = map[string]any{"message": "Video generation failed"}
+	}
+	if provider == VideoProviderTianyue && MapSeedanceTaskStatus(stringValue(job["status"])) == SeedanceTaskStatusFailed {
+		if _, exists := job["error"]; !exists {
+			for _, key := range []string{"error_message", "failure", "failure_message", "fail_message", "failure_reason", "fail_reason", "reason", "message", "detail", "details"} {
+				if value, exists := job[key]; exists {
+					if sanitized, keep := sanitizeTianyueErrorValue(value); keep {
+						job["error"] = map[string]any{"message": sanitized}
+					}
+					break
+				}
+			}
+		}
 	}
 	synthesizeHuiquResult := func() {
 		status, _ := job["status"].(string)
@@ -2063,6 +2075,30 @@ func sanitizeHuiquSeedanceResponse(value any, statusPath, contentPath string) bo
 }
 
 func sanitizeOpaqueSeedanceResponse(value any, statusPath, contentPath, provider string) bool {
+	// Tianyue task responses are opaque to the gateway, but its failure reason
+	// is useful to the canvas user. Preserve error fields while still applying
+	// the normal URL/credential redaction to the rest of the response.
+	if strings.EqualFold(strings.TrimSpace(provider), VideoProviderTianyue) {
+		var preserved map[string]any
+		if payload, ok := value.(map[string]any); ok {
+			preserved = make(map[string]any)
+			for key, child := range payload {
+				switch normalizeHuiquResponseKey(key) {
+				case "error", "error_message", "failure", "failure_message", "fail_message", "failure_reason", "fail_reason", "reason", "message", "detail", "details":
+					preserved[key] = child
+				}
+			}
+		}
+		keep := sanitizeHuiquSeedanceResponse(value, statusPath, contentPath)
+		if payload, ok := value.(map[string]any); ok {
+			for key, child := range preserved {
+				if sanitized, ok := sanitizeTianyueErrorValue(child); ok {
+					payload[key] = sanitized
+				}
+			}
+		}
+		return keep
+	}
 	if strings.EqualFold(strings.TrimSpace(provider), VideoProviderXimei) {
 		if _, keep := sanitizeXimeiSeedanceStatusValue(value); !keep {
 			return false
@@ -2072,6 +2108,39 @@ func sanitizeOpaqueSeedanceResponse(value any, statusPath, contentPath, provider
 		}
 	}
 	return sanitizeHuiquSeedanceResponse(value, statusPath, contentPath)
+}
+
+func sanitizeTianyueErrorValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalized := normalizeHuiquResponseKey(key)
+			if isHuiquSensitiveResponseKey(key) && normalized != "code" && normalized != "message" && normalized != "msg" && normalized != "detail" && normalized != "details" && normalized != "reason" {
+				delete(typed, key)
+				continue
+			}
+			sanitized, keep := sanitizeTianyueErrorValue(child)
+			if !keep {
+				delete(typed, key)
+				continue
+			}
+			typed[key] = sanitized
+		}
+		return typed, len(typed) > 0
+	case []any:
+		filtered := make([]any, 0, len(typed))
+		for _, child := range typed {
+			if sanitized, keep := sanitizeTianyueErrorValue(child); keep {
+				filtered = append(filtered, sanitized)
+			}
+		}
+		return filtered, len(filtered) > 0
+	case string:
+		sanitized := strings.TrimSpace(redactHuiquSeedanceErrorText(typed))
+		return sanitized, sanitized != ""
+	default:
+		return value, true
+	}
 }
 
 func retainXimeiPublicStatusFields(payload map[string]any) {
@@ -2290,11 +2359,17 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 	}
 	if internalStatus == SeedanceTaskStatusFailed {
 		if provider == VideoProviderXimei || provider == VideoProviderWeijin || provider == VideoProviderGlobalAIOPC || provider == VideoProviderTianyue {
-			response["error"] = map[string]any{"message": "Video generation failed"}
-			return response, nil
+			if provider != VideoProviderTianyue {
+				response["error"] = map[string]any{"message": "Video generation failed"}
+				return response, nil
+			}
 		}
 		if value, exists := upstream["error"]; exists {
-			if isHuiquTask {
+			if provider == VideoProviderTianyue {
+				if sanitized, keep := sanitizeTianyueErrorValue(value); keep {
+					response["error"] = sanitized
+				}
+			} else if isHuiquTask {
 				statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 				contentPath := statusPath + "/content"
 				if sanitized, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath); keep {
@@ -2304,7 +2379,11 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 				response["error"] = value
 			}
 		} else if value, exists := upstream["error_message"]; exists {
-			if isHuiquTask {
+			if provider == VideoProviderTianyue {
+				if sanitized, keep := sanitizeTianyueErrorValue(value); keep {
+					response["error"] = map[string]any{"message": sanitized}
+				}
+			} else if isHuiquTask {
 				statusPath := SeedancePublicJobsEndpoint + "/" + url.PathEscape(taskID)
 				contentPath := statusPath + "/content"
 				if sanitized, keep := sanitizeHuiquSeedanceValue(value, statusPath, contentPath); keep {
@@ -2312,6 +2391,15 @@ func BuildSeedanceOfficialTaskResponseForRoute(taskID string, upstreamBody []byt
 				}
 			} else {
 				response["error"] = map[string]any{"message": value}
+			}
+		} else if provider == VideoProviderTianyue {
+			for _, key := range []string{"failure", "failure_message", "fail_message", "failure_reason", "fail_reason", "reason", "message", "detail", "details"} {
+				if value, exists := upstream[key]; exists {
+					if sanitized, keep := sanitizeTianyueErrorValue(value); keep {
+						response["error"] = map[string]any{"message": sanitized}
+					}
+					break
+				}
 			}
 		}
 	}

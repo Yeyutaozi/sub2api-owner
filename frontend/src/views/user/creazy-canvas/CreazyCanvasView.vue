@@ -3026,7 +3026,7 @@ function workStatusLabel(status?: string) {
   return labeled === key ? status || '—' : labeled
 }
 
-/** §7.3 gateway error mapping — never surface upstream body/stack */
+/** §7.3 gateway error mapping — preserve sanitized upstream messages */
 function mapGatewayError(error: any, fallback?: string): string {
   const status = Number(error?.status || error?.response?.status || 0)
   const param = String(
@@ -3096,6 +3096,12 @@ function mapGatewayError(error: any, fallback?: string): string {
     blob.includes('<!doctype') ||
     (blob.includes(' at ') && blob.includes('.go:')) ||
     (blob.includes(' at ') && blob.includes('.ts:'))
+
+  // Async video jobs carry the already-sanitized provider error separately
+  // from the HTTP status. Do not replace it with a platform-owned label.
+  if (error?.upstream === true && raw && !looksUnsafe) {
+    return raw.length > 360 ? raw.slice(0, 360).trim() + '…' : raw
+  }
 
   const isGenericInvalid =
     !raw ||
@@ -5158,7 +5164,7 @@ async function resumeOrphanedVideoWorks() {
             status: 'failed',
             gateway_remote_id: jobId,
             error_message: mapGatewayError(
-              { message: err || '', status: 0 },
+              { message: err || '', status: 0, upstream: true },
               err || t('creazyCanvas.result.failed') + ': ' + (job.status || 'unknown'),
             ),
           })
@@ -5336,7 +5342,7 @@ async function runVideoLifecycle(opts: {
             ? job.error.message
             : ''
       const msg = mapGatewayError(
-        { message: err || '', status: 0 },
+        { message: err || '', status: 0, upstream: true },
         err || (t('creazyCanvas.result.failed') + ': ' + (job.status || 'unknown')),
       )
       if (runningWorkId) {
@@ -5371,7 +5377,7 @@ async function runVideoLifecycle(opts: {
             ? job.error.message
             : ''
       const msg = mapGatewayError(
-        { message: err || '', status: 0 },
+        { message: err || '', status: 0, upstream: true },
         err || (t('creazyCanvas.result.failed') + ': ' + (job.status || 'unknown')),
       )
       if (runningWorkId) {

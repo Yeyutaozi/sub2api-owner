@@ -299,3 +299,30 @@ func TestNormalizeTianyueTaskHidesUpstreamDetails(t *testing.T) {
 	require.Contains(t, string(body), `"model":"my-video"`)
 	require.Contains(t, string(body), `/v1/videos/jobs/vidjob_public/content`)
 }
+
+func TestNormalizeTianyueFailedTaskPreservesUpstreamError(t *testing.T) {
+	body, err := NormalizeSeedanceJobForRoute(
+		[]byte(`{"id":"upstream-task","status":"failed","error":{"code":"invalid_request","message":"request blocked: port 15036 is not allowed"}}`),
+		"vidjob_public", VideoProviderTianyue, "my-video",
+	)
+	require.NoError(t, err)
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(body, &job))
+	errObj, ok := job["error"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "invalid_request", errObj["code"])
+	require.Equal(t, "request blocked: port 15036 is not allowed", errObj["message"])
+	require.NotEqual(t, "Video generation failed", errObj["message"])
+}
+
+func TestBuildTianyueFailedTaskPreservesFailReason(t *testing.T) {
+	response, err := BuildSeedanceOfficialTaskResponseForRoute(
+		"vidjob_public",
+		[]byte(`{"status":"failed","fail_reason":"输入内容未通过上游安全审核，请修改后重试"}`),
+		"", VideoProviderTianyue, "my-video",
+	)
+	require.NoError(t, err)
+	errObj, ok := response["error"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "输入内容未通过上游安全审核，请修改后重试", errObj["message"])
+}
