@@ -86,6 +86,7 @@ export const DEFAULT_SEEDANCE_VIDEO_MODELS = [
   'seedance-2.0', 'seedance2.0-480p', 'seedance-2.0-fast',
   'seedance-2.0-mini', 'seedance2.0-mini-720p', 'seedance-2.5',
   'sd2-mx933', 'sd2-mx933-fast', 'sd-2.0-mx933', 'sd-2.0-900-720p',
+  'sd-2-720-bb',
   'seedance-2.5-c1-03', 'sd-2.5-ff', 'sd-2.0-933-art', 'sd2-933-25',
   'sd-2.5-mx', 'seedance2.0-one-face-reference-480p',
   'seedance2.0-one-face-reference-720p'
@@ -111,6 +112,7 @@ const VIDEO_MODEL_SUPPORTED_RESOLUTIONS: Record<string, readonly VideoModelPrice
   'sd2-mx933-fast': ['480p', '720p'],
   'sd-2.0-mx933': ['480p', '720p'],
   'sd-2.0-900-720p': ['720p'],
+  'sd-2-720-bb': ['720p'],
   'seedance-2.5-c1-03': ['720p'],
   'sd-2.5-ff': ['480p', '720p'],
   'sd-2.0-933-art': ['720p'],

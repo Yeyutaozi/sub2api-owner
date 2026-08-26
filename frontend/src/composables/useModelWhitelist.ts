@@ -181,6 +181,7 @@ const seedanceFFLinkModels = [
   'seedance-2.0-mini',
   'seedance2.0-mini-720p',
   'seedance-2.5',
+  'sd-2-720-bb',
   'sd-2.5-ff',
   'sd-2.0-933-art'
 ]

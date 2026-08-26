@@ -10,6 +10,9 @@ const (
 	SeedanceArtSD20Model            = "sd-2.0-933-art"
 	SeedanceFFLinkSD20480PModel     = "seedance2.0-480p"
 	SeedanceFFLinkSD20Mini720PModel = "seedance2.0-mini-720p"
+	// SeedanceBeebleSD20720Model is the Tkcreazy public alias for Inspo's
+	// beeble Seedance 2 720p offering.
+	SeedanceBeebleSD20720Model = "sd-2-720-bb"
 )
 
 type ffLinkVideoModelProfile struct {
@@ -114,6 +117,14 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
 	},
 	SeedanceFFLinkSD20Mini720PModel: {
+		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
+		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
+		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4"),
+		PromptLimit:         5000, MaxImageReferences: 9, MaxTotalImages: 9, MaxVideoReferences: 3, MaxAudioReferences: 3, MaxTotalMedia: 15,
+		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true,
+		ValidateDuration: func(duration int, _ string) bool { return duration >= 4 && duration <= 15 },
+	},
+	SeedanceBeebleSD20720Model: {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 5,
 		AllowedResolutions:  resolutionSet(VideoBillingResolution720P),
 		AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4"),
@@ -307,6 +318,7 @@ func FFLinkVideoModelIDsForPlatform(platform string) []string {
 			"seedance-2.0",
 			SeedanceFFLinkSD20480PModel,
 			SeedanceFFLinkSD20Mini720PModel,
+			SeedanceBeebleSD20720Model,
 			"seedance-2.0-fast",
 			"seedance-2.0-mini",
 			"seedance-2.5",
