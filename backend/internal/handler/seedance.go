@@ -1975,6 +1975,10 @@ func recordSeedanceUsage(
 	inboundEndpoint := GetInboundEndpoint(c)
 	upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 	quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+	channelMappedModel := strings.TrimSpace(result.UpstreamModel)
+	if channelMappedModel == "" {
+		channelMappedModel = requestModel
+	}
 	// The task ID is returned only after its provisional charge and usage row are
 	// durable. This prevents an immediate terminal-status poll from racing ahead
 	// of the refundable usage record.
@@ -1992,7 +1996,7 @@ func recordSeedanceUsage(
 			RequestPayloadHash: service.HashUsageRequestPayload(body),
 			APIKeyService:      h.apiKeyService,
 			QuotaPlatform:      quotaPlatform,
-			ChannelUsageFields: service.ChannelUsageFields{OriginalModel: requestModel, ChannelMappedModel: requestModel},
+			ChannelUsageFields: service.ChannelUsageFields{OriginalModel: requestModel, ChannelMappedModel: channelMappedModel},
 		},
 		TaskID:         result.ResponseID,
 		RequestedModel: requestModel,
