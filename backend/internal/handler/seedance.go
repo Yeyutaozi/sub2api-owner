@@ -193,7 +193,10 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 				continue
 			}
 			if lastFailover != nil {
-				h.handleFailoverExhausted(c, lastFailover, false)
+				// Keep the provider's actionable error detail after all Seedance
+				// accounts are exhausted instead of replacing it with a generic
+				// OpenAI gateway message.
+				h.writeSeedanceForwardError(c, lastFailover)
 				return
 			}
 			markOpsRoutingCapacityLimited(c)
@@ -320,7 +323,7 @@ func (h *OpenAIGatewayHandler) handleSeedanceCreate(c *gin.Context, public bool)
 					continue
 				}
 				if switchCount >= maxSwitches {
-					h.handleFailoverExhausted(c, failoverErr, false)
+					h.writeSeedanceForwardError(c, failoverErr)
 					return
 				}
 				switchCount++
@@ -1841,17 +1844,25 @@ func seedanceVideoPricingError(group *service.Group, requestedModel, resolution 
 func (h *OpenAIGatewayHandler) writeSeedanceForwardError(c *gin.Context, err error) {
 	var upstreamErr *service.SeedanceUpstreamError
 	if errors.As(err, &upstreamErr) {
-		status := upstreamErr.StatusCode
-		if status < 400 || status > 599 {
-			status = http.StatusBadGateway
-		}
-		// Keep user-readable upstream validation messages (e.g. resolution limits),
-		// but map codes to platform-owned values and scrub vendor names.
-		code, message := service.SeedancePublicUpstreamError(status, upstreamErr.Body)
-		seedanceError(c, status, code, message)
+		writeSeedanceUpstreamBodyError(c, upstreamErr.StatusCode, upstreamErr.Body)
+		return
+	}
+	var failoverErr *service.UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		writeSeedanceUpstreamBodyError(c, failoverErr.StatusCode, failoverErr.ResponseBody)
 		return
 	}
 	seedanceError(c, http.StatusBadGateway, "upstream_error", "Video request failed")
+}
+
+func writeSeedanceUpstreamBodyError(c *gin.Context, status int, body []byte) {
+	if status < 400 || status > 599 {
+		status = http.StatusBadGateway
+	}
+	// Keep user-readable provider details while retaining the Seedance API
+	// envelope and the existing vendor/credential sanitization rules.
+	code, message := service.SeedancePublicUpstreamError(status, body)
+	seedanceError(c, status, code, message)
 }
 
 func seedanceError(c *gin.Context, status int, code string, message string) {
