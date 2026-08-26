@@ -414,7 +414,10 @@ func (s *OpenAIGatewayService) doTianyueRequest(
 		return nil, err
 	}
 	if response.StatusCode >= http.StatusBadRequest {
-		return nil, &SeedanceUpstreamError{StatusCode: response.StatusCode, Body: sanitizeHuiquSeedanceUpstreamErrorBody(out.Body)}
+		// Tianyue has its own response schema. Keep its error object intact so
+		// create-time 4xx responses can reach the canvas without being replaced
+		// by the Huiqu sanitizer's generic failure body.
+		return nil, &SeedanceUpstreamError{StatusCode: response.StatusCode, Body: sanitizeSeedanceUpstreamErrorBody(out.Body)}
 	}
 	if method == http.MethodPost {
 		out.Result = &OpenAIForwardResult{Duration: time.Since(startedAt)}

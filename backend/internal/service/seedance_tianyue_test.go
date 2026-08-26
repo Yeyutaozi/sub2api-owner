@@ -179,6 +179,27 @@ func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	require.Equal(t, 15, request.VideoDuration)
 }
 
+func TestForwardTianyueCreatePreservesUpstreamErrorBody(t *testing.T) {
+	upstreamBody := `{"error":{"code":"invalid_request","message":"model ME-SD2.0-933 rejected image_urls"}}`
+	upstream := &seedanceHTTPUpstreamStub{statusCode: http.StatusBadRequest, body: upstreamBody}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	gateway := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{ID: 42, Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key":        "secret",
+		"base_url":       "http://tianyue.example",
+		"video_provider": VideoProviderTianyue,
+		"model_mapping":  map[string]any{SeedanceTianyueSD20Model: SeedanceTianyueSD20Model},
+	}}
+	info := &SeedanceRequestInfo{Model: SeedanceTianyueSD20Model, Prompt: "cinematic portrait", DurationSeconds: 15, AspectRatio: "16:9", Resolution: VideoBillingResolution720P}
+
+	_, err := gateway.ForwardSeedance(t.Context(), nil, account, http.MethodPost, "", info)
+	var upstreamErr *SeedanceUpstreamError
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
+	require.JSONEq(t, upstreamBody, string(upstreamErr.Body))
+}
+
 func TestForwardTianyueSeedanceContentUsesFinalVideoRedirect(t *testing.T) {
 	upstream := &tianyueHTTPUpstreamSequenceStub{responses: []tianyueHTTPUpstreamResponse{
 		{
