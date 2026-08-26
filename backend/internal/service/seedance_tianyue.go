@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	VideoProviderTianyue         = "tianyue"
-	DefaultTianyueVideoBaseURL   = "http://192.220.23.225:3000"
-	SeedanceTianyueSD20Model     = "L-SD2-F-720-933"
-	SeedanceTianyueSD20FastModel = "L-stable-seedance-2-0-933-720p"
-	tianyueVideoTaskPath         = "/v1/videos"
+	VideoProviderTianyue             = "tianyue"
+	DefaultTianyueVideoBaseURL       = "http://192.220.23.225:3000"
+	SeedanceTianyueSD20Model         = "L-SD2-F-720-933"
+	SeedanceTianyueSD20UpstreamModel = "ME-SD2.0-933"
+	SeedanceTianyueSD20FastModel     = "L-stable-seedance-2-0-933-720p"
+	tianyueVideoTaskPath             = "/v1/videos"
 )
 
 type tianyueVideoCreateRequest struct {
@@ -55,6 +56,20 @@ func canonicalTianyueVideoModel(model string) (string, bool) {
 	}
 }
 
+func tianyueUpstreamVideoModel(model string) (string, bool) {
+	if strings.EqualFold(strings.TrimSpace(model), SeedanceTianyueSD20UpstreamModel) {
+		return SeedanceTianyueSD20UpstreamModel, true
+	}
+	canonical, ok := canonicalTianyueVideoModel(model)
+	if !ok {
+		return "", false
+	}
+	if canonical == SeedanceTianyueSD20Model {
+		return SeedanceTianyueSD20UpstreamModel, true
+	}
+	return canonical, true
+}
+
 func (a *Account) IsTianyueVideo() bool {
 	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderTianyue
 }
@@ -63,7 +78,7 @@ func buildTianyueVideoCreateRequest(info *SeedanceRequestInfo, upstreamModel str
 	if info == nil {
 		return nil, errors.New("video request is required")
 	}
-	canonicalModel, ok := canonicalTianyueVideoModel(upstreamModel)
+	canonicalModel, ok := tianyueUpstreamVideoModel(upstreamModel)
 	if !ok {
 		return nil, fmt.Errorf("unsupported Tianyue video model: %s", strings.TrimSpace(upstreamModel))
 	}
@@ -119,7 +134,7 @@ func (s *OpenAIGatewayService) forwardTianyueSeedance(
 		}
 		mappedModel := strings.TrimSpace(account.GetMappedModel(info.Model))
 		var ok bool
-		upstreamModel, ok = canonicalTianyueVideoModel(mappedModel)
+		upstreamModel, ok = tianyueUpstreamVideoModel(mappedModel)
 		if !ok {
 			return nil, fmt.Errorf("unsupported Tianyue video model: %s", mappedModel)
 		}

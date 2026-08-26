@@ -132,7 +132,7 @@ func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, response.Result)
 	require.Equal(t, "task_123", response.Result.UpstreamResponseID)
-	require.Equal(t, SeedanceTianyueSD20Model, response.Result.UpstreamModel)
+	require.Equal(t, SeedanceTianyueSD20UpstreamModel, response.Result.UpstreamModel)
 	require.NotEqual(t, "task_123", response.Result.ResponseID)
 	require.Contains(t, response.Result.ResponseID, "vidjob_")
 	require.Equal(t, "Bearer secret", upstream.request.Header.Get("Authorization"))
@@ -142,6 +142,7 @@ func TestForwardTianyueSeedanceCreatesOpaqueBoundTask(t *testing.T) {
 	require.NoError(t, readErr)
 	var request tianyueVideoCreateRequest
 	require.NoError(t, json.Unmarshal(requestBody, &request))
+	require.Equal(t, SeedanceTianyueSD20UpstreamModel, request.Model)
 	require.Equal(t, 1, request.Duration)
 	require.Equal(t, 15, request.VideoDuration)
 }
