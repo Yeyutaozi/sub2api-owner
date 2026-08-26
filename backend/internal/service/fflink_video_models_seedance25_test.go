@@ -4,6 +4,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,4 +34,12 @@ func TestSeedance25UsesResolutionDurationCaps(t *testing.T) {
 		}
 		require.NoError(t, validateFFLinkVideoRequestInfo(info), fmt.Sprint(duration))
 	}
+}
+
+func TestSeedance25FFAllowsLongPrompt(t *testing.T) {
+	info := &SeedanceRequestInfo{
+		Model: "sd-2.5-ff", Prompt: strings.Repeat("x", 10000), Resolution: VideoBillingResolution720P,
+		DurationSeconds: 4, AspectRatio: "16:9",
+	}
+	require.NoError(t, validateFFLinkVideoRequestInfo(info))
 }

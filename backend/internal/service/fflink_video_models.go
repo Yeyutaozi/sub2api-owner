@@ -56,7 +56,7 @@ var ffLinkVideoModelProfiles = map[string]ffLinkVideoModelProfile{
 	"sd-2.5-ff": {
 		Platform: PlatformSeedance, DefaultResolution: VideoBillingResolution720P, DefaultDuration: 4,
 		AllowedResolutions: resolutionSet(VideoBillingResolution480P, VideoBillingResolution720P), AllowedAspectRatios: ratioSet("16:9", "9:16", "1:1", "4:3", "3:4", "21:9"),
-		PromptLimit: 5000, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
+		PromptLimit: 0, MaxImageReferences: 30, MaxTotalImages: 30, MaxVideoReferences: 10, MaxAudioReferences: 10, MaxTotalMedia: 50,
 		AllowStartFrame: true, AllowEndFrame: true, AllowGeneratedAudio: true, Max720PAudioDuration: 15,
 		ValidateDuration: func(duration int, _ string) bool {
 			switch duration {
