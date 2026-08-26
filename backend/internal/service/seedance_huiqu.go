@@ -291,7 +291,13 @@ func videoProviderSupportsModelForPlatform(platform, provider, model string) boo
 	case VideoProviderZhi168:
 		return (platform == PlatformSeedance || platform == "") && strings.EqualFold(strings.TrimSpace(model), SeedanceZhi168Model)
 	case VideoProviderTianyue:
-		return (platform == PlatformSeedance || platform == "") && isTianyueVideoModel(model)
+		if platform != PlatformSeedance && platform != "" {
+			return false
+		}
+		// Account mappings may store either the public alias or the concrete
+		// Tianyue execution ID. Both identify the same provider capability.
+		_, ok := tianyueUpstreamVideoModel(model)
+		return ok
 	default: // fflink and future non-opaque providers
 		if platform == PlatformMiniMax {
 			return false

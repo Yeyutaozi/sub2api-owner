@@ -70,6 +70,33 @@ func tianyueUpstreamVideoModel(model string) (string, bool) {
 	return canonical, true
 }
 
+// normalizeTianyueModelMappingCredentials keeps the public model IDs as the
+// mapping keys while storing the provider's actual execution IDs as targets.
+// This makes account editing deterministic: a whitelist entry for the public
+// SD2 model is persisted as an explicit mapping to ME-SD2.0-933.
+func normalizeTianyueModelMappingCredentials(credentials map[string]any) {
+	if credentials == nil {
+		return
+	}
+	provider, _ := credentials["video_provider"].(string)
+	if !strings.EqualFold(strings.TrimSpace(provider), VideoProviderTianyue) {
+		return
+	}
+	mapping := stringMappingFromRaw(credentials["model_mapping"])
+	if len(mapping) == 0 {
+		return
+	}
+	normalized := make(map[string]any, len(mapping))
+	for from, to := range mapping {
+		if upstream, ok := tianyueUpstreamVideoModel(to); ok {
+			normalized[from] = upstream
+		} else {
+			normalized[from] = to
+		}
+	}
+	credentials["model_mapping"] = normalized
+}
+
 func (a *Account) IsTianyueVideo() bool {
 	return a != nil && a.IsSeedance() && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderTianyue
 }

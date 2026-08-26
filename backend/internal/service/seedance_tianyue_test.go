@@ -33,6 +33,38 @@ func TestTianyueAccountSupportsCustomPublicModelMapping(t *testing.T) {
 	require.Equal(t, DefaultTianyueVideoBaseURL, account.GetSeedanceBaseURL())
 }
 
+func TestTianyueMappingNormalizesPublicStandardModelToUpstreamID(t *testing.T) {
+	credentials := map[string]any{
+		"api_key":        "test-key",
+		"video_provider": VideoProviderTianyue,
+		"model_mapping": map[string]any{
+			SeedanceTianyueSD20Model:     SeedanceTianyueSD20Model,
+			SeedanceTianyueSD20FastModel: SeedanceTianyueSD20FastModel,
+		},
+	}
+	require.NoError(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeAPIKey, credentials))
+	mapping := stringMappingFromRaw(credentials["model_mapping"])
+	require.Equal(t, SeedanceTianyueSD20UpstreamModel, mapping[SeedanceTianyueSD20Model])
+	require.Equal(t, SeedanceTianyueSD20FastModel, mapping[SeedanceTianyueSD20FastModel])
+
+	account := &Account{Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: credentials}
+	require.True(t, account.IsModelSupported(SeedanceTianyueSD20Model))
+	require.True(t, account.IsModelSupported(SeedanceTianyueSD20FastModel))
+}
+
+func TestTianyueAccountSupportsExplicitUpstreamMappingTarget(t *testing.T) {
+	credentials := map[string]any{
+		"api_key":        "test-key",
+		"video_provider": VideoProviderTianyue,
+		"model_mapping": map[string]any{
+			"my-standard-video": SeedanceTianyueSD20UpstreamModel,
+		},
+	}
+	require.NoError(t, ValidateSeedanceAccountConfiguration(PlatformSeedance, AccountTypeAPIKey, credentials))
+	account := &Account{Platform: PlatformSeedance, Type: AccountTypeAPIKey, Credentials: credentials}
+	require.True(t, account.IsModelSupported("my-standard-video"))
+}
+
 func TestParseTianyueCanonicalModelPreservesPublicCasing(t *testing.T) {
 	info, err := ParseSeedanceVideoGenerationRequest([]byte(`{
 		"model":"l-stable-seedance-2-0-933-720p",

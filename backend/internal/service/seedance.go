@@ -72,6 +72,12 @@ func ValidateSeedanceAccountConfiguration(platform, accountType string, credenti
 	if err != nil {
 		return infraerrors.BadRequest("VIDEO_PROVIDER_INVALID", err.Error())
 	}
+	// Tianyue accepts public aliases from the admin UI, but executes the
+	// standard SD2 alias as ME-SD2.0-933 upstream. Normalize before validation
+	// so newly saved accounts and legacy whitelist edits use one representation.
+	if provider == VideoProviderTianyue {
+		normalizeTianyueModelMappingCredentials(credentials)
+	}
 	if mapping := stringMappingFromRaw(credentials["model_mapping"]); len(mapping) > 0 {
 		for requestedModel, upstreamModel := range mapping {
 			requestedModel = strings.TrimSpace(requestedModel)
