@@ -2533,9 +2533,27 @@ func seedanceDefaultContentTypeForKind(mediaKind string) string {
 
 func seedanceRehostFilename(mediaKind, contentType, objectKey string) string {
 	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(objectKey)))
+	// Go's MIME database may prefer the legacy `.jpe` extension for JPEG.
+	// Inspo's upload validator accepts `.jpg`/`.jpeg` but rejects `.jpe`, so
+	// keep rehosted JPEG filenames on the canonical `.jpg` extension.
+	if mediaKind == "image" && (ext == ".jpe" || ext == ".jpeg") {
+		ext = ".jpg"
+	}
 	if ext == "" {
-		if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
-			ext = exts[0]
+		if mediaKind == "image" {
+			switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+			case "image/jpeg":
+				ext = ".jpg"
+			case "image/png":
+				ext = ".png"
+			case "image/webp":
+				ext = ".webp"
+			}
+		}
+		if ext == "" {
+			if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+				ext = exts[0]
+			}
 		}
 	}
 	if ext == "" {

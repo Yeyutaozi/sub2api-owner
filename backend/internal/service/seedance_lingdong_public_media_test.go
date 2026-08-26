@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSeedanceRehostFilenameCanonicalizesJPEG(t *testing.T) {
+	for _, objectKey := range []string{"", "seedance/input.jpe", "seedance/input.jpeg", "seedance/input.jpg"} {
+		name := seedanceRehostFilename("image", "image/jpeg", objectKey)
+		require.Equal(t, ".jpg", filepath.Ext(name), "object key %q", objectKey)
+	}
+}
 
 func TestSeedanceMediaURLNeedsPublicProxy(t *testing.T) {
 	require.True(t, seedanceMediaURLNeedsPublicProxy("https://bucket.cos.ap-hongkong.myqcloud.com/seedance/inputs/staged/1/2/sdupl_x.png?X-Amz-Signature=abc"))
