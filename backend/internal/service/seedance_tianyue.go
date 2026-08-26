@@ -70,6 +70,20 @@ func tianyueUpstreamVideoModel(model string) (string, bool) {
 	return canonical, true
 }
 
+// tianyueExecutionModelForRequest resolves the two public Tianyue models by
+// their public IDs first. This prevents a stale or swapped account mapping
+// value from leaking the public alias to the upstream create request.
+func tianyueExecutionModelForRequest(requestedModel, mappedModel string) (string, bool) {
+	switch canonical, ok := canonicalTianyueVideoModel(requestedModel); {
+	case ok && canonical == SeedanceTianyueSD20Model:
+		return SeedanceTianyueSD20UpstreamModel, true
+	case ok && canonical == SeedanceTianyueSD20FastModel:
+		return SeedanceTianyueSD20FastModel, true
+	default:
+		return tianyueUpstreamVideoModel(mappedModel)
+	}
+}
+
 // normalizeTianyueModelMappingCredentials keeps the public model IDs as the
 // mapping keys while storing the provider's actual execution IDs as targets.
 // This makes account editing deterministic: a whitelist entry for the public
@@ -161,7 +175,7 @@ func (s *OpenAIGatewayService) forwardTianyueSeedance(
 		}
 		mappedModel := strings.TrimSpace(account.GetMappedModel(info.Model))
 		var ok bool
-		upstreamModel, ok = tianyueUpstreamVideoModel(mappedModel)
+		upstreamModel, ok = tianyueExecutionModelForRequest(info.Model, mappedModel)
 		if !ok {
 			return nil, fmt.Errorf("unsupported Tianyue video model: %s", mappedModel)
 		}

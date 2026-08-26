@@ -52,6 +52,16 @@ func TestTianyueMappingNormalizesPublicStandardModelToUpstreamID(t *testing.T) {
 	require.True(t, account.IsModelSupported(SeedanceTianyueSD20FastModel))
 }
 
+func TestTianyueExecutionModelForRequestPinsPublicIDs(t *testing.T) {
+	upstream, ok := tianyueExecutionModelForRequest(SeedanceTianyueSD20Model, SeedanceTianyueSD20FastModel)
+	require.True(t, ok)
+	require.Equal(t, SeedanceTianyueSD20UpstreamModel, upstream)
+
+	upstream, ok = tianyueExecutionModelForRequest(SeedanceTianyueSD20FastModel, SeedanceTianyueSD20Model)
+	require.True(t, ok)
+	require.Equal(t, SeedanceTianyueSD20FastModel, upstream)
+}
+
 func TestTianyueAccountSupportsExplicitUpstreamMappingTarget(t *testing.T) {
 	credentials := map[string]any{
 		"api_key":        "test-key",
