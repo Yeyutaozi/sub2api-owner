@@ -1441,9 +1441,13 @@ func (h *OpenAIGatewayHandler) executeSeedanceFallback(
 			writeQueued(binding.Model)
 			return seedanceFallbackAttemptResult{Handled: true, Outcome: seedanceFallbackOutcomeAcceptanceUnknown}
 		}
+		fallbackUpstreamTaskID := strings.TrimSpace(forwarded.Result.UpstreamResponseID)
+		if fallbackUpstreamTaskID == "" {
+			fallbackUpstreamTaskID = forwarded.Result.ResponseID
+		}
 		activated, activateErr := h.gatewayService.ActivateSeedanceTaskFallback(
 			c.Request.Context(), apiKey.GroupID, publicTaskID, subject.UserID, apiKey.ID,
-			claimToken, account.ID, forwarded.Result.ResponseID,
+			claimToken, account.ID, fallbackUpstreamTaskID,
 		)
 		if activateErr != nil || !activated {
 			reqLog.Error("seedance.fallback_activate_failed", zap.Error(activateErr), zap.String("task_id", publicTaskID), zap.Int64("account_id", account.ID))

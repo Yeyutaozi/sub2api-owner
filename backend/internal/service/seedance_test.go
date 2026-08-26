@@ -648,6 +648,28 @@ func TestSeedanceUsageRequestID(t *testing.T) {
 	require.Empty(t, SeedanceUsageRequestID(" "))
 }
 
+func TestPublicSeedanceTaskIDScopesAccountAndIdempotency(t *testing.T) {
+	first, err := publicSeedanceTaskID(VideoProviderFFLink, "99", 822, "client-request-1")
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(first, "vidjob_"))
+
+	retried, err := publicSeedanceTaskID(VideoProviderFFLink, "99", 822, "client-request-1")
+	require.NoError(t, err)
+	require.Equal(t, first, retried)
+
+	differentAccount, err := publicSeedanceTaskID(VideoProviderFFLink, "99", 812, "client-request-1")
+	require.NoError(t, err)
+	require.NotEqual(t, first, differentAccount)
+
+	differentRequest, err := publicSeedanceTaskID(VideoProviderFFLink, "99", 822, "client-request-2")
+	require.NoError(t, err)
+	require.NotEqual(t, first, differentRequest)
+
+	huiqu, err := publicSeedanceTaskID(VideoProviderHuiqu, "99", 822, "client-request-1")
+	require.NoError(t, err)
+	require.Equal(t, "hqv1_99", huiqu)
+}
+
 func TestRefundSeedanceUsageUsesOptionalBillingCapability(t *testing.T) {
 	repo := &seedanceUsageRefundRepoStub{result: &SeedanceUsageRefundResult{
 		Applied:      true,
@@ -795,7 +817,9 @@ func TestForwardSeedanceUsesFYLinkContract(t *testing.T) {
 	response, err := service.ForwardSeedance(context.Background(), ctx, account, http.MethodPost, "", requestInfo)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
-	require.Equal(t, "vidjob_123", response.Result.ResponseID)
+	require.NotEqual(t, "vidjob_123", response.Result.ResponseID)
+	require.True(t, strings.HasPrefix(response.Result.ResponseID, "vidjob_"))
+	require.Equal(t, "vidjob_123", response.Result.UpstreamResponseID)
 	require.Equal(t, "doubao-seedance-2-0-pro", response.Result.Model)
 	require.Equal(t, "seedance-2.0", response.Result.UpstreamModel)
 	require.Equal(t, 10, response.Result.VideoDurationSeconds)

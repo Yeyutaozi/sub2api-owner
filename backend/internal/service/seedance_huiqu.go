@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -314,19 +315,26 @@ func (a *Account) IsHuiquVideo() bool {
 	return a != nil && a.Type == AccountTypeAPIKey && a.GetVideoProvider() == VideoProviderHuiqu && (a.IsSeedance() || a.IsMiniMax())
 }
 
-func publicSeedanceTaskID(provider, upstreamTaskID string) (string, error) {
+func publicSeedanceTaskID(provider, upstreamTaskID string, accountID int64, idempotencyKey string) (string, error) {
 	upstreamTaskID = strings.TrimSpace(upstreamTaskID)
 	if !seedanceTaskIDPattern.MatchString(upstreamTaskID) {
 		return "", errors.New("invalid Seedance upstream task id")
 	}
-	if provider != VideoProviderHuiqu {
+	if provider == VideoProviderHuiqu {
+		publicID := huiquPublicTaskPrefix + upstreamTaskID
+		if !seedanceTaskIDPattern.MatchString(publicID) {
+			return "", errors.New("Seedance upstream task id is too long")
+		}
+		return publicID, nil
+	}
+	if accountID <= 0 {
 		return upstreamTaskID, nil
 	}
-	publicID := huiquPublicTaskPrefix + upstreamTaskID
-	if !seedanceTaskIDPattern.MatchString(publicID) {
-		return "", errors.New("Seedance upstream task id is too long")
-	}
-	return publicID, nil
+	// Upstream task IDs are often only unique within one provider account and
+	// may reset after a provider-side restart. Keep the public ID stable for a
+	// retried idempotent request while separating account/task namespaces.
+	digest := sha256.Sum256([]byte(fmt.Sprintf("seedance:%d:%s:%s", accountID, upstreamTaskID, strings.TrimSpace(idempotencyKey))))
+	return "vidjob_" + base64.RawURLEncoding.EncodeToString(digest[:18]), nil
 }
 
 func upstreamSeedanceTaskID(provider, publicTaskID string) (string, error) {

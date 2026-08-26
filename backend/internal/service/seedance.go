@@ -1856,13 +1856,21 @@ func (s *OpenAIGatewayService) forwardSeedance(
 				Err: errors.New("Seedance upstream response did not include job_id"),
 			}
 		}
-		publicTaskID, err := publicSeedanceTaskID(provider, upstreamTaskID)
+		idempotencyKey := ""
+		if c != nil && c.Request != nil {
+			idempotencyKey = strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+		}
+		if idempotencyKey == "" {
+			idempotencyKey = seedanceIdempotencyKeyFromContext(ctx)
+		}
+		publicTaskID, err := publicSeedanceTaskID(provider, upstreamTaskID, account.ID, idempotencyKey)
 		if err != nil {
 			return nil, &SeedanceUpstreamAcceptanceUnknownError{Err: err}
 		}
 		response.Result = &OpenAIForwardResult{
 			RequestID:            firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id"), "seedance:"+publicTaskID),
 			ResponseID:           publicTaskID,
+			UpstreamResponseID:   upstreamTaskID,
 			Model:                requestModel,
 			BillingModel:         requestModel,
 			UpstreamModel:        upstreamModel,
