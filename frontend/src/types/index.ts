@@ -372,6 +372,7 @@ export interface AdminUser extends User {
   group_rates?: Record<number, number>
   // 当前并发数（仅管理员列表接口返回）
   current_concurrency?: number
+  restrict_public_groups?: boolean
 }
 
 export interface LoginRequest {
@@ -451,6 +452,7 @@ export interface CustomMenuItem {
   icon_svg: string
   url: string
   page_slug?: string
+  hide_open_button?: boolean
   visibility: 'user' | 'admin'
   sort_order: number
 }
@@ -539,6 +541,10 @@ export interface PublicSettings {
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
+  subscription_enabled: boolean
+  payment_balance_disabled: boolean
+  plugin_management_enabled: boolean
+  channel_monitor_hide_user_ranking?: boolean
 }
 
 export interface AuthResponse {
@@ -805,6 +811,7 @@ export type GroupPlatform =
   | 'happyhorse'
   | 'minimax'
   | 'grokimagine'
+  | 'opencode_go'
   | 'composite'
 
 export type SubscriptionType = 'standard' | 'subscription'
@@ -832,6 +839,21 @@ export type VideoModelPrices = Record<string, VideoModelPrice>
 export interface ReasoningEffortMapping {
   from: string
   to: string
+  match_type?: ReasoningEffortMatchType
+  model?: string
+}
+
+export type ReasoningEffortMatchType = 'exact' | 'prefix' | 'suffix'
+
+export interface ModelAllowlist {
+  enabled: boolean
+  models: string[]
+}
+
+export interface CodexModelsManifestConfig {
+  enabled: boolean
+  account_ids: number[]
+  fallback_to_scheduler: boolean
 }
 
 export interface Group {
@@ -890,6 +912,11 @@ export interface Group {
   allow_messages_dispatch?: boolean
   // OpenAI Live 接口开关
   allow_live: boolean
+  force_openai_fast?: boolean
+  free_openai_fast?: boolean
+  max_reasoning_effort_over_limit?: string
+  model_allowlist?: ModelAllowlist
+  codex_models_manifest_config?: CodexModelsManifestConfig
   // Creazy 画布网页准入（默认 true）
   allow_creazy_canvas: boolean
   default_mapped_model?: string
@@ -927,6 +954,8 @@ export interface AdminGroup extends Group {
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   models_list_config?: ModelsListConfig
+  model_allowlist?: ModelAllowlist
+  codex_models_manifest_config?: CodexModelsManifestConfig
 
   // 分组排序
   sort_order: number
@@ -1101,6 +1130,8 @@ export interface CreateGroupRequest {
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
+  model_allowlist?: ModelAllowlist
+  codex_models_manifest_config?: CodexModelsManifestConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   allow_creazy_canvas?: boolean
@@ -1165,6 +1196,9 @@ export interface UpdateGroupRequest {
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
+  model_allowlist?: ModelAllowlist
+  codex_models_manifest_config?: CodexModelsManifestConfig
+  max_reasoning_effort_over_limit?: string
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   allow_creazy_canvas?: boolean
@@ -1372,6 +1406,18 @@ export interface UpstreamBillingProbeResult {
   error?: string
 }
 
+export interface UpstreamBillingRateSnapshotItem {
+  account_id: number
+  snapshot?: UpstreamBillingProbeSnapshot | null
+}
+
+export interface UpstreamBillingRatesResponse {
+  items: UpstreamBillingRateSnapshotItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export type OllamaCloudUsageStatus = 'ok' | 'unauthorized' | 'failed'
 
 export interface OllamaCloudUsageWindow {
@@ -1445,6 +1491,17 @@ export interface Account {
     codex_reset_credit_snapshot?: {
       available_count?: number
       credits?: { expires_at?: string }[]
+    }
+    auto_reset_credit_enabled?: boolean
+    auto_reset_credit_5h_threshold?: number
+    auto_reset_credit_7d_threshold?: number
+    codex_auto_reset_credit_state?: {
+      status?: 'checking' | 'available' | 'resetting' | 'success' | 'no_credit' | 'failed'
+      trigger_window?: string
+      available_count?: number
+      checked_at?: string
+      last_result_at?: string
+      error_code?: string
     }
   } & Record<string, unknown>)
   proxy_id: number | null
@@ -1556,6 +1613,16 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+}
+
+export type AccountListItem = Omit<Account, 'groups'>
+
+export type GrokMediaEligibilityMode = 'auto' | 'enabled' | 'disabled'
+export interface GrokMediaEligibilityState {
+  account_id: number
+  mode: GrokMediaEligibilityMode
+  eligible: boolean
+  reason: string
 }
 
 export interface AccountSchedulerGroupScore {
@@ -2036,10 +2103,14 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  requested_reasoning_effort?: string | null
+  upstream_reasoning_effort?: string | null
+  native_compaction_v2?: boolean
   upstream_model?: string | null
   upstream_response_model?: string | null
   upstream_model_mismatch?: boolean | null
   model_mapping_chain?: string | null
+  upstream_request_id?: string | null
 
   // 账号计费倍率（仅管理员可见）
   account_rate_multiplier?: number | null
@@ -2308,6 +2379,7 @@ export interface UpdateUserRequest {
   // 用户专属分组倍率配置 (group_id -> rate_multiplier | null)
   // null 表示删除该分组的专属倍率
   group_rates?: Record<number, number | null>
+  restrict_public_groups?: boolean
 }
 
 export interface ChangePasswordRequest {

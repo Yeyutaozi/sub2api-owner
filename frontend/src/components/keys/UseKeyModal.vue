@@ -1250,7 +1250,12 @@ function generateRoutedCodexFiles(
     kimi: 'Kimi',
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
+    glm: 'GLM',
     minimax: 'MiniMax',
+    seedance: 'Seedance',
+    ltx: 'LTX',
+    happyhorse: 'HappyHorse',
+    grokimagine: 'Grok Imagine',
     opencode_go: 'OpenCode',
     composite: 'Composite'
   }

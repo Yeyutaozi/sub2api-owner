@@ -25,7 +25,7 @@ export default {
   usage: { ...dashboard.usage, ...compat.usage },
   admin: {
     ...admin,
-    accounts: { ...admin.accounts, ...compat.admin.accounts, messages: { ...admin.accounts.messages, ...compat.admin.accounts.messages } },
-    groups: { ...admin.groups, ...compat.admin.groups, creazyCanvas: { ...admin.groups.creazyCanvas, ...compat.admin.groups.creazyCanvas }, modelsList: { ...admin.groups.modelsList, ...compat.admin.groups.modelsList } },
+    accounts: { ...admin.accounts, ...compat.admin.accounts },
+    groups: { ...admin.groups, ...compat.admin.groups },
   },
 }

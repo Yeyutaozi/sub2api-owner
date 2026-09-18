@@ -39,6 +39,7 @@ import tokenRewardsAPI from './tokenRewards'
 import agentWorkerHostsAPI from './agentWorkerHosts'
 import agentAppsAPI from './agentApps'
 import objectStorageAPI from './objectStorage'
+import pluginsAPI from './plugins'
 
 /**
  * Unified admin API object for convenient access
@@ -79,7 +80,8 @@ export const adminAPI = {
   tokenRewards: tokenRewardsAPI,
   agentWorkerHosts: agentWorkerHostsAPI,
   agentApps: agentAppsAPI,
-  objectStorage: objectStorageAPI
+  objectStorage: objectStorageAPI,
+  plugins: pluginsAPI
 }
 
 export {
@@ -118,7 +120,8 @@ export {
   tokenRewardsAPI,
   agentWorkerHostsAPI,
   agentAppsAPI,
-  objectStorageAPI
+  objectStorageAPI,
+  pluginsAPI
 }
 
 export default adminAPI
@@ -130,3 +133,9 @@ export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from 
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
 export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'
+export type {
+  PluginInstallation,
+  PluginCompatibility,
+  PluginUISession,
+  PluginTestResult
+} from './plugins'

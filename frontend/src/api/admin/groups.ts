@@ -120,6 +120,10 @@ export async function getModelAllowlistCandidates(
   return data.models || []
 }
 
+// Keep the application-center group editor compatible with the official
+// model-allowlist endpoint rename.
+export const getModelsListCandidates = getModelAllowlistCandidates
+
 /**
  * Create new group
  * @param groupData - Group data
@@ -505,6 +509,7 @@ export const groupsAPI = {
   getLiveCapability,
   getById,
   getModelAllowlistCandidates,
+  getModelsListCandidates,
   create,
   duplicate,
   update,
