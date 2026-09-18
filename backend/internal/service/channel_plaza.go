@@ -135,7 +135,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 		}
 		ch.normalizeBillingModelSource()
 		supported := ch.SupportedModels()
-		s.fillGlobalPricingFallback(supported)
+		fillGlobalPricingFallback(s.pricingService, supported)
 		for _, gid := range ch.GroupIDs {
 			pg, ok := byGroup[gid]
 			if !ok {
@@ -224,7 +224,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			}
 			ch.normalizeBillingModelSource()
 			supported := ch.SupportedModels()
-			s.fillGlobalPricingFallback(supported)
+			fillGlobalPricingFallback(s.pricingService, supported)
 
 			for _, gid := range ch.GroupIDs {
 				pg, ok := byGroup[gid]

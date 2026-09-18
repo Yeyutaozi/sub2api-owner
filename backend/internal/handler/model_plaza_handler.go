@@ -141,7 +141,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	var allowedExclusive map[int64]struct{}
 	var userRates map[int64]float64
 	if authed && !isAdmin {
-		allowedExclusive, err = h.apiKeyService.GetUserAllowedGroupIDSet(c.Request.Context(), subject.UserID)
+		allowedExclusive, _, err = h.apiKeyService.GetUserGroupVisibility(c.Request.Context(), subject.UserID)
 		if err != nil {
 			// 可见性数据拿不到时不能静默降级成匿名视图（会错漏专属分组），直接报错。
 			response.ErrorFrom(c, err)

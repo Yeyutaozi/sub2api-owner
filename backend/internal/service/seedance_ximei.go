@@ -440,7 +440,7 @@ func (s *OpenAIGatewayService) doXimeiSeedanceRequest(
 		defer func() { _ = resp.Body.Close() }()
 		responseBody := sanitizeXimeiSeedanceUpstreamErrorBody(s.readUpstreamErrorBody(resp))
 		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
-		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, message, responseBody) {
+		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, message, responseBody) {
 			return nil, &UpstreamFailoverError{
 				StatusCode: resp.StatusCode, ResponseBody: responseBody,
 				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),

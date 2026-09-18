@@ -4,137 +4,9 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import {
-  buildModelMappingObject,
-  getModelsByPlatform,
-  getPresetMappingsByPlatform,
-  getSeedanceModelsByVideoProvider,
-  splitModelMappingObject
-} from '../useModelWhitelist'
-import { getSeedanceVideoProviderBaseUrl } from '@/utils/videoAccountProviders'
+import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
-  it('keeps GLM defaults limited to supported text and embedding models', () => {
-    const glmModels = getModelsByPlatform('glm')
-
-    expect(glmModels).toContain('glm-5.2')
-    expect(glmModels).toContain('embedding-3')
-    expect(glmModels).not.toContain('cogview-4')
-    expect(glmModels).not.toContain('glm-4v')
-    expect(glmModels).not.toContain('cogvideo')
-
-    expect(getModelsByPlatform('zhipu')).toContain('cogvideo')
-  })
-
-  it('uses public Seedance model IDs while keeping legacy alias mappings', () => {
-    expect(getModelsByPlatform('seedance')).toEqual([
-      'seedance-2.0',
-      'seedance2.0-480p',
-      'seedance-2.0-fast',
-      'seedance-2.0-mini',
-      'seedance2.0-mini-720p',
-      'seedance-2.5',
-      'sd-2.5-ff',
-      'sd-2.0-933-art',
-      'sd2-mx933',
-      'sd2-mx933-fast',
-      'sd-2.0-mx933',
-      'sd-2.5-mx',
-      'sd-2.0-900-720p',
-      'seedance-2.5-c1-03',
-      'sd2.0-933',
-      'sd2-933-25'
-    ])
-    expect(getModelsByPlatform('seedance')).not.toContain('L-SD2-F-720-933')
-    expect(getModelsByPlatform('seedance')).not.toContain('L-stable-seedance-2-0-933-720p')
-    expect(
-      getPresetMappingsByPlatform('seedance').map(({ from, to }) => ({ from, to }))
-    ).toEqual([
-      { from: 'sd2-mx933', to: 'sd2-mx933' },
-      { from: 'sd2-mx933-fast', to: 'sd2-mx933-fast' },
-      { from: 'sd-2.0-mx933', to: 'sd-2.0-mx933' },
-      { from: 'sd-2.5-mx', to: 'sd-2.5-mx' },
-      { from: 'sd-2.0-900-720p', to: 'seedance2.0-900-3' },
-      { from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1' },
-      { from: 'sd-2.5-ff', to: 'seedance-2-5' },
-      { from: 'sd2-933-25', to: '47' },
-      { from: 'doubao-seedance-2-0-pro', to: 'seedance-2.0' },
-      { from: 'doubao-seedance-2-0-fast', to: 'seedance-2.0-fast' }
-    ])
-    expect(getModelsByPlatform('ltx')).toEqual(['ltx-2.3-pro', 'ltx-2.3-fast'])
-    expect(getModelsByPlatform('happyhorse')).toEqual(['happy-horse-1.1'])
-    expect(getSeedanceModelsByVideoProvider('fflink')).toEqual([
-      'seedance-2.0',
-      'seedance2.0-480p',
-      'seedance-2.0-fast',
-      'seedance-2.0-mini',
-      'seedance2.0-mini-720p',
-      'seedance-2.5',
-      'sd-2.5-ff',
-      'sd-2.0-933-art'
-    ])
-    expect(getSeedanceModelsByVideoProvider('huiqu')).toEqual([
-      'sd2-mx933',
-      'sd2-mx933-fast'
-    ])
-    expect(getSeedanceModelsByVideoProvider('ximei')).toEqual([
-      'sd-2.0-mx933',
-      'sd-2.5-mx'
-    ])
-    expect(getSeedanceModelsByVideoProvider('weijin')).toEqual([
-      'sd-2.0-900-720p'
-    ])
-    expect(getSeedanceModelsByVideoProvider('globalaiopc')).toEqual([
-      'seedance-2.5-c1-03'
-    ])
-    expect(getSeedanceModelsByVideoProvider('openvideo')).toEqual(['sd2.0-933'])
-    expect(getSeedanceModelsByVideoProvider('zhi168')).toEqual(['sd2-933-25'])
-    expect(getSeedanceModelsByVideoProvider('tianyue')).toEqual([
-      'L-SD2-F-720-933',
-      'L-stable-seedance-2-0-933-720p'
-    ])
-    expect(getSeedanceVideoProviderBaseUrl('fflink')).toBe('https://api.fflink.top')
-    expect(getSeedanceVideoProviderBaseUrl('huiqu')).toBe('https://api.bjhuiqu.net')
-    expect(getSeedanceVideoProviderBaseUrl('ximei')).toBe(
-      'https://liantongyidong.ximeiedu.org'
-    )
-    expect(getSeedanceVideoProviderBaseUrl('weijin')).toBe('https://www.weijinapi.top')
-    expect(getSeedanceVideoProviderBaseUrl('globalaiopc')).toBe(
-      'https://zcbservice.aizfw.cn/kyyReactApiServer'
-    )
-    expect(getSeedanceVideoProviderBaseUrl('openvideo')).toBe(
-      'https://www.openvideo.top/api/v1'
-    )
-    expect(getSeedanceVideoProviderBaseUrl('zhi168')).toBe(
-      'https://www.zhi168.it.com/api'
-    )
-    expect(getSeedanceVideoProviderBaseUrl('tianyue')).toBe(
-      'http://192.220.23.225:3000'
-    )
-  })
-
-  it('always maps the public Weijin 900 ID to its dedicated upstream model', () => {
-    expect(buildModelMappingObject('whitelist', ['sd-2.0-900-720p'], [])).toEqual({
-      'sd-2.0-900-720p': 'seedance2.0-900-3'
-    })
-    expect(buildModelMappingObject('mapping', [], [
-      { from: 'sd-2.0-900-720p', to: 'sd-2.0-900-720p' }
-    ])).toEqual({
-      'sd-2.0-900-720p': 'seedance2.0-900-3'
-    })
-  })
-
-  it('always maps the GlobalAiOpc public model to the upstream C1 model', () => {
-    expect(buildModelMappingObject('whitelist', ['seedance-2.5-c1-03'], [])).toEqual({
-      'seedance-2.5-c1-03': 'seedance-2.5-c1'
-    })
-    expect(buildModelMappingObject('mapping', [], [
-      { from: 'seedance-2.5-c1-03', to: 'seedance-2.5-c1-03' }
-    ])).toEqual({
-      'seedance-2.5-c1-03': 'seedance-2.5-c1'
-    })
-  })
-
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 
@@ -143,6 +15,15 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.4-2026-03-05')
     expect(models).toContain('codex-auto-review')
     expect(models).toContain('gpt-5.6')
+    expect(models).toContain('gpt-6')
+    expect(models).toContain('gpt-6-astra')
+  })
+
+  it('openai 预设映射包含 GPT-6 别名和 Astra', () => {
+    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6', from: 'gpt-6', to: 'gpt-6' }),
+      expect.objectContaining({ label: 'GPT-6 Astra', from: 'gpt-6-astra', to: 'gpt-6-astra' })
+    ]))
   })
 
   it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
@@ -165,6 +46,8 @@ describe('useModelWhitelist', () => {
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')

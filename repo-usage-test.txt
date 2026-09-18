@@ -1,0 +1,3 @@
+go: cannot find main module, but found .git/config in D:\Users\dell\desktop\sub2api-owner
+	to create a module there, run:
+	go mod init

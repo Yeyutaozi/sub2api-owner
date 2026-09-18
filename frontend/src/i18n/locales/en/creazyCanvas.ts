@@ -18,7 +18,7 @@ export default {
       empty: 'No keys available (group must allow Creazy Canvas)',
       loadFailed: 'Failed to load keys',
       secretLabel: 'Key status',
-      secretPlaceholder: '',
+      secretPlaceholder: 'Not displayed',
       secretReady: 'Secret ready',
       secretHint: 'Secret is resolved from your platform API keys and kept in page memory only.',
       secretApplied: 'Ready',

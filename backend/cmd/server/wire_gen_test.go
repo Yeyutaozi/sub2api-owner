@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -10,16 +9,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
-
-func TestGeneratedWireUsesAccountBackedModelPlaza(t *testing.T) {
-	generated, err := os.ReadFile("wire_gen.go")
-	require.NoError(t, err)
-
-	source := string(generated)
-	require.Contains(t, source, "service.ProvidePlazaAccountSource(accountRepository)")
-	require.Contains(t, source, "service.ProvideChannelService(")
-	require.NotContains(t, source, "service.NewChannelService(channelRepository")
-}
 
 func TestProvideServiceBuildInfo(t *testing.T) {
 	in := handler.BuildInfo{

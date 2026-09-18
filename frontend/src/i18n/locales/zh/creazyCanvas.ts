@@ -18,7 +18,7 @@ export default {
       empty: '暂无可用 Key（分组需开启 Creazy 画布）',
       loadFailed: '加载 Key 失败',
       secretLabel: 'Key 状态',
-      secretPlaceholder: '',
+      secretPlaceholder: '不展示',
       secretReady: '密钥已就绪',
       secretHint: '密钥从平台 API Key 自动解析，仅保存在当前页内存，不会写入 localStorage。',
       secretApplied: '已就绪',

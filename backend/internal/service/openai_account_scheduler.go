@@ -77,6 +77,7 @@ type OpenAIAccountScheduleRequest struct {
 	StickyWeighted          bool
 	SubscriptionPriority    bool
 	PreserveStickyBinding   bool
+	DisableStickyEscape     bool
 	RequirePrivacySet       bool
 	PreviousResponseID      string
 	PreviousResponseCanMove bool
@@ -923,7 +924,8 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	peerIDs := s.peerIDsForStickyEscape(ctx, req, accountID)
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg, peerIDs); shouldEscape {
+	if !req.DisableStickyEscape {
+		if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg, peerIDs); shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"reason", reason,
@@ -937,7 +939,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			fromName = account.Name
 		}
 		// Return escaped=false so subsequent selection may rebind sticky to the better account.
-		return nil, false, &accountSwitchEscapeMeta{
+		return nil, true, &accountSwitchEscapeMeta{
 			fromAccountID: accountID,
 			fromName:      fromName,
 			reason:        reason,
@@ -949,6 +951,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			contextOK:     true,
 			note:          "粘性会话因首字/错误率逃逸；请求上下文原样转发，仅切换上游账号",
 		}, nil
+		}
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
@@ -965,7 +968,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
-		if escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
+		if !req.DisableStickyEscape && escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
 			errorRate, ttft, _ := s.stats.snapshot(accountID)
 			slog.Info("sticky_escape_triggered",
 				"account_id", accountID,
@@ -3515,6 +3518,19 @@ func openAIQuotaHeadroomFactor(account *Account, now time.Time) float64 {
 		}
 	}
 	return factor
+}
+
+func openAISchedulingResetWindowEnd(account *Account, now time.Time) (time.Time, bool) {
+	if account == nil {
+		return time.Time{}, false
+	}
+	if end, ok := openAICodexWindowResetAt(account.Extra, "5h"); ok && now.Before(end) {
+		return end, true
+	}
+	if end := account.SessionWindowEnd; end != nil && now.Before(*end) {
+		return *end, true
+	}
+	return time.Time{}, false
 }
 
 func openAIQuotaHeadroomSnapshotStale(extra map[string]any, now time.Time) bool {

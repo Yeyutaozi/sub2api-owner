@@ -9,6 +9,7 @@ import tokenRewards from './tokenRewards'
 import promptAudit from './promptAudit'
 import videoJobs from './videoJobs'
 import imageJobs from './imageJobs'
+import plugins from './plugins'
 
 export default {
   ...overview,
@@ -22,4 +23,5 @@ export default {
   ...promptAudit,
   ...videoJobs,
   ...imageJobs,
+  ...plugins,
 }

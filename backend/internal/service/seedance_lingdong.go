@@ -674,7 +674,7 @@ func (s *OpenAIGatewayService) doLingdongMappedSeedanceRequest(
 		defer func() { _ = resp.Body.Close() }()
 		responseBody := sanitizeLingdongSeedanceUpstreamErrorBody(s.readUpstreamErrorBody(resp))
 		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
-		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, message, responseBody) {
+		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, message, responseBody) {
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           responseBody,

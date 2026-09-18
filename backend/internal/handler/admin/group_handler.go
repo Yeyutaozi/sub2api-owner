@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
@@ -24,6 +25,7 @@ type GroupHandler struct {
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
+	cfg                  *config.Config
 }
 
 // GetLiveCapability 杩斿洖褰撳墠鏈嶅姟绔槸鍚﹀叿澶囩敓鎴?Live attestation 鐨勮繍琛岀幆澧冦€?
@@ -92,6 +94,12 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 		dashboardService:     dashboardService,
 		groupCapacityService: groupCapacityService,
 	}
+}
+
+func NewGroupHandlerWithConfig(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService, cfg *config.Config) *GroupHandler {
+	h := NewGroupHandler(adminService, dashboardService, groupCapacityService)
+	h.cfg = cfg
+	return h
 }
 
 // CreateGroupRequest represents create group request

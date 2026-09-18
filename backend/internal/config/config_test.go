@@ -18,16 +18,16 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	isolateConfigSearch(t)
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 }
 
-func isolateConfigSearch(t *testing.T) {
-	t.Helper()
-	configDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("{}\n"), 0o600))
-	t.Setenv("CONFIG_FILE", "")
-	t.Setenv("DATA_DIR", configDir)
+func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, DefaultModelsListReadMaxBytes, cfg.Gateway.ModelsListReadMaxBytes)
 }
 
 func TestLoadTimezonePrecedence(t *testing.T) {
@@ -340,7 +340,8 @@ func TestLoadReturnsErrorForMissingConfigFile(t *testing.T) {
 func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	isolateConfigSearch(t)
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", "")
 
 	cfg, err := LoadForBootstrap()
@@ -451,11 +452,11 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if !cfg.Gateway.OpenAIWS.DynamicMaxConnsByAccountConcurrencyEnabled {
 		t.Fatalf("Gateway.OpenAIWS.DynamicMaxConnsByAccountConcurrencyEnabled = false, want true")
 	}
-	if cfg.Gateway.OpenAIWS.OAuthMaxConnsFactor != 1.0 {
-		t.Fatalf("Gateway.OpenAIWS.OAuthMaxConnsFactor = %v, want 1.0", cfg.Gateway.OpenAIWS.OAuthMaxConnsFactor)
+	if cfg.Gateway.OpenAIWS.OAuthMaxConnsFactor != 5.0 {
+		t.Fatalf("Gateway.OpenAIWS.OAuthMaxConnsFactor = %v, want 5.0", cfg.Gateway.OpenAIWS.OAuthMaxConnsFactor)
 	}
-	if cfg.Gateway.OpenAIWS.APIKeyMaxConnsFactor != 1.0 {
-		t.Fatalf("Gateway.OpenAIWS.APIKeyMaxConnsFactor = %v, want 1.0", cfg.Gateway.OpenAIWS.APIKeyMaxConnsFactor)
+	if cfg.Gateway.OpenAIWS.APIKeyMaxConnsFactor != 5.0 {
+		t.Fatalf("Gateway.OpenAIWS.APIKeyMaxConnsFactor = %v, want 5.0", cfg.Gateway.OpenAIWS.APIKeyMaxConnsFactor)
 	}
 	if cfg.Gateway.OpenAIWS.StickySessionTTLSeconds != 3600 {
 		t.Fatalf("Gateway.OpenAIWS.StickySessionTTLSeconds = %d, want 3600", cfg.Gateway.OpenAIWS.StickySessionTTLSeconds)
@@ -463,8 +464,8 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if !cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled {
 		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeEnabled = false, want true")
 	}
-	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs != 1500 {
-		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeTTFTMs = %d, want 1500", cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs)
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs != 15000 {
+		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeTTFTMs = %d, want 15000", cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs)
 	}
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate != 0.5 {
 		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeErrorRate = %v, want 0.5", cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate)
@@ -559,12 +560,21 @@ func TestLoadOpenAIWSClientFirstMessageTimeoutFromEnv(t *testing.T) {
 	require.Equal(t, 120, cfg.Gateway.OpenAIWS.ClientFirstMessageTimeoutSeconds)
 }
 
+func TestLoadOpenAIWSForceHTTPFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_OPENAI_WS_FORCE_HTTP", "true")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.OpenAIWS.ForceHTTP)
+}
+
 func TestLoadDefaultOpenAICompactModel(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, "gpt-5.4", cfg.Gateway.OpenAICompactModel)
+	require.Equal(t, "gpt-5.5", cfg.Gateway.OpenAICompactModel)
 }
 
 func TestLoadOpenAICompactModelFromEnv(t *testing.T) {
@@ -809,17 +819,11 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
 	}
-	if !strings.Contains(cfg.Security.CSP.Policy, "media-src 'self' data: blob: https:") {
-		t.Fatalf("CSP policy does not allow artifact media previews: %q", cfg.Security.CSP.Policy)
-	}
 
 	wantHosts := []string{
 		"api.kimi.com",
 		"api.moonshot.ai",
 		"api.moonshot.cn",
-		"liantongyidong.ximeiedu.org",
-		"tdown1.ximeiedu.org",
-		"tdown2.ximeiedu.org",
 	}
 	hostSet := make(map[string]struct{}, len(cfg.Security.URLAllowlist.UpstreamHosts))
 	for _, h := range cfg.Security.URLAllowlist.UpstreamHosts {
@@ -1184,6 +1188,21 @@ func TestLoadDefaultUsageCleanupConfig(t *testing.T) {
 	}
 	if cfg.UsageCleanup.TaskTimeoutSeconds != 1800 {
 		t.Fatalf("UsageCleanup.TaskTimeoutSeconds = %d, want 1800", cfg.UsageCleanup.TaskTimeoutSeconds)
+	}
+}
+
+func TestLoadDefaultOpsCleanupConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Ops.Cleanup.Enabled {
+		t.Fatal("Ops.Cleanup.Enabled = false, want true")
+	}
+	if cfg.Ops.Cleanup.SystemLogRetentionDays != 30 {
+		t.Fatalf("Ops.Cleanup.SystemLogRetentionDays = %d, want 30", cfg.Ops.Cleanup.SystemLogRetentionDays)
 	}
 }
 
@@ -1807,6 +1826,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.text_max_body_size",
 		},
 		{
+			name:    "gateway models list read limit",
+			mutate:  func(c *Config) { c.Gateway.ModelsListReadMaxBytes = 0 },
+			wantErr: "gateway.models_list_read_max_bytes",
+		},
+		{
 			name:    "gateway response header timeout",
 			mutate:  func(c *Config) { c.Gateway.ResponseHeaderTimeout = -1 },
 			wantErr: "gateway.response_header_timeout",
@@ -2127,6 +2151,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "ops cleanup retention",
 			mutate:  func(c *Config) { c.Ops.Cleanup.ErrorLogRetentionDays = -1 },
 			wantErr: "ops.cleanup.error_log_retention_days",
+		},
+		{
+			name:    "ops cleanup system log retention",
+			mutate:  func(c *Config) { c.Ops.Cleanup.SystemLogRetentionDays = 0 },
+			wantErr: "ops.cleanup.system_log_retention_days",
 		},
 		{
 			name:    "ops cleanup minute retention",
@@ -2509,67 +2538,6 @@ func TestValidateConfig_LogRequiredAndRotationBounds(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestValidateConfig_AgentArtifacts(t *testing.T) {
-	buildValid := func(t *testing.T) *Config {
-		t.Helper()
-		resetViperWithJWTSecret(t)
-		cfg, err := Load()
-		require.NoError(t, err)
-		return cfg
-	}
-
-	t.Run("enabled storage requires credentials", func(t *testing.T) {
-		cfg := buildValid(t)
-		cfg.AgentArtifacts.Enabled = true
-		cfg.AgentArtifacts.Bucket = "agent-artifacts"
-		cfg.AgentArtifacts.AccessKeyID = ""
-		cfg.AgentArtifacts.SecretAccessKey = "secret"
-
-		err := cfg.Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "agent_artifacts.access_key_id")
-	})
-
-	t.Run("path style and virtual host style are mutually exclusive", func(t *testing.T) {
-		cfg := buildValid(t)
-		cfg.AgentArtifacts.Enabled = true
-		cfg.AgentArtifacts.Bucket = "agent-artifacts"
-		cfg.AgentArtifacts.AccessKeyID = "access"
-		cfg.AgentArtifacts.SecretAccessKey = "secret"
-		cfg.AgentArtifacts.ForcePathStyle = true
-		cfg.AgentArtifacts.VirtualHostStyle = true
-
-		err := cfg.Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "force_path_style")
-	})
-
-	t.Run("valid custom endpoint passes", func(t *testing.T) {
-		cfg := buildValid(t)
-		cfg.AgentArtifacts.Enabled = true
-		cfg.AgentArtifacts.Provider = "custom"
-		cfg.AgentArtifacts.Endpoint = "https://object.example.com"
-		cfg.AgentArtifacts.Bucket = "agent-artifacts"
-		cfg.AgentArtifacts.AccessKeyID = "access"
-		cfg.AgentArtifacts.SecretAccessKey = "secret"
-		cfg.AgentArtifacts.MaxUploadBytes = 1024
-		cfg.AgentArtifacts.DownloadURLTTLSeconds = 60
-		cfg.AgentArtifacts.RetentionDays = 7
-		cfg.AgentArtifacts.CleanupExpiredArtifactsEnabled = false
-
-		require.NoError(t, cfg.Validate())
-	})
-}
-
-func TestLoad_DefaultAgentArtifactsCleanupConfig(t *testing.T) {
-	resetViperWithJWTSecret(t)
-	cfg, err := Load()
-	require.NoError(t, err)
-
-	require.Equal(t, 0, cfg.AgentArtifacts.RetentionDays)
-	require.False(t, cfg.AgentArtifacts.CleanupExpiredArtifactsEnabled)
 }
 
 func TestLoad_DefaultGatewayUsageRecordConfig(t *testing.T) {

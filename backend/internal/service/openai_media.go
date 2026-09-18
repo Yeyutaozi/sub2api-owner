@@ -406,7 +406,7 @@ func (s *OpenAIGatewayService) ForwardMedia(
 	if resp.StatusCode >= http.StatusBadRequest {
 		respBody := s.readUpstreamErrorBody(resp)
 		upstreamMessage := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody))
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMessage, respBody) {
+		if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMessage, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,

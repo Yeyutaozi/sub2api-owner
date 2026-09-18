@@ -158,6 +158,13 @@ type PlazaAccountSource interface {
 	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
 }
 
+// ChannelCachePubSub broadcasts local channel-cache invalidations between
+// service instances. It is optional for deployments without Redis pub/sub.
+type ChannelCachePubSub interface {
+	NotifyUpdate(ctx context.Context) error
+	SubscribeUpdates(ctx context.Context, handler func())
+}
+
 type ChannelService struct {
 	repo                 ChannelRepository
 	groupRepo            GroupRepository

@@ -60,7 +60,32 @@ func CanonicalGrokImagineVideoPriceFamily(model string) string {
 // make the winning price for a conflicting tier vary between processes.
 // Unrecognized tiers are dropped with a warning instead of silently collapsing
 // into the 480p bucket.
-func NormalizeVideoModelPrices(in VideoModelPrices) VideoModelPrices {
+func NormalizeVideoModelPrices(input any) VideoModelPrices {
+	var in VideoModelPrices
+	switch value := input.(type) {
+	case VideoModelPrices:
+		in = value
+	case map[string]map[string]float64:
+		in = make(VideoModelPrices, len(value))
+		for model, tiers := range value {
+			card := VideoModelPrice{}
+			for resolution, price := range tiers {
+				p := price
+				switch strings.ToLower(strings.TrimSpace(resolution)) {
+				case "480p": card.Price480P = &p
+				case "720p": card.Price720P = &p
+				case "1080p": card.Price1080P = &p
+				case "1440p": card.Price1440P = &p
+				case "2160p": card.Price2160P = &p
+				}
+			}
+			in[model] = card
+		}
+	case nil:
+		return nil
+	default:
+		return nil
+	}
 	if len(in) == 0 {
 		return nil
 	}

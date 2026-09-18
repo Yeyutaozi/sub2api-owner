@@ -1830,7 +1830,7 @@ func (s *OpenAIGatewayService) forwardSeedance(
 			responseBody = sanitizeSeedanceUpstreamErrorBody(responseBody)
 		}
 		message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody))
-		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, message, responseBody) {
+		if method == http.MethodPost && s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, message, responseBody) {
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           responseBody,

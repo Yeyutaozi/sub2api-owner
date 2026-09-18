@@ -100,6 +100,11 @@ func abortWithOpenAIQuotaError(c *gin.Context, statusCode int, message string) {
 // GatewayErrorWriter 定义网关错误响应格式（不同协议使用不同格式）
 type GatewayErrorWriter func(c *gin.Context, status int, message string)
 
+// OpenAIErrorWriter writes OpenAI-compatible error responses.
+func OpenAIErrorWriter(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
+}
+
 // AnthropicErrorWriter 按 Anthropic API 规范输出错误
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 	c.JSON(status, gin.H{

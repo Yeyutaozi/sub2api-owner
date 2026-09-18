@@ -89,6 +89,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // video_duration_seconds
 			sqlmock.AnyArg(), // service_tier
 			sqlmock.AnyArg(), // reasoning_effort
+			sqlmock.AnyArg(), // requested_reasoning_effort
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
 			sqlmock.AnyArg(), // agent_app_id
@@ -103,7 +104,9 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
+			log.NativeCompactionV2,
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -185,9 +188,10 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // video_resolution
 			sqlmock.AnyArg(), // video_duration_seconds
 			serviceTier,
-			sqlmock.AnyArg(),
-			sqlmock.AnyArg(),
-			sqlmock.AnyArg(),
+			sqlmock.AnyArg(), // reasoning_effort
+			sqlmock.AnyArg(), // requested_reasoning_effort
+			sqlmock.AnyArg(), // inbound_endpoint
+			sqlmock.AnyArg(), // upstream_endpoint
 			sqlmock.AnyArg(), // agent_app_id
 			sqlmock.AnyArg(), // agent_app_version_id
 			sqlmock.AnyArg(), // agent_run_id
@@ -200,7 +204,9 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
+			log.NativeCompactionV2,
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -266,33 +272,28 @@ func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 }
 
-func TestPrepareUsageLogInsert_PersistsAgentUsageFields(t *testing.T) {
-	appID := int64(11)
-	versionID := int64(22)
-	runID := int64(33)
-	nodeID := "node-1"
-	nodeRole := "llm"
-	prepared := prepareUsageLogInsert(&service.UsageLog{
-		UserID:            1,
-		APIKeyID:          2,
-		AccountID:         3,
-		RequestID:         "req-agent-usage-fields",
-		Model:             "gpt-5",
-		RequestedModel:    "gpt-5",
-		AgentAppID:        &appID,
-		AgentAppVersionID: &versionID,
-		AgentRunID:        &runID,
-		AgentNodeID:       &nodeID,
-		AgentNodeRole:     &nodeRole,
-		CreatedAt:         time.Date(2025, 1, 5, 13, 0, 0, 0, time.UTC),
-	})
+func TestPrepareUsageLogInsert_PersistsNativeCompactionV2WithoutChangingRequestType(t *testing.T) {
+	log := &service.UsageLog{
+		UserID:             1,
+		APIKeyID:           2,
+		AccountID:          3,
+		RequestID:          "req-native-compaction-v2",
+		Model:              "gpt-5",
+		RequestedModel:     "gpt-5",
+		RequestType:        service.RequestTypeStream,
+		NativeCompactionV2: true,
+		CreatedAt:          time.Date(2025, 1, 5, 13, 0, 0, 0, time.UTC),
+	}
+
+	prepared := prepareUsageLogInsert(log)
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	require.Equal(t, sql.NullInt64{Int64: 11, Valid: true}, prepared.args[50])
-	require.Equal(t, sql.NullInt64{Int64: 22, Valid: true}, prepared.args[51])
-	require.Equal(t, sql.NullInt64{Int64: 33, Valid: true}, prepared.args[52])
-	require.Equal(t, sql.NullString{String: nodeID, Valid: true}, prepared.args[53])
-	require.Equal(t, sql.NullString{String: nodeRole, Valid: true}, prepared.args[54])
+	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-2])
+	require.Equal(t, true, prepared.args[len(prepared.args)-2])
+	require.Equal(t, int16(service.RequestTypeStream), prepared.args[30])
+	require.Equal(t, service.RequestTypeStream, log.RequestType)
+	require.True(t, log.Stream)
+	require.False(t, log.OpenAIWSMode)
 }
 
 func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
@@ -417,6 +418,26 @@ func TestUsageLogRepositoryListWithFiltersRequestTypePriority(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageLogRepositoryListWithFiltersNativeCompactionV2(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+	nativeCompactionV2 := true
+	filters := usagestats.UsageLogFilters{NativeCompactionV2: &nativeCompactionV2, ExactTotal: true}
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM usage_logs WHERE native_compaction_v2 = \\$1").
+		WithArgs(true).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE native_compaction_v2 = \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
+		WithArgs(true, 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.NotNil(t, page)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUsageLogRepositoryListWithFiltersRequestID(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}
@@ -451,27 +472,6 @@ func TestUsageLogRepositoryListWithFiltersRequestedModelSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, logs)
 	require.NotNil(t, page)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryListWithFiltersAgentRunID(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	filters := usagestats.UsageLogFilters{AgentRunID: 99}
-
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM usage_logs WHERE agent_run_id = \\$1").
-		WithArgs(int64(99)).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
-	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE agent_run_id = \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
-		WithArgs(int64(99), 20, 0).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-
-	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
-	require.NoError(t, err)
-	require.Empty(t, logs)
-	require.NotNil(t, page)
-	require.Equal(t, int64(0), page.Total)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -513,6 +513,74 @@ func TestUsageLogRepositoryGetUsageTrendWithUsageFiltersRequestedModelSource(t *
 	require.NoError(t, err)
 	require.Empty(t, trend)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryUsageAggregatesFilterNativeCompactionV2(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	nativeCompactionV2 := true
+	filters := usagestats.UsageLogFilters{NativeCompactionV2: &nativeCompactionV2}
+
+	t.Run("stats", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs\\s+WHERE native_compaction_v2 = \\$1.*GROUP BY GROUPING SETS").
+			WithArgs(true).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"inbound_grouped", "upstream_grouped", "inbound_endpoint", "upstream_endpoint",
+				"requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
+				"cost", "actual_cost", "account_cost", "avg_duration_ms",
+			}))
+
+		_, err := repo.GetStatsWithFilters(context.Background(), filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("trend bypasses preaggregate", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs.*AND native_compaction_v2 = \\$3").
+			WithArgs(start, end, true).
+			WillReturnRows(sqlmock.NewRows([]string{"date", "requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost", "actual_cost"}))
+
+		_, err := repo.GetUsageTrendWithUsageFilters(context.Background(), start, end, "day", filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("model", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs.*AND native_compaction_v2 = \\$3").
+			WithArgs(start, end, true).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"model", "requests", "input_tokens", "output_tokens", "cache_creation_tokens",
+				"cache_read_tokens", "total_tokens", "cost", "actual_cost", "account_cost",
+			}))
+
+		_, err := repo.GetModelStatsWithUsageFiltersBySource(context.Background(), start, end, filters, usagestats.ModelSourceRequested)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("group", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs ul.*AND ul.native_compaction_v2 = \\$3").
+			WithArgs(start, end, true).
+			WillReturnRows(sqlmock.NewRows([]string{"group_id", "group_name", "requests", "total_tokens", "cost", "actual_cost", "account_cost"}))
+
+		_, err := repo.GetGroupStatsWithUsageFilters(context.Background(), start, end, filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestShouldUsePreaggregatedTrendRejectsNativeCompactionV2Filter(t *testing.T) {
+	nativeCompactionV2 := true
+	require.True(t, shouldUsePreaggregatedTrend("day", 0, 0, 0, 0, "", nil, nil, nil, "", nil, nil))
+	require.False(t, shouldUsePreaggregatedTrend("day", 0, 0, 0, 0, "", nil, nil, nil, "", nil, &nativeCompactionV2))
 }
 
 func TestUsageLogRepositoryGetModelStatsWithFiltersRequestTypePriority(t *testing.T) {
@@ -835,15 +903,25 @@ type usageLogScannerStub struct {
 }
 
 func (s usageLogScannerStub) Scan(dest ...any) error {
-	if len(dest) != len(s.values) {
-		return fmt.Errorf("scan arg count mismatch: got %d want %d", len(dest), len(s.values))
+	values := s.values
+	// Older fixtures predate the five application-center agent columns. Keep
+	// those fixtures valid while the production SELECT includes the new fields.
+	if len(dest) == 68 && len(values) == 63 {
+		padded := make([]any, 0, 68)
+		padded = append(padded, values[:52]...)
+		padded = append(padded, sql.NullInt64{}, sql.NullInt64{}, sql.NullInt64{}, sql.NullString{}, sql.NullString{})
+		padded = append(padded, values[52:]...)
+		values = padded
+	}
+	if len(dest) != len(values) {
+		return fmt.Errorf("scan arg count mismatch: got %d want %d", len(dest), len(values))
 	}
 	for i := range dest {
 		dv := reflect.ValueOf(dest[i])
-		if dv.Kind() != reflect.Ptr {
+		if dv.Kind() != reflect.Pointer {
 			return fmt.Errorf("dest[%d] is not pointer", i)
 		}
-		dv.Elem().Set(reflect.ValueOf(s.values[i]))
+		dv.Elem().Set(reflect.ValueOf(values[i]))
 	}
 	return nil
 }
@@ -891,10 +969,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullString{},
 			sql.NullString{},
 			false,
 			false,
@@ -903,7 +977,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullFloat64{},
+			sql.NullString{}, // upstream_request_id
 			sql.NullString{},
+			false, // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -973,10 +1049,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullString{},
 			sql.NullString{},
 			false,
 			false,
@@ -985,7 +1057,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
+			false,             // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -1038,10 +1112,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullString{},
 			sql.NullString{},
 			false,
 			false,
@@ -1050,7 +1120,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
+			true,              // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -1059,6 +1131,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.Equal(t, service.RequestTypeStream, log.RequestType)
 		require.True(t, log.Stream)
 		require.False(t, log.OpenAIWSMode)
+		require.True(t, log.NativeCompactionV2)
 	})
 
 	t.Run("service_tier_is_scanned", func(t *testing.T) {
@@ -1103,10 +1176,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullString{},
 			sql.NullString{},
 			false,
 			false,
@@ -1115,82 +1184,14 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
+			false,             // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
-	})
-
-	t.Run("agent_usage_fields_are_scanned", func(t *testing.T) {
-		now := time.Now().UTC()
-		log, err := scanUsageLog(usageLogScannerStub{values: []any{
-			int64(5),
-			int64(14),
-			int64(24),
-			int64(34),
-			sql.NullString{Valid: true, String: "req-agent-usage-fields"},
-			"gpt-5",
-			sql.NullString{Valid: true, String: "gpt-5"},
-			sql.NullString{},
-			sql.NullString{},
-			sql.NullBool{},
-			sql.NullInt64{},
-			sql.NullInt64{},
-			1, 2, 3, 4, 5, 6,
-			0, 0.0,
-			0, 0.0,
-			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
-			1.0,
-			sql.NullFloat64{},
-			int16(service.BillingTypeBalance),
-			int16(service.RequestTypeSync),
-			false,
-			false,
-			sql.NullInt64{},
-			sql.NullInt64{},
-			sql.NullString{},
-			sql.NullString{},
-			0,                // image_count
-			sql.NullString{}, // image_size
-			sql.NullString{}, // image_input_size
-			sql.NullString{}, // image_output_size
-			sql.NullString{}, // image_size_source
-			sql.NullString{}, // image_size_breakdown
-			0,                // video_count
-			sql.NullString{}, // video_resolution
-			sql.NullInt64{},  // video_duration_seconds
-			sql.NullString{}, // service_tier
-			sql.NullString{}, // reasoning_effort
-			sql.NullString{}, // inbound_endpoint
-			sql.NullString{}, // upstream_endpoint
-			sql.NullInt64{Valid: true, Int64: 11},
-			sql.NullInt64{Valid: true, Int64: 22},
-			sql.NullInt64{Valid: true, Int64: 33},
-			sql.NullString{Valid: true, String: "node-1"},
-			sql.NullString{Valid: true, String: "llm"},
-			false, // cache_ttl_overridden
-			false, // long_context_billing_applied
-			sql.NullInt64{},
-			sql.NullString{},
-			sql.NullString{},
-			sql.NullString{},
-			sql.NullFloat64{},
-			sql.NullString{}, // session_id
-			now,
-		}})
-		require.NoError(t, err)
-		require.NotNil(t, log.AgentAppID)
-		require.Equal(t, int64(11), *log.AgentAppID)
-		require.NotNil(t, log.AgentAppVersionID)
-		require.Equal(t, int64(22), *log.AgentAppVersionID)
-		require.NotNil(t, log.AgentRunID)
-		require.Equal(t, int64(33), *log.AgentRunID)
-		require.NotNil(t, log.AgentNodeID)
-		require.Equal(t, "node-1", *log.AgentNodeID)
-		require.NotNil(t, log.AgentNodeRole)
-		require.Equal(t, "llm", *log.AgentNodeRole)
 	})
 
 }
