@@ -5,7 +5,8 @@
 -- 3. channel_monitors / channel_monitor_request_templates provider CHECK
 --
 -- Runs after 237_add_minimax_platform.sql. DROP ... IF EXISTS + 幂等守卫保证可重入；
--- 新约束是 237 的超集，必须同时保留 MiniMax。
+-- 新约束是 237 的超集，必须同时保留 MiniMax 以及二开平台。迁移不能
+-- 收窄已经存在的配额值，否则升级会在 ADD CONSTRAINT 阶段失败。
 
 ALTER TABLE user_platform_quotas
     DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;
@@ -13,7 +14,8 @@ ALTER TABLE user_platform_quotas
 ALTER TABLE user_platform_quotas
     ADD CONSTRAINT user_platform_quotas_platform_check
     CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok',
-                        'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'));
+                        'kimi', 'zhipu', 'deepseek', 'glm', 'seedance', 'ltx',
+                        'happyhorse', 'minimax', 'grokimagine', 'opencode_go'));
 
 ALTER TABLE composite_model_routes
     DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check;

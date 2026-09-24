@@ -4,6 +4,8 @@
 --   3. channel_monitors / channel_monitor_request_templates.provider CHECK
 --
 -- 与 224/226/227 同型：DROP IF EXISTS 后重建超集约束，存量行瞬时校验通过。
+-- 注意：这里必须保留二开视频平台和国产平台。线上数据库可能已经存在这些
+-- platform 的配额行；迁移约束只能扩展，不能把历史合法值收窄掉。
 
 ALTER TABLE user_platform_quotas
     DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;
@@ -11,7 +13,8 @@ ALTER TABLE user_platform_quotas
 ALTER TABLE user_platform_quotas
     ADD CONSTRAINT user_platform_quotas_platform_check
     CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok',
-                        'kimi', 'zhipu', 'deepseek', 'minimax'));
+                        'kimi', 'zhipu', 'deepseek', 'glm', 'seedance', 'ltx',
+                        'happyhorse', 'minimax', 'grokimagine', 'opencode_go'));
 
 ALTER TABLE composite_model_routes
     DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check;
