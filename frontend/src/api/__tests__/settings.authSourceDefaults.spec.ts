@@ -8,6 +8,7 @@ import {
   type UpdateSettingsRequest,
   type DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
+import { listPlatformIds } from "@/constants/platformCatalog";
 
 /** 全 null 的全平台 map，用于断言归一化默认值 */
 const allNullQuotas: DefaultPlatformQuotasMap = {

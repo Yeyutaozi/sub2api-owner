@@ -62,6 +62,7 @@ describe('UserPlatformQuotaCell', () => {
       props: {
         quotas: [
           item({ platform: 'gemini', monthly_limit_usd: 50 }),
+          item({ platform: 'typesafe', daily_limit_usd: 5 }),
           item({ platform: 'anthropic', daily_limit_usd: 10 }),
           item({ platform: 'openai', daily_usage_usd: 9 }),
           item({ platform: 'happyhorse', daily_limit_usd: 30 }),

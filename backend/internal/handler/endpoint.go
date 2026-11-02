@@ -17,6 +17,7 @@ import (
 
 const (
 	EndpointMessages             = "/v1/messages"
+	EndpointSystemOne            = "/v1/systemone"
 	EndpointChatCompletions      = "/v1/chat/completions"
 	EndpointEmbeddings           = "/v1/embeddings"
 	EndpointAlphaSearch          = "/v1/alpha/search"
@@ -33,7 +34,9 @@ const (
 	EndpointVideosEdits          = "/v1/videos/edits"
 	EndpointVideosExtensions     = "/v1/videos/extensions"
 	EndpointVideos               = "/v1/videos"
+	EndpointSeedanceTasks        = "/api/v3/contents/generations/tasks"
 	EndpointGeminiModels         = "/v1beta/models"
+	EndpointGeminiCachedContents = "/v1beta/cachedContents"
 )
 
 const EndpointAntigravityGenerateContent = "/v1internal:streamGenerateContent"
@@ -55,6 +58,7 @@ const (
 //	"/v1/chat/completions"       → "/v1/chat/completions"
 //	"/openai/v1/responses/foo"   → "/v1/responses"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
+//	"/v1beta/cachedContents/abc" → "/v1beta/cachedContents"
 //
 // The OpenAI Responses API is also exposed via a few bare/alias
 // routes that do not carry a "/v1/" prefix (top-level bare route and
@@ -85,6 +89,8 @@ const (
 func NormalizeInboundEndpoint(path string) string {
 	path = strings.TrimSpace(path)
 	switch {
+	case strings.Contains(path, "/contents/generations/tasks"):
+		return EndpointSeedanceTasks
 	case strings.Contains(path, EndpointResponsesInputTokens) || isResponsesInputTokensAliasPath(path):
 		return EndpointResponsesInputTokens
 	case strings.Contains(path, EndpointEmbeddings):
@@ -95,6 +101,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
 		return EndpointMessages
+	case strings.Contains(path, EndpointSystemOne):
+		return EndpointSystemOne
 	case strings.Contains(path, EndpointImagesGenerations) || strings.Contains(path, "/images/generations"):
 		return EndpointImagesGenerations
 	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
@@ -122,6 +130,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
+	case strings.Contains(path, EndpointGeminiCachedContents):
+		return EndpointGeminiCachedContents
 	default:
 		return path
 	}
@@ -201,7 +211,7 @@ func isBareOrSubpathOf(path, root string) bool {
 //   - GLM text compatibility routes forward to /v1/chat/completions, while
 //     embeddings retain /v1/embeddings.
 //   - Anthropic  → /v1/messages
-//   - Gemini     → /v1beta/models
+//   - Gemini     → /v1beta/models（显式缓存管理接口保留 /v1beta/cachedContents）
 //   - Antigravity → /v1/messages (Claude) or gemini (Gemini)
 //   - Antigravity routes may target either Claude or Gemini, so the
 //     inbound endpoint is used to distinguish.
@@ -251,7 +261,13 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	case service.PlatformAnthropic:
 		return EndpointMessages
 
+	case service.PlatformTypeSafe:
+		return EndpointSystemOne
+
 	case service.PlatformGemini:
+		if inbound == EndpointGeminiCachedContents {
+			return EndpointGeminiCachedContents
+		}
 		return EndpointGeminiModels
 
 	case service.PlatformAntigravity:
