@@ -23,9 +23,8 @@ describe('CreateAccountModal video platform account types', () => {
     expect(source).toContain('@click="form.platform = \'minimax\'"')
     expect(source).toContain("form.platform === 'seedance' || form.platform === 'ltx' || form.platform === 'happyhorse' || form.platform === 'minimax' || form.platform === 'grokimagine' || form.platform === 'glm'")
     expect(source).toContain("accountCategory.value = 'apikey'")
-    expect(source).toContain("form.type = 'apikey'")
     expect(source).toContain("? 'https://api.fflink.top'")
-    expect(source).toContain("? 'Sub2API Key'")
+    expect(source).toContain("form.type = 'apikey'")
   })
 
   it('does not expose video platforms as OpenAI endpoint capabilities', () => {

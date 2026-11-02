@@ -28,7 +28,7 @@ describe('Creazy Canvas work correlation', () => {
     expect(workflowSource).toContain('openAssetPickerForNode(slotProps.id)')
     expect(workflowSource).toContain('async function uploadFiles(files: File[], origin?: XYPosition, targetNodeId?: string)')
     expect(workflowSource).toContain('canAttachMediaToTarget(node.data, target.data)')
-    expect(workflowSource).toContain('edges.value.push(makeEdge(node.id, target.id, nodes.value))')
+    expect(workflowSource).toMatch(/graphEdges\.push\(makeEdge\(node\.id, target\.id,/)
     expect(workflowSource).toContain('添加参考图')
     expect(workflowSource).toContain('上传参考素材')
   })

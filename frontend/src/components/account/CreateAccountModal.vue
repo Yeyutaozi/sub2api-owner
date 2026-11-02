@@ -4121,6 +4121,11 @@ import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
+  applyExplicitCacheUpstreamCredentials,
+  isOfficialGeminiBaseUrl
+} from '@/utils/geminiExplicitCache'
+import { supportsAccountQuota } from '@/utils/accountQuota'
+import {
   useAccountOAuth,
   type AddMethod,
   type AuthInputMethod
@@ -4165,10 +4170,6 @@ import {
   defaultCNBaseUrl,
   isHeaderOverrideCapable,
   isMultiProtocolApiKeyPlatform,
-  providerAccountModes,
-  providerModeLabel,
-  providerNativeProtocols,
-  providerRoutesByModel,
   resolveProviderAccountMode,
   validateHeaderOverrideRows,
   type CnAccountMode,
@@ -4270,7 +4271,7 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'deepseek':
       return 'sk-...'
     default:
-      return isMultiProtocolPlatform.value ? 'sk-...' : 'sk-ant-...'
+      return isMultiProtocolApiKeyPlatform(form.platform) ? 'sk-...' : 'sk-ant-...'
   }
 })
 
@@ -4425,11 +4426,18 @@ const isCNPlatform = computed(
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
 const cnPresetPlatform = computed<'kimi' | 'zhipu' | 'deepseek'>(() => {
-  if (form.platform === 'kimi' || form.platform === 'zhipu' || form.platform === 'deepseek') {
-    return form.platform
+  switch (form.platform) {
+    case 'kimi':
+      return 'kimi'
+    case 'zhipu':
+      return 'zhipu'
+    case 'deepseek':
+      return 'deepseek'
+    default:
+      return 'kimi'
   }
-  return 'kimi'
 })
+const cnPresetMode = computed<CnAccountMode>(() => accountMode.value)
 // 当前平台可选的协议档（responses 仅 deepseek）。
 const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
   const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
@@ -4487,7 +4495,8 @@ function selectCNPlatform(platform: 'kimi' | 'zhipu' | 'deepseek') {
   accountCategory.value = 'apikey'
   apiProtocol.value = 'adaptive'
   // deepseek 无 coding 套餐（profile 仅 payg）；从其他供应商切换来的未知模式回落默认模式。
-  accountMode.value = resolveProviderAccountMode(platform, accountMode.value)
+  const resolvedMode = resolveProviderAccountMode(platform, accountMode.value)
+  accountMode.value = resolvedMode === 'coding' ? 'coding' : 'payg'
   apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)
   resetAdaptiveBaseUrls(platform, accountMode.value)
 }
@@ -4926,6 +4935,18 @@ const tempUnschedPresets = computed(() => [
       description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc'),
       scope: 'model' as const
     }
+  }
+])
+const tempUnschedScopeOptions = computed(() => [
+  {
+    value: 'model' as const,
+    label: t('admin.accounts.tempUnschedulable.scopeModel'),
+    description: t('admin.accounts.tempUnschedulable.scopeModelDesc')
+  },
+  {
+    value: 'account' as const,
+    label: t('admin.accounts.tempUnschedulable.scopeAccount'),
+    description: t('admin.accounts.tempUnschedulable.scopeAccountDesc')
   }
 ])
 

@@ -1581,7 +1581,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 
 // GetOpenAIBaseURL 解析 OpenAI 协议族账号的上游 base_url。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsMultiProtocolAPIKey() {
+	if !a.IsOpenAI() && !a.IsGLM() && !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
 	if a.IsCNProvider() && a.IsAdaptiveAPIProtocol() {

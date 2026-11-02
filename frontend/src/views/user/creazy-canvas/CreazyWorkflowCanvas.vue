@@ -940,6 +940,23 @@ const SIGNAL_META: Record<SignalKind, { color: string; label: string; dashed?: b
 
 const nodes = ref<WorkflowNode[]>([])
 const edges = ref<WorkflowEdge[]>([])
+function findWorkflowNode(match: string | ((node: WorkflowNode) => boolean)): WorkflowNode | undefined {
+  for (const node of nodes.value as unknown as WorkflowNode[]) {
+    if (typeof match === 'string' ? node.id === match : match(node)) return node
+  }
+}
+function findWorkflowNodeIndex(nodeId: string): number {
+  const allNodes = nodes.value as unknown as WorkflowNode[]
+  for (let index = 0; index < allNodes.length; index += 1) {
+    if (allNodes[index].id === nodeId) return index
+  }
+  return -1
+}
+function findWorkflowEdge(edgeId: string): WorkflowEdge | undefined {
+  for (const edge of edges.value as unknown as WorkflowEdge[]) {
+    if (edge.id === edgeId) return edge
+  }
+}
 const selectedNodeId = ref('')
 const documentId = ref(0)
 const documentRevision = ref(0)
@@ -1009,17 +1026,44 @@ const { canUndo, canRedo } = editorHistory
 const imageModels = computed(() => props.catalog?.image_models || [])
 const videoModels = computed(() => props.catalog?.video_models || [])
 const apiReady = computed(() => Boolean(props.apiKeyId && props.apiKeySecret))
-const selectedNodes = computed(() => nodes.value.filter((node) => Boolean(node.selected)))
-const selectedEdges = computed(() => edges.value.filter((edge) => Boolean(edge.selected)))
+const selectedNodes = computed(() => {
+  const selected: WorkflowNode[] = []
+  for (const node of nodes.value) {
+    if (node.selected) selected.push(node)
+  }
+  return selected
+})
+const selectedEdges = computed(() => {
+  const selected: WorkflowEdge[] = []
+  for (const edge of edges.value) {
+    if (edge.selected) selected.push(edge)
+  }
+  return selected
+})
 const selectedNode = computed(() => selectedNodes.value.length === 1 ? selectedNodes.value[0] : null)
-const generationNodes = computed(() => nodes.value.filter((node) => node.data.kind === 'image' || node.data.kind === 'video'))
+const generationNodes = computed(() => {
+  const generated: WorkflowNode[] = []
+  for (const node of nodes.value) {
+    if (node.data.kind === 'image' || node.data.kind === 'video') generated.push(node)
+  }
+  return generated
+})
 const filteredAssetNodes = computed(() => {
   const query = assetSearch.value.trim().toLowerCase()
-  return nodes.value.filter((node) => {
-    if (node.data.kind !== 'asset' && node.data.kind !== 'result') return false
-    if (!query) return true
-    return [node.data.name, node.data.title, node.data.mediaKind].some((value) => String(value || '').toLowerCase().includes(query))
-  })
+  const matches: WorkflowNode[] = []
+  for (const node of nodes.value) {
+    if (node.data.kind !== 'asset' && node.data.kind !== 'result') continue
+    if (
+      query &&
+      ![node.data.name, node.data.title, node.data.mediaKind].some((value) =>
+        String(value || '').toLowerCase().includes(query)
+      )
+    ) {
+      continue
+    }
+    matches.push(node)
+  }
+  return matches
 })
 const graphEditingLocked = computed(() => workflowRun.value.active || activeNodeRunCount.value > 0)
 const canRunSelected = computed(() => {
@@ -1036,7 +1080,13 @@ const workflowRunProgress = computed(() => workflowRun.value.total
   : 0)
 const contextNodeCanRun = computed(() => {
   const nodeId = contextMenu.value?.nodeId
-  const node = nodes.value.find((item) => item.id === nodeId)
+  let node: WorkflowNode | undefined
+  for (const candidate of nodes.value) {
+    if (candidate.id === nodeId) {
+      node = candidate
+      break
+    }
+  }
   return Boolean(node && (node.data.kind === 'image' || node.data.kind === 'video'))
 })
 const contextMenuStyle = computed(() => {
@@ -1229,21 +1279,25 @@ async function recordEditorCommand(command: WorkflowCommand) {
 }
 
 function selectOnlyNode(nodeId: string) {
-  nodes.value = nodes.value.map((node) => ({ ...node, selected: node.id === nodeId }))
-  edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
+  for (const node of nodes.value) node.selected = node.id === nodeId
+  for (const edge of edges.value) edge.selected = false
   selectedNodeId.value = nodeId
 }
 
 function selectOnlyNodes(nodeIds: Iterable<string>) {
   const ids = new Set(nodeIds)
-  nodes.value = nodes.value.map((node) => ({ ...node, selected: ids.has(node.id) }))
-  edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
+  for (const node of nodes.value) node.selected = ids.has(node.id)
+  for (const edge of edges.value) edge.selected = false
   selectedNodeId.value = ids.size === 1 ? [...ids][0] || '' : ''
 }
 
 function clearElementSelection() {
-  nodes.value = nodes.value.map((node) => node.selected ? { ...node, selected: false } : node)
-  edges.value = edges.value.map((edge) => edge.selected ? { ...edge, selected: false } : edge)
+  for (const node of nodes.value) {
+    if (node.selected) node.selected = false
+  }
+  for (const edge of edges.value) {
+    if (edge.selected) edge.selected = false
+  }
   selectedNodeId.value = ''
 }
 
@@ -1334,32 +1388,42 @@ function addNode(kind: PaletteNodeKind, position = nextPosition()) {
 
 function addPromptForNode(targetId: string) {
   if (!ensureGraphEditable()) return
-  const target = nodes.value.find((node) => node.id === targetId)
-  if (!target || (target.data.kind !== 'image' && target.data.kind !== 'video')) return
+  let targetKind: WorkflowKind | undefined
+  let targetPosition: XYPosition | undefined
+  let inlinePrompt = ''
+  for (const node of nodes.value) {
+    if (node.id === targetId) {
+      targetKind = node.data.kind
+      targetPosition = { x: node.position.x, y: node.position.y }
+      inlinePrompt = String(node.data.prompt || '')
+      break
+    }
+  }
+  if (!targetPosition || (targetKind !== 'image' && targetKind !== 'video')) return
   const promptNode = createNode('prompt', {
-    x: target.position.x - 380,
-    y: target.position.y + 20,
+    x: targetPosition.x - 380,
+    y: targetPosition.y + 20,
   })
-  const inlinePrompt = String(target.data.prompt || '')
   promptNode.data.prompt = inlinePrompt
   promptNode.selected = true
-  const edge = makeEdge(promptNode.id, target.id, [...nodes.value, promptNode])
+  const edgeNodes: WorkflowNode[] = [...(nodes.value as unknown as WorkflowNode[]), promptNode]
+  const edge = makeEdge(promptNode.id, targetId, edgeNodes)
   void executeEditorCommand(historyCommand(
     '添加并连接提示词',
     () => {
       if (!nodes.value.some((node) => node.id === promptNode.id)) nodes.value = [...nodes.value, cloneValue(promptNode)]
       if (!edges.value.some((item) => item.id === edge.id)) edges.value = [...edges.value, cloneValue(edge)]
-      if (inlinePrompt) patchNode(target.id, { prompt: '' })
+      if (inlinePrompt) patchNode(targetId, { prompt: '' })
       selectOnlyNode(promptNode.id)
     },
     () => {
       edges.value = edges.value.filter((item) => item.id !== edge.id)
       nodes.value = nodes.value.filter((node) => node.id !== promptNode.id)
-      if (inlinePrompt) patchNode(target.id, { prompt: inlinePrompt })
+      if (inlinePrompt) patchNode(targetId, { prompt: inlinePrompt })
       selectedNodeId.value = ''
     },
   )).then(() => {
-    void nextTick().then(() => fitView({ nodes: [promptNode.id, target.id], padding: 0.42, duration: 320 })).catch(() => undefined)
+    void nextTick().then(() => fitView({ nodes: [promptNode.id, targetId], padding: 0.42, duration: 320 })).catch(() => undefined)
   }).catch(() => undefined)
 }
 
@@ -1523,17 +1587,23 @@ function edgeLabelFor(source?: WorkflowNodeData, target?: WorkflowNodeData): str
   return SIGNAL_META[signalKindForNode(source)].label
 }
 
-function makeEdge(source: string, target: string, nodeList = nodes.value, id = uid('edge')): WorkflowEdge {
-  const sourceNode = nodeList.find((node) => node.id === source)
-  const targetNode = nodeList.find((node) => node.id === target)
-  const signal = signalKindForNode(sourceNode?.data)
+function makeEdge(source: string, target: string, nodeList?: WorkflowNode[], id = uid('edge')): WorkflowEdge {
+  const availableNodes = nodeList || (nodes.value as unknown as WorkflowNode[])
+  let sourceData: WorkflowNodeData | undefined
+  let targetData: WorkflowNodeData | undefined
+  for (const node of availableNodes) {
+    if (node.id === source) sourceData = node.data
+    if (node.id === target) targetData = node.data
+    if (sourceData && targetData) break
+  }
+  const signal = signalKindForNode(sourceData)
   const meta = SIGNAL_META[signal]
   return {
     id,
     source,
     target,
     sourceHandle: 'output',
-    targetHandle: targetHandleFor(sourceNode?.data, targetNode?.data),
+    targetHandle: targetHandleFor(sourceData, targetData),
     type: 'signal',
     markerEnd: {
       type: MarkerType.ArrowClosed,
@@ -1546,9 +1616,9 @@ function makeEdge(source: string, target: string, nodeList = nodes.value, id = u
       signal,
       color: meta.color,
       dashed: Boolean(meta.dashed),
-      label: edgeLabelFor(sourceNode?.data, targetNode?.data),
+      label: edgeLabelFor(sourceData, targetData),
     },
-    ariaLabel: `${edgeLabelFor(sourceNode?.data, targetNode?.data)}连接`,
+    ariaLabel: `${edgeLabelFor(sourceData, targetData)}连接`,
   }
 }
 
@@ -1575,15 +1645,24 @@ function nodeDataConnectionCompatible(source: WorkflowNodeData, target: Workflow
 
 function validateConnection(connection: Connection, ignoreEdgeId?: string): boolean {
   if (!connection.source || !connection.target || connection.source === connection.target) return false
-  const source = nodes.value.find((node) => node.id === connection.source)
-  const target = nodes.value.find((node) => node.id === connection.target)
-  if (!source?.data || !target?.data) return false
-  if (edges.value.some((edge) => edge.id !== ignoreEdgeId && edge.source === connection.source && edge.target === connection.target)) return false
-  if (wouldCreateCycle(nodes.value, edges.value, String(connection.source), String(connection.target), ignoreEdgeId)) return false
-  const expectedHandle = targetHandleFor(source.data, target.data)
+  const graphNodes = nodes.value as unknown as WorkflowNode[]
+  const graphEdges = edges.value as unknown as WorkflowEdge[]
+  let sourceData: WorkflowNodeData | undefined
+  let targetData: WorkflowNodeData | undefined
+  for (const node of graphNodes) {
+    if (node.id === connection.source) sourceData = node.data
+    if (node.id === connection.target) targetData = node.data
+    if (sourceData && targetData) break
+  }
+  if (!sourceData || !targetData) return false
+  for (const edge of graphEdges) {
+    if (edge.id !== ignoreEdgeId && edge.source === connection.source && edge.target === connection.target) return false
+  }
+  if (wouldCreateCycle(graphNodes, graphEdges, String(connection.source), String(connection.target), ignoreEdgeId)) return false
+  const expectedHandle = targetHandleFor(sourceData, targetData)
   if (connection.sourceHandle && connection.sourceHandle !== 'output') return false
   if (connection.targetHandle && connection.targetHandle !== expectedHandle) return false
-  return nodeDataConnectionCompatible(source.data, target.data)
+  return nodeDataConnectionCompatible(sourceData, targetData)
 }
 
 function isValidConnection(connection: Connection): boolean {
@@ -1598,8 +1677,8 @@ function onConnect(connection: Connection) {
   if (!ensureGraphEditable()) return
   if (!validateConnection(connection)) {
     const cyclic = Boolean(connection.source && connection.target && wouldCreateCycle(
-      nodes.value,
-      edges.value,
+      nodes.value as unknown as WorkflowNode[],
+      edges.value as unknown as WorkflowEdge[],
       String(connection.source),
       String(connection.target),
     ))
@@ -1659,7 +1738,7 @@ function onNodePointerDown(event: PointerEvent, nodeId: string) {
   }
   modifierSelectionSnapshot = new Set(selectedNodes.value.map((node) => node.id))
   if (!modifierSelectionSnapshot.size) {
-    const current = nodes.value.find((node) => node.id === nodeId)
+    const current = findWorkflowNode(nodeId)
     if (current?.selected) modifierSelectionSnapshot.add(nodeId)
   }
 }
@@ -1683,7 +1762,7 @@ function contextCoordinates(event: MouseEvent | TouchEvent) {
 function onNodeContextMenu(payload: NodeMouseEvent) {
   payload.event.preventDefault()
   const nodeId = payload.node.id
-  if (!nodes.value.find((node) => node.id === nodeId)?.selected) selectOnlyNode(nodeId)
+  if (!findWorkflowNode(nodeId)?.selected) selectOnlyNode(nodeId)
   const point = contextCoordinates(payload.event)
   contextMenu.value = { kind: 'node', nodeId, ...point }
   selectedNodeId.value = selectedNodes.value.length === 1 ? nodeId : ''
@@ -1692,8 +1771,8 @@ function onNodeContextMenu(payload: NodeMouseEvent) {
 function onEdgeContextMenu(payload: EdgeMouseEvent) {
   payload.event.preventDefault()
   const edgeId = payload.edge.id
-  nodes.value = nodes.value.map((node) => ({ ...node, selected: false }))
-  edges.value = edges.value.map((edge) => ({ ...edge, selected: edge.id === edgeId }))
+  for (const node of nodes.value) node.selected = false
+  for (const edge of edges.value) edge.selected = edge.id === edgeId
   selectedNodeId.value = ''
   const point = contextCoordinates(payload.event)
   contextMenu.value = { kind: 'edge', edgeId, ...point }
@@ -1750,8 +1829,10 @@ function deleteSelection() {
     showConnectionNotice('运行中的节点不能删除，请先终止对应任务')
     return
   }
-  const removedNodes = cloneValue(nodes.value.filter((node) => nodeIds.has(node.id)))
-  const removedEdges = cloneValue(edges.value.filter((edge) => (
+  const currentNodes = nodes.value as unknown as WorkflowNode[]
+  const currentEdges = edges.value as unknown as WorkflowEdge[]
+  const removedNodes = cloneValue(currentNodes.filter((node) => nodeIds.has(node.id)))
+  const removedEdges = cloneValue(currentEdges.filter((edge) => (
     explicitEdgeIds.has(edge.id) || nodeIds.has(edge.source) || nodeIds.has(edge.target)
   )))
   const removedEdgeIds = new Set(removedEdges.map((edge) => edge.id))
@@ -1776,7 +1857,7 @@ function deleteSelection() {
 function deleteContextEdge() {
   if (!ensureGraphEditable()) return
   const edgeId = contextMenu.value?.edgeId
-  const edge = edges.value.find((item) => item.id === edgeId)
+  const edge = edgeId ? findWorkflowEdge(edgeId) : undefined
   if (!edge) return
   const snapshot = cloneValue(edge)
   closeContextMenu()
@@ -1797,9 +1878,10 @@ function onNodeDragStart(event: NodeDragEvent) {
 }
 
 function applyNodePositions(positions: Record<string, XYPosition>) {
-  nodes.value = nodes.value.map((node) => positions[node.id]
-    ? { ...node, position: { ...positions[node.id] } }
-    : node)
+  for (const node of nodes.value) {
+    const position = positions[node.id]
+    if (position) node.position = { ...position }
+  }
 }
 
 function onNodeDragStop(event: NodeDragEvent) {
@@ -1819,7 +1901,7 @@ function onNodeDragStop(event: NodeDragEvent) {
 
 function onEdgeUpdate(payload: EdgeUpdateEvent) {
   if (!ensureGraphEditable()) return
-  const previous = edges.value.find((edge) => edge.id === payload.edge.id)
+  const previous = findWorkflowEdge(payload.edge.id)
   if (!previous || !payload.connection.source || !payload.connection.target) return
   if (!validateConnection(payload.connection, previous.id)) {
     const cyclic = wouldCreateCycle(
@@ -1836,7 +1918,7 @@ function onEdgeUpdate(payload: EdgeUpdateEvent) {
   const after = makeEdge(
     String(payload.connection.source),
     String(payload.connection.target),
-    nodes.value,
+    nodes.value as unknown as WorkflowNode[],
     previous.id,
   )
   after.selected = true
@@ -1854,7 +1936,7 @@ function onEdgeUpdate(payload: EdgeUpdateEvent) {
 function updateSelected(patch: Partial<WorkflowNodeData>) {
   if (!ensureGraphEditable()) return
   const nodeId = selectedNode.value?.id || selectedNodeId.value
-  const node = nodes.value.find((item) => item.id === nodeId)
+  const node = findWorkflowNode(nodeId)
   if (!node) return
   if (pendingNodeEdit && pendingNodeEdit.nodeId !== nodeId) void flushPendingNodeEdit()
   if (!pendingNodeEdit) {
@@ -1888,7 +1970,7 @@ async function flushPendingNodeEdit() {
 
 function patchNode(id: string, patch: Partial<WorkflowNodeData>) {
   if (disposed) return
-  const index = nodes.value.findIndex((node) => node.id === id)
+  const index = findWorkflowNodeIndex(id)
   if (index < 0) return
   const current = nodes.value[index]
   if (Object.entries(patch).every(([key, value]) => Object.is(current.data[key as keyof WorkflowNodeData], value))) return
@@ -1907,12 +1989,24 @@ function checkedValue(event: Event): boolean {
 }
 
 function incomingNodes(nodeId: string): WorkflowNode[] {
-  const ids = edges.value.filter((edge) => edge.target === nodeId).map((edge) => edge.source)
-  return ids.map((id) => nodes.value.find((node) => node.id === id)).filter(Boolean) as WorkflowNode[]
+  const ids: string[] = []
+  for (const edge of edges.value as unknown as WorkflowEdge[]) {
+    if (edge.target === nodeId) ids.push(edge.source)
+  }
+  const result: WorkflowNode[] = []
+  for (const id of ids) {
+    const node = findWorkflowNode(id)
+    if (node) result.push(node)
+  }
+  return result
 }
 
 function incomingCount(nodeId: string): number {
-  return edges.value.filter((edge) => edge.target === nodeId).length
+  let count = 0
+  for (const edge of edges.value as unknown as WorkflowEdge[]) {
+    if (edge.target === nodeId) count += 1
+  }
+  return count
 }
 
 function resolvedPrompt(node: WorkflowNode): string {
@@ -1925,7 +2019,7 @@ function resolvedPrompt(node: WorkflowNode): string {
 }
 
 function resolvedPromptForNode(nodeId: string): string {
-  const node = nodes.value.find((item) => item.id === nodeId)
+  const node = findWorkflowNode(nodeId)
   return node ? resolvedPrompt(node) : ''
 }
 
@@ -2123,7 +2217,7 @@ function openAssetPicker() {
 }
 
 function openAssetPickerForNode(nodeId: string) {
-  const node = nodes.value.find((item) => item.id === nodeId)
+  const node = findWorkflowNode(nodeId)
   if (!node || !canReceiveManualInput(node.data)) return
   if (!apiReady.value) {
     showConnectionNotice('请先选择可用的 API Key')
@@ -2223,9 +2317,10 @@ async function uploadFiles(files: File[], origin?: XYPosition, targetNodeId?: st
       if (!mediaUrl) throw new Error('上传接口没有返回媒体地址')
       Object.assign(node.data, { status: 'succeeded' as const, mediaUrl, error: '' })
       patchNode(node.id, { status: 'succeeded', mediaUrl, error: '' })
-      const target = targetNodeId ? nodes.value.find((item) => item.id === targetNodeId) : undefined
+      const target = targetNodeId ? findWorkflowNode(targetNodeId) : undefined
       if (target && canAttachMediaToTarget(node.data, target.data) && !edges.value.some((edge) => edge.source === node.id && edge.target === target.id)) {
-        edges.value.push(makeEdge(node.id, target.id, nodes.value))
+        const graphEdges = edges.value as unknown as WorkflowEdge[]
+        graphEdges.push(makeEdge(node.id, target.id, nodes.value as unknown as WorkflowNode[]))
         scheduleSave()
       } else if (target) {
         showConnectionNotice(`${mediaKindLabel(mediaKind)}与当前节点的参考素材端口不兼容，已保留为独立资产`)
@@ -2269,7 +2364,7 @@ function onPaletteDragEnd() {
 }
 
 async function runNode(nodeId: string): Promise<boolean> {
-  const node = nodes.value.find((item) => item.id === nodeId)
+  const node = findWorkflowNode(nodeId)
   if (!node || (node.data.kind !== 'image' && node.data.kind !== 'video')) return false
   if (node.data.status === 'running' || activeNodeRuns.has(nodeId)) {
     showConnectionNotice('该节点已有任务正在运行')
@@ -2426,7 +2521,7 @@ async function runImageNode(node: WorkflowNode): Promise<boolean> {
       },
     })
     if (disposed) return true
-    const liveNode = nodes.value.find((item) => item.id === node.id)
+    const liveNode = findWorkflowNode(node.id)
     if (!liveNode || liveNode.data.workId !== workId) return true
     patchNode(liveNode.id, {
       status: 'succeeded', outputUrl, workId, gatewayRemoteId: remoteId, error: '',
@@ -2600,7 +2695,7 @@ async function runVideoNode(node: WorkflowNode): Promise<boolean> {
     } catch {
       playableUrl = /^https?:\/\//i.test(persistentUrl) ? persistentUrl : ''
     }
-    const liveNode = nodes.value.find((item) => item.id === node.id)
+    const liveNode = findWorkflowNode(node.id)
     if (!liveNode || liveNode.data.workId !== workId) return true
     patchNode(liveNode.id, {
       status: 'succeeded', outputUrl: persistentUrl, playableUrl, workId, gatewayRemoteId: remoteId, error: '',
@@ -2640,7 +2735,9 @@ function addResultNode(
   select = true,
 ) {
   if (disposed || !nodes.value.some((node) => node.id === source.id)) return
-  const existing = nodes.value.find((item) => item.data.kind === 'result' && item.data.workId === result.workId)
+  const graphNodes = nodes.value as unknown as WorkflowNode[]
+  const graphEdges = edges.value as unknown as WorkflowEdge[]
+  const existing = findWorkflowNode((item) => item.data.kind === 'result' && item.data.workId === result.workId)
   if (existing) {
     patchNode(existing.id, {
       title: result.name || existing.data.title,
@@ -2654,8 +2751,8 @@ function addResultNode(
       runCount: result.runCount || source.data.runCount,
       error: '',
     })
-    if (existing.id !== source.id && !edges.value.some((edge) => edge.source === source.id && edge.target === existing.id)) {
-      edges.value.push(makeEdge(source.id, existing.id))
+    if (existing.id !== source.id && !graphEdges.some((edge) => edge.source === source.id && edge.target === existing.id)) {
+      graphEdges.push(makeEdge(source.id, existing.id, graphNodes))
       scheduleSave()
     }
     if (select) selectOnlyNode(existing.id)
@@ -2675,8 +2772,8 @@ function addResultNode(
     sourceNodeId: source.id,
     runCount: result.runCount || source.data.runCount,
   }
-  nodes.value.push(node)
-  edges.value.push(makeEdge(source.id, node.id))
+  graphNodes.push(node)
+  graphEdges.push(makeEdge(source.id, node.id, graphNodes))
   if (select) selectOnlyNode(node.id)
   scheduleSave()
 }
@@ -2754,7 +2851,7 @@ async function completeRestoredImageWork(
     error_message: '',
     params: { ...(work.params || {}), result_urls: urls },
   })
-  const currentNode = nodes.value.find((item) => item.id === node.id)
+  const currentNode = findWorkflowNode(node.id)
   if (disposed || !currentNode || currentNode.data.workId !== work.id) return
   patchNode(currentNode.id, {
     status: 'succeeded',
@@ -2786,7 +2883,7 @@ async function completeRestoredVideoWork(node: WorkflowNode, work: CreazyWork, j
     error_message: '',
     params: { ...(work.params || {}), result_urls: [persistentUrl], poster_url: posterUrl || undefined },
   })
-  const currentNode = nodes.value.find((item) => item.id === node.id)
+  const currentNode = findWorkflowNode(node.id)
   if (disposed || !currentNode || currentNode.data.workId !== work.id) return
   let playableUrl = ''
   try {
@@ -2824,7 +2921,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
     if (node.data.kind === 'image' && work.gateway_type === 'image_task') {
       const task = await getImageTask(props.apiKeySecret, remoteId)
       if (!isTerminalImageStatus(task.status)) return
-      const liveNode = nodes.value.find((item) => item.id === node.id)
+      const liveNode = findWorkflowNode(node.id)
       if (disposed || !liveNode || liveNode.data.workId !== work.id) return
       if (isCanceledWorkStatus(task.status)) {
         patchNode(liveNode.id, { status: 'canceled', error: '任务已终止' })
@@ -2848,7 +2945,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
     if (node.data.kind === 'video' && work.gateway_type === 'video_job') {
       const job = await getVideoJob(props.apiKeySecret, remoteId)
       if (!isTerminalVideoStatus(job.status)) return
-      const liveNode = nodes.value.find((item) => item.id === node.id)
+      const liveNode = findWorkflowNode(node.id)
       if (disposed || !liveNode || liveNode.data.workId !== work.id) return
       if (isCanceledWorkStatus(job.status)) {
         patchNode(liveNode.id, { status: 'canceled', error: '任务已终止' })
@@ -2868,7 +2965,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
       await completeRestoredVideoWork(liveNode, work, job, remoteId)
     }
   } catch (error) {
-    const liveNode = nodes.value.find((item) => item.id === node.id)
+    const liveNode = findWorkflowNode(node.id)
     if (disposed || !liveNode || liveNode.data.workId !== work.id) return
     if (await workWasCanceled(work.id)) {
       patchNode(liveNode.id, { status: 'canceled', error: '任务已被管理员终止' })
@@ -2881,7 +2978,7 @@ async function resumeRemoteWork(node: WorkflowNode, work: CreazyWork) {
 }
 
 async function restoreSucceededWork(node: WorkflowNode, work: CreazyWork): Promise<boolean> {
-  const currentBeforeRestore = nodes.value.find((item) => item.id === node.id)
+  const currentBeforeRestore = findWorkflowNode(node.id)
   if (disposed || !currentBeforeRestore || currentBeforeRestore.data.workId !== work.id) return false
   const urls = workResultUrls(work)
   const outputUrl = String(urls[0] || '')
@@ -2895,7 +2992,7 @@ async function restoreSucceededWork(node: WorkflowNode, work: CreazyWork): Promi
       playableUrl = /^https?:\/\//i.test(outputUrl) ? outputUrl : ''
     }
   }
-  const currentNode = nodes.value.find((item) => item.id === node.id)
+  const currentNode = findWorkflowNode(node.id)
   if (disposed || !currentNode || currentNode.data.workId !== work.id) return false
   patchNode(currentNode.id, { status: 'succeeded', outputUrl, playableUrl, error: '' })
   addResultNode(currentNode, {
@@ -3053,11 +3150,12 @@ async function fitCanvas() {
   await fitView({ padding: 0.18, duration: 320, minZoom: 0.45, maxZoom: 1.05 })
 }
 
-function hasSevereNodeOverlap(items = nodes.value): boolean {
-  for (let index = 0; index < items.length; index += 1) {
-    for (let next = index + 1; next < items.length; next += 1) {
-      const a = items[index].position
-      const b = items[next].position
+function hasSevereNodeOverlap(items?: WorkflowNode[]): boolean {
+  const nodesToCheck = items || (nodes.value as unknown as WorkflowNode[])
+  for (let index = 0; index < nodesToCheck.length; index += 1) {
+    for (let next = index + 1; next < nodesToCheck.length; next += 1) {
+      const a = nodesToCheck[index].position
+      const b = nodesToCheck[next].position
       if (Math.abs(a.x - b.x) < 80 && Math.abs(a.y - b.y) < 80) return true
     }
   }
@@ -3077,8 +3175,8 @@ async function redoEditor() {
 }
 
 function selectAllElements() {
-  nodes.value = nodes.value.map((node) => ({ ...node, selected: true }))
-  edges.value = edges.value.map((edge) => ({ ...edge, selected: true }))
+  for (const node of nodes.value) node.selected = true
+  for (const edge of edges.value) edge.selected = true
   selectedNodeId.value = nodes.value.length === 1 ? nodes.value[0]?.id || '' : ''
   closeContextMenu()
 }
@@ -3124,7 +3222,7 @@ function buildClipboardFragment(): WorkflowClipboardFragment | null {
       position: { x: node.position.x - minX, y: node.position.y - minY },
       data: resetCopiedNodeData(node.data),
     })),
-    edges: internalEdges(nodeIds, edges.value).map((edge) => ({ source: edge.source, target: edge.target })),
+    edges: internalEdges(nodeIds, edges.value as unknown as WorkflowEdge[]).map((edge) => ({ source: edge.source, target: edge.target })),
   }
 }
 
@@ -3215,7 +3313,7 @@ async function pasteSelection(anchor?: XYPosition) {
   })
   const pastedNodeById = new Map(pastedNodes.map((node) => [node.id, node]))
   const pastedEdges: WorkflowEdge[] = []
-  const graphNodes = [...nodes.value, ...pastedNodes]
+  const graphNodes: WorkflowNode[] = [...(nodes.value as unknown as WorkflowNode[]), ...pastedNodes]
   for (const edge of fragment.edges) {
     const source = idMap.get(edge.source)
     const target = idMap.get(edge.target)
@@ -3224,7 +3322,12 @@ async function pasteSelection(anchor?: XYPosition) {
     const targetNode = pastedNodeById.get(target)
     if (!sourceNode || !targetNode || !nodeDataConnectionCompatible(sourceNode.data, targetNode.data)) continue
     if (pastedEdges.some((item) => item.source === source && item.target === target)) continue
-    if (wouldCreateCycle(graphNodes, [...edges.value, ...pastedEdges], source, target)) continue
+    if (wouldCreateCycle(
+      graphNodes,
+      [...(edges.value as unknown as WorkflowEdge[]), ...pastedEdges],
+      source,
+      target,
+    )) continue
     pastedEdges.push(makeEdge(source, target, pastedNodes))
   }
   const nodeIds = new Set(pastedNodes.map((node) => node.id))
@@ -3298,7 +3401,10 @@ function autoLayout() {
   if (!ensureGraphEditable()) return
   closeContextMenu()
   if (nodes.value.length < 2) return
-  const topology = topologicalOrder(nodes.value.map((node) => node.id), edges.value)
+  const graphNodes = nodes.value as unknown as WorkflowNode[]
+  const nodeIds: string[] = []
+  for (const node of graphNodes) nodeIds.push(node.id)
+  const topology = topologicalOrder(nodeIds, edges.value as unknown as WorkflowEdge[])
   if (topology.hasCycle) {
     showConnectionNotice('检测到循环连接，修复后才能自动排版')
     return
@@ -3316,13 +3422,15 @@ function autoLayout() {
       height: element?.offsetHeight || fallbackHeight,
     })
   }
-  for (const edge of edges.value) graph.setEdge(edge.source, edge.target)
+  for (const edge of edges.value as unknown as WorkflowEdge[]) graph.setEdge(edge.source, edge.target)
   dagre.layout(graph)
-  const before = Object.fromEntries(nodes.value.map((node) => [node.id, { ...node.position }]))
-  const after = Object.fromEntries(nodes.value.map((node) => {
+  const before: Record<string, XYPosition> = {}
+  const after: Record<string, XYPosition> = {}
+  for (const node of graphNodes) {
+    before[node.id] = { ...node.position }
     const point = graph.node(node.id) as { x: number; y: number; width: number; height: number }
-    return [node.id, { x: Math.round(point.x - point.width / 2), y: Math.round(point.y - point.height / 2) }]
-  }))
+    after[node.id] = { x: Math.round(point.x - point.width / 2), y: Math.round(point.y - point.height / 2) }
+  }
   void executeEditorCommand(historyCommand(
     '自动排版',
     () => applyNodePositions(after),
@@ -3361,7 +3469,7 @@ function estimatedNodeCost(node: WorkflowNode): number | null {
 }
 
 function estimatedNodeCostById(nodeId: string): number | null {
-  const node = nodes.value.find((item) => item.id === nodeId)
+  const node = findWorkflowNode(nodeId)
   return node ? estimatedNodeCost(node) : null
 }
 
@@ -3377,7 +3485,7 @@ function formatCost(value: number): string {
 }
 
 function nodeTitle(nodeId: string): string {
-  return nodes.value.find((node) => node.id === nodeId)?.data.title || '未知节点'
+  return findWorkflowNode(nodeId)?.data.title || '未知节点'
 }
 
 function buildRunLayers(nodeIds: string[]): string[][] {
@@ -3408,11 +3516,15 @@ function buildRunConfirmation(scope: RunScope, sourceNodeId?: string): RunConfir
   const candidates = candidateRunNodeIds(scope, sourceNodeId)
   const nodeIds = candidates.filter((nodeId) => {
     if (!reuseCompletedOutputs.value || scope === 'node') return true
-    const node = nodes.value.find((item) => item.id === nodeId)
+    const node = findWorkflowNode(nodeId)
     return !(node?.data.status === 'succeeded' && node.data.outputUrl)
   })
   const issues: RunIssue[] = []
-  const graphOrder = topologicalOrder(nodes.value.map((node) => node.id), edges.value)
+  const graphNodes = nodes.value as unknown as WorkflowNode[]
+  const graphEdges = edges.value as unknown as WorkflowEdge[]
+  const graphNodeIds: string[] = []
+  for (const node of graphNodes) graphNodeIds.push(node.id)
+  const graphOrder = topologicalOrder(graphNodeIds, graphEdges)
   if (graphOrder.hasCycle) {
     issues.push({
       key: 'cycle',
@@ -3434,7 +3546,7 @@ function buildRunConfirmation(scope: RunScope, sourceNodeId?: string): RunConfir
     })
   }
   for (const nodeId of nodeIds) {
-    const node = nodes.value.find((item) => item.id === nodeId)
+    const node = findWorkflowNode(nodeId)
     if (!node) continue
     const model = node.data.kind === 'image'
       ? imageModels.value.find((item) => item.id === node.data.model)
@@ -3461,7 +3573,7 @@ function buildRunConfirmation(scope: RunScope, sourceNodeId?: string): RunConfir
     }
   }
   const costs = nodeIds.map((nodeId) => {
-    const node = nodes.value.find((item) => item.id === nodeId)
+    const node = findWorkflowNode(nodeId)
     return node ? estimatedNodeCost(node) : null
   })
   const cost = costs.some((value) => value == null)
@@ -3600,14 +3712,18 @@ function onWorkspaceKeydown(event: KeyboardEvent) {
 }
 
 function graphForPersistence(): CreazyCanvasGraph {
-  return {
-    nodes: nodes.value.map((node) => ({
+  const persistedNodes: CreazyCanvasGraph['nodes'] = []
+  for (const node of nodes.value as unknown as WorkflowNode[]) {
+    persistedNodes.push({
       id: node.id,
       type: 'workflow',
       position: { x: node.position.x, y: node.position.y },
       data: sanitizeNodeData(node.data),
-    })),
-    edges: edges.value.map((edge) => ({
+    })
+  }
+  const persistedEdges: CreazyCanvasGraph['edges'] = []
+  for (const edge of edges.value as unknown as WorkflowEdge[]) {
+    persistedEdges.push({
       id: edge.id,
       source: edge.source,
       target: edge.target,
@@ -3615,7 +3731,11 @@ function graphForPersistence(): CreazyCanvasGraph {
       targetHandle: edge.targetHandle || undefined,
       type: 'signal',
       markerEnd: MarkerType.ArrowClosed,
-    })),
+    })
+  }
+  return {
+    nodes: persistedNodes,
+    edges: persistedEdges,
     viewport: { ...savedViewport.value },
   }
 }
@@ -3930,15 +4050,16 @@ async function loadDocument() {
 async function refreshNodeWorkStatuses() {
   if (refreshingStatuses) return
   refreshingStatuses = true
-  const tracked = nodes.value.filter(
-    (node) => node.data.workId && (node.data.kind === 'image' || node.data.kind === 'video'),
-  )
+  const tracked: WorkflowNode[] = []
+  for (const node of nodes.value as unknown as WorkflowNode[]) {
+    if (node.data.workId && (node.data.kind === 'image' || node.data.kind === 'video')) tracked.push(node)
+  }
   try {
     for (const node of tracked) {
       try {
         const trackedWorkId = Number(node.data.workId)
         const work = await getWork(trackedWorkId)
-        const liveNode = nodes.value.find((item) => item.id === node.id)
+        const liveNode = findWorkflowNode(node.id)
         if (disposed || !liveNode || liveNode.data.workId !== trackedWorkId || work.id !== trackedWorkId) continue
         const status = String(work.status || '').toLowerCase()
         if (isCanceledWorkStatus(status)) {
@@ -3967,7 +4088,7 @@ async function refreshNodeWorkStatuses() {
 watch(
   () => [props.catalog, props.apiKeyId] as const,
   () => {
-    nodes.value = nodes.value.map((node) => {
+    for (const node of nodes.value as unknown as WorkflowNode[]) {
       if (node.data.kind === 'image' && imageModels.value.length) {
         const model = imageModels.value.find((item) => item.id === node.data.model) || imageModels.value[0]
         const tier = model.quality_tiers?.includes(node.data.qualityTier || '')
@@ -3976,16 +4097,12 @@ watch(
         const ratio = model.aspect_ratios?.includes(node.data.aspectRatio || '')
           ? String(node.data.aspectRatio)
           : model.aspect_ratios?.[0] || '1:1'
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            model: model.id,
-            qualityTier: tier,
-            aspectRatio: ratio,
-            size: resolveImageSize(model, tier, ratio),
-          },
-        }
+        Object.assign(node.data, {
+          model: model.id,
+          qualityTier: tier,
+          aspectRatio: ratio,
+          size: resolveImageSize(model, tier, ratio),
+        })
       }
       if (node.data.kind === 'video' && videoModels.value.length) {
         const model = videoModels.value.find((item) => item.id === node.data.model) || videoModels.value[0]
@@ -4001,20 +4118,15 @@ watch(
         const aspectRatio = aspectOptions.includes(node.data.aspectRatio || '')
           ? String(node.data.aspectRatio)
           : aspectOptions[0] || '16:9'
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            model: model.id,
-            resolution,
-            duration,
-            aspectRatio,
-            generateAudio: Boolean(model.allow_generated_audio || model.force_generated_audio),
-          },
-        }
+        Object.assign(node.data, {
+          model: model.id,
+          resolution,
+          duration,
+          aspectRatio,
+          generateAudio: Boolean(model.allow_generated_audio || model.force_generated_audio),
+        })
       }
-      return node
-    })
+    }
   },
 )
 

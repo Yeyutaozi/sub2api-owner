@@ -671,13 +671,6 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
   }
 }
 
-const setUserTrendMetric = (metric: 'tokens' | 'actual_cost') => {
-  if (userTrendMetric.value === metric) return
-  userTrendMetric.value = metric
-  userTrend.value = []
-  loadUsersTrend()
-}
-
 const loadUsersTrend = async () => {
   const currentSeq = ++usersTrendLoadSeq
   userTrendLoading.value = true

@@ -137,6 +137,8 @@ docs/*
 !docs/openapi/
 !docs/openapi/tkcreazy-seedance.openapi.json
 !docs/APP_CENTER_AGENT_WORKFLOW_PLAN_CN.md
+!docs/admin-api-keys.md
+!docs/mcp.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

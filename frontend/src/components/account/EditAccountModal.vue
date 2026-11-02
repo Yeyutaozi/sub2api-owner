@@ -4605,6 +4605,18 @@ const tempUnschedPresets = computed(() => [
     }
   }
 ])
+const tempUnschedScopeOptions = computed(() => [
+  {
+    value: 'model' as const,
+    label: t('admin.accounts.tempUnschedulable.scopeModel'),
+    description: t('admin.accounts.tempUnschedulable.scopeModelDesc')
+  },
+  {
+    value: 'account' as const,
+    label: t('admin.accounts.tempUnschedulable.scopeAccount'),
+    description: t('admin.accounts.tempUnschedulable.scopeAccountDesc')
+  }
+])
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {

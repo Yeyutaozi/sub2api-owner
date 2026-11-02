@@ -331,7 +331,12 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'glm' | 'seedance' | 'ltx' | 'happyhorse' | 'minimax' | 'grokimagine'
+export type PlatformQuotaPlatform = AccountPlatform
+
+export function platformQuotaPlatforms(): PlatformQuotaPlatform[] {
+  return listPlatformIds() as PlatformQuotaPlatform[]
+}
+
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {

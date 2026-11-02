@@ -535,6 +535,7 @@ const bedrockPresetMappings = [
 // Antigravity 默认映射（从后端 API 获取，与 constants.go 保持一致）
 // 使用 fetchAntigravityDefaultMappings() 异步获取
 import { getAntigravityDefaultModelMapping } from '@/api/admin/accounts'
+import { getProviderProfile } from '@/constants/platformCatalog'
 
 let _antigravityDefaultMappingsCache: { from: string; to: string }[] | null = null
 

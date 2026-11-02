@@ -15,12 +15,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func isolateConfigDataDir(t *testing.T) {
+	t.Helper()
+	dataDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("{}\n"), 0o600))
+	t.Setenv("DATA_DIR", dataDir)
+}
+
 func resetViperWithJWTSecret(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv("CONFIG_FILE", "")
-	t.Setenv("DATA_DIR", "")
+	isolateConfigDataDir(t)
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 }
 
@@ -387,7 +394,7 @@ func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv("CONFIG_FILE", "")
-	t.Setenv("DATA_DIR", "")
+	isolateConfigDataDir(t)
 	t.Setenv("JWT_SECRET", "")
 
 	cfg, err := LoadForBootstrap()
@@ -510,8 +517,8 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if !cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled {
 		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeEnabled = false, want true")
 	}
-	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs != 15000 {
-		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeTTFTMs = %d, want 15000", cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs)
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs != 1500 {
+		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeTTFTMs = %d, want 1500", cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs)
 	}
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate != 0.5 {
 		t.Fatalf("Gateway.OpenAIScheduler.StickyEscapeErrorRate = %v, want 0.5", cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate)

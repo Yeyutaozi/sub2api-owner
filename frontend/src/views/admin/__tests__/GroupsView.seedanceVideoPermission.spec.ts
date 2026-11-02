@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import { GROUP_PLATFORM_OPTIONS } from "@/constants/platforms";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const groupsViewSource = readFileSync(
@@ -21,9 +22,10 @@ describe("video platform group permission", () => {
     expect(groupsViewSource).toContain(
       't(videoPricingI18nKey("allowVideoGeneration"))',
     );
-    expect(groupsViewSource).toContain('{ value: "seedance", label: "Seedance" }');
-    expect(groupsViewSource).toContain('{ value: "ltx", label: "LTX" }');
-    expect(groupsViewSource).toContain('{ value: "happyhorse", label: "HappyHorse" }');
+    const platformValues = new Set(GROUP_PLATFORM_OPTIONS.map(({ value }) => value));
+    expect(platformValues.has("seedance")).toBe(true);
+    expect(platformValues.has("ltx")).toBe(true);
+    expect(platformValues.has("happyhorse")).toBe(true);
   });
 
   it("offers per-request billing only in the Seedance create and edit forms", () => {

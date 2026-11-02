@@ -545,6 +545,8 @@ export interface PublicSettings {
   payment_balance_disabled: boolean
   plugin_management_enabled: boolean
   channel_monitor_hide_user_ranking?: boolean
+  /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
+  mcp_enabled?: boolean
 }
 
 export interface AuthResponse {
@@ -796,23 +798,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform =
-  | 'anthropic'
-  | 'openai'
-  | 'gemini'
-  | 'antigravity'
-  | 'grok'
-  | 'kimi'
-  | 'zhipu'
-  | 'deepseek'
-  | 'glm'
-  | 'seedance'
-  | 'ltx'
-  | 'happyhorse'
-  | 'minimax'
-  | 'grokimagine'
-  | 'opencode_go'
-  | 'composite'
+export type GroupPlatform = AccountPlatform | 'composite'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -843,6 +829,13 @@ export interface ReasoningEffortMapping {
   model?: string
 }
 
+export interface GroupLocaleText {
+  name?: string
+  description?: string
+}
+
+export type GroupI18n = Record<string, GroupLocaleText>
+
 export type ReasoningEffortMatchType = 'exact' | 'prefix' | 'suffix'
 
 export interface ModelAllowlist {
@@ -860,6 +853,7 @@ export interface Group {
   id: number
   name: string
   description: string | null
+  i18n?: GroupI18n
   platform: GroupPlatform
   rate_multiplier: number
   // Independent per-group upstream cost ceiling (not sell rate)
@@ -1221,7 +1215,22 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = Exclude<GroupPlatform, 'composite'>
+export type KnownAccountPlatform =
+  | 'anthropic'
+  | 'openai'
+  | 'gemini'
+  | 'antigravity'
+  | 'grok'
+  | 'kimi'
+  | 'zhipu'
+  | 'deepseek'
+  | 'minimax'
+  | 'opencode_go'
+  | 'typesafe'
+  | 'command_code'
+  | 'cline'
+
+export type AccountPlatform = KnownAccountPlatform | (string & {})
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'

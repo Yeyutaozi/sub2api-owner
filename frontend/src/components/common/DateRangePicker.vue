@@ -54,7 +54,7 @@
               <input
                 type="date"
                 v-model="localStartDate"
-                :max="localEndDate || tomorrow"
+                :max="localEndDate || tomorrow()"
                 class="date-picker-input"
                 @change="onDateChange"
               />
@@ -68,7 +68,7 @@
                 type="date"
                 v-model="localEndDate"
                 :min="localStartDate"
-                :max="tomorrow"
+                :max="tomorrow()"
                 class="date-picker-input"
                 @change="onDateChange"
               />

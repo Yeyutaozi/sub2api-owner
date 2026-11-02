@@ -401,6 +401,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import { platformLabel } from '@/utils/platformColors'
 import {
   normalizeVideoBillingUnitForPlatform,
   normalizeVideoModelPricesForPlatform,
