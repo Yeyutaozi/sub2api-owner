@@ -252,6 +252,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return ids
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
+	case PlatformTypeSafe:
+		return []string{typesafe.JevLatestModel}
 	case PlatformGLM:
 		return DefaultGLMModelIDs()
 	case PlatformSeedance:
@@ -280,6 +282,10 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// used by media routes (including Seedance/MiniMax video generation).
 	// Older clients send the false zero value, so these groups must default enabled.
 	return platform == PlatformGrok || IsFFLinkVideoPlatform(platform)
+}
+
+func DefaultAllowImageGenerationForPlatform(platform string) bool {
+	return defaultAllowImageGenerationForPlatform(platform)
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
@@ -349,6 +355,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	i18n, err := normalizeGroupI18n(input.I18n)
+	if err != nil {
+		return nil, err
+	}
 	modelPricing, err := normalizeGroupModelPricing(platform, input.ModelPricing)
 	if err != nil {
 		return nil, err
@@ -475,6 +485,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	allowImageGeneration := input.AllowImageGeneration || DefaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	imageCountBilling := input.ImageCountBilling && allowImageGeneration && (platform == PlatformComposite || platform == PlatformOpenAI)
 	allowCreazyCanvas := true
 	if input.AllowCreazyCanvas != nil {
 		allowCreazyCanvas = *input.AllowCreazyCanvas
@@ -529,6 +540,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ModelPricing:                    modelPricing,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
+		ImageCountBilling:               imageCountBilling,
 		AllowCreazyCanvas:               allowCreazyCanvas,
 		ImageRateIndependent:            input.ImageRateIndependent,
 		ImageRateMultiplier:             imageRateMultiplier,

@@ -6,23 +6,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 重构前各处手写的平台列表，作为平台清单派生结果的等价基准；重构后新登记的平台
-// （Command Code、Cline）按同类平台（OpenCode）的位置补入。
+// 重构前各处手写的平台列表，作为平台清单派生结果的等价基准；新平台追加在末尾。
 var (
 	legacyDisplayOrder = []string{
 		PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
+		PlatformGLM, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
 		PlatformCommandCode,
 		PlatformCline,
+		PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformGrokImagine,
 	}
 	legacyCompositePrecedence = []string{
 		PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
+		PlatformGLM, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
 		PlatformCommandCode,
 		PlatformCline,
+		PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformGrokImagine,
 	}
 	legacyOpenAIGateway = []string{
-		PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
+		PlatformOpenAI, PlatformGrok, PlatformGLM, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
 		PlatformCommandCode,
 		PlatformCline,
 	}
@@ -32,6 +33,7 @@ var (
 		PlatformAntigravity: "anthropic", PlatformGrok: "xai", PlatformKimi: "moonshot",
 		PlatformZhipu: "zhipu", PlatformDeepseek: "deepseek", PlatformMiniMax: "minimax",
 		PlatformOpenCodeGo: "opencode-go", PlatformTypeSafe: "typesafe", PlatformCommandCode: "", PlatformCline: "",
+		PlatformGLM: "zhipu", PlatformSeedance: "", PlatformLTX: "", PlatformHappyHorse: "", PlatformGrokImagine: "",
 	}
 )
 
@@ -60,11 +62,18 @@ func TestPlatformListPredicates(t *testing.T) {
 	}
 	require.False(t, IsConcretePlatform(PlatformComposite))
 	require.True(t, IsGroupPlatform(PlatformComposite))
-	for _, invalid := range []string{"", "moonshot", "Kimi", "openai ", "glm", "bogus"} {
+	for _, invalid := range []string{"", "moonshot", "Kimi", "openai ", "bogus"} {
 		require.False(t, IsConcretePlatform(invalid), invalid)
 		require.False(t, IsGroupPlatform(invalid), invalid)
 		require.False(t, UsesOpenAIGateway(invalid), invalid)
 	}
+	for _, mediaPlatform := range []string{PlatformSeedance, PlatformLTX, PlatformHappyHorse, PlatformGrokImagine} {
+		spec, ok := LookupPlatform(mediaPlatform)
+		require.True(t, ok, mediaPlatform)
+		require.Equal(t, PlatformGatewayMedia, spec.Gateway, mediaPlatform)
+		require.False(t, UsesOpenAIGateway(mediaPlatform), mediaPlatform)
+	}
+	require.True(t, UsesOpenAIGateway(PlatformGLM))
 }
 
 func TestPlatformsReturnsCopy(t *testing.T) {

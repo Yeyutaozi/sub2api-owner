@@ -132,19 +132,6 @@ func fillGlobalPricingFallback(pricingService *PricingService, models []Supporte
 	}
 }
 
-func withDefaultMaxReasoningEffortMultiplier(pricing *ChannelModelPricing, model string) *ChannelModelPricing {
-	if pricing == nil || pricing.MaxReasoningEffortMultiplier != nil {
-		return pricing
-	}
-	multiplier := defaultMaxReasoningEffortMultiplier(model)
-	if multiplier == nil {
-		return pricing
-	}
-	cloned := pricing.Clone()
-	cloned.MaxReasoningEffortMultiplier = multiplier
-	return &cloned
-}
-
 // pricingNeedsFallback 判定一个 ChannelModelPricing 是否需要走全局回落。
 // 价格全部缺失（无 flat 字段且无任何带价 interval）即视为未配置。
 func pricingNeedsFallback(p *ChannelModelPricing) bool {

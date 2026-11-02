@@ -50,6 +50,7 @@ type Group struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
 	AllowImageGeneration      bool
 	AllowBatchImageGeneration bool
+	ImageCountBilling         bool
 	// Creazy 画布网页准入（默认 true；不影响 /v1 API）
 	AllowCreazyCanvas            bool
 	ImageRateIndependent         bool

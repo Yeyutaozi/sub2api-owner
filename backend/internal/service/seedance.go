@@ -20,9 +20,15 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 const (
+	SeedanceEndpointCreate           GrokMediaEndpoint        = "seedance_create"
+	SeedanceEndpointStatus           GrokMediaEndpoint        = "seedance_status"
+	SeedanceEndpointDelete           GrokMediaEndpoint        = "seedance_delete"
+	OpenAIEndpointCapabilitySeedance OpenAIEndpointCapability = "seedance"
+
 	SeedanceOfficialTasksEndpoint   = "/api/v3/contents/generations/tasks"
 	SeedanceOfficialUploadsEndpoint = "/api/v3/contents/generations/uploads"
 	SeedancePublicJobsEndpoint      = "/v1/videos/jobs"
@@ -37,6 +43,37 @@ const (
 	DefaultSeedanceJobsLimit        = 50
 	MaxSeedanceJobsLimit            = 100
 )
+
+func (e GrokMediaEndpoint) IsSeedance() bool {
+	return e == SeedanceEndpointCreate || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
+}
+
+func ParseSeedanceRequest(body []byte) (GrokMediaRequestInfo, error) {
+	var info GrokMediaRequestInfo
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		return info, fmt.Errorf("request body must be a JSON object")
+	}
+	model := gjson.GetBytes(body, "model")
+	if model.Type != gjson.String || strings.TrimSpace(model.String()) == "" {
+		return info, fmt.Errorf("model is required")
+	}
+	content := gjson.GetBytes(body, "content")
+	if !content.IsArray() || len(content.Array()) == 0 {
+		return info, fmt.Errorf("content must be a non-empty array")
+	}
+	info.Model = strings.TrimSpace(model.String())
+	var texts []string
+	for _, item := range content.Array() {
+		switch item.Get("type").String() {
+		case "text":
+			texts = append(texts, item.Get("text").String())
+		case "image_url":
+			info.InputImageURLs = append(info.InputImageURLs, item.Get("image_url.url").String())
+		}
+	}
+	info.Prompt = strings.Join(texts, "\n")
+	return info, nil
+}
 
 var seedanceTaskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
 

@@ -287,6 +287,10 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsTypeSafe() bool {
+	return a != nil && a.Platform == PlatformTypeSafe
+}
+
 func (a *Account) IsGLM() bool {
 	return a != nil && a.Platform == PlatformGLM
 }
@@ -741,16 +745,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	}
 	if len(result) > 0 {
 		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				"gemini-3.1-pro-high",
-				"gemini-3.1-pro-low",
-				"gemini-3.6-flash",
-				"gemini-3.6-flash-high",
-				"gemini-3.6-flash-low",
-				"gemini-3.6-flash-medium",
-				"gemini-3.6-flash-tiered",
-			})
+			ensureAntigravityDefaultPassthroughs(result, antigravityDefaultPassthroughModels)
 			applyAntigravityGemini31ProAliases(result)
 		}
 		return result
@@ -997,6 +992,16 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	return a.isModelSupported(requestedModel, true)
+}
+
+func (a *Account) isModelSupported(requestedModel string, enforceRetirement bool) bool {
+	if a == nil {
+		return false
+	}
+	if enforceRetirement && a.IsOpenAI() && isRetiredOpenAISubscriptionModel(a, resolveOpenAIAccountUpstreamModelForRequest(a, requestedModel, false)) {
+		return false
+	}
 	if a.IsFFLinkVideo() {
 		provider := a.GetVideoProvider()
 		providerModel := requestedModel
@@ -1606,11 +1611,50 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
 	case PlatformOpenCodeGo:
-		return a.openCodeDefaultChatBaseURL()
+		return a.defaultProviderBaseURL(APIProtocolChatCompletions)
+	case PlatformCommandCode:
+		return a.defaultProviderBaseURL(APIProtocolChatCompletions)
 	default:
 		return "https://api.openai.com"
 	}
 	return "https://api.openai.com"
+}
+
+func isKimiCodingBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Opaque != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(baseURL, "#") {
+		return false
+	}
+	host := strings.ToLower(parsed.Host)
+	if host != "api.kimi.com" && host != "api.kimi.ai" && host != "api.kimi.com:443" && host != "api.kimi.ai:443" {
+		return false
+	}
+	switch parsed.EscapedPath() {
+	case "/coding", "/coding/", "/coding/v1", "/coding/v1/":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMiniMaxCodingBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Opaque != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return false
+	}
+	switch strings.ToLower(parsed.Host) {
+	case "api.minimaxi.com", "api.minimaxi.com:443", "api.minimax.io", "api.minimax.io:443", "api.minimax.com", "api.minimax.com:443":
+	default:
+		return false
+	}
+	switch strings.TrimRight(parsed.EscapedPath(), "/") {
+	case "", "/v1", "/anthropic":
+		return true
+	default:
+		return false
+	}
 }
 
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
@@ -1647,6 +1691,19 @@ func (a *Account) GetAPIProtocol() string {
 			return APIProtocolAdaptive
 		}
 	}
+	if a.routesByModel() {
+		switch protocol := strings.TrimSpace(a.GetCredential("api_protocol")); protocol {
+		case APIProtocolChatCompletions:
+			return protocol
+		case APIProtocolAnthropic, APIProtocolResponses:
+			if a.providerSupportsProtocol(protocol) {
+				return protocol
+			}
+		case APIProtocolAdaptive:
+			return protocol
+		}
+		return APIProtocolAdaptive
+	}
 	if !a.IsCNProvider() {
 		return APIProtocolChatCompletions
 	}
@@ -1656,7 +1713,7 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolAnthropic:
 		return APIProtocolAnthropic
 	case APIProtocolResponses:
-		if a.Platform == PlatformDeepseek {
+		if a.providerSupportsProtocol(APIProtocolResponses) {
 			return APIProtocolResponses
 		}
 	case APIProtocolChatCompletions:
@@ -1821,6 +1878,13 @@ func (a *Account) GetCNAPIKey() string {
 // 判定规则与 cc-switch coding_plan.rs::detect_provider 保持一致。
 func (a *Account) GetCodingPlanProvider() string {
 	if a == nil || a.GetAccountMode() != AccountModeCoding {
+		return ""
+	}
+	if a.Platform == PlatformMiniMax {
+		baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+		if baseURL == "" || isMiniMaxCodingBaseURL(baseURL) {
+			return PlatformMiniMax
+		}
 		return ""
 	}
 	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
@@ -2013,10 +2077,7 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsCNProvider() {
-		if a.Type != AccountTypeAPIKey {
-			return ""
-		}
+	if a.Type == AccountTypeAPIKey && a.IsMultiProtocolAPIKey() {
 		return a.GetCredential("api_key")
 	}
 	return a.GetOpenAIApiKey()

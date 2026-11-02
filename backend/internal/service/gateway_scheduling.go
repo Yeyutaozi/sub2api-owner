@@ -1268,13 +1268,26 @@ func (s *GatewayService) applyGroupSafeRateFilter(ctx context.Context, groupID *
 	return FilterAccountsByGroupSafeRate(accounts, group, time.Now())
 }
 
-
 func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool {
 	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, PlatformAntigravity, true)
 	if err != nil {
 		return false
 	}
 	return len(accounts) == 1
+}
+
+func (s *GatewayService) WithSingleAntigravityAccountGroupProbe(ctx context.Context, groupID *int64) context.Context {
+	if s == nil {
+		return ctx
+	}
+	var probeGroupID *int64
+	if groupID != nil {
+		id := *groupID
+		probeGroupID = &id
+	}
+	return WithSingleAccountRetryProbe(ctx, func(probeCtx context.Context) bool {
+		return s.IsSingleAntigravityAccountGroup(probeCtx, probeGroupID)
+	})
 }
 
 func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform string, useMixed bool) bool {

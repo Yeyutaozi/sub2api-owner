@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -171,7 +170,7 @@ type ChannelService struct {
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
-	pricingService       *PricingService // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
+	pricingService       *PricingService    // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
 	accountSource        PlazaAccountSource // optional; account-based plaza membership
 
 	cache   atomic.Value // *channelCache
@@ -199,7 +198,6 @@ func (s *ChannelService) SetPlazaAccountSource(src PlazaAccountSource) {
 	}
 	s.accountSource = src
 }
-
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {

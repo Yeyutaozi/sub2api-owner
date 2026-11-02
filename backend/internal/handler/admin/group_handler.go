@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
@@ -30,6 +30,9 @@ type GroupHandler struct {
 
 // GetLiveCapability 杩斿洖褰撳墠鏈嶅姟绔槸鍚﹀叿澶囩敓鎴?Live attestation 鐨勮繍琛岀幆澧冦€?
 func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "live_capability") {
+		return
+	}
 	err := liveattestation.NewProvider().Check(c.Request.Context())
 	result := gin.H{"supported": err == nil}
 	if err != nil {
@@ -106,6 +109,7 @@ func NewGroupHandlerWithConfig(adminService service.AdminService, dashboardServi
 type CreateGroupRequest struct {
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
+	I18n                      service.GroupI18n             `json:"i18n"`
 	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek glm seedance ltx happyhorse minimax grokimagine composite"`
 	RateMultiplier            float64                       `json:"rate_multiplier"`
 	SafeRateMultiplier        float64                       `json:"safe_rate_multiplier"`
@@ -119,6 +123,7 @@ type CreateGroupRequest struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool                     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                     `json:"allow_batch_image_generation"`
+	ImageCountBilling               bool                     `json:"image_count_billing"`
 	AllowCreazyCanvas               *bool                    `json:"allow_creazy_canvas"`
 	ImageRateIndependent            bool                     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                 `json:"image_rate_multiplier"`
@@ -158,6 +163,8 @@ type CreateGroupRequest struct {
 	// OpenAI Messages 璋冨害閰嶇疆锛堜粎 openai 骞冲彴浣跨敤锛?
 	AllowMessagesDispatch       bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   bool                                      `json:"allow_live"`
+	ForceOpenAIFast             bool                                      `json:"force_openai_fast"`
+	FreeOpenAIFast              bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
@@ -177,6 +184,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
+	I18n                      *service.GroupI18n             `json:"i18n"`
 	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek glm seedance ltx happyhorse minimax grokimagine composite"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
 	SafeRateMultiplier        *float64                       `json:"safe_rate_multiplier"`
@@ -191,6 +199,7 @@ type UpdateGroupRequest struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool                     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       *bool                     `json:"allow_batch_image_generation"`
+	ImageCountBilling               *bool                     `json:"image_count_billing"`
 	AllowCreazyCanvas               *bool                     `json:"allow_creazy_canvas"`
 	ImageRateIndependent            *bool                     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                  `json:"image_rate_multiplier"`
@@ -230,6 +239,8 @@ type UpdateGroupRequest struct {
 	// OpenAI Messages 璋冨害閰嶇疆锛堜粎 openai 骞冲彴浣跨敤锛?
 	AllowMessagesDispatch       *bool                                      `json:"allow_messages_dispatch"`
 	AllowLive                   *bool                                      `json:"allow_live"`
+	ForceOpenAIFast             *bool                                      `json:"force_openai_fast"`
+	FreeOpenAIFast              *bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
@@ -264,6 +275,9 @@ type CompositeRoutePreviewRequest struct {
 // List handles listing all groups with pagination
 // GET /api/v1/admin/groups
 func (h *GroupHandler) List(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupList) {
+		return
+	}
 	page, pageSize := response.ParsePagination(c)
 	platform := c.Query("platform")
 	status := c.Query("status")
@@ -278,7 +292,7 @@ func (h *GroupHandler) List(c *gin.Context) {
 	sortOrder := c.DefaultQuery("sort_order", "asc")
 
 	var isExclusive *bool
-	if isExclusiveStr != "" {
+	if !h.isSimpleMode() && isExclusiveStr != "" {
 		val := isExclusiveStr == "true"
 		isExclusive = &val
 	}
@@ -286,6 +300,16 @@ func (h *GroupHandler) List(c *gin.Context) {
 	groups, total, err := h.adminService.ListGroups(c.Request.Context(), page, pageSize, platform, status, search, isExclusive, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if h.isSimpleMode() {
+		simpleGroups := make([]simpleModeGroupResponse, 0, len(groups))
+		for i := range groups {
+			if service.IsGroupBindableInSimpleMode(&groups[i]) {
+				simpleGroups = append(simpleGroups, *groupForSimpleMode(&groups[i]))
+			}
+		}
+		response.Paginated(c, simpleGroups, total, page, pageSize)
 		return
 	}
 
@@ -299,6 +323,9 @@ func (h *GroupHandler) List(c *gin.Context) {
 // ListCompositeRoutes handles listing composite model routes for one group.
 // GET /api/v1/admin/groups/:id/composite-routes
 func (h *GroupHandler) ListCompositeRoutes(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -314,6 +341,9 @@ func (h *GroupHandler) ListCompositeRoutes(c *gin.Context) {
 // CreateCompositeRoute handles creating one composite model route.
 // POST /api/v1/admin/groups/:id/composite-routes
 func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -334,6 +364,9 @@ func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
 // UpdateCompositeRoute handles replacing one composite model route.
 // PUT /api/v1/admin/groups/:id/composite-routes/:route_id
 func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -358,6 +391,9 @@ func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
 // DeleteCompositeRoute handles deleting one composite model route.
 // DELETE /api/v1/admin/groups/:id/composite-routes/:route_id
 func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -376,6 +412,9 @@ func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
 // PreviewCompositeRoute resolves a model without mutating routes.
 // POST /api/v1/admin/groups/:id/composite-routes/preview
 func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -429,6 +468,9 @@ func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {
 // bound to them even after the group is disabled).
 // GET /api/v1/admin/groups/all
 func (h *GroupHandler) GetAll(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupGetAll) {
+		return
+	}
 	platform := c.Query("platform")
 	includeInactive := c.Query("include_inactive") == "true"
 
@@ -447,6 +489,16 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.isSimpleMode() {
+		simpleGroups := make([]simpleModeGroupResponse, 0, len(groups))
+		for i := range groups {
+			if service.IsGroupBindableInSimpleMode(&groups[i]) {
+				simpleGroups = append(simpleGroups, *groupForSimpleMode(&groups[i]))
+			}
+		}
+		response.Success(c, simpleGroups)
+		return
+	}
 
 	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
@@ -458,6 +510,9 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 // GetByID handles getting a group by ID
 // GET /api/v1/admin/groups/:id
 func (h *GroupHandler) GetByID(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupGet) {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -470,12 +525,19 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 		return
 	}
 
+	if h.isSimpleMode() {
+		response.Success(c, groupForSimpleMode(group))
+		return
+	}
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.
 // GET /api/v1/admin/groups/:id/models-list-candidates
 func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || groupID < 0 {
 		response.BadRequest(c, "Invalid group ID")
@@ -495,13 +557,27 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 	response.Success(c, gin.H{"models": models})
 }
 
+func (h *GroupHandler) GetGroupModelAllowlistCandidates(c *gin.Context) {
+	h.GetModelsListCandidates(c)
+}
+
 // Create handles creating a new group
 // POST /api/v1/admin/groups
 func (h *GroupHandler) Create(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupCreate) {
+		return
+	}
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+	if h.isSimpleMode() && req.Platform == service.PlatformComposite {
+		response.BadRequest(c, "Platform is not supported in simple mode")
+		return
+	}
+	if h.isSimpleMode() {
+		sanitizeCreateGroupRequestForSimpleMode(&req)
 	}
 
 	if err := service.ValidatePeakRateConfig(req.SubscriptionType, req.PeakRateEnabled, req.PeakStart, req.PeakEnd, float64ValueOrDefault(req.PeakRateMultiplier, 1.0)); err != nil {
@@ -532,6 +608,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ModelPricing:                    req.ModelPricing,
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		ImageCountBilling:               req.ImageCountBilling,
 		AllowCreazyCanvas:               req.AllowCreazyCanvas,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
@@ -568,6 +645,8 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		SupportedModelScopes:            req.SupportedModelScopes,
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		AllowLive:                       req.AllowLive,
+		ForceOpenAIFast:                 req.ForceOpenAIFast,
+		FreeOpenAIFast:                  req.FreeOpenAIFast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
@@ -583,12 +662,19 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if h.isSimpleMode() {
+		response.Success(c, groupForSimpleMode(group))
+		return
+	}
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // Duplicate handles creating an inactive group copy with the source account bindings.
 // POST /api/v1/admin/groups/:id/duplicate
 func (h *GroupHandler) Duplicate(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || groupID <= 0 {
 		response.BadRequest(c, "Invalid group ID")
@@ -636,6 +722,9 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 // Update handles updating a group
 // PUT /api/v1/admin/groups/:id
 func (h *GroupHandler) Update(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupUpdate) {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -646,6 +735,9 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+	if h.isSimpleMode() {
+		sanitizeUpdateGroupRequestForSimpleMode(&req)
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
@@ -665,6 +757,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ModelPricing:                    req.ModelPricing,
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		ImageCountBilling:               req.ImageCountBilling,
 		AllowCreazyCanvas:               req.AllowCreazyCanvas,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
@@ -701,6 +794,8 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		SupportedModelScopes:            req.SupportedModelScopes,
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		AllowLive:                       req.AllowLive,
+		ForceOpenAIFast:                 req.ForceOpenAIFast,
+		FreeOpenAIFast:                  req.FreeOpenAIFast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
@@ -716,19 +811,30 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if h.isSimpleMode() {
+		response.Success(c, groupForSimpleMode(group))
+		return
+	}
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
 // Delete handles deleting a group
 // DELETE /api/v1/admin/groups/:id
 func (h *GroupHandler) Delete(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, simpleModeGroupDelete) {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
 
-	err = h.adminService.DeleteGroup(c.Request.Context(), groupID)
+	if h.isSimpleMode() {
+		err = h.adminService.DeleteGroupIfEmpty(c.Request.Context(), groupID)
+	} else {
+		err = h.adminService.DeleteGroup(c.Request.Context(), groupID)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -740,6 +846,9 @@ func (h *GroupHandler) Delete(c *gin.Context) {
 // GetStats handles getting group statistics
 // GET /api/v1/admin/groups/:id/stats
 func (h *GroupHandler) GetStats(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "stats") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -759,6 +868,9 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.
 // GET /api/v1/admin/groups/usage-summary
 func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	todayStart := service.GroupUsageTodayStart(time.Now())
 
 	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
@@ -773,6 +885,9 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 // GetCapacitySummary returns aggregated capacity (concurrency/sessions/RPM) for all active groups.
 // GET /api/v1/admin/groups/capacity-summary
 func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	results, err := h.groupCapacityService.GetAllGroupCapacity(c.Request.Context())
 	if err != nil {
 		response.Error(c, 500, "Failed to get group capacity summary")
@@ -784,6 +899,9 @@ func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
 // GetGroupAPIKeys handles getting API keys in a group
 // GET /api/v1/admin/groups/:id/api-keys
 func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "api_keys") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -808,6 +926,9 @@ func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
 // GetGroupRateMultipliers handles getting rate multipliers for users in a group
 // GET /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) GetGroupRateMultipliers(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -829,6 +950,9 @@ func (h *GroupHandler) GetGroupRateMultipliers(c *gin.Context) {
 // ClearGroupRateMultipliers handles clearing all rate multipliers for a group
 // DELETE /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) ClearGroupRateMultipliers(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -855,6 +979,9 @@ type BatchSetGroupVideoModelPricesRequest struct {
 // BatchSetGroupRateMultipliers handles batch setting rate multipliers for a group
 // PUT /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -876,6 +1003,9 @@ func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
 }
 
 func (h *GroupHandler) BatchSetGroupVideoModelPrices(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -894,6 +1024,9 @@ func (h *GroupHandler) BatchSetGroupVideoModelPrices(c *gin.Context) {
 }
 
 func (h *GroupHandler) ClearGroupVideoModelPrices(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -914,6 +1047,9 @@ type BatchSetGroupRPMOverridesRequest struct {
 // BatchSetGroupRPMOverrides handles batch setting rpm_override for users in a group
 // PUT /api/v1/admin/groups/:id/rpm-overrides
 func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -937,6 +1073,9 @@ func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
 // ClearGroupRPMOverrides handles clearing all rpm_override for a group
 // DELETE /api/v1/admin/groups/:id/rpm-overrides
 func (h *GroupHandler) ClearGroupRPMOverrides(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -962,6 +1101,9 @@ type UpdateSortOrderRequest struct {
 // UpdateSortOrder handles updating group sort orders
 // PUT /api/v1/admin/groups/sort-order
 func (h *GroupHandler) UpdateSortOrder(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
 	var req UpdateSortOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())

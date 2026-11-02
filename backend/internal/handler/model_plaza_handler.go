@@ -168,6 +168,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	} else {
 		visible = filterPlazaVisibleGroups(groups, allowedExclusive)
 	}
+	visible = toLocalizedModelPlazaGroups(visible, userRates, c.GetHeader("Accept-Language"))
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	uniqueModels := make(map[string]struct{})
@@ -192,6 +193,16 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		},
 		Groups: out,
 	})
+}
+
+func toLocalizedModelPlazaGroups(groups []service.PlazaGroup, _ map[int64]float64, acceptLanguage string) []service.PlazaGroup {
+	localized := append([]service.PlazaGroup(nil), groups...)
+	for i := range localized {
+		localized[i].Name, localized[i].Description = localized[i].I18n.Localize(
+			acceptLanguage, localized[i].Name, localized[i].Description,
+		)
+	}
+	return localized
 }
 
 // filterPlazaVisibleGroups 按登录态裁剪分组可见性。

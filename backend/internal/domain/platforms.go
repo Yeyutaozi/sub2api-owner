@@ -19,6 +19,8 @@ const (
 	PlatformGatewayGemini PlatformGateway = "gemini"
 	// PlatformGatewayAntigravity 由 Antigravity 网关处理。
 	PlatformGatewayAntigravity PlatformGateway = "antigravity"
+	// PlatformGatewayMedia 由独立媒体任务处理器处理，不参与文本对话网关分发。
+	PlatformGatewayMedia PlatformGateway = "media"
 )
 
 // PlatformSpec 描述一个具体（非 composite）平台。
@@ -40,6 +42,7 @@ var platformList = []PlatformSpec{
 	{ID: PlatformGemini, DisplayName: "Gemini", Gateway: PlatformGatewayGemini, LiteLLMProvider: "gemini"},
 	{ID: PlatformAntigravity, DisplayName: "Antigravity", Gateway: PlatformGatewayAntigravity, LiteLLMProvider: "anthropic"},
 	{ID: PlatformGrok, DisplayName: "Grok", Gateway: PlatformGatewayOpenAI, LiteLLMProvider: "xai"},
+	{ID: PlatformGLM, DisplayName: "GLM", Gateway: PlatformGatewayOpenAI, LiteLLMProvider: "zhipu"},
 	{ID: PlatformKimi, DisplayName: "Kimi", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "moonshot"},
 	{ID: PlatformZhipu, DisplayName: "Zhipu GLM", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "zhipu"},
 	{ID: PlatformDeepseek, DisplayName: "DeepSeek", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "deepseek"},
@@ -48,6 +51,10 @@ var platformList = []PlatformSpec{
 	{ID: PlatformTypeSafe, DisplayName: "TypeSafe / Jev", Gateway: PlatformGatewayAnthropic, LiteLLMProvider: "typesafe"},
 	{ID: PlatformCommandCode, DisplayName: "Command Code", Gateway: PlatformGatewayOpenAI},
 	{ID: PlatformCline, DisplayName: "Cline", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformSeedance, DisplayName: "Seedance", Gateway: PlatformGatewayMedia},
+	{ID: PlatformLTX, DisplayName: "LTX", Gateway: PlatformGatewayMedia},
+	{ID: PlatformHappyHorse, DisplayName: "HappyHorse", Gateway: PlatformGatewayMedia},
+	{ID: PlatformGrokImagine, DisplayName: "Grok Imagine", Gateway: PlatformGatewayMedia},
 }
 
 var platformIndex = func() map[string]int {

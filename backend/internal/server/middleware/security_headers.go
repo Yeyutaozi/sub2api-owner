@@ -58,6 +58,7 @@ var requiredCSPDirectiveValues = []struct {
 	{"media-src", "https:"},
 	{"script-src", CloudflareInsightsDomain},
 	{"script-src", TencentCaptchaDomain},
+	{"frame-src", "'self'"},
 	{"frame-src", TencentCaptchaDomain},
 	{"style-src", TencentCaptchaStaticDomain},
 	{"script-src", TencentCaptchaCDNDomain},
@@ -199,35 +200,41 @@ func directiveHasValue(policy, directive, value string) bool {
 // addToDirective adds a value to a specific CSP directive.
 // If the directive doesn't exist, it will be added after default-src.
 func addToDirective(policy, directive, value string) string {
-	// Find the directive in the policy
-	directivePrefix := directive + " "
-	idx := strings.Index(policy, directivePrefix)
+	if strings.TrimSpace(policy) == "" {
+		return newCSPDirective(directive, value)
+	}
 
-	if idx == -1 {
-		// Directive not found, add it after default-src or at the beginning
-		defaultSrcIdx := strings.Index(policy, "default-src ")
-		if defaultSrcIdx != -1 {
-			// Find the end of default-src directive (next semicolon)
-			endIdx := strings.Index(policy[defaultSrcIdx:], ";")
-			if endIdx != -1 {
-				insertPos := defaultSrcIdx + endIdx + 1
-				// Insert new directive after default-src
-				return policy[:insertPos] + " " + directive + " 'self' " + value + ";" + policy[insertPos:]
+	parts := strings.Split(policy, ";")
+	for i, part := range parts {
+		fields := strings.Fields(part)
+		if len(fields) == 0 || fields[0] != directive {
+			continue
+		}
+		for _, existing := range fields[1:] {
+			if existing == value {
+				return policy
 			}
 		}
-		// Fallback: prepend the directive
-		return directive + " 'self' " + value + "; " + policy
+		parts[i] = strings.TrimRight(part, " \t\r\n") + " " + value
+		return strings.Join(parts, ";")
 	}
 
-	// Find the end of this directive (next semicolon or end of string)
-	endIdx := strings.Index(policy[idx:], ";")
-
-	if endIdx == -1 {
-		// No semicolon found, directive goes to end of string
-		return policy + " " + value
+	newDirective := newCSPDirective(directive, value)
+	for i, part := range parts {
+		fields := strings.Fields(part)
+		if len(fields) > 0 && fields[0] == "default-src" {
+			parts = append(parts, "")
+			copy(parts[i+2:], parts[i+1:])
+			parts[i+1] = " " + newDirective
+			return strings.Join(parts, ";")
+		}
 	}
+	return newDirective + "; " + policy
+}
 
-	// Insert value before the semicolon
-	insertPos := idx + endIdx
-	return policy[:insertPos] + " " + value + policy[insertPos:]
+func newCSPDirective(directive, value string) string {
+	if value == "'self'" {
+		return directive + " 'self'"
+	}
+	return directive + " 'self' " + value
 }

@@ -1246,7 +1246,12 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	if len(credentials) == 0 {
 		return nil
 	}
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "video_provider"}
+	keys := []string{
+		"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "video_provider",
+		"base_url", "auth_mode",
+		service.GeminiExplicitCacheUpstreamCredentialKey,
+		service.GeminiExplicitCacheUpstreamMaxTTLCredentialKey,
+	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {

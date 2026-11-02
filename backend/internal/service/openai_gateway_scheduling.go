@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
@@ -734,7 +733,8 @@ func openAICodexWindowResetAt(extra map[string]any, window string) (time.Time, b
 	if resetAfter <= 0 {
 		return time.Time{}, false
 	}
-	updatedAt, err := parseTime(fmt.Sprint(extra["codex_usage_updated_at"])); if err != nil {
+	updatedAt, err := parseTime(fmt.Sprint(extra["codex_usage_updated_at"]))
+	if err != nil {
 		return time.Time{}, false
 	}
 	return updatedAt.Add(time.Duration(resetAfter) * time.Second), true
@@ -909,7 +909,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 		excludedIDs = softExcludeStickyAccount(excludedIDs, escapedFromID)
 	}
 	if stickyAccount != nil {
-		return stickyAccount, nil
+		return stickyAccount, true, nil
 	}
 
 	// 2. 获取可调度的 OpenAI 账号
@@ -940,7 +940,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 	}
 
 	recordOpenAIStickyEscapeAuditWithTo(ctx, hydrated)
-	return hydrated, nil
+	return hydrated, false, nil
 }
 
 // tryStickySessionHit 尝试从粘性会话获取账号。

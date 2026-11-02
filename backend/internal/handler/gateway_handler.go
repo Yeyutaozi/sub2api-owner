@@ -1116,7 +1116,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID, "", true)
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
 			writeCustomModelsList(c, service.PlatformComposite, availableModels)
@@ -1164,6 +1164,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		})
 		return
 	}
+	if platform == service.PlatformTypeSafe {
+		writeModelsList(c, platform, []string{typesafe.JevLatestModel})
+		return
+	}
 	if platform == service.PlatformGrok {
 		writeGrokModelsList(c, xai.DefaultModelIDs())
 		return
@@ -1196,7 +1200,7 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	platform := group.Platform
 	modelIDs := h.gatewayService.GetAvailableModels(c.Request.Context(), &group.ID, platform)
 	if platform == service.PlatformComposite {
-		modelIDs = h.compositeAvailableModels(c.Request.Context(), &group.ID)
+		modelIDs = h.compositeAvailableModels(c.Request.Context(), &group.ID, service.CompositeRouteEndpointResponses, false)
 	}
 	if len(modelIDs) == 0 {
 		modelIDs = defaultCodexModelIDsForPlatform(platform)
@@ -1213,7 +1217,7 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", body)
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64, endpoint string, includeSystemOne bool) []string {
 	if h == nil || h.gatewayService == nil {
 		return nil
 	}

@@ -54,6 +54,7 @@ type PlazaGroup struct {
 	ID                 int64
 	Name               string
 	Description        string
+	I18n               GroupI18n `json:"-"`
 	Platform           string
 	SubscriptionType   string
 	RateMultiplier     float64
@@ -111,6 +112,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			ID:                   g.ID,
 			Name:                 g.Name,
 			Description:          g.Description,
+			I18n:                 g.I18n,
 			Platform:             g.Platform,
 			SubscriptionType:     g.SubscriptionType,
 			RateMultiplier:       g.RateMultiplier,

@@ -184,7 +184,10 @@ func (s *OpenAIGatewayService) modelCatalogProtocols(ctx context.Context, accoun
 	if account.GetAPIProtocol() != APIProtocolAdaptive {
 		return nil
 	}
-	base := strings.TrimSpace(account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+	base := strings.TrimSpace(account.GetOpenAIBaseURL())
+	if account.IsCNProvider() {
+		base = strings.TrimSpace(account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+	}
 	if base == "" {
 		return nil
 	}

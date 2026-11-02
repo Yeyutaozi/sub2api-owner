@@ -158,8 +158,16 @@ func groupModelAllowlistErrorWriter(c *gin.Context) GatewayErrorWriter {
 	case strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta"):
 		return GoogleErrorWriter
 	case strings.Contains(path, "/messages"):
-		return AnthropicErrorWriter
+		return anthropicModelNotFoundErrorWriter
 	default:
-		return OpenAIErrorWriter
+		return openAIModelNotFoundErrorWriter
 	}
+}
+
+func openAIModelNotFoundErrorWriter(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{"error": gin.H{"type": "model_not_found", "message": message}})
+}
+
+func anthropicModelNotFoundErrorWriter(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{"type": "error", "error": gin.H{"type": "not_found_error", "message": message}})
 }

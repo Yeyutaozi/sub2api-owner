@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"testing"
@@ -30,7 +30,7 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshotUsesRuntimeTTFT(t *testing.T) {
 		TTFT:      0.5,
 	}
 
-	scores := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	scores := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, floatPtr(defaultOpenAIOAuthSchedulingRateMultiplier))
 	require.Contains(t, scores, int64(9101))
 	require.Contains(t, scores, int64(9102))
 	require.True(t, scores[9101].HasTTFT)

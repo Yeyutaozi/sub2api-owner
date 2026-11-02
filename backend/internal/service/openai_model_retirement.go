@@ -87,5 +87,5 @@ func supportsOpenAIRequestModel(account *Account, requestedModel string, require
 	if isRetiredOpenAISubscriptionModel(account, resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)) {
 		return false
 	}
-	return account.isModelMappingSupported(requestedModel)
+	return account.isModelSupported(requestedModel, false)
 }
